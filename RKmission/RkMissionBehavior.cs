@@ -326,14 +326,23 @@ public static class RkMissionBehavior
 
     private static void SetDestination(Vector3 destination, RkMissionContext context)
     {
+        var destinationChanged =
+            context.LastDestination == null ||
+            context.LastDestination.Value.Distance2DFrom(destination) > 0.5f;
+
         if (context.IsPathStale || !SMovementController.IsNavigating())
         {
-            context.StallCheckPosition = DynelManager.LocalPlayer.Position;
-            context.StallCheckLastProgressUtc = DateTime.UtcNow;
             SMovementController.SetNavDestination(destination);
 
             if (SMovementController.IsNavigating())
                 context.IsPathStale = false;
+        }
+
+        if (destinationChanged)
+        {
+            context.LastDestination = destination;
+            context.StallCheckPosition = DynelManager.LocalPlayer.Position;
+            context.StallCheckLastProgressUtc = DateTime.UtcNow;
         }
     }
 }
