@@ -24,15 +24,42 @@ public sealed class RkMissionBot : DungeonRunner<RkMissionContext>
 
     public override void Start()
     {
+        // Do not call DungeonRunner.Start until its runtime state has been
+        // initialized. Starting from the login area or outside a recognized
+        // mission currently causes the base runner to tick the dungeon tree
+        // with no active mission/solver and can crash the client.
+        if (DynelManager.LocalPlayer == null)
+        {
+            Chat.WriteLine("RKmission: player is not ready.");
+            return;
+        }
+
+        if (ActiveMission == null)
+        {
+            Chat.WriteLine(
+                "RKmission: no active mission detected. Enter the mission first.");
+            return;
+        }
+
+        if (Solver == null)
+        {
+            Chat.WriteLine(
+                "RKmission: dungeon solver is not ready. Enter the mission and try again.");
+            return;
+        }
+
         _botContext.MissionStartedAt = DateTime.UtcNow;
         _botContext.MissionCompleted = false;
         _botContext.MissionObjectiveHandled = false;
+
         base.Start();
     }
 
     public override void Stop()
     {
-        SMovementController.Halt();
+        if (Enabled)
+            SMovementController.Halt();
+
         base.Stop();
     }
 
@@ -57,7 +84,10 @@ public sealed class RkMissionBot : DungeonRunner<RkMissionContext>
         return RkMissionBehavior.Compile();
     }
 
-    private void HandleCommand(string command, string[] parameters, ChatWindow chatWindow)
+    private void HandleCommand(
+        string command,
+        string[] parameters,
+        ChatWindow chatWindow)
     {
         var subcommand = parameters.Length == 0
             ? "status"
