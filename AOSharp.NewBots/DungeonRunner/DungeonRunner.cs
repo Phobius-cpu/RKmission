@@ -1,4 +1,4 @@
-using AOBotBase;
+﻿using AOBotBase;
 using AOSharp.Common.GameData;
 using AOSharp.Core;
 using AOSharp.Core.UI;
@@ -329,3 +329,5 @@ namespace Dungeon.Runner
         LeaderMovement = 12051
     }
 }
+
+

@@ -1,3 +1,4 @@
+﻿using AOSharp.Common.GameData;
 using AOSharp.Core;
 using AOSharp.Core.UI;
 using BehaviourTree;
@@ -14,6 +15,19 @@ namespace RKmission;
 public sealed class RkMissionBot : DungeonRunner<RkMissionContext>
 {
     public override SolverMode SolverMode => SolverMode.Clear;
+    public override float FightDistance => 30f;
+
+    public override bool FindFightableTarget(Room room, out SimpleChar target)
+    {
+        target = DynelManager.NPCs
+            .Where(c => !c.IsPet && c.IsAlive)
+            .Where(c => room == null || (c.Room != null && c.Room.Instance == room.Instance))
+            .Where(c => c.FightingTarget != null || DynelManager.LocalPlayer.DistanceFrom(c) < FightDistance)
+            .OrderBy(c => DynelManager.LocalPlayer.DistanceFrom(c))
+            .FirstOrDefault();
+
+        return target != null;
+    }
 
     protected override void Init()
     {
@@ -129,3 +143,5 @@ public sealed class RkMissionBot : DungeonRunner<RkMissionContext>
         }
     }
 }
+
+
