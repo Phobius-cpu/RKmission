@@ -20,10 +20,11 @@ public static class RkMissionBehavior
 {
     public static IBehaviour<RkMissionContext> Compile()
     {
-        // Safe lifecycle test. Objective, door, and exploration branches remain
-        // disabled until RkMissionContext initialization is verified.
+        // Incremental test: exercise dungeon exploration, then fall back to idle
+        // if the solver is unavailable or cannot produce a target room.
         return FluentBuilder.Create<RkMissionContext>()
-            .Selector("Rubi-Ka Mission Safe Test")
+            .Selector("Rubi-Ka Mission Explore Test")
+                .Subtree(Explore())
                 .Subtree(Idle())
             .End()
             .Build();
