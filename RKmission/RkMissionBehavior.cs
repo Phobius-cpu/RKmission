@@ -146,10 +146,9 @@ public static class RkMissionBehavior
 
         var targetRoom = solver.TargetRoom.Room;
 
-        // GetDoorForward returns a walkable point beyond the doorway. The raw
-        // GetDoorPosRot coordinate is the shared threshold and can leave the
-        // movement controller oscillating inside door geometry.
-        var destination = targetRoom.GetDoorForward(solver.TargetRoom.Door);
+        // Use a walkable point beyond the doorway. The raw door threshold can
+        // leave the movement controller oscillating inside door geometry.
+        var destination = GetDoorForward(targetRoom, solver.TargetRoom.Door);
 
         SetDestination(destination, context);
 
@@ -164,6 +163,15 @@ public static class RkMissionBehavior
             context.IsPathStale = true;
 
         return BehaviourStatus.Running;
+    }
+
+    private static Vector3 GetDoorForward(Room room, int doorIdx)
+    {
+        room.GetDoorPosRot(doorIdx, out Vector3 position, out Quaternion rotation);
+
+        return position + (rotation * (room.GetDoorConnectZone(doorIdx) == room.Instance
+            ? -Vector3.Forward
+            : Vector3.Forward));
     }
 
     private static void SetDestination(Vector3 destination, RkMissionContext context)
