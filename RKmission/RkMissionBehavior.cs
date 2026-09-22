@@ -212,18 +212,6 @@ public static class RkMissionBehavior
             return BehaviourStatus.Failed;
         }
 
-        if (solver.IsCurrentRoomStale)
-        {
-            context.Logger.Information(
-                $"MoveToRoom: current room is stale. " +
-                $"CurrentRoom: {DynelManager.LocalPlayer.Room?.Name} " +
-                $"({DynelManager.LocalPlayer.Room?.Instance}), " +
-                $"TargetRoom: {solver.TargetRoom.Room.Instance}. Forcing path refresh.");
-
-            context.IsPathStale = true;
-            return BehaviourStatus.Failed;
-        }
-
         var targetRoom = solver.TargetRoom.Room;
 
         // Use a walkable point beyond the doorway. The raw door threshold can
