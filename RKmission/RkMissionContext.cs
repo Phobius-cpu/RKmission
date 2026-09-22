@@ -26,6 +26,18 @@ public sealed class RkMissionContext : DungeonRunnerContext<RkMissionContext>
     /// </summary>
     public DateTime? FightApproachStartUtc { get; set; }
 
+    /// <summary>
+    /// Last position sampled while watching for movement stalls (e.g. running
+    /// against a wall, or a target blocked by an obstacle).
+    /// </summary>
+    public Vector3? StallCheckPosition { get; set; }
+
+    /// <summary>
+    /// Timestamp of the last time the player was seen making meaningful
+    /// progress toward a destination.
+    /// </summary>
+    public DateTime? StallCheckLastProgressUtc { get; set; }
+
     /// <summary>Object identities that have already been processed or skipped.</summary>
     public HashSet<int> ProcessedObjects { get; } = new();
 
@@ -43,6 +55,8 @@ public sealed class RkMissionContext : DungeonRunnerContext<RkMissionContext>
         LootEnabled = true;
         MissionStartedAt = default;
         FightApproachStartUtc = null;
+        StallCheckPosition = null;
+        StallCheckLastProgressUtc = null;
         ProcessedObjects.Clear();
 
         base.Reset();
