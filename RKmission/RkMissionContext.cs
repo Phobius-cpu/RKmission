@@ -25,6 +25,7 @@ public sealed class RkMissionContext : DungeonRunnerContext<RkMissionContext>
     public Vector3? LastDestination { get; set; }
     public DateTime? LastHeartbeatUtc { get; set; }
     public DateTime? LastMoveHeartbeatUtc { get; set; }
+    public DateTime? LastFightDiagnosticUtc { get; set; }
 
     /// <summary>Object identities that have already been processed or skipped.</summary>
     public HashSet<int> ProcessedObjects { get; } = new();
@@ -48,6 +49,7 @@ public sealed class RkMissionContext : DungeonRunnerContext<RkMissionContext>
         LastDestination = null;
         LastHeartbeatUtc = null;
         LastMoveHeartbeatUtc = null;
+        LastFightDiagnosticUtc = null;
         ProcessedObjects.Clear();
 
         base.Reset();

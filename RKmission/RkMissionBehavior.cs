@@ -18,6 +18,8 @@ namespace RKmission;
 /// </summary>
 public static class RkMissionBehavior
 {
+    private static readonly TimeSpan FightDiagnosticInterval = TimeSpan.FromSeconds(2);
+
     public static IBehaviour<RkMissionContext> Compile()
     {
         return FluentBuilder.Create<RkMissionContext>()
@@ -136,7 +138,10 @@ public static class RkMissionBehavior
 
     private static BehaviourStatus FightStep(RkMissionContext context)
     {
-        if (!context.DungeonRunner.FindFightableTarget(out SimpleChar target))
+        var foundTarget = context.DungeonRunner.FindFightableTarget(out SimpleChar target);
+        MaybeLogNavigatingFightDiagnostics(context, foundTarget, target);
+
+        if (!foundTarget)
             return BehaviourStatus.Failed;
 
         if (!target.IsAlive)
@@ -181,6 +186,58 @@ public static class RkMissionBehavior
         }
 
         return BehaviourStatus.Running;
+    }
+
+    private static void MaybeLogNavigatingFightDiagnostics(
+        RkMissionContext context,
+        bool foundTarget,
+        SimpleChar target)
+    {
+        if (!SMovementController.IsNavigating())
+        {
+            context.LastFightDiagnosticUtc = null;
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+
+        if (context.LastFightDiagnosticUtc != null &&
+            now - context.LastFightDiagnosticUtc < FightDiagnosticInterval)
+        {
+            return;
+        }
+
+        context.LastFightDiagnosticUtc = now;
+
+        var nearestCandidates = DynelManager.NPCs
+            .Where(c => c != null && c.IsAlive && !c.IsPet)
+            .OrderBy(c => DynelManager.LocalPlayer.DistanceFrom(c))
+            .Take(5)
+            .Select(DescribeFightCandidate)
+            .ToArray();
+
+        var selectedTarget = foundTarget
+            ? DescribeFightCandidate(target)
+            : "none";
+
+        context.Logger.Information(
+            $"FightStep navigating diagnostic: " +
+            $"Selected={foundTarget}, " +
+            $"Target={selectedTarget}, " +
+            $"Candidates=[{string.Join("; ", nearestCandidates)}].");
+    }
+
+    private static string DescribeFightCandidate(SimpleChar candidate)
+    {
+        if (candidate == null)
+            return "null";
+
+        var room = candidate.Room;
+        return
+            $"{candidate.Name} {candidate.Identity} " +
+            $"Dist={DynelManager.LocalPlayer.DistanceFrom(candidate):F1} " +
+            $"LOS={candidate.IsInLineOfSight} " +
+            $"Room={room?.Name ?? "null"} ({(room == null ? "null" : room.Instance.ToString())})";
     }
 
     private static BehaviourStatus CompleteObjectiveStep(RkMissionContext context)
