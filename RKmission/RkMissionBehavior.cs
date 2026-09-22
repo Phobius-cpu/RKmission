@@ -20,10 +20,10 @@ public static class RkMissionBehavior
 {
     public static IBehaviour<RkMissionContext> Compile()
     {
-        // Test the locked-door integration independently, with idle fallback.
+        // Mission-objective test with idle fallback while the objective is active.
         return FluentBuilder.Create<RkMissionContext>()
-            .Selector("Rubi-Ka Mission Door Test")
-                .Subtree(OpenLockedDoor())
+            .Selector("Rubi-Ka Mission Objective Test")
+                .Subtree(CompleteObjective())
                 .Subtree(Idle())
             .End()
             .Build();
