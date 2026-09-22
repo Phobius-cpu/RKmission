@@ -20,12 +20,21 @@ public static class RkMissionBehavior
 {
     public static IBehaviour<RkMissionContext> Compile()
     {
-        // Incremental test: exercise dungeon exploration, then fall back to idle
-        // if the solver is unavailable or cannot produce a target room.
+        // Fight targets before exploring. DungeonSolver only invalidates rooms
+        // after they are clear, so navigation must yield to combat first.
         return FluentBuilder.Create<RkMissionContext>()
             .Selector("Rubi-Ka Mission Explore Test")
+                .Subtree(Fight())
                 .Subtree(Explore())
                 .Subtree(Idle())
+            .End()
+            .Build();
+    }
+
+    private static IBehaviour<RkMissionContext> Fight()
+    {
+        return FluentBuilder.Create<RkMissionContext>()
+            .Do("Fight nearby target", FightStep)
             .End()
             .Build();
     }
@@ -71,6 +80,30 @@ public static class RkMissionBehavior
                 .Do("Idle", _ => BehaviourStatus.Running)
             .End()
             .Build();
+    }
+
+    private static BehaviourStatus FightStep(RkMissionContext context)
+    {
+        if (!context.DungeonRunner.FindFightableTarget(out SimpleChar target))
+            return BehaviourStatus.Failed;
+
+        if (!target.IsAlive)
+            return BehaviourStatus.Succeeded;
+
+        if (target.IsInLineOfSight && target.IsInAttackRange(true))
+        {
+            if (!DynelManager.LocalPlayer.IsAttackPending &&
+                (!DynelManager.LocalPlayer.IsAttacking ||
+                 DynelManager.LocalPlayer.FightingTarget.Identity != target.Identity))
+            {
+                DynelManager.LocalPlayer.Attack(target);
+            }
+
+            return BehaviourStatus.Running;
+        }
+
+        SetDestination(target.Position, context);
+        return BehaviourStatus.Running;
     }
 
     private static BehaviourStatus CompleteObjectiveStep(RkMissionContext context)
