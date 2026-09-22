@@ -42,7 +42,6 @@ public sealed class RkMissionBot : DungeonRunner<RkMissionContext>
         base.EnteredDungeon();
     }
 
-    // Keep the boss-room wrapper isolated while testing the real mission tree.
     protected override IBehaviour<RkMissionContext> BossRoomTree()
     {
         return FluentBuilder.Create<RkMissionContext>()
@@ -54,7 +53,11 @@ public sealed class RkMissionBot : DungeonRunner<RkMissionContext>
 
     protected override IBehaviour<RkMissionContext> PreDungeonTree()
     {
-        return RkMissionBehavior.Compile();
+        return FluentBuilder.Create<RkMissionContext>()
+            .Sequence("RKmission PreDungeon Test")
+                .Do("Idle", _ => BehaviourStatus.Succeeded)
+            .End()
+            .Build();
     }
 
     private void HandleCommand(
