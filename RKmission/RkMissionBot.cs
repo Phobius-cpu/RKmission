@@ -3,7 +3,6 @@ using AOSharp.Core.UI;
 using BehaviourTree;
 using Dungeon.Runner;
 using Dungeon.Solver;
-using System;
 
 namespace RKmission;
 
@@ -24,64 +23,32 @@ public sealed class RkMissionBot : DungeonRunner<RkMissionContext>
 
     public override void Start()
     {
-        // Do not call DungeonRunner.Start until its runtime state has been
-        // initialized. Starting from the login area or outside a recognized
-        // mission currently causes the base runner to tick the dungeon tree
-        // with no active mission/solver and can crash the client.
-        if (DynelManager.LocalPlayer == null)
-        {
-            Chat.WriteLine("RKmission: player is not ready.");
-            return;
-        }
-
-        if (ActiveMission == null)
-        {
-            Chat.WriteLine(
-                "RKmission: no active mission detected. Enter the mission first.");
-            return;
-        }
-
-        if (Solver == null)
-        {
-            Chat.WriteLine(
-                "RKmission: dungeon solver is not ready. Enter the mission and try again.");
-            return;
-        }
-
-        _botContext.MissionStartedAt = DateTime.UtcNow;
-        _botContext.MissionCompleted = false;
-        _botContext.MissionObjectiveHandled = false;
-
-        base.Start();
+        // Lifecycle isolation test: do not call DungeonRunner.Start yet.
+        // If /rkm start is stable with this implementation, the crash is in
+        // DungeonRunner.Start or in behavior-tree initialization/ticking.
+        Chat.WriteLine("RKmission: start lifecycle test passed.");
     }
 
     public override void Stop()
     {
-        if (Enabled)
-            SMovementController.Halt();
-
-        base.Stop();
+        Chat.WriteLine("RKmission: stop lifecycle test passed.");
     }
 
     protected override void EnteredDungeon()
     {
         base.EnteredDungeon();
-
-        if (_botContext.ActiveMission == null &&
-            Mission.FindMissionForCurrentDungeon(out Mission mission))
-        {
-            _botContext.ActiveMission = mission;
-        }
     }
 
+    // Keep the trees disabled during the lifecycle isolation test. These will
+    // be restored after the base runner is confirmed safe.
     protected override IBehaviour<RkMissionContext> BossRoomTree()
     {
-        return RkMissionBehavior.Compile();
+        return null;
     }
 
     protected override IBehaviour<RkMissionContext> PreDungeonTree()
     {
-        return RkMissionBehavior.Compile();
+        return null;
     }
 
     private void HandleCommand(
@@ -102,10 +69,7 @@ public sealed class RkMissionBot : DungeonRunner<RkMissionContext>
                 Stop();
                 break;
             case "status":
-                Chat.WriteLine(
-                    $"RKmission: running={Enabled}, " +
-                    $"mission={_botContext.ActiveMission != null}, " +
-                    $"rooms={Solver?.VisitedRooms.Count ?? 0}");
+                Chat.WriteLine("RKmission: lifecycle test mode");
                 break;
             default:
                 Chat.WriteLine("Usage: /rkm start | stop | status");
