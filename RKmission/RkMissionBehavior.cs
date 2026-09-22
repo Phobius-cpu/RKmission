@@ -44,7 +44,8 @@ public static class RkMissionBehavior
     private static IBehaviour<RkMissionContext> OpenLockedDoor()
     {
         return FluentBuilder.Create<RkMissionContext>()
-            .Do("Open nearby locked door", OpenLockedDoorStep)
+            .Sequence("Open Locked Door")
+                .Do("Open nearby locked door", OpenLockedDoorStep)
             .End()
             .Build();
     }
@@ -65,7 +66,8 @@ public static class RkMissionBehavior
     private static IBehaviour<RkMissionContext> Idle()
     {
         return FluentBuilder.Create<RkMissionContext>()
-            .Do("Idle", _ => BehaviourStatus.Running)
+            .Sequence("Idle")
+                .Do("Idle", _ => BehaviourStatus.Running)
             .End()
             .Build();
     }
