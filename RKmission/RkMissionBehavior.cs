@@ -1,8 +1,8 @@
 using AOSharp.Common.GameData;
 using AOSharp.Core;
 using AOSharp.Core.Inventory;
-using AOSharp.Core.Movement;
 using AOSharp.Core.UI;
+using AOSharp.Pathfinding;
 using BehaviourTree;
 using BehaviourTree.FluentBuilder;
 using Dungeon.Runner;
@@ -34,7 +34,9 @@ public static class RkMissionBehavior
     {
         return FluentBuilder.Create<RkMissionContext>()
             .Sequence("Mission Objective")
-                .Condition("Active mission", c => c.ActiveMission != null)
+                .Condition(
+                    "Active mission",
+                    c => c.ActiveMission != null && !c.MissionObjectiveHandled)
                 .Do("Complete objective", CompleteObjectiveStep)
             .End()
             .Build();
@@ -52,7 +54,9 @@ public static class RkMissionBehavior
     {
         return FluentBuilder.Create<RkMissionContext>()
             .Sequence("Explore mission")
-                .Condition("Solver available", c => c.DungeonRunner.Solver != null)
+                .Condition(
+                    "Solver available",
+                    c => c.DungeonRunner.Solver != null)
                 .Do("Select next room", SelectNextRoom)
                 .Do("Move to room", MoveToRoom)
             .End()
@@ -69,29 +73,31 @@ public static class RkMissionBehavior
 
     private static BehaviourStatus CompleteObjectiveStep(RkMissionContext context)
     {
-        if (context.ActiveMission == null)
+        var mission = context.ActiveMission;
+
+        if (mission == null || context.MissionObjectiveHandled)
             return BehaviourStatus.Failed;
 
-        var target = context.ActiveMission.GetMissionTarget();
-        if (target == null)
-            return BehaviourStatus.Failed;
+        Vector3 destination = mission.Location.Pos;
 
-        SetDestination(target.Position, context);
-        if (DynelManager.LocalPlayer.Position.DistanceFrom(target) > 1f)
+        SetDestination(destination, context);
+
+        if (DynelManager.LocalPlayer.Position.DistanceFrom(destination) > 1f)
             return BehaviourStatus.Running;
 
-        // Targeting is the safe common action for FindItem/FindPerson-style
-        // objectives. Item-on-item objectives should be added after the exact
-        // mission action types used by this checkout are confirmed.
-        target.Target();
+        // This AOSharp version exposes the mission location and action metadata,
+        // but not a generic target object to select or interact with.
         context.MissionObjectiveHandled = true;
+
         return BehaviourStatus.Succeeded;
     }
 
     private static BehaviourStatus OpenLockedDoorStep(RkMissionContext context)
     {
         var door = Playfield.Doors
-            .Where(x => x.IsLocked && x.DistanceFrom(DynelManager.LocalPlayer) < 5f)
+            .Where(x =>
+                x.IsLocked &&
+                x.DistanceFrom(DynelManager.LocalPlayer) < 5f)
             .OrderBy(x => x.DistanceFrom(DynelManager.LocalPlayer))
             .FirstOrDefault();
 
@@ -100,19 +106,23 @@ public static class RkMissionBehavior
 
         if (!Inventory.Find("Lock Pick", out Item lockPick))
         {
-            context.Logger.Debug($"No Lock Pick available for door {door.Identity}.");
+            context.Logger.Debug(
+                $"No Lock Pick available for door {door.Identity}.");
+
             context.ProcessedObjects.Add(door.Identity.Instance);
             return BehaviourStatus.Failed;
         }
 
         lockPick.UseOn(door);
         context.IsPathStale = true;
+
         return BehaviourStatus.Succeeded;
     }
 
     private static BehaviourStatus SelectNextRoom(RkMissionContext context)
     {
         var solver = context.DungeonRunner.Solver;
+
         if (solver == null)
             return BehaviourStatus.Failed;
 
@@ -128,6 +138,7 @@ public static class RkMissionBehavior
     private static BehaviourStatus MoveToRoom(RkMissionContext context)
     {
         var solver = context.DungeonRunner.Solver;
+
         if (solver == null || solver.TargetRoom == null)
             return BehaviourStatus.Failed;
 
@@ -137,10 +148,13 @@ public static class RkMissionBehavior
             return BehaviourStatus.Failed;
         }
 
-        var destination = solver.TargetRoom.Room
-            .GetDoorForward(solver.TargetRoom.Door);
+        solver.TargetRoom.Room.GetDoorPosRot(
+            solver.TargetRoom.Door,
+            out Vector3 destination,
+            out _);
 
         SetDestination(destination, context);
+
         return DynelManager.LocalPlayer.Position.Distance2DFrom(destination) < 1f
             ? BehaviourStatus.Succeeded
             : BehaviourStatus.Running;
@@ -151,6 +165,7 @@ public static class RkMissionBehavior
         if (context.IsPathStale || !SMovementController.IsNavigating())
         {
             SMovementController.SetNavDestination(destination);
+
             if (SMovementController.IsNavigating())
                 context.IsPathStale = false;
         }
