@@ -44,6 +44,11 @@ public sealed class RkMissionContext : DungeonRunnerContext<RkMissionContext>
     /// </summary>
     public Vector3? LastDestination { get; set; }
 
+    /// <summary>
+    /// Timestamp of the last behavior-tree heartbeat log.
+    /// </summary>
+    public DateTime? LastHeartbeatUtc { get; set; }
+
     /// <summary>Object identities that have already been processed or skipped.</summary>
     public HashSet<int> ProcessedObjects { get; } = new();
 
@@ -64,6 +69,7 @@ public sealed class RkMissionContext : DungeonRunnerContext<RkMissionContext>
         StallCheckPosition = null;
         StallCheckLastProgressUtc = null;
         LastDestination = null;
+        LastHeartbeatUtc = null;
         ProcessedObjects.Clear();
 
         base.Reset();
