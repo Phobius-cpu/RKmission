@@ -23,15 +23,17 @@ public sealed class RkMissionBot : DungeonRunner<RkMissionContext>
 
     public override void Start()
     {
-        // Lifecycle isolation test: do not call DungeonRunner.Start yet.
-        // If /rkm start is stable with this implementation, the crash is in
-        // DungeonRunner.Start or in behavior-tree initialization/ticking.
-        Chat.WriteLine("RKmission: start lifecycle test passed.");
+        Chat.WriteLine("RKmission: before base start.");
+
+        base.Start();
+
+        Chat.WriteLine("RKmission: after base start.");
     }
 
     public override void Stop()
     {
-        Chat.WriteLine("RKmission: stop lifecycle test passed.");
+        Chat.WriteLine("RKmission: stopping.");
+        base.Stop();
     }
 
     protected override void EnteredDungeon()
@@ -39,8 +41,7 @@ public sealed class RkMissionBot : DungeonRunner<RkMissionContext>
         base.EnteredDungeon();
     }
 
-    // Keep the trees disabled during the lifecycle isolation test. These will
-    // be restored after the base runner is confirmed safe.
+    // Keep behavior trees disabled while testing the DungeonRunner lifecycle.
     protected override IBehaviour<RkMissionContext> BossRoomTree()
     {
         return null;
@@ -69,7 +70,7 @@ public sealed class RkMissionBot : DungeonRunner<RkMissionContext>
                 Stop();
                 break;
             case "status":
-                Chat.WriteLine("RKmission: lifecycle test mode");
+                Chat.WriteLine("RKmission: DungeonRunner lifecycle test mode");
                 break;
             default:
                 Chat.WriteLine("Usage: /rkm start | stop | status");
