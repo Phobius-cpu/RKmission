@@ -20,11 +20,10 @@ public static class RkMissionBehavior
 {
     public static IBehaviour<RkMissionContext> Compile()
     {
-        // Enable only exploration first. Idle remains the fallback while
-        // solver and movement integration are isolated.
+        // Test the locked-door integration independently, with idle fallback.
         return FluentBuilder.Create<RkMissionContext>()
-            .Selector("Rubi-Ka Mission Explore Test")
-                .Subtree(Explore())
+            .Selector("Rubi-Ka Mission Door Test")
+                .Subtree(OpenLockedDoor())
                 .Subtree(Idle())
             .End()
             .Build();
