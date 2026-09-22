@@ -65,9 +65,7 @@ public static class RkMissionBehavior
     {
         return FluentBuilder.Create<RkMissionContext>()
             .Sequence("Explore mission")
-                .Condition(
-                    "Solver available",
-                    c => c.DungeonRunner.Solver != null)
+                .Do("Check solver ready", CheckSolverReady)
                 .Do("Select next room", SelectNextRoom)
                 .Do("Move to room", MoveToRoom)
             .End()
@@ -81,6 +79,20 @@ public static class RkMissionBehavior
                 .Do("Idle", _ => BehaviourStatus.Running)
             .End()
             .Build();
+    }
+
+    private static BehaviourStatus CheckSolverReady(RkMissionContext context)
+    {
+        if (context.DungeonRunner.Solver == null)
+        {
+            context.Logger.Information(
+                $"Explore: solver is null. " +
+                $"CurrentRoom: {DynelManager.LocalPlayer.Room?.Name} " +
+                $"({DynelManager.LocalPlayer.Room?.Instance}).");
+            return BehaviourStatus.Failed;
+        }
+
+        return BehaviourStatus.Succeeded;
     }
 
     private static BehaviourStatus FightStep(RkMissionContext context)
@@ -117,6 +129,8 @@ public static class RkMissionBehavior
             return BehaviourStatus.Failed;
         }
 
+        SetDestination(target.Position, context);
+
         if (IsMovementStalled(context, target.Position))
         {
             context.Logger.Information(
@@ -127,7 +141,6 @@ public static class RkMissionBehavior
             return BehaviourStatus.Failed;
         }
 
-        SetDestination(target.Position, context);
         return BehaviourStatus.Running;
     }
 
