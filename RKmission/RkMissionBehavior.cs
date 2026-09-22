@@ -241,9 +241,13 @@ public static class RkMissionBehavior
         {
             if (hasReachedTargetRoom)
             {
+                var targetRoom = solver.TargetRoom.Room;
                 context.Logger.Information(
-                    $"Reached target room {currentRoom?.Name} ({currentRoom?.Instance}); " +
-                    "advancing dungeon solver.");
+                    $"Reached target room diagnostic: " +
+                    $"PlayerPosition={DynelManager.LocalPlayer.Position}, " +
+                    $"CurrentRoom={currentRoom?.Name} ({currentRoom?.Instance}), " +
+                    $"TargetRoom={targetRoom?.Name} ({targetRoom?.Instance}), " +
+                    $"TargetDoor={solver.TargetRoom.Door}.");
             }
 
             if (!solver.Progress())
