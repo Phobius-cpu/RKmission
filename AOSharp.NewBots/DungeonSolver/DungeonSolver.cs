@@ -1,4 +1,4 @@
-﻿using AOSharp.Common.GameData;
+using AOSharp.Common.GameData;
 using AOSharp.Core;
 using AOSharp.Core.Inventory;
 using AOSharp.Core.Misc;
@@ -176,7 +176,6 @@ namespace Dungeon.Solver
 
             int bestDoor = sortedUnvisitedDoors.First();
 
-            //Temp
             Room nextRoom = Playfield.Rooms[currentRoom.GetDoorConnectZone(bestDoor)];
 
             currentRoom.GetDoorPosRot(bestDoor, out Vector3 bestDoorPos, out _);
@@ -184,7 +183,7 @@ namespace Dungeon.Solver
             SetTargetRoom(nextRoom, doorIdx);
 
             IsCurrentRoomStale = false;
-            return true;        
+            return true;
         }
 
         public void Update()
@@ -232,7 +231,7 @@ namespace Dungeon.Solver
         {
             List<Room> emptyRooms = rooms.Where(x => x != null && x.IsClear(VisitedRooms, Mode)).ToList();
 
-            foreach(Room room in emptyRooms)
+            foreach (Room room in emptyRooms)
             {
                 if (VisitedRooms.Contains(room.Instance))
                     continue;
@@ -285,12 +284,12 @@ namespace Dungeon.Solver
             if (SMovementController.GenerateNavPath(doorPos, out _, out float totalDistance))
                 return totalDistance;
 
-            return 0;
+            return float.MaxValue;
         }
 
         public int GetDoorIdxForPos(Room room, Vector3 pos)
         {
-            for(int i = 0; i < room.NumDoors; i++)
+            for (int i = 0; i < room.NumDoors; i++)
             {
                 room.GetDoorPosRot(i, out Vector3 doorPos, out _);
                 if (doorPos.DistanceFrom(pos) < 1f)
