@@ -44,20 +44,12 @@ public sealed class RkMissionBot : DungeonRunner<RkMissionContext>
 
     protected override IBehaviour<RkMissionContext> BossRoomTree()
     {
-        return FluentBuilder.Create<RkMissionContext>()
-            .Sequence("RKmission BossRoom Test")
-                .Do("Idle", _ => BehaviourStatus.Succeeded)
-            .End()
-            .Build();
+        return RkMissionBehavior.Compile();
     }
 
     protected override IBehaviour<RkMissionContext> PreDungeonTree()
     {
-        return FluentBuilder.Create<RkMissionContext>()
-            .Sequence("RKmission PreDungeon Test")
-                .Do("Idle", _ => BehaviourStatus.Succeeded)
-            .End()
-            .Build();
+        return RkMissionBehavior.Compile();
     }
 
     private void HandleCommand(
