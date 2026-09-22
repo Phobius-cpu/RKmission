@@ -1,5 +1,6 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+using RKmission.Models;
 
 namespace RKmission;
 
@@ -37,3 +38,4 @@ public sealed class AoSharpMissionAdapter : IMissionWorld
     public void Say(string message) =>
         throw new NotImplementedException("Bind to AOSharp chat output.");
 }
+
