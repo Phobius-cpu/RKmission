@@ -22,6 +22,7 @@ public static class RkMissionBehavior
     {
         return FluentBuilder.Create<RkMissionContext>()
             .Selector("Rubi-Ka Mission Explore Test")
+                .Do("Heartbeat", Heartbeat)
                 .Subtree(Fight())
                 .Subtree(Explore())
                 .Subtree(Idle())
@@ -77,6 +78,22 @@ public static class RkMissionBehavior
                 .Do("Idle", _ => BehaviourStatus.Running)
             .End()
             .Build();
+    }
+
+    private static BehaviourStatus Heartbeat(RkMissionContext context)
+    {
+        if (context.LastHeartbeatUtc == null ||
+            DateTime.UtcNow - context.LastHeartbeatUtc > TimeSpan.FromSeconds(3))
+        {
+            context.LastHeartbeatUtc = DateTime.UtcNow;
+            context.Logger.Information(
+                $"Heartbeat: tree ticking. " +
+                $"CurrentRoom: {DynelManager.LocalPlayer.Room?.Name} " +
+                $"({DynelManager.LocalPlayer.Room?.Instance}), " +
+                $"Solver: {(context.DungeonRunner.Solver == null ? "null" : "present")}.");
+        }
+
+        return BehaviourStatus.Failed;
     }
 
     private static BehaviourStatus RunSafely(
