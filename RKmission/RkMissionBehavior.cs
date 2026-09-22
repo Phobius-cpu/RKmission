@@ -34,7 +34,8 @@ public static class RkMissionBehavior
     private static IBehaviour<RkMissionContext> Fight()
     {
         return FluentBuilder.Create<RkMissionContext>()
-            .Do("Fight nearby target", FightStep)
+            .Sequence("Fight")
+                .Do("Fight nearby target", FightStep)
             .End()
             .Build();
     }
@@ -92,9 +93,12 @@ public static class RkMissionBehavior
 
         if (target.IsInLineOfSight && target.IsInAttackRange(true))
         {
+            var fightingTarget = DynelManager.LocalPlayer.FightingTarget;
+
             if (!DynelManager.LocalPlayer.IsAttackPending &&
                 (!DynelManager.LocalPlayer.IsAttacking ||
-                 DynelManager.LocalPlayer.FightingTarget.Identity != target.Identity))
+                 fightingTarget == null ||
+                 fightingTarget.Identity != target.Identity))
             {
                 DynelManager.LocalPlayer.Attack(target);
             }
