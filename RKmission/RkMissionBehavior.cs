@@ -20,10 +20,11 @@ public static class RkMissionBehavior
 {
     public static IBehaviour<RkMissionContext> Compile()
     {
-        // Minimal safe tree used to isolate behavior-tree execution from
-        // mission, inventory, and movement integrations.
+        // Enable only exploration first. Idle remains the fallback while
+        // solver and movement integration are isolated.
         return FluentBuilder.Create<RkMissionContext>()
-            .Selector("Rubi-Ka Mission Test")
+            .Selector("Rubi-Ka Mission Explore Test")
+                .Subtree(Explore())
                 .Subtree(Idle())
             .End()
             .Build();
