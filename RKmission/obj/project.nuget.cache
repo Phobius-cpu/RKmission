@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "WfELOdP4n8U=",
+  "success": true,
+  "projectFilePath": "/home/runner/work/RKmission/RKmission/RKmission/RKmission.csproj",
+  "expectedPackageFiles": [
+    "/tmp/codeql-scratch-a315247b67595e7d/dbs/csharp/working/packages/microsoft.netframework.referenceassemblies/1.0.3/microsoft.netframework.referenceassemblies.1.0.3.nupkg.sha512",
+    "/tmp/codeql-scratch-a315247b67595e7d/dbs/csharp/working/packages/microsoft.netframework.referenceassemblies.net48/1.0.3/microsoft.netframework.referenceassemblies.net48.1.0.3.nupkg.sha512"
+  ],
+  "logs": []
+}

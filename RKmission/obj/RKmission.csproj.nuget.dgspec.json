@@ -1,0 +1,174 @@
+{
+  "format": 1,
+  "restore": {
+    "/home/runner/work/RKmission/RKmission/RKmission/RKmission.csproj": {}
+  },
+  "projects": {
+    "/home/runner/work/RKmission/RKmission/AOSharp.NewBots/BTBotBase/BTBotBase.csproj": {
+      "restore": {
+        "projectUniqueName": "/home/runner/work/RKmission/RKmission/AOSharp.NewBots/BTBotBase/BTBotBase.csproj",
+        "projectName": "BTBotBase",
+        "projectPath": "/home/runner/work/RKmission/RKmission/AOSharp.NewBots/BTBotBase/BTBotBase.csproj",
+        "packagesPath": "/tmp/codeql-scratch-a315247b67595e7d/dbs/csharp/working/packages",
+        "projectStyle": "PackagesConfig",
+        "UsingMicrosoftNETSdk": false,
+        "configFilePaths": [
+          "/home/runner/.nuget/NuGet/NuGet.Config"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net48": {
+            "framework": "net48",
+            "projectReferences": {}
+          }
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low"
+        },
+        "packagesConfigPath": "/home/runner/work/RKmission/RKmission/AOSharp.NewBots/BTBotBase/packages.config"
+      },
+      "frameworks": {
+        "net48": {
+          "framework": "net48"
+        }
+      }
+    },
+    "/home/runner/work/RKmission/RKmission/AOSharp.NewBots/DungeonRunner/DungeonRunner.csproj": {
+      "restore": {
+        "projectUniqueName": "/home/runner/work/RKmission/RKmission/AOSharp.NewBots/DungeonRunner/DungeonRunner.csproj",
+        "projectName": "DungeonRunner",
+        "projectPath": "/home/runner/work/RKmission/RKmission/AOSharp.NewBots/DungeonRunner/DungeonRunner.csproj",
+        "packagesPath": "/tmp/codeql-scratch-a315247b67595e7d/dbs/csharp/working/packages",
+        "projectStyle": "PackagesConfig",
+        "UsingMicrosoftNETSdk": false,
+        "configFilePaths": [
+          "/home/runner/.nuget/NuGet/NuGet.Config"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net48": {
+            "framework": "net48",
+            "projectReferences": {
+              "/home/runner/work/RKmission/RKmission/AOSharp.NewBots/BTBotBase/BTBotBase.csproj": {
+                "projectPath": "/home/runner/work/RKmission/RKmission/AOSharp.NewBots/BTBotBase/BTBotBase.csproj"
+              },
+              "/home/runner/work/RKmission/RKmission/AOSharp.NewBots/DungeonSolver/DungeonSolver.csproj": {
+                "projectPath": "/home/runner/work/RKmission/RKmission/AOSharp.NewBots/DungeonSolver/DungeonSolver.csproj"
+              }
+            }
+          }
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low"
+        },
+        "packagesConfigPath": "/home/runner/work/RKmission/RKmission/AOSharp.NewBots/DungeonRunner/packages.config"
+      },
+      "frameworks": {
+        "net48": {
+          "framework": "net48"
+        }
+      }
+    },
+    "/home/runner/work/RKmission/RKmission/AOSharp.NewBots/DungeonSolver/DungeonSolver.csproj": {
+      "restore": {
+        "projectUniqueName": "/home/runner/work/RKmission/RKmission/AOSharp.NewBots/DungeonSolver/DungeonSolver.csproj",
+        "projectName": "DungeonSolver",
+        "projectPath": "/home/runner/work/RKmission/RKmission/AOSharp.NewBots/DungeonSolver/DungeonSolver.csproj",
+        "packagesPath": "/tmp/codeql-scratch-a315247b67595e7d/dbs/csharp/working/packages",
+        "projectStyle": "PackagesConfig",
+        "UsingMicrosoftNETSdk": false,
+        "configFilePaths": [
+          "/home/runner/.nuget/NuGet/NuGet.Config"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net48": {
+            "framework": "net48",
+            "projectReferences": {}
+          }
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low"
+        },
+        "packagesConfigPath": "/home/runner/work/RKmission/RKmission/AOSharp.NewBots/DungeonSolver/packages.config"
+      },
+      "frameworks": {
+        "net48": {
+          "framework": "net48"
+        }
+      }
+    },
+    "/home/runner/work/RKmission/RKmission/RKmission/RKmission.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "/home/runner/work/RKmission/RKmission/RKmission/RKmission.csproj",
+        "projectName": "RKmission",
+        "projectPath": "/home/runner/work/RKmission/RKmission/RKmission/RKmission.csproj",
+        "packagesPath": "/tmp/codeql-scratch-a315247b67595e7d/dbs/csharp/working/packages",
+        "outputPath": "/home/runner/work/RKmission/RKmission/RKmission/obj/",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "/home/runner/.nuget/NuGet/NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net48"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net48": {
+            "framework": "net48",
+            "targetAlias": "net48",
+            "projectReferences": {
+              "/home/runner/work/RKmission/RKmission/AOSharp.NewBots/BTBotBase/BTBotBase.csproj": {
+                "projectPath": "/home/runner/work/RKmission/RKmission/AOSharp.NewBots/BTBotBase/BTBotBase.csproj"
+              },
+              "/home/runner/work/RKmission/RKmission/AOSharp.NewBots/DungeonRunner/DungeonRunner.csproj": {
+                "projectPath": "/home/runner/work/RKmission/RKmission/AOSharp.NewBots/DungeonRunner/DungeonRunner.csproj"
+              },
+              "/home/runner/work/RKmission/RKmission/AOSharp.NewBots/DungeonSolver/DungeonSolver.csproj": {
+                "projectPath": "/home/runner/work/RKmission/RKmission/AOSharp.NewBots/DungeonSolver/DungeonSolver.csproj"
+              }
+            }
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        },
+        "SdkAnalysisLevel": "10.0.400"
+      },
+      "frameworks": {
+        "net48": {
+          "framework": "net48",
+          "targetAlias": "net48",
+          "dependencies": {
+            "Microsoft.NETFramework.ReferenceAssemblies": {
+              "suppressParent": "All",
+              "target": "Package",
+              "version": "[1.0.3, )",
+              "autoReferenced": true
+            }
+          },
+          "runtimeIdentifierGraphPath": "/usr/share/dotnet/sdk/10.0.400/RuntimeIdentifierGraph.json"
+        }
+      }
+    }
+  }
+}
