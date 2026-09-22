@@ -125,7 +125,24 @@ public static class RkMissionBehavior
         if (solver.IsCurrentRoomStale || solver.TargetRoom == null)
         {
             if (!solver.Progress())
+            {
+                // Diagnostic: distinguish a genuine dead-end (no unvisited doors
+                // anywhere on the room stack) from the main-hall/floor-clear gate
+                // that blocks progress until IsFloorClear is true.
+                var currentRoom = DynelManager.LocalPlayer.Room;
+
+                context.Logger.Information(
+                    $"Progress() returned false. " +
+                    $"CurrentRoom: {currentRoom?.Name} ({currentRoom?.Instance}), " +
+                    $"RoomStackCount: {solver.RoomStack.Count}, " +
+                    $"VisitedRooms: {solver.VisitedRooms.Count}, " +
+                    $"IsFloorClear: {solver.IsFloorClear}, " +
+                    $"IsOnBossFloor: {solver.IsOnBossFloor}, " +
+                    $"Mode: {solver.Mode}, " +
+                    $"IsLiftFound: {solver.IsLiftFound}");
+
                 return BehaviourStatus.Failed;
+            }
         }
 
         return BehaviourStatus.Succeeded;
