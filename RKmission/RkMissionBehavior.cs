@@ -144,16 +144,26 @@ public static class RkMissionBehavior
             return BehaviourStatus.Failed;
         }
 
-        solver.TargetRoom.Room.GetDoorPosRot(
+        var targetRoom = solver.TargetRoom.Room;
+        targetRoom.GetDoorPosRot(
             solver.TargetRoom.Door,
             out Vector3 destination,
             out _);
 
         SetDestination(destination, context);
 
-        return DynelManager.LocalPlayer.Position.Distance2DFrom(destination) < 1f
-            ? BehaviourStatus.Succeeded
-            : BehaviourStatus.Running;
+        // The doorway coordinate is shared by both rooms. Reaching it does not
+        // prove that the character crossed into the target room; wait for the
+        // actual room instance to change before completing this behavior.
+        if (DynelManager.LocalPlayer.Room.Instance == targetRoom.Instance)
+            return BehaviourStatus.Succeeded;
+
+        // If navigation reaches the shared threshold but the room has not
+        // changed, force a fresh path request instead of idling at the door.
+        if (DynelManager.LocalPlayer.Position.Distance2DFrom(destination) < 1f)
+            context.IsPathStale = true;
+
+        return BehaviourStatus.Running;
     }
 
     private static void SetDestination(Vector3 destination, RkMissionContext context)
