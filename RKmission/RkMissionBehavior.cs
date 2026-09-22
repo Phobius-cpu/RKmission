@@ -145,21 +145,21 @@ public static class RkMissionBehavior
         }
 
         var targetRoom = solver.TargetRoom.Room;
-        targetRoom.GetDoorPosRot(
-            solver.TargetRoom.Door,
-            out Vector3 destination,
-            out _);
+
+        // GetDoorForward returns a walkable point beyond the doorway. The raw
+        // GetDoorPosRot coordinate is the shared threshold and can leave the
+        // movement controller oscillating inside door geometry.
+        var destination = targetRoom.GetDoorForward(solver.TargetRoom.Door);
 
         SetDestination(destination, context);
 
-        // The doorway coordinate is shared by both rooms. Reaching it does not
-        // prove that the character crossed into the target room; wait for the
-        // actual room instance to change before completing this behavior.
+        // Wait for the actual room transition rather than treating proximity to
+        // the shared doorway coordinate as success.
         if (DynelManager.LocalPlayer.Room.Instance == targetRoom.Instance)
             return BehaviourStatus.Succeeded;
 
-        // If navigation reaches the shared threshold but the room has not
-        // changed, force a fresh path request instead of idling at the door.
+        // If the character reaches the projected doorway point but the room has
+        // not changed, force a fresh path request instead of idling there.
         if (DynelManager.LocalPlayer.Position.Distance2DFrom(destination) < 1f)
             context.IsPathStale = true;
 
