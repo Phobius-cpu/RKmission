@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" standalone="yes"?>
+<Root>
+	<View h_alignment="LEFT" min_size="Point(272,-1)">
+		<View view_layout="horizontal">
+			<BitmapView name="Icon" max_size="Point(16, 16)"/>
+			<HLayoutSpacer/>
+			<TextView font="BOLD" name="ActiveNode" value="BT Debug" color="0x00D5C64A"/>
+			<HLayoutSpacer/>
+		</View>
+		<View name="NodeRoot" h_alignment="LEFT">
+			<Lolis/>
+		</View>
+	</View>
+</Root>

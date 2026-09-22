@@ -1,0 +1,6 @@
+﻿<?xml version="1.0" standalone="yes"?>
+<Root>
+	<View name="Root" h_alignment="LEFT">
+		<TextView font="SMALL" name="BtText" value="TextGoesHere"/>
+	</View>
+</Root>

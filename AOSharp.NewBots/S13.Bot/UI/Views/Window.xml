@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" ?>
+<root>
+	<View name="Root">
+		<TextView value="S13 Bot" font="HUGE" color="0x80E9F3" layout_borders="Rect(10,10,10,10)"/>
+		<RadioButtonGroup name="PullStyleSelector" layout_borders="Rect(10,0,10,10)">
+			<RadioButton label="Safe" value="0" layout_borders="Rect(0,0,0,3)"/>
+			<RadioButton label="Aggressive" value="1" layout_borders="Rect(0,0,0,3)"/>
+		</RadioButtonGroup>		
+		<View view_layout="horizontal" layout_borders="Rect(10,10,10,10)">
+			<TextView value="Instances Completed: "/>
+			<TextView name="Counter" value="0"/>
+			<HLayoutSpacer/>
+		</View>
+		<View view_layout="horizontal">
+			<Button label="Start" name="StartStopButton" layout_borders="Rect(10,10,10,10)"/>
+			<HLayoutSpacer/>
+		</View>
+	</View>
+</root>

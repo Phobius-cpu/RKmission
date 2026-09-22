@@ -1,0 +1,33 @@
+﻿<?xml version="1.0" ?>
+<root>
+	<View name="Root">
+		<TextView value="Inferno Mission Bot" font="HUGE" color="0x80E9F3" layout_borders="Rect(10,10,10,10)"/>
+		<View view_layout="horizontal" layout_borders="Rect(10,10,10,10)">
+			<RadioButtonGroup name="SideSelector" layout_borders="Rect(10,0,10,10)">
+				<RadioButton label="Neutral" value="0" layout_borders="Rect(0,0,0,3)"/>
+				<RadioButton label="Clan" value="1" layout_borders="Rect(0,0,0,3)"/>
+				<RadioButton label="Omni" value="2" layout_borders="Rect(0,0,0,3)"/>
+			</RadioButtonGroup>
+			<RadioButtonGroup name="DifficultySelector" layout_borders="Rect(10,0,10,10)">
+				<RadioButton label="Easy" value="0" layout_borders="Rect(0,0,0,3)"/>
+				<RadioButton label="Medium" value="1" layout_borders="Rect(0,0,0,3)"/>
+				<RadioButton label="Hard" value="2" layout_borders="Rect(0,0,0,3)"/>
+			</RadioButtonGroup>
+			<HLayoutSpacer/>
+		</View>	
+		<View view_layout="horizontal" layout_borders="Rect(10,2,10,2)">
+			<TextView value="Missions completed: "/>
+			<TextView name="MissionCounter" value="0"/>
+			<HLayoutSpacer/>
+		</View>
+		<View view_layout="horizontal" layout_borders="Rect(10,2,10,10)">
+			<TextView value="Avg. Mission Time: "/>
+			<TextView name="AvgMissionTime" value="-"/>
+			<HLayoutSpacer/>
+		</View>
+		<View view_layout="horizontal">
+			<Button label="Start" name="StartStopButton" layout_borders="Rect(10,10,10,10)"/>
+			<HLayoutSpacer/>
+		</View>
+	</View>
+</root>

@@ -1,0 +1,214 @@
+{
+  "Somphos Logee": [
+    {
+      "Spirits": [ 0 ],
+      "NumAttackers": 1
+    },
+    {
+      "Spirits": [ 1 ],
+      "NumAttackers": 1
+    },
+    {
+      "Spirits": [ 1 ],
+      "NumAttackers": 2
+    },
+    {
+      "Spirits": [ 2 ],
+      "NumAttackers": 2
+    },
+    {
+      "Spirits": [ 0, 1 ],
+      "NumAttackers": 3
+    },
+    {
+      "Spirits": [ 2 ],
+      "NumAttackers": 1
+    },
+    {
+      "Spirits": [ 0, 1 ],
+      "NumAttackers": 2
+    },
+    {
+      "Spirits": [ 1 ],
+      "NumAttackers": 3
+    },
+    {
+      "Spirits": [ 1 ],
+      "NumAttackers": 1
+    },
+    {
+      "Spirits": [ 0 ],
+      "NumAttackers": 1
+    }
+  ],
+  "Burning Shadow": [
+    {
+      "Spirits": [ 2 ],
+      "NumAttackers": 1
+    },
+    {
+      "Spirits": [ 0 ],
+      "NumAttackers": 1
+    },
+    {
+      "Spirits": [ 2 ],
+      "NumAttackers": 1
+    },
+    {
+      "Spirits": [ 1, 0 ],
+      "NumAttackers": 2
+    },
+    {
+      "Spirits": [ 1 ],
+      "NumAttackers": 2
+    },
+    {
+      "Spirits": [ 0, 1, 2 ],
+      "NumAttackers": 3
+    },
+    {
+      "Spirits": [ 2 ],
+      "NumAttackers": 1
+    }
+  ],
+  "Putrid Shadow": [
+    {
+      "Spirits": [ 2 ],
+      "NumAttackers": 1
+    },
+    {
+      "Spirits": [ 0 ],
+      "NumAttackers": 1
+    },
+    {
+      "Spirits": [ 2 ],
+      "NumAttackers": 1
+    },
+    {
+      "Spirits": [ 1, 0 ],
+      "NumAttackers": 2
+    },
+    {
+      "Spirits": [ 1 ],
+      "NumAttackers": 2
+    },
+    {
+      "Spirits": [ 1, 0, 2 ],
+      "NumAttackers": 3
+    },
+    {
+      "Spirits": [ 2 ],
+      "NumAttackers": 1
+    }
+  ],
+  "Chimera Sentry": [
+    {
+      "Spirits": [ 2 ],
+      "NumAttackers": 1
+    },
+    {
+      "Spirits": [ 2, 0 ],
+      "NumAttackers": 2
+    },
+    {
+      "Spirits": [ 1 ],
+      "NumAttackers": 1
+    },
+    {
+      "Spirits": [ 1 ],
+      "NumAttackers": 1
+    },
+    {
+      "Spirits": [ 1, 0 ],
+      "NumAttackers": 2
+    },
+    {
+      "Spirits": [ 1, 2 ],
+      "NumAttackers": 2
+    },
+    {
+      "Spirits": [ 2, 0 ],
+      "NumAttackers": 2
+    },
+    {
+      "Spirits": [ 1 ],
+      "NumAttackers": 1
+    }
+  ],
+  "Cave Lizard": [
+    {
+      "Spirits": [ 2 ],
+      "NumAttackers": 1
+    },
+    {
+      "Spirits": [ 2 ],
+      "NumAttackers": 1
+    },
+    {
+      "Spirits": [ 0 ],
+      "NumAttackers": 1
+    },
+    {
+      "Spirits": [ 2 ],
+      "NumAttackers": 2
+    },
+    {
+      "Spirits": [ 2 ],
+      "NumAttackers": 1
+    },
+    {
+      "Spirits": [ 1, 0 ],
+      "NumAttackers": 2
+    },
+    {
+      "Spirits": [ 1, 2 ],
+      "NumAttackers": 2
+    },
+    {
+      "Spirits": [ 1, 2 ],
+      "NumAttackers": 2
+    },
+    {
+      "Spirits": [ 1, 2, 0 ],
+      "NumAttackers": 3
+    },
+    {
+      "Spirits": [ 0 ],
+      "NumAttackers": 1
+    }
+  ],
+  "Tempterus": [
+    {
+      "Spirits": [ 0 ],
+      "NumAttackers": 1
+    },
+    {
+      "Spirits": [ 1 ],
+      "NumAttackers": 1
+    },
+    {
+      "Spirits": [ 2 ],
+      "NumAttackers": 1
+    },
+    {
+      "Spirits": [ 2, 0 ],
+      "NumAttackers": 2
+    },
+    {
+      "Spirits": [ 1 ],
+      "NumAttackers": 1
+    },
+    {
+      "Spirits": [ 1, 2 ],
+      "NumAttackers": 2
+    },
+    {
+      "Spirits": [ 1, 0 ],
+      "NumAttackers": 3
+    },
+    {
+      "Spirits": [ 2 ],
+      "NumAttackers": 1
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+﻿<?xml version="1.0" ?>
+<root>
+	<View name="Root">
+		<TextView value="AI Mission Bot" font="HUGE" color="0x80E9F3" layout_borders="Rect(10,10,10,10)"/>
+		<View h_alignment="LEFT">
+			<TextView value="Difficulty:" font="BOLD" color="0x80E9F3" layout_borders="Rect(10,5,10,5)"/>
+			<RadioButtonGroup name="DifficultySelector" layout_borders="Rect(20,0,10,5)">
+				<RadioButton label="Easy" value="0" layout_borders="Rect(0,0,0,3)"/>
+				<RadioButton label="Medium" value="1" layout_borders="Rect(0,0,0,3)"/>
+				<RadioButton label="Hard" value="2" layout_borders="Rect(0,0,0,3)"/>
+			</RadioButtonGroup>
+			<TextView value="Bosses:" font="BOLD" color="0x80E9F3" layout_borders="Rect(10,5,10,5)"/>
+			<View h_alignment="LEFT" layout_borders="Rect(20,0,20,0)">
+				<CheckBox name="Master of PsyMod" label="Master of PsyMod" layout_borders="Rect(0,0,0,3)"/>
+				<CheckBox name="Master of Time and Space" label="Master of Time and Space" layout_borders="Rect(0,0,0,3)"/>
+				<CheckBox name="Master of Biological Metamorphoses" label="Master of Biological Metamorphoses" layout_borders="Rect(0,0,0,3)"/>
+				<CheckBox name="Master of Nanovoid" label="Master of Nanovoid" layout_borders="Rect(0,0,0,3)"/>
+				<CheckBox name="Master of Silence" label="Master of Silence" layout_borders="Rect(0,0,0,3)"/>
+				<CheckBox name="Coccoon Attendant - Cha'Heru" label="Coccoon Attendant - Cha'Heru" layout_borders="Rect(0,0,0,3)"/>
+				<CheckBox name="ClearCoccoonsCheckbox" label="Clear Coccoons" layout_borders="Rect(21,0,0,3)"/>
+			</View>
+			<View view_layout="horizontal" layout_borders="Rect(10,10,10,10)">
+				<TextView value="Missions completed: "/>
+				<TextView name="MissionCounter" value="0"/>
+				<HLayoutSpacer/>
+			</View>
+			<Button label="Start" name="StartStopButton" layout_borders="Rect(10,10,10,10)"/>
+		</View>
+	</View>
+</root>
