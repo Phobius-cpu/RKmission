@@ -20,11 +20,10 @@ public static class RkMissionBehavior
 {
     public static IBehaviour<RkMissionContext> Compile()
     {
+        // Minimal safe tree used to isolate behavior-tree execution from
+        // mission, inventory, and movement integrations.
         return FluentBuilder.Create<RkMissionContext>()
-            .Selector("Rubi-Ka Mission")
-                .Subtree(CompleteObjective())
-                .Subtree(OpenLockedDoor())
-                .Subtree(Explore())
+            .Selector("Rubi-Ka Mission Test")
                 .Subtree(Idle())
             .End()
             .Build();
@@ -85,10 +84,7 @@ public static class RkMissionBehavior
         if (DynelManager.LocalPlayer.Position.DistanceFrom(destination) > 1f)
             return BehaviourStatus.Running;
 
-        // This AOSharp version exposes the mission location and action metadata,
-        // but not a generic target object to select or interact with.
         context.MissionObjectiveHandled = true;
-
         return BehaviourStatus.Succeeded;
     }
 
@@ -106,16 +102,13 @@ public static class RkMissionBehavior
 
         if (!Inventory.Find("Lock Pick", out Item lockPick))
         {
-            context.Logger.Debug(
-                $"No Lock Pick available for door {door.Identity}.");
-
+            context.Logger.Debug($"No Lock Pick available for door {door.Identity}.");
             context.ProcessedObjects.Add(door.Identity.Instance);
             return BehaviourStatus.Failed;
         }
 
         lockPick.UseOn(door);
         context.IsPathStale = true;
-
         return BehaviourStatus.Succeeded;
     }
 
