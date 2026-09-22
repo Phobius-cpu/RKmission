@@ -90,7 +90,7 @@ public static class RkMissionBehavior
                 $"Heartbeat: tree ticking. " +
                 $"CurrentRoom: {DynelManager.LocalPlayer.Room?.Name} " +
                 $"({DynelManager.LocalPlayer.Room?.Instance}), " +
-                $"Solver: {(context.DungeonRunner.Solver == null ? "null" : "present")}.");
+                $"Solver: {(context.DungeonRunner.Solver == null ? "null" : "present")}. ");
         }
 
         return BehaviourStatus.Failed;
@@ -229,12 +229,25 @@ public static class RkMissionBehavior
         if (solver == null)
             return BehaviourStatus.Failed;
 
-        if (solver.IsCurrentRoomStale || solver.TargetRoom == null)
+        var currentRoom = DynelManager.LocalPlayer.Room;
+        var hasReachedTargetRoom =
+            solver.TargetRoom != null &&
+            currentRoom != null &&
+            currentRoom.Instance == solver.TargetRoom.Room.Instance;
+
+        if (solver.IsCurrentRoomStale ||
+            solver.TargetRoom == null ||
+            hasReachedTargetRoom)
         {
+            if (hasReachedTargetRoom)
+            {
+                context.Logger.Information(
+                    $"Reached target room {currentRoom?.Name} ({currentRoom?.Instance}); " +
+                    "advancing dungeon solver.");
+            }
+
             if (!solver.Progress())
             {
-                var currentRoom = DynelManager.LocalPlayer.Room;
-
                 context.Logger.Information(
                     $"Progress() returned false. " +
                     $"CurrentRoom: {currentRoom?.Name} ({currentRoom?.Instance}), " +
