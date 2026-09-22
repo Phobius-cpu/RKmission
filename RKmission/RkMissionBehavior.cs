@@ -93,6 +93,8 @@ public static class RkMissionBehavior
 
         if (target.IsInLineOfSight && target.IsInAttackRange(true))
         {
+            context.FightApproachStartUtc = null;
+
             var fightingTarget = DynelManager.LocalPlayer.FightingTarget;
 
             if (!DynelManager.LocalPlayer.IsAttackPending &&
@@ -104,6 +106,15 @@ public static class RkMissionBehavior
             }
 
             return BehaviourStatus.Running;
+        }
+
+        context.FightApproachStartUtc ??= DateTime.UtcNow;
+
+        if (DateTime.UtcNow - context.FightApproachStartUtc > TimeSpan.FromSeconds(5))
+        {
+            context.Logger.Debug($"Giving up on unreachable target {target.Identity}.");
+            context.FightApproachStartUtc = null;
+            return BehaviourStatus.Failed;
         }
 
         SetDestination(target.Position, context);
