@@ -270,10 +270,26 @@ public static class RkMissionBehavior
         var currentRoom = DynelManager.LocalPlayer.Room;
         var targetRoom = solver.TargetRoom.Room;
         var destination = GetDoorForward(currentRoom, targetRoom, solver.TargetRoom.Door);
+        var distanceToDestination = DynelManager.LocalPlayer.Position.Distance2DFrom(destination);
+
+        if (context.LastMoveHeartbeatUtc == null ||
+            DateTime.UtcNow - context.LastMoveHeartbeatUtc > TimeSpan.FromSeconds(3))
+        {
+            context.LastMoveHeartbeatUtc = DateTime.UtcNow;
+            context.Logger.Information(
+                $"MoveToRoom heartbeat: " +
+                $"CurrentRoom={currentRoom?.Name} ({currentRoom?.Instance}), " +
+                $"TargetRoom={targetRoom?.Name} ({targetRoom?.Instance}), " +
+                $"TargetDoor={solver.TargetRoom.Door}, " +
+                $"Destination={destination}, " +
+                $"Distance={distanceToDestination:F2}, " +
+                $"Navigating={SMovementController.IsNavigating()}, " +
+                $"PathStale={context.IsPathStale}.");
+        }
 
         SetDestination(destination, context);
 
-        if (DynelManager.LocalPlayer.Room.Instance == targetRoom.Instance)
+        if (currentRoom.Instance == targetRoom.Instance)
             return BehaviourStatus.Succeeded;
 
         if (IsMovementStalled(context, destination))
