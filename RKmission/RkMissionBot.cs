@@ -14,6 +14,7 @@ namespace RKmission;
 public sealed class RkMissionBot : DungeonRunner<RkMissionContext>
 {
     public override SolverMode SolverMode => SolverMode.Clear;
+    public override float FightDistance => 30f;
 
     protected override void Init()
     {

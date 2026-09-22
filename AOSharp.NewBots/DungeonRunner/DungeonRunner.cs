@@ -22,7 +22,7 @@ namespace Dungeon.Runner
 {
     public abstract class DungeonRunner<TContext> : BTBotBase<TContext> where TContext : DungeonRunnerContext<TContext>
     {
-        public const float FightDistance = 10;
+        public virtual float FightDistance => 10f;
 
         public DungeonSolver Solver;
         public abstract SolverMode SolverMode { get; }
