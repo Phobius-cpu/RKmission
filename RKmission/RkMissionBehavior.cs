@@ -117,6 +117,16 @@ public static class RkMissionBehavior
             return BehaviourStatus.Failed;
         }
 
+        if (IsMovementStalled(context, target.Position))
+        {
+            context.Logger.Information(
+                $"Fight target appears blocked or unreachable: {target.Identity}. " +
+                $"CurrentRoom: {DynelManager.LocalPlayer.Room?.Name} ({DynelManager.LocalPlayer.Room?.Instance}), " +
+                $"TargetRoom: {target.Room?.Instance}.");
+            context.FightApproachStartUtc = null;
+            return BehaviourStatus.Failed;
+        }
+
         SetDestination(target.Position, context);
         return BehaviourStatus.Running;
     }
@@ -174,9 +184,6 @@ public static class RkMissionBehavior
         {
             if (!solver.Progress())
             {
-                // Diagnostic: distinguish a genuine dead-end (no unvisited doors
-                // anywhere on the room stack) from the main-hall/floor-clear gate
-                // that blocks progress until IsFloorClear is true.
                 var currentRoom = DynelManager.LocalPlayer.Room;
 
                 context.Logger.Information(
@@ -205,7 +212,6 @@ public static class RkMissionBehavior
             context.Logger.Information(
                 $"MoveToRoom: no target room available. " +
                 $"Solver: {(solver == null ? "null" : "present")}, " +
-                $"TargetRoom: {(solver?.TargetRoom == null ? "null" : solver.TargetRoom.Room.Instance.ToString())}, " +
                 $"CurrentRoom: {DynelManager.LocalPlayer.Room?.Name} " +
                 $"({DynelManager.LocalPlayer.Room?.Instance}).");
 
@@ -213,29 +219,29 @@ public static class RkMissionBehavior
         }
 
         var targetRoom = solver.TargetRoom.Room;
-
-        // Use a walkable point beyond the doorway. The raw door threshold can
-        // leave the movement controller oscillating inside door geometry.
         var destination = GetDoorForward(targetRoom, solver.TargetRoom.Door);
 
         SetDestination(destination, context);
 
-        // Wait for the actual room transition rather than treating proximity to
-        // the shared doorway coordinate as success.
         if (DynelManager.LocalPlayer.Room.Instance == targetRoom.Instance)
             return BehaviourStatus.Succeeded;
 
-        // If the character reaches the projected doorway point but the room has
-        // not changed, force a fresh path request instead of idling there.
+        if (IsMovementStalled(context, destination))
+        {
+            context.Logger.Information(
+                $"MoveToRoom: stalled while approaching room {targetRoom.Instance}. " +
+                $"CurrentRoom: {DynelManager.LocalPlayer.Room?.Name} ({DynelManager.LocalPlayer.Room?.Instance}), " +
+                $"Destination: {destination}. Forcing a new path request.");
+            context.IsPathStale = true;
+            return BehaviourStatus.Failed;
+        }
+
         if (DynelManager.LocalPlayer.Position.Distance2DFrom(destination) < 1f)
         {
             context.Logger.Information(
                 $"MoveToRoom: reached doorway point but room did not change. " +
-                $"CurrentRoom: {DynelManager.LocalPlayer.Room?.Name} " +
-                $"({DynelManager.LocalPlayer.Room?.Instance}), " +
-                $"TargetRoom: {targetRoom.Instance}, " +
-                $"IsNavigating: {SMovementController.IsNavigating()}. Forcing path refresh.");
-
+                $"CurrentRoom: {DynelManager.LocalPlayer.Room?.Name} ({DynelManager.LocalPlayer.Room?.Instance}), " +
+                $"TargetRoom: {targetRoom.Instance}. Forcing path refresh.");
             context.IsPathStale = true;
         }
 
@@ -251,10 +257,46 @@ public static class RkMissionBehavior
             : Vector3.Forward));
     }
 
+    private static bool IsMovementStalled(RkMissionContext context, Vector3 destination)
+    {
+        var current = DynelManager.LocalPlayer.Position;
+
+        if (context.StallCheckPosition == null || context.StallCheckLastProgressUtc == null)
+        {
+            context.StallCheckPosition = current;
+            context.StallCheckLastProgressUtc = DateTime.UtcNow;
+            return false;
+        }
+
+        var distanceMoved = current.Distance2DFrom(context.StallCheckPosition.Value);
+
+        if (distanceMoved > 0.5f)
+        {
+            context.StallCheckPosition = current;
+            context.StallCheckLastProgressUtc = DateTime.UtcNow;
+            return false;
+        }
+
+        if (DateTime.UtcNow - context.StallCheckLastProgressUtc > TimeSpan.FromSeconds(4))
+        {
+            context.Logger.Information(
+                $"Movement stall detected while targeting {destination}. " +
+                $"CurrentRoom: {DynelManager.LocalPlayer.Room?.Name} ({DynelManager.LocalPlayer.Room?.Instance}), " +
+                $"DistanceMoved: {distanceMoved:F2}.");
+            context.StallCheckPosition = current;
+            context.StallCheckLastProgressUtc = DateTime.UtcNow;
+            return true;
+        }
+
+        return false;
+    }
+
     private static void SetDestination(Vector3 destination, RkMissionContext context)
     {
         if (context.IsPathStale || !SMovementController.IsNavigating())
         {
+            context.StallCheckPosition = DynelManager.LocalPlayer.Position;
+            context.StallCheckLastProgressUtc = DateTime.UtcNow;
             SMovementController.SetNavDestination(destination);
 
             if (SMovementController.IsNavigating())
