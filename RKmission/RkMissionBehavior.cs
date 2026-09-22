@@ -20,7 +20,7 @@ public static class RkMissionBehavior
 {
     public static IBehaviour<RkMissionContext> Compile()
     {
-        // Mission-objective test with idle fallback while the objective is active.
+        // Mission-objective test with idle fallback while navigation is disabled.
         return FluentBuilder.Create<RkMissionContext>()
             .Selector("Rubi-Ka Mission Objective Test")
                 .Subtree(CompleteObjective())
@@ -77,9 +77,9 @@ public static class RkMissionBehavior
         if (mission == null || context.MissionObjectiveHandled)
             return BehaviourStatus.Failed;
 
+        // Deliberately do not call SetDestination here. This isolates mission
+        // and player-position access from SMovementController navigation.
         Vector3 destination = mission.Location.Pos;
-
-        SetDestination(destination, context);
 
         if (DynelManager.LocalPlayer.Position.DistanceFrom(destination) > 1f)
             return BehaviourStatus.Running;
