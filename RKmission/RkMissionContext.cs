@@ -38,6 +38,12 @@ public sealed class RkMissionContext : DungeonRunnerContext<RkMissionContext>
     /// </summary>
     public DateTime? StallCheckLastProgressUtc { get; set; }
 
+    /// <summary>
+    /// Last destination used for navigation. The stall timer is reset only when
+    /// this destination changes, not every tick while navigation is inactive.
+    /// </summary>
+    public Vector3? LastDestination { get; set; }
+
     /// <summary>Object identities that have already been processed or skipped.</summary>
     public HashSet<int> ProcessedObjects { get; } = new();
 
@@ -57,6 +63,7 @@ public sealed class RkMissionContext : DungeonRunnerContext<RkMissionContext>
         FightApproachStartUtc = null;
         StallCheckPosition = null;
         StallCheckLastProgressUtc = null;
+        LastDestination = null;
         ProcessedObjects.Clear();
 
         base.Reset();
