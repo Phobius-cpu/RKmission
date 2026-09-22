@@ -1,10 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFramework>net48</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <OutputType>Library</OutputType>
     <AssemblyName>RKmission</AssemblyName>
     <RootNamespace>RKmission</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AOSharp.NewBots\BTBotBase\BTBotBase.csproj" />
+    <ProjectReference Include="..\AOSharp.NewBots\DungeonSolver\DungeonSolver.csproj" />
+    <ProjectReference Include="..\AOSharp.NewBots\DungeonRunner\DungeonRunner.csproj" />
+  </ItemGroup>
 </Project>
