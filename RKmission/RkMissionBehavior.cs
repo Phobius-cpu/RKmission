@@ -20,8 +20,6 @@ public static class RkMissionBehavior
 {
     public static IBehaviour<RkMissionContext> Compile()
     {
-        // Fight targets before exploring. DungeonSolver only invalidates rooms
-        // after they are clear, so navigation must yield to combat first.
         return FluentBuilder.Create<RkMissionContext>()
             .Selector("Rubi-Ka Mission Explore Test")
                 .Subtree(Fight())
@@ -35,7 +33,7 @@ public static class RkMissionBehavior
     {
         return FluentBuilder.Create<RkMissionContext>()
             .Sequence("Fight")
-                .Do("Fight nearby target", FightStep)
+                .Do("Fight nearby target", c => RunSafely(c, "FightStep", FightStep))
             .End()
             .Build();
     }
@@ -47,7 +45,7 @@ public static class RkMissionBehavior
                 .Condition(
                     "Active mission",
                     c => c.ActiveMission != null && !c.MissionObjectiveHandled)
-                .Do("Complete objective", CompleteObjectiveStep)
+                .Do("Complete objective", c => RunSafely(c, "CompleteObjectiveStep", CompleteObjectiveStep))
             .End()
             .Build();
     }
@@ -56,7 +54,7 @@ public static class RkMissionBehavior
     {
         return FluentBuilder.Create<RkMissionContext>()
             .Sequence("Open Locked Door")
-                .Do("Open nearby locked door", OpenLockedDoorStep)
+                .Do("Open nearby locked door", c => RunSafely(c, "OpenLockedDoorStep", OpenLockedDoorStep))
             .End()
             .Build();
     }
@@ -65,9 +63,9 @@ public static class RkMissionBehavior
     {
         return FluentBuilder.Create<RkMissionContext>()
             .Sequence("Explore mission")
-                .Do("Check solver ready", CheckSolverReady)
-                .Do("Select next room", SelectNextRoom)
-                .Do("Move to room", MoveToRoom)
+                .Do("Check solver ready", c => RunSafely(c, "CheckSolverReady", CheckSolverReady))
+                .Do("Select next room", c => RunSafely(c, "SelectNextRoom", SelectNextRoom))
+                .Do("Move to room", c => RunSafely(c, "MoveToRoom", MoveToRoom))
             .End()
             .Build();
     }
@@ -79,6 +77,30 @@ public static class RkMissionBehavior
                 .Do("Idle", _ => BehaviourStatus.Running)
             .End()
             .Build();
+    }
+
+    private static BehaviourStatus RunSafely(
+        RkMissionContext context,
+        string stepName,
+        Func<RkMissionContext, BehaviourStatus> step)
+    {
+        try
+        {
+            return step(context);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.Error(
+                $"Behavior step '{stepName}' threw an exception. " +
+                $"CurrentRoom: {DynelManager.LocalPlayer.Room?.Name} " +
+                $"({DynelManager.LocalPlayer.Room?.Instance}). Exception: {ex}");
+
+            context.IsPathStale = true;
+            context.FightApproachStartUtc = null;
+            context.StallCheckPosition = null;
+            context.StallCheckLastProgressUtc = null;
+            return BehaviourStatus.Failed;
+        }
     }
 
     private static BehaviourStatus CheckSolverReady(RkMissionContext context)
@@ -152,7 +174,6 @@ public static class RkMissionBehavior
             return BehaviourStatus.Failed;
 
         Vector3 destination = mission.Location.Pos;
-
         SetDestination(destination, context);
 
         if (DynelManager.LocalPlayer.Position.DistanceFrom(destination) > 1f)
@@ -165,9 +186,7 @@ public static class RkMissionBehavior
     private static BehaviourStatus OpenLockedDoorStep(RkMissionContext context)
     {
         var door = Playfield.Doors
-            .Where(x =>
-                x.IsLocked &&
-                x.DistanceFrom(DynelManager.LocalPlayer) < 5f)
+            .Where(x => x.IsLocked && x.DistanceFrom(DynelManager.LocalPlayer) < 5f)
             .OrderBy(x => x.DistanceFrom(DynelManager.LocalPlayer))
             .FirstOrDefault();
 
