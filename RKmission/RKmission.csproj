@@ -14,4 +14,27 @@
     <ProjectReference Include="..\AOSharp.NewBots\DungeonSolver\DungeonSolver.csproj" />
     <ProjectReference Include="..\AOSharp.NewBots\DungeonRunner\DungeonRunner.csproj" />
   </ItemGroup>
+
+  <!-- The imported projects are legacy packages.config projects. Their assembly
+       references are not exposed transitively to this SDK-style project. -->
+  <ItemGroup>
+    <Reference Include="AOSharp.Common">
+      <HintPath>..\AOSharp.NewBots\packages\AOSharpSDK.1.0.103\lib\net48\AOSharp.Common.dll</HintPath>
+    </Reference>
+    <Reference Include="AOSharp.Core">
+      <HintPath>..\AOSharp.NewBots\packages\AOSharpSDK.1.0.103\lib\net48\AOSharp.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="AOSharp.SharpNav">
+      <HintPath>..\AOSharp.NewBots\packages\AOSharpSDK.SharpNav.1.0.43\lib\net48\AOSharp.SharpNav.dll</HintPath>
+    </Reference>
+    <Reference Include="BehaviourTree">
+      <HintPath>..\AOSharp.NewBots\packages\BehaviourTree.1.0.73\lib\netstandard1.0\BehaviourTree.dll</HintPath>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>..\AOSharp.NewBots\packages\Newtonsoft.Json.13.0.3\lib\net45\Newtonsoft.Json.dll</HintPath>
+    </Reference>
+    <Reference Include="Serilog">
+      <HintPath>..\AOSharp.NewBots\packages\Serilog.3.1.1\lib\net471\Serilog.dll</HintPath>
+    </Reference>
+  </ItemGroup>
 </Project>
