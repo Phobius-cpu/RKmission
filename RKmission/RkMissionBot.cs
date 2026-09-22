@@ -80,6 +80,8 @@ public sealed class RkMissionBot : DungeonRunner<RkMissionContext>
 
     protected override IBehaviour<RkMissionContext> BossRoomTree()
     {
+        Chat.WriteLine("RKmission: BossRoomTree() requested.");
+
         return FluentBuilder.Create<RkMissionContext>()
             .Sequence("RKmission BossRoom Test")
                 .Do("Idle", _ => BehaviourStatus.Succeeded)
@@ -89,6 +91,7 @@ public sealed class RkMissionBot : DungeonRunner<RkMissionContext>
 
     protected override IBehaviour<RkMissionContext> PreDungeonTree()
     {
+        Chat.WriteLine("RKmission: PreDungeonTree() requested.");
         return RkMissionBehavior.Compile();
     }
 
