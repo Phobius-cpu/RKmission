@@ -1,6 +1,7 @@
 using AOSharp.Core;
 using AOSharp.Core.UI;
 using BehaviourTree;
+using BehaviourTree.FluentBuilder;
 using Dungeon.Runner;
 using Dungeon.Solver;
 
@@ -41,15 +42,22 @@ public sealed class RkMissionBot : DungeonRunner<RkMissionContext>
         base.EnteredDungeon();
     }
 
-    // Keep behavior trees disabled while testing the DungeonRunner lifecycle.
     protected override IBehaviour<RkMissionContext> BossRoomTree()
     {
-        return null;
+        return FluentBuilder.Create<RkMissionContext>()
+            .Sequence("RKmission BossRoom Test")
+                .Do("Idle", _ => BehaviourStatus.Succeeded)
+            .End()
+            .Build();
     }
 
     protected override IBehaviour<RkMissionContext> PreDungeonTree()
     {
-        return null;
+        return FluentBuilder.Create<RkMissionContext>()
+            .Sequence("RKmission PreDungeon Test")
+                .Do("Idle", _ => BehaviourStatus.Succeeded)
+            .End()
+            .Build();
     }
 
     private void HandleCommand(
