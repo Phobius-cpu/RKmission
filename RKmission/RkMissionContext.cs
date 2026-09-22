@@ -19,6 +19,13 @@ public sealed class RkMissionContext : DungeonRunnerContext<RkMissionContext>
     public bool LootEnabled { get; set; } = true;
     public DateTime MissionStartedAt { get; set; }
 
+    /// <summary>
+    /// Timestamp when the bot started approaching the current fight target.
+    /// Used to detect and give up on unreachable targets so combat doesn't
+    /// permanently block dungeon exploration.
+    /// </summary>
+    public DateTime? FightApproachStartUtc { get; set; }
+
     /// <summary>Object identities that have already been processed or skipped.</summary>
     public HashSet<int> ProcessedObjects { get; } = new();
 
@@ -35,6 +42,7 @@ public sealed class RkMissionContext : DungeonRunnerContext<RkMissionContext>
         MissionObjectiveHandled = false;
         LootEnabled = true;
         MissionStartedAt = default;
+        FightApproachStartUtc = null;
         ProcessedObjects.Clear();
 
         base.Reset();
