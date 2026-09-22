@@ -112,7 +112,7 @@ public static class RkMissionBehavior
 
         if (DateTime.UtcNow - context.FightApproachStartUtc > TimeSpan.FromSeconds(5))
         {
-            context.Logger.Debug($"Giving up on unreachable target {target.Identity}.");
+            context.Logger.Information($"Giving up on unreachable target {target.Identity}.");
             context.FightApproachStartUtc = null;
             return BehaviourStatus.Failed;
         }
@@ -201,10 +201,25 @@ public static class RkMissionBehavior
         var solver = context.DungeonRunner.Solver;
 
         if (solver == null || solver.TargetRoom == null)
+        {
+            context.Logger.Information(
+                $"MoveToRoom: no target room available. " +
+                $"Solver: {(solver == null ? "null" : "present")}, " +
+                $"TargetRoom: {(solver?.TargetRoom == null ? "null" : solver.TargetRoom.Room.Instance.ToString())}, " +
+                $"CurrentRoom: {DynelManager.LocalPlayer.Room?.Name} " +
+                $"({DynelManager.LocalPlayer.Room?.Instance}).");
+
             return BehaviourStatus.Failed;
+        }
 
         if (solver.IsCurrentRoomStale)
         {
+            context.Logger.Information(
+                $"MoveToRoom: current room is stale. " +
+                $"CurrentRoom: {DynelManager.LocalPlayer.Room?.Name} " +
+                $"({DynelManager.LocalPlayer.Room?.Instance}), " +
+                $"TargetRoom: {solver.TargetRoom.Room.Instance}. Forcing path refresh.");
+
             context.IsPathStale = true;
             return BehaviourStatus.Failed;
         }
@@ -225,7 +240,16 @@ public static class RkMissionBehavior
         // If the character reaches the projected doorway point but the room has
         // not changed, force a fresh path request instead of idling there.
         if (DynelManager.LocalPlayer.Position.Distance2DFrom(destination) < 1f)
+        {
+            context.Logger.Information(
+                $"MoveToRoom: reached doorway point but room did not change. " +
+                $"CurrentRoom: {DynelManager.LocalPlayer.Room?.Name} " +
+                $"({DynelManager.LocalPlayer.Room?.Instance}), " +
+                $"TargetRoom: {targetRoom.Instance}, " +
+                $"IsNavigating: {SMovementController.IsNavigating()}. Forcing path refresh.");
+
             context.IsPathStale = true;
+        }
 
         return BehaviourStatus.Running;
     }
