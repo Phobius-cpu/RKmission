@@ -218,8 +218,9 @@ public static class RkMissionBehavior
             return BehaviourStatus.Failed;
         }
 
+        var currentRoom = DynelManager.LocalPlayer.Room;
         var targetRoom = solver.TargetRoom.Room;
-        var destination = GetDoorForward(targetRoom, solver.TargetRoom.Door);
+        var destination = GetDoorForward(currentRoom, targetRoom, solver.TargetRoom.Door);
 
         SetDestination(destination, context);
 
@@ -248,13 +249,45 @@ public static class RkMissionBehavior
         return BehaviourStatus.Running;
     }
 
-    private static Vector3 GetDoorForward(Room room, int doorIdx)
+    private static Vector3 GetDoorForward(Room currentRoom, Room targetRoom, int targetDoorIdx)
     {
-        room.GetDoorPosRot(doorIdx, out Vector3 position, out Quaternion rotation);
+        targetRoom.GetDoorPosRot(targetDoorIdx, out Vector3 targetDoorPosition, out Quaternion rotation);
 
-        return position + (rotation * (room.GetDoorConnectZone(doorIdx) == room.Instance
-            ? -Vector3.Forward
-            : Vector3.Forward));
+        var sourceDoorIdx = FindConnectedDoor(currentRoom, targetRoom.Instance);
+        if (sourceDoorIdx >= 0)
+        {
+            currentRoom.GetDoorPosRot(sourceDoorIdx, out Vector3 currentDoorPosition, out _);
+            var direction = targetDoorPosition - currentDoorPosition;
+            var length = Math.Sqrt(
+                direction.X * direction.X +
+                direction.Y * direction.Y +
+                direction.Z * direction.Z);
+
+            if (length > 0.001f)
+            {
+                var normalizedX = direction.X / length;
+                var normalizedY = direction.Y / length;
+                var normalizedZ = direction.Z / length;
+
+                return new Vector3(
+                    targetDoorPosition.X + normalizedX * 2f,
+                    targetDoorPosition.Y + normalizedY * 2f,
+                    targetDoorPosition.Z + normalizedZ * 2f);
+            }
+        }
+
+        return targetDoorPosition + (rotation * Vector3.Forward * 2f);
+    }
+
+    private static int FindConnectedDoor(Room room, int connectedRoomInstance)
+    {
+        for (var i = 0; i < room.NumDoors; i++)
+        {
+            if (room.GetDoorConnectZone(i) == connectedRoomInstance)
+                return i;
+        }
+
+        return -1;
     }
 
     private static bool IsMovementStalled(RkMissionContext context, Vector3 destination)
