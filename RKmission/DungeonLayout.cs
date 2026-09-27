@@ -13,11 +13,11 @@ namespace RKmission
         internal sealed class Connection
         {
             public int Source, Target;
-            public Door Door;
             public Vector3 Threshold, Interior, DeepInterior;
         }
 
         private readonly Dictionary<int, Room> _rooms;
+        private readonly Dictionary<int, List<Edge>> _worldWalls = new Dictionary<int, List<Edge>>();
         private readonly Dictionary<int, List<int>> _neighbors = new Dictionary<int, List<int>>();
         private readonly Dictionary<string, Connection> _connections = new Dictionary<string, Connection>();
         private readonly DungeonData _maliData;
@@ -36,13 +36,6 @@ namespace RKmission
                     int adjacent = room.GetDoorConnectZone(i);
                     if (adjacent == room.Instance || !_rooms.ContainsKey(adjacent)) continue;
                     room.GetDoorPosRot(i, out Vector3 threshold, out Quaternion rotation);
-                    Door door = Playfield.Doors.Where(x =>
-                        (x.RoomLink1?.Instance == room.Instance && x.RoomLink2?.Instance == adjacent) ||
-                        (x.RoomLink2?.Instance == room.Instance && x.RoomLink1?.Instance == adjacent))
-                        .OrderBy(x => Vector3.Distance(x.Position, threshold)).FirstOrDefault();
-                    if (door == null)
-                        door = Playfield.Doors.Where(x => Vector3.Distance(x.Position, threshold) < 2.5f)
-                            .OrderBy(x => Vector3.Distance(x.Position, threshold)).FirstOrDefault();
                     if (!TryInterior(adjacent, threshold, out Vector3 interior,
                         out Vector3 deepInterior))
                     {
@@ -51,8 +44,8 @@ namespace RKmission
                     }
                     _connections[Key(room.Instance, adjacent)] = new Connection
                     {
-                        Source = room.Instance, Target = adjacent, Door = door,
-                        Threshold = door?.Position ?? threshold,
+                        Source = room.Instance, Target = adjacent,
+                        Threshold = threshold,
                         Interior = interior, DeepInterior = deepInterior
                     };
                     if (!_neighbors[room.Instance].Contains(adjacent)) _neighbors[room.Instance].Add(adjacent);
@@ -67,20 +60,43 @@ namespace RKmission
         public Connection Edge(int source, int target) =>
             _connections.TryGetValue(Key(source, target), out Connection edge) ? edge : null;
 
+        public Door DoorAt(Connection edge) => Playfield.Doors
+            .Where(door => Vector3.Distance(door.Position, edge.Threshold) <= 3f)
+            .OrderByDescending(door =>
+                (door.RoomLink1?.Instance == edge.Source && door.RoomLink2?.Instance == edge.Target) ||
+                (door.RoomLink2?.Instance == edge.Source && door.RoomLink1?.Instance == edge.Target))
+            .ThenBy(door => Vector3.Distance(door.Position, edge.Threshold))
+            .FirstOrDefault();
+
         public bool IsInside(int roomId, Vector3 point, float clearance = 0f)
         {
             List<Edge> walls = Walls(roomId);
             return walls != null && walls.Count > 0 && Inside(walls, point, clearance);
         }
 
+        // The original Mali renderer discovers entities from AllDynels. Use
+        // its room outlines to associate those live entities with a room.
+        public bool ContainsDynel(int roomId, Dynel dynel)
+        {
+            Room room = Room(roomId);
+            return room != null &&
+                (dynel.Room == null || dynel.Room.Floor == room.Floor) &&
+                (IsInside(roomId, dynel.Position) || dynel.Room?.Instance == roomId);
+        }
+
+        public IEnumerable<Dynel> VisibleRoomDynels(int roomId) =>
+            DynelManager.AllDynels.Where(dynel => ContainsDynel(roomId, dynel));
+
         private List<Edge> Walls(int roomId)
         {
+            if (_worldWalls.TryGetValue(roomId, out List<Edge> cached)) return cached;
             Room room = Room(roomId);
             if (room == null || _maliData?.MeshData == null ||
                 !_maliData.MeshData.TryGetValue(room.Floor, out MeshData floor) ||
                 !floor.Walls.TryGetValue(roomId, out List<Edge> centered))
-                return null;
-            return centered.Select(x => new Edge(x.V1 + floor.Center, x.V2 + floor.Center)).ToList();
+                return _worldWalls[roomId] = null;
+            return _worldWalls[roomId] = centered
+                .Select(x => new Edge(x.V1 + floor.Center, x.V2 + floor.Center)).ToList();
         }
 
         private bool TryInterior(int roomId, Vector3 threshold, out Vector3 interior,

@@ -45,6 +45,7 @@ namespace ManagerLoot
         // RKMission limits the original loot state machine to the room being cleared.
         public int MissionRoomId { get; private set; } = -1;
         public Func<Dynel, int, bool> MissionRoomContains { get; set; }
+        public Func<int, IEnumerable<Dynel>> MissionRoomDynels { get; set; }
         private bool _enabledForMission;
 
         public void BeginMissionRoom(int roomId)
@@ -80,7 +81,8 @@ namespace ManagerLoot
             }
         }
 
-        public Dynel NextMissionLoot(int roomId) => DynelManager.AllDynels
+        public Dynel NextMissionLoot(int roomId) =>
+            (MissionRoomDynels?.Invoke(roomId) ?? DynelManager.AllDynels)
             .Where(x => (x.Identity.Type == IdentityType.Corpse || x.Identity.Type == IdentityType.Container)
                 && IsInMissionRoom(x, roomId)
                 && !_unreachableMissionLoot.Contains(x.Identity)
@@ -404,7 +406,10 @@ namespace ManagerLoot
 
                         if (Spell.HasPendingCast || Item.HasPendingUse || PerkAction.List.Any(perk => perk.IsExecuting)) return;
 
-                        var dynel = DynelManager.AllDynels.Where(c => !openedContainers.ContainsKey(c.Identity.Instance)
+                        var roomDynels = MissionRoomId >= 0
+                            ? MissionRoomDynels?.Invoke(MissionRoomId) ?? DynelManager.AllDynels
+                            : DynelManager.AllDynels;
+                        var dynel = roomDynels.Where(c => !openedContainers.ContainsKey(c.Identity.Instance)
                         && !_unreachableMissionLoot.Contains(c.Identity)
                         && (c.Identity.Type == IdentityType.Container || c.Identity.Type == IdentityType.Corpse)
                         && (MissionRoomId < 0 || IsInMissionRoom(c, MissionRoomId)))

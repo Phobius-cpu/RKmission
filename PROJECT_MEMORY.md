@@ -267,3 +267,40 @@ Project-relevant memory and visible conversation summaries may be recorded here.
   silently consuming the full transition timeout. The `door reached` log now
   includes threshold, live door, and AO# distances for in-game diagnosis.
 - Source only; the user will compile and test in game.
+
+## Adjacent Room Priority and Spatial Door Matching (2026-09-27)
+
+- The user reported apparent random room selection and travel toward the
+  origin. A transition 2->7 log showed the player 2.3m from the planned
+  threshold but 78.3m from the `Door` refreshed by identity.
+- The layout previously stored a `Door` object and its position as the
+  threshold, then looked up that identity later without checking position.
+  The live door could be far from the originally mapped passage, causing
+  navigation to leave the local room. The threshold is now always the
+  `Room.GetDoorPosRot` position used by Mali's original map, and each tick
+  chooses only a live door within 3m of that threshold, preferring matching
+  room links. A far identity cannot redirect the character.
+- `NextRoom` now explicitly takes the closest usable adjacent *unvisited*
+  room before any graph search. When none remains, breadth first search
+  routes through visited rooms toward an unvisited room and logs both the
+  intermediate room and target. Equal-depth fallback paths order their
+  doorways from the entry position of each room.
+- Source only; the user will compile and test in game.
+
+## Malis Room Entity Survey (2026-09-28)
+
+- The user additionally requested use of Malis Dungeon Map resources to find
+  lootable containers and enemies throughout the mission.
+- The original renderer classifies live `DynelManager.AllDynels` entries by
+  `IdentityType.SimpleChar` and `IdentityType.Container`; it does not provide
+  an inventory of unseen or unspawned entities. RKMission now shares that
+  live source and Mali's world-space room outlines through `DungeonLayout`.
+- Combat considers room-mapped `SimpleChar` entries even when AO# room tags
+  are missing or inaccurate, while preserving player and own-pet exclusions
+  and spawned-enemy targeting. Manager.Loot's original state machine receives
+  the same room-mapped candidates for container and corpse selection and
+  opening. Mission objectives also use the common room membership check.
+- A one-time room survey log reports visible live enemy candidates,
+  containers, and corpses; new spawns are still evaluated on later ticks.
+  Mali wall outlines are cached for repeated entity checks.
+- Source only; no local compile or in-game test was run.

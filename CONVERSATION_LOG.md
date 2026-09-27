@@ -212,3 +212,34 @@ world-space distance and the refreshed door position, bounded a stalled
 approach at six seconds, and logged both distance readings at the doorway.
 The original log does not contain those readings, so the exact discrepancy
 will be visible on the next in-game run. No local compile or test was run.
+
+### User room-choice and door-distance log (continued in Codex)
+
+> Navigation seems okay, but room choice appears random and returns toward
+> the origin. In transition 2->7 the bot reached a threshold 2.3m away while
+> its refreshed door was 78.3m away.
+
+### Assistant action
+
+Found that the stored door identity was refreshed without a position check,
+allowing a distant live door to redirect navigation away from Mali's mapped
+passage. Kept the mapped threshold fixed and resolved the live door by proximity
+to it on each tick. Made closest adjacent unvisited room the explicit first
+choice; backtracking now occurs only to reach a more distant unvisited room
+and logs that target. No local compile or in-game test was run.
+
+### User entity discovery addition (continued in Codex)
+
+> Also use Malis Dungeon Map plugin resources to identify all lootable
+> containers and enemies within the mission.
+
+### Assistant action
+
+Inspected the integrated original renderer: it enumerates live AO# dynels and
+uses simple-character and container identity types, while the map factory
+provides room outlines. Added a shared room-mapped live entity view using
+those outlines. Combat, Manager.Loot's room candidate and opening paths, and
+mission objectives now use it; one survey per room logs visible enemies,
+containers, and corpses. This covers entities as the client loads or spawns
+them, since the plugin has no separate list of unseen entities. No local
+compile or in-game test was run.

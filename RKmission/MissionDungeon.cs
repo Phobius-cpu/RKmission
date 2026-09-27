@@ -19,6 +19,7 @@ namespace RKmission
         private readonly ManagerLoot.ManagerLoot _loot;
         private readonly HashSet<int> _clearedRooms = new HashSet<int>();
         private readonly HashSet<int> _visitedRooms = new HashSet<int>();
+        private readonly HashSet<int> _surveyedRooms = new HashSet<int>();
         private readonly Dictionary<string, EdgeFailure> _edgeFailures = new Dictionary<string, EdgeFailure>();
         private readonly Dictionary<string, DateTime> _reverseCooldown = new Dictionary<string, DateTime>();
         private NavMesh[] _meshes;
@@ -77,6 +78,7 @@ namespace RKmission
                 return;
             _clearedRooms.Clear();
             _visitedRooms.Clear();
+            _surveyedRooms.Clear();
             _edgeFailures.Clear();
             _reverseCooldown.Clear();
             _combatTarget = Identity.None;
@@ -92,7 +94,8 @@ namespace RKmission
             _meshes = null;
             _layout = new DungeonLayout();
             _loot.MissionRoomContains = (dynel, roomId) =>
-                _layout != null && _layout.IsInside(roomId, dynel.Position);
+                _layout != null && _layout.ContainsDynel(roomId, dynel);
+            _loot.MissionRoomDynels = _layout.VisibleRoomDynels;
             if (_layout.MissingConnections > 0)
                 _say($"Mali map has no safe interior point for {_layout.MissingConnections} room connections; those routes are unavailable.");
             IsComplete = false;
@@ -121,6 +124,7 @@ namespace RKmission
             IsRunning = false;
             _loot.EndMissionRoom();
             _loot.MissionRoomContains = null;
+            _loot.MissionRoomDynels = null;
             _destination = null;
             _transition = null;
             _layout = null;
@@ -188,6 +192,18 @@ namespace RKmission
                 _observedRoom = -1;
             }
             _loot.BeginMissionRoom(room.Instance);
+            if (_surveyedRooms.Add(room.Instance))
+            {
+                var visible = _layout.VisibleRoomDynels(room.Instance).ToList();
+                int characters = visible.Where(x => x.Identity.Type == IdentityType.SimpleChar)
+                    .Select(x => new SimpleChar(x))
+                    .Count(x => x.IsAlive && !x.IsPlayer &&
+                        !(x.IsPet && x.PetOwnerId == DynelManager.LocalPlayer.Identity.Instance));
+                int containers = visible.Count(x => x.Identity.Type == IdentityType.Container);
+                int corpses = visible.Count(x => x.Identity.Type == IdentityType.Corpse);
+                _say($"Mali room {room.Instance}: {characters} live enemy candidates, " +
+                    $"{containers} containers, {corpses} corpses currently visible.");
+            }
             if (HandleObjective(room, false) || FightInRoom(room) ||
                 HandleObjective(room, true) || LootInRoom(room))
             {
@@ -238,15 +254,19 @@ namespace RKmission
         {
             SimpleChar player = DynelManager.LocalPlayer;
             var players = new HashSet<Identity>(DynelManager.Players.Select(x => x.Identity));
-            var hostileOwners = new HashSet<int>(DynelManager.NPCs
-                .Where(x => !x.IsPet && x.Room?.Instance == room.Instance)
+            var mappedCharacters = _layout.VisibleRoomDynels(room.Instance)
+                .Where(x => x.Identity.Type == IdentityType.SimpleChar)
+                .Select(x => new SimpleChar(x)).ToList();
+            var hostileOwners = new HashSet<int>(mappedCharacters
+                .Concat(DynelManager.NPCs)
+                .Where(x => x.IsNpc && !x.IsPet && _layout.ContainsDynel(room.Instance, x))
                 .Select(x => x.Identity.Instance));
-            SimpleChar enemy = DynelManager.NPCs
-                .Concat(DynelManager.AllDynels.OfType<SimpleChar>())
+            SimpleChar enemy = mappedCharacters
+                .Concat(DynelManager.NPCs)
                 .GroupBy(x => x.Identity).Select(group => group.First())
                 .Where(x =>
                 {
-                    if (!x.IsAlive || players.Contains(x.Identity) ||
+                    if (!x.IsAlive || x.IsPlayer || players.Contains(x.Identity) ||
                         x.Identity == player.Identity ||
                         (x.IsPet && x.PetOwnerId == player.Identity.Instance))
                         return false;
@@ -255,7 +275,7 @@ namespace RKmission
                     bool alarmSentry = x.Name != null &&
                         x.Name.IndexOf("Alarm Sentry", StringComparison.OrdinalIgnoreCase) >= 0;
                     bool spawnedByEnemy = x.IsPet && hostileOwners.Contains(x.PetOwnerId);
-                    bool inRoom = x.Room?.Instance == room.Instance;
+                    bool inRoom = _layout.ContainsDynel(room.Instance, x);
                     bool near = x.DistanceFrom(player) < 25f;
                     return (!x.IsPet && inRoom) ||
                         (near && attackingPlayer) ||
@@ -321,7 +341,7 @@ namespace RKmission
                 return false; // KillPersonAction is handled by combat.
 
             Dynel target = DynelManager.GetDynel(targetId);
-            if (target == null || target.Room?.Instance != room.Instance)
+            if (target == null || !_layout.ContainsDynel(room.Instance, target))
                 return false;
             if (target.DistanceFrom(DynelManager.LocalPlayer) > 4f)
             {
@@ -444,6 +464,19 @@ namespace RKmission
         {
             if (_layout == null)
                 return null;
+            int? adjacent = _layout.Neighbors(current.Instance)
+                .Where(id => !_visitedRooms.Contains(id) && !IsUnavailable(current.Instance, id))
+                .OrderBy(id => Vector3.Distance(_layout.Edge(current.Instance, id).Threshold,
+                    DynelManager.LocalPlayer.Position))
+                .Select(id => (int?)id)
+                .FirstOrDefault();
+            if (adjacent.HasValue)
+            {
+                _say($"Choosing adjacent unvisited room {adjacent} from {current.Instance}.");
+                return _layout.Room(adjacent.Value);
+            }
+
+            // Backtrack only when no usable adjacent room remains unexplored.
             var queue = new Queue<int>();
             var parent = new Dictionary<int, int>();
             queue.Enqueue(current.Instance);
@@ -455,19 +488,25 @@ namespace RKmission
                 Room room = _layout.Room(index);
                 if (room == null)
                     continue;
-                if (!_clearedRooms.Contains(index))
+                if (index != current.Instance && !_visitedRooms.Contains(index))
                 {
+                    int goal = index;
                     while (parent[index] != current.Instance && parent[index] != -1)
                         index = parent[index];
+                    _say($"No adjacent unvisited room from {current.Instance}; " +
+                        $"routing through room {index} toward unvisited room {goal}.");
                     return _layout.Room(index);
                 }
 
-                // BFS preserves room-by-room travel. Sort each frontier by distance
-                // so a stalled route falls back to the nearest reachable neighbor.
+                // Prefer the shortest available chain of room connections. The
+                // nearest doorway breaks ties between paths of equal depth.
+                Vector3 entryPosition = index == current.Instance
+                    ? DynelManager.LocalPlayer.Position
+                    : _layout.Edge(parent[index], index).Interior;
                 foreach (int adjacent in _layout.Neighbors(index)
                     .Where(id => !IsUnavailable(index, id))
                     .OrderBy(id => Vector3.Distance(_layout.Edge(index, id).Threshold,
-                        DynelManager.LocalPlayer.Position)))
+                        entryPosition)))
                 {
                     if (parent.ContainsKey(adjacent))
                         continue;
@@ -482,6 +521,7 @@ namespace RKmission
         {
             DungeonLayout.Connection edge = _layout.Edge(source, target);
             if (edge == null) return;
+            Door door = _layout.DoorAt(edge);
             DateTime now = DateTime.UtcNow;
             _transition = new Transition
             {
@@ -492,15 +532,14 @@ namespace RKmission
             _loot.EndMissionRoom();
             _destination = null;
             _observedRoom = -1;
-            _say($"Transition {source}->{target}: approach doorway at {edge.Threshold}, door {edge.Door?.Identity.ToString() ?? "none"}; interior {edge.Interior}.");
+            _say($"Transition {source}->{target}: approach doorway at {edge.Threshold}, door {door?.Identity.ToString() ?? "none"}; interior {edge.Interior}.");
         }
 
         private void TickTransition(Room detectedRoom)
         {
             Transition crossing = _transition;
             DungeonLayout.Connection edge = crossing.Edge;
-            Door door = edge.Door == null ? null :
-                Playfield.Doors.FirstOrDefault(x => x.Identity == edge.Door.Identity);
+            Door door = _layout.DoorAt(edge);
             DateTime now = DateTime.UtcNow;
             Vector3 position = DynelManager.LocalPlayer.Position;
             bool targetDetected = detectedRoom.Instance == edge.Target;
