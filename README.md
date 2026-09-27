@@ -1,67 +1,52 @@
-# RKmission — Rubi-Ka Mission Bot
+# RKMission
 
-This repository adapts the dungeon-oriented layout of `AOSharp.NewBots` into a Rubi-Ka mission runner for Anarchy Online.
+AO# plugin for solo Rubi-Ka missions. The source targets .NET Framework 4.8 and
+uses the AOSharp SDK packages referenced in `RKmission/RKmission.csproj`.
 
-## Architecture
+## Run
 
-The solution currently contains one portable core project:
+1. In the desired Rubi-Ka playfield, use a solo mission terminal. RKMission
+   remembers the terminal you used.
+2. Set the target playfield with `/rkm zone <playfield id>` (the current
+   playfield is the default), then use `/rkm start`.
+3. RKMission first chooses the nearest already accepted mission in that
+   playfield. If there is none, it requests mission offers until the playfield
+   matches, accepts the nearest matching offer, and travels to its entrance.
+4. Inside, it generates a dungeon navmesh, clears hostiles in the current room,
+   handles a visible mission objective, loots corpses and chests, lockpicks
+   locked chests and doors, then follows room connections to an uncleared room.
+   The run stops when every reachable room is clear.
 
-- `RKmission/MissionRunner.cs` — deterministic mission state machine.
-- `RKmission/AoSharpMissionAdapter.cs` — the only AOSharp-specific integration boundary.
-- `RKmission/RkMissionPlugin.cs` — host lifecycle and command facade.
+Commands: `/rkm start`, `/rkm stop`, `/rkm status`, `/rkm zone <id>`,
+`/rkm rolls <count>` (default 100), and `/rkm difficulty <0-255>` (default 128).
 
-This separation mirrors the source solution's division between shared bot behavior, dungeon solving, dungeon execution, and mission-specific plugins:
+Keep a Lock Pick in normal inventory and enough free slots for loot. RKMission
+stops rather than skipping a locked object, an unreachable enemy, or a failed
+container. It also stops if movement stalls, the character dies, or the
+objective cannot be found in the explored rooms.
 
-| AOSharp.NewBots concept | RKmission equivalent |
-| --- | --- |
-| `BTBotBase` | `MissionRunner` and `IMissionWorld` |
-| `DungeonSolver` | visited-room tracking and target selection |
-| `DungeonRunner` | `RkMissionPlugin` update loop |
-| mission-specific bot | `AoSharpMissionAdapter` plus mission configuration |
+The current AO# navigation path covers the selected outdoor playfield and the
+mission dungeon. If a chosen mission is in another playfield, move the
+character to that playfield; travel to the mission resumes there. The plugin
+reports when it has cleared all reachable rooms, but AO# mission reward and
+quest completion should be checked in game. It does not delete missions or
+automatically start another run.
 
-## Intended Rubi-Ka flow
+## Source decisions
 
-1. Detect that the character is inside a mission instance.
-2. Discover visible rooms/areas and record visited room keys.
-3. Find the nearest unopened door or chest.
-4. Navigate to it.
-5. Check inventory for a usable key or lockpick when locked.
-6. Interact with the door/chest.
-7. Loot chests.
-8. Continue until the mission is explored or a safety limit is reached.
+- Mission requests and acceptance follow the supplied Mali mission roller:
+  `MissionTerminal.RequestMissions`, `Mission.RollListChanged`, and
+  `CreateQuestMessage`.
+- Room connections and navmesh generation follow the supplied AOSharp.NewBots
+  DungeonSolver/DungeonRunner pattern. The runner clears a room before
+  selecting its next connected room.
+- Corpse/chest opening and item transfer follow the supplied Manager.Loot
+  pattern: `Inventory.ContainerOpened`, `Container.Items`, and
+  `Item.MoveToInventory()`.
+- Locked objects use AO# `LockableItem`/`Door` state and `Lock Pick.UseOn`.
+- The uploaded `RKmission.zip` contained an earlier, separate dungeon bot
+  experiment. The old repository held disconnected placeholders and duplicate
+  classes; these were replaced with one AO# plugin entry point.
 
-## AOSharp integration
-
-The linked GitLab solution file identifies the project layout but does not contain the API declarations needed to compile against a specific AOSharp checkout. Therefore, all calls that vary by AOSharp version are deliberately isolated in `AoSharpMissionAdapter.cs` and marked with `NotImplementedException`.
-
-To finish the integration, bind these adapter methods to the checked-out AOSharp.NewBots APIs:
-
-- mission-zone and character state
-- visible door/chest entity discovery
-- navmesh or dungeon movement
-- door/chest interaction
-- inventory key/lockpick lookup
-- chest loot/container access
-- movement cancellation
-- chat output
-
-No raw packet manipulation or combat automation is included.
-
-## Commands
-
-The host facade accepts:
-
-- `start`
-- `stop`
-- `status`
-
-Register these with the exact AOSharp chat-command API used by the target checkout.
-
-## Safety behavior
-
-- Stops if the character leaves the mission or dies.
-- Limits duration and visited rooms.
-- Uses interaction cooldowns.
-- Skips locked objects without a usable key/lockpick.
-- Stops after repeated interaction failures.
-- Does not automatically attack characters or mobs.
+The user compiles and tests in AO#. Local compilation and tests are
+intentionally left to that in-game workflow.

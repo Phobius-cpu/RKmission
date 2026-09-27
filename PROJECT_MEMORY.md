@@ -55,6 +55,22 @@ Use this repository as the persistent source of truth for RKMission project code
 
 Project-relevant memory and visible conversation summaries may be recorded here. Hidden system instructions, hidden reasoning, private chain-of-thought, credentials, or other non-user-visible internal data must not be stored.
 
-## Current Direction
+## Current Implementation (2026-09-27)
 
-The next development focus is the end-to-end mission automation architecture and implementation, using the supplied AO#/AOSharp and Malis mission/dungeon projects as reference sources.
+- Replaced the starter's duplicate, nonfunctional portable stubs with a single
+  AO# plugin entry point, `RkMissionBot`, targeting .NET Framework 4.8.
+- `MissionRoller` filters offered and accepted missions by configured Rubi-Ka
+  playfield and selects the nearest one when the character is in that area.
+  It requests offers through `MissionTerminal` and accepts through
+  `CreateQuestMessage`, with a roll limit and acceptance timeout.
+- `MissionDungeon` generates an AO# dungeon navmesh and uses room connections
+  to clear rooms in order. It prioritizes enemies, mission objective
+  interaction, corpse/chest loot, locked object handling, and movement to
+  another uncleared room.
+- No object or enemy is silently skipped after a failed interaction: the run
+  stops and reports the reason for the user's in-game diagnosis.
+- Navigation can resume in the target outdoor playfield but does not route
+  automatically across playfields. Objective completion/reward status requires
+  in-game confirmation; the plugin reports room clearance separately.
+- User retains compilation and in-game testing responsibility. Do not run
+  local builds/tests unless they request it.

@@ -40,3 +40,18 @@ The RKMission project goal and supplied references were also saved to ChatGPT pr
 ### Assistant action
 
 Confirmed access to the private `Phobius-cpu/RKmission` repository and created persistent project-memory and visible-conversation history files.
+
+### User (continued in Codex)
+
+> Inspect the uploaded ZIP archives and connected GitHub repo. Merge the relevant
+> AO#/AOSharp, mission roller, dungeon mapping/navigation, combat, looting,
+> lockpicking, and mission selection into RKMission. Do not compile or test
+> locally; I will compile and test in-game. Commit coherent source changes.
+
+### Assistant action
+
+Inspected all six supplied archives and the repository. Replaced duplicate
+placeholder classes with one AO# plugin, a zone-filtered mission roller, and
+a dungeon room-clearing loop. Documented the cross-playfield navigation and
+quest-completion checks for in-game follow-up. No local compile or test was
+performed.
