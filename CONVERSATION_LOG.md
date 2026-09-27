@@ -100,3 +100,26 @@ rolling and room-scoped Manager.Loot operation. Doorway navigation now waits
 for a stable destination room ID, times out by elapsed transition time, and
 blocks failed edges before selecting another closest reachable room. No local
 compile or test was performed, as requested.
+
+### User in-game feedback (continued in Codex)
+
+> The bot still gets stuck when entering a new room. Use the actual embedded
+> Malis Dungeon Map interfaces, make room entry a dedicated transition,
+> approach/open/lockpick the connecting door, cross to an interior point,
+> suppress retargeting until confirmed entry, prevent immediate reversal,
+> retry deeper and temporarily blacklist failed edges, preserve combat and
+> loot integrations, add useful logs, and commit to main. Do not compile or
+> test locally.
+
+### Assistant action
+
+Inspected the current navigation and embedded original Mali map factory.
+Found that the crossing path still used `Room.Center` as a world destination,
+although Mali's terrain builder treats it as tilemap coordinates. Replaced
+that destination with points sampled inside Mali's original room outlines
+in world coordinates. Added explicit doorway approach, opening/lockpicking,
+crossing, deeper retry, stable target-room confirmation, reverse-edge
+cooldown, and temporary edge failure blacklisting with nearest reachable
+fallback. Kept Manager.Loot, combat, and objective handling after confirmed
+room entry. Added logs for each phase and failure. No local compile or
+in-game test was performed.

@@ -140,3 +140,29 @@ Project-relevant memory and visible conversation summaries may be recorded here.
   doorway. It clears each confirmed room before choosing another edge.
 - No local compile or tests were run, per the user's workflow. The next validation
   is the user's build and in-game room-entry, map, rolling, and loot checks.
+
+## Dedicated Room Crossing Revision (2026-09-27)
+
+- The previous doorway fix still navigated to `Room.Center` after opening a
+  door. Mali's `DungeonTerrainHeight` uses `Room.Center` in tilemap units
+  multiplied by tile size, while AO# movement destinations and Mali's wall
+  vertices are world positions. The earlier destination could therefore be
+  wrong even when room ID stabilization worked.
+- `DungeonLayout` now calls the embedded original
+  `MalisDungeonMap2.DungeonMapFactory.GetDungeonData()`, converts its
+  recentered room boundary edges back to world coordinates, and samples a
+  safe target interior point and a deeper fallback. It retains AO#'s original
+  room door links and door objects for topology and interaction.
+- `MissionDungeon` now owns one transition state from source room to target:
+  approach the connecting doorway, open or lockpick it, cross to the Mali
+  interior point, and push deeper if navigation arrives while AO# still reports
+  the source room. It suppresses ordinary room, combat, objective, and loot
+  routing until the target room ID remains stable for a second and the player
+  is safely inside the Mali target outline.
+- Confirmed crossings mark the target visited and hold the reverse edge for
+  eight seconds. Failed crossings log retries and temporarily blacklist the
+  undirected edge for 30 then 90 seconds, choosing another reachable unvisited
+  room; a third failure blocks it for the run. Missing safe Mali geometry is
+  logged. Existing Manager.Loot and mission roller integrations remain in place.
+- Source only. No local compilation or tests were performed; the user will
+  pull, compile, and test in game.

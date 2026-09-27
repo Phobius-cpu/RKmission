@@ -11,37 +11,53 @@ using SharpNav;
 namespace RKmission
 {
     /// <summary>
-    /// Clears the current room before traversing the shortest route to an uncleared
-    /// adjacent room. Room connections come from AO#'s dungeon map, not screen pixels.
+    /// Clears each confirmed room, then crosses one Mali-mapped room connection.
     /// </summary>
     internal sealed class MissionDungeon : IDisposable
     {
         private readonly Action<string> _say;
         private readonly ManagerLoot.ManagerLoot _loot;
         private readonly HashSet<int> _clearedRooms = new HashSet<int>();
-        private readonly HashSet<string> _blockedEdges = new HashSet<string>();
+        private readonly HashSet<int> _visitedRooms = new HashSet<int>();
+        private readonly Dictionary<string, EdgeFailure> _edgeFailures = new Dictionary<string, EdgeFailure>();
+        private readonly Dictionary<string, DateTime> _reverseCooldown = new Dictionary<string, DateTime>();
         private NavMesh[] _meshes;
         private DungeonLayout _layout;
         private Identity _combatTarget = Identity.None;
         private Mission _mission;
         private bool _objectiveAttempted;
         private int _currentRoom = -1;
-        private int _targetRoom = -1;
+        private Transition _transition;
         private Vector3? _destination;
         private DateTime _actionAt;
         private DateTime _roomQuietAt;
-        private DateTime _transitionStarted;
         private DateTime _observedRoomAt;
         private int _observedRoom = -1;
         private DateTime _lootWaitStarted;
         private Identity _waitingForLoot = Identity.None;
         private int _floor;
-        private int _doorAttempts;
+
+        private enum TransitionPhase { ApproachDoor, OpenDoor, CrossDoor }
+        private sealed class Transition
+        {
+            public DungeonLayout.Connection Edge;
+            public TransitionPhase Phase;
+            public DateTime Started, PhaseStarted, LastAction, LastProgress;
+            public float BestDistance;
+            public int DoorAttempts, CrossingRetries;
+            public bool PushingDeeper;
+        }
+        private sealed class EdgeFailure
+        {
+            public int Count;
+            public DateTime Until;
+            public bool Permanent;
+        }
 
         public bool IsRunning { get; private set; }
         public bool IsComplete { get; private set; }
         public string Status => IsComplete ? "complete" : !IsRunning ? "idle" :
-            $"cleared {_clearedRooms.Count} rooms";
+            $"visited {_visitedRooms.Count}, cleared {_clearedRooms.Count} rooms";
 
         public MissionDungeon(Action<string> say, ManagerLoot.ManagerLoot loot)
         {
@@ -56,7 +72,9 @@ namespace RKmission
             if (!Playfield.IsDungeon || DynelManager.LocalPlayer?.Room == null)
                 return;
             _clearedRooms.Clear();
-            _blockedEdges.Clear();
+            _visitedRooms.Clear();
+            _edgeFailures.Clear();
+            _reverseCooldown.Clear();
             _combatTarget = Identity.None;
             _waitingForLoot = Identity.None;
             _mission = (Mission.List ?? new List<Mission>())
@@ -64,14 +82,15 @@ namespace RKmission
                 (mission == null && Mission.List?.Count == 1 ? Mission.List[0] : null);
             _objectiveAttempted = false;
             _currentRoom = -1;
-            _targetRoom = -1;
+            _transition = null;
             _destination = null;
             _meshes = null;
             _layout = new DungeonLayout();
+            if (_layout.MissingConnections > 0)
+                _say($"Mali map has no safe interior point for {_layout.MissingConnections} room connections; those routes are unavailable.");
             IsComplete = false;
             IsRunning = true;
             _roomQuietAt = DateTime.MinValue;
-            _transitionStarted = DateTime.MinValue;
             _observedRoom = -1;
             _floor = Math.Abs(DynelManager.LocalPlayer.Room.Floor);
             new DungeonNavMeshFactory().GenerateNavMeshAsync().ContinueWith(task =>
@@ -95,7 +114,7 @@ namespace RKmission
             IsRunning = false;
             _loot.EndMissionRoom();
             _destination = null;
-            _targetRoom = -1;
+            _transition = null;
             _layout = null;
             SMovementController.Halt();
         }
@@ -126,15 +145,15 @@ namespace RKmission
             }
 
             Room room = DynelManager.LocalPlayer.Room;
-            if (_targetRoom >= 0 && _transitionStarted != DateTime.MinValue &&
-                DateTime.UtcNow - _transitionStarted > TimeSpan.FromSeconds(18))
+            if (_transition != null)
             {
-                FailTransition(_currentRoom, _targetRoom);
-                if (room.Instance != _currentRoom) return;
+                TickTransition(room);
+                return; // Room selection, combat and loot cannot retarget a doorway crossing.
             }
             if (_currentRoom < 0)
             {
                 _currentRoom = room.Instance;
+                _visitedRooms.Add(room.Instance);
                 _roomQuietAt = DateTime.MinValue;
             }
             else if (room.Instance != _currentRoom)
@@ -144,22 +163,16 @@ namespace RKmission
                     _observedRoom = room.Instance;
                     _observedRoomAt = DateTime.UtcNow;
                 }
-                // A doorway can briefly report either room. Do not treat a boundary
-                // flicker as a completed transition or plan a route back through it.
                 if (DateTime.UtcNow - _observedRoomAt < TimeSpan.FromSeconds(1))
                     return;
-                if (_targetRoom >= 0 && room.Instance != _targetRoom)
-                {
-                    FailTransition(_currentRoom, _targetRoom);
+                if (!_layout.IsInside(room.Instance, DynelManager.LocalPlayer.Position, 0.5f))
                     return;
-                }
                 _currentRoom = room.Instance;
-                _targetRoom = -1;
+                _visitedRooms.Add(room.Instance);
                 _destination = null;
-                _transitionStarted = DateTime.MinValue;
                 _observedRoom = -1;
                 _roomQuietAt = DateTime.MinValue;
-                _doorAttempts = 0;
+                _say($"Confirmed room {_currentRoom} outside an active doorway crossing.");
                 SMovementController.Halt();
             }
             else
@@ -170,7 +183,6 @@ namespace RKmission
             if (HandleObjective(room, false) || FightInRoom(room) ||
                 HandleObjective(room, true) || LootInRoom(room))
             {
-                _targetRoom = -1;
                 _roomQuietAt = DateTime.MinValue;
                 return;
             }
@@ -188,10 +200,13 @@ namespace RKmission
             if (next == null)
             {
                 SMovementController.Halt();
-                if (_blockedEdges.Count > 0 && _clearedRooms.Count < Playfield.Rooms.Count)
+                if (_edgeFailures.Values.Any(x => !x.Permanent && x.Until > DateTime.UtcNow) ||
+                    _reverseCooldown.Values.Any(x => x > DateTime.UtcNow))
+                    return;
+                if (_clearedRooms.Count < Playfield.Rooms.Count)
                 {
                     Stop();
-                    _say("No further reachable rooms; blocked doors/routes remain. The current room was cleared.");
+                    _say("No further reachable rooms; failed doors/routes or missing Mali room geometry remain.");
                     return;
                 }
                 if (_mission != null && !_objectiveAttempted && _mission.Actions.Any(x =>
@@ -206,7 +221,7 @@ namespace RKmission
                 return;
             }
 
-            MoveToAdjacentRoom(room, next);
+            BeginTransition(room.Instance, next.Instance);
         }
 
         private bool FightInRoom(Room room)
@@ -333,9 +348,6 @@ namespace RKmission
         {
             if (_layout == null)
                 return null;
-            if (_targetRoom >= 0 && _layout.Neighbors(current.Instance).Contains(_targetRoom) &&
-                !_blockedEdges.Contains(EdgeKey(current.Instance, _targetRoom)))
-                return _layout.Room(_targetRoom);
             var queue = new Queue<int>();
             var parent = new Dictionary<int, int>();
             queue.Enqueue(current.Instance);
@@ -357,8 +369,8 @@ namespace RKmission
                 // BFS preserves room-by-room travel. Sort each frontier by distance
                 // so a stalled route falls back to the nearest reachable neighbor.
                 foreach (int adjacent in _layout.Neighbors(index)
-                    .Where(id => !_blockedEdges.Contains(EdgeKey(index, id)))
-                    .OrderBy(id => Vector3.Distance(_layout.Room(id).Center,
+                    .Where(id => !IsUnavailable(index, id))
+                    .OrderBy(id => Vector3.Distance(_layout.Edge(index, id).Threshold,
                         DynelManager.LocalPlayer.Position)))
                 {
                     if (parent.ContainsKey(adjacent))
@@ -370,67 +382,192 @@ namespace RKmission
             return null;
         }
 
-        private void MoveToAdjacentRoom(Room current, Room next)
+        private void BeginTransition(int source, int target)
         {
-            if (_targetRoom != next.Instance)
+            DungeonLayout.Connection edge = _layout.Edge(source, target);
+            if (edge == null) return;
+            DateTime now = DateTime.UtcNow;
+            _transition = new Transition
             {
-                _targetRoom = next.Instance;
-                _transitionStarted = DateTime.UtcNow;
-                _destination = null;
-                _doorAttempts = 0;
-            }
-            Door door = Playfield.Doors.FirstOrDefault(x =>
-                (x.RoomLink1?.Instance == current.Instance && x.RoomLink2?.Instance == next.Instance) ||
-                (x.RoomLink2?.Instance == current.Instance && x.RoomLink1?.Instance == next.Instance));
+                Edge = edge, Phase = TransitionPhase.ApproachDoor,
+                Started = now, PhaseStarted = now, LastProgress = now,
+                BestDistance = float.MaxValue
+            };
+            _loot.EndMissionRoom();
+            _destination = null;
+            _observedRoom = -1;
+            _say($"Transition {source}->{target}: approach doorway at {edge.Threshold}; interior {edge.Interior}.");
+        }
 
-            if (door != null && door.DistanceFrom(DynelManager.LocalPlayer) > 4f)
+        private void TickTransition(Room detectedRoom)
+        {
+            Transition crossing = _transition;
+            DungeonLayout.Connection edge = crossing.Edge;
+            DateTime now = DateTime.UtcNow;
+            Vector3 position = DynelManager.LocalPlayer.Position;
+            if (detectedRoom.Instance == edge.Target &&
+                Vector3.Distance(position, edge.Threshold) > 2.5f &&
+                _layout.IsInside(edge.Target, position, 0.8f))
             {
-                Navigate(door.Position);
+                if (_observedRoom != edge.Target)
+                {
+                    _observedRoom = edge.Target;
+                    _observedRoomAt = now;
+                }
+                if (now - _observedRoomAt >= TimeSpan.FromSeconds(1))
+                {
+                    ConfirmTransition();
+                    return;
+                }
+            }
+            else
+                _observedRoom = -1;
+
+            // Room detection can switch before the approach phase sees the door.
+            // Once we are across its Mali boundary, never steer back to the threshold.
+            if (crossing.Phase != TransitionPhase.CrossDoor &&
+                detectedRoom.Instance == edge.Target &&
+                _layout.IsInside(edge.Target, position, 0.2f))
+            {
+                _say($"Transition {edge.Source}->{edge.Target}: boundary crossed; moving into target interior.");
+                crossing.Phase = TransitionPhase.CrossDoor;
+                crossing.PhaseStarted = now;
+                crossing.LastProgress = now;
+                crossing.BestDistance = float.MaxValue;
+                _destination = null;
+                Navigate(edge.Interior);
                 return;
             }
 
-            if (door != null && door.IsLocked)
+            if (now - crossing.Started > TimeSpan.FromSeconds(30))
             {
-                if (!Inventory.Find("Lock Pick", out Item pick))
+                FailTransition("entry was not confirmed within 30 seconds");
+                return;
+            }
+
+            if (crossing.Phase == TransitionPhase.ApproachDoor)
+            {
+                if (Vector3.Distance(position, edge.Threshold) > 3.5f)
                 {
-                    Stop();
-                    _say($"Locked door to room {next.Instance} requires a Lock Pick.");
+                    Navigate(edge.Threshold);
                     return;
                 }
-                if (DateTime.UtcNow - _actionAt > TimeSpan.FromSeconds(2))
+                _say($"Transition {edge.Source}->{edge.Target}: door reached.");
+                crossing.Phase = TransitionPhase.OpenDoor;
+                crossing.PhaseStarted = now;
+                _destination = null;
+                SMovementController.Halt();
+            }
+
+            if (crossing.Phase == TransitionPhase.OpenDoor)
+            {
+                Door door = edge.Door;
+                if (door == null || door.IsOpen)
                 {
-                    if (++_doorAttempts > 5)
+                    _say($"Transition {edge.Source}->{edge.Target}: doorway open; crossing.");
+                    crossing.Phase = TransitionPhase.CrossDoor;
+                    crossing.PhaseStarted = now;
+                    crossing.LastProgress = now;
+                    crossing.BestDistance = float.MaxValue;
+                    _destination = null;
+                    Navigate(edge.Interior);
+                    return;
+                }
+                if (now - crossing.LastAction < TimeSpan.FromSeconds(2))
+                    return;
+                if (++crossing.DoorAttempts > 5)
+                {
+                    FailTransition("door did not open after five attempts");
+                    return;
+                }
+                if (door.IsLocked)
+                {
+                    if (!Inventory.Find("Lock Pick", out Item pick))
                     {
-                        Stop();
-                        _say($"Could not unlock door to room {next.Instance}.");
+                        FailTransition("locked door requires a Lock Pick");
                         return;
                     }
                     pick.UseOn(door.Identity);
-                    _actionAt = DateTime.UtcNow;
+                    _say($"Transition {edge.Source}->{edge.Target}: lockpick attempt {crossing.DoorAttempts}.");
                 }
+                else
+                {
+                    door.Use();
+                    _say($"Transition {edge.Source}->{edge.Target}: open attempt {crossing.DoorAttempts}.");
+                }
+                crossing.LastAction = now;
                 return;
             }
 
-            _doorAttempts = 0;
-            if (door != null && !door.IsOpen && DateTime.UtcNow - _actionAt > TimeSpan.FromSeconds(2))
+            Vector3 destination = crossing.PushingDeeper ? edge.DeepInterior : edge.Interior;
+            float distance = Vector3.Distance(position, destination);
+            if (distance + 0.5f < crossing.BestDistance)
             {
-                door.Use();
-                _actionAt = DateTime.UtcNow;
-                return;
+                crossing.BestDistance = distance;
+                crossing.LastProgress = now;
             }
-
-            Navigate(next.Center);
+            bool arrivedWithoutEntry = detectedRoom.Instance == edge.Source &&
+                (distance < 2.5f || (!SMovementController.IsNavigating() &&
+                    now - crossing.PhaseStarted > TimeSpan.FromSeconds(2)));
+            bool stalled = now - crossing.LastProgress > TimeSpan.FromSeconds(6);
+            if ((arrivedWithoutEntry || stalled) &&
+                now - crossing.PhaseStarted > TimeSpan.FromSeconds(2))
+            {
+                if (++crossing.CrossingRetries > 3)
+                {
+                    FailTransition("crossing arrived or stalled without a confirmed room change");
+                    return;
+                }
+                crossing.PushingDeeper = true;
+                crossing.PhaseStarted = now;
+                crossing.LastProgress = now;
+                crossing.BestDistance = float.MaxValue;
+                _destination = null;
+                _say($"Transition {edge.Source}->{edge.Target}: still in room {detectedRoom.Instance}; pushing deeper (retry {crossing.CrossingRetries}/3).");
+            }
+            Navigate(crossing.PushingDeeper ? edge.DeepInterior : edge.Interior);
         }
 
-        private void FailTransition(int fromRoom, int toRoom)
+        private void ConfirmTransition()
         {
-            _blockedEdges.Add(EdgeKey(fromRoom, toRoom));
-            _say($"Entry from room {fromRoom} to {toRoom} was not confirmed; trying another closest reachable room.");
-            _targetRoom = -1;
+            DungeonLayout.Connection edge = _transition.Edge;
+            _currentRoom = edge.Target;
+            _visitedRooms.Add(edge.Target);
+            _edgeFailures.Remove(EdgeKey(edge.Source, edge.Target));
+            _reverseCooldown[EdgeKey(edge.Source, edge.Target)] = DateTime.UtcNow.AddSeconds(8);
+            _say($"Transition {edge.Source}->{edge.Target}: confirmed in target room; reverse edge on 8-second cooldown.");
+            _transition = null;
             _destination = null;
-            _transitionStarted = DateTime.MinValue;
             _observedRoom = -1;
+            _roomQuietAt = DateTime.MinValue;
             SMovementController.Halt();
+        }
+
+        private void FailTransition(string reason)
+        {
+            DungeonLayout.Connection edge = _transition.Edge;
+            string key = EdgeKey(edge.Source, edge.Target);
+            if (!_edgeFailures.TryGetValue(key, out EdgeFailure failure))
+                _edgeFailures[key] = failure = new EdgeFailure();
+            failure.Count++;
+            failure.Permanent = failure.Count >= 3;
+            failure.Until = DateTime.UtcNow.AddSeconds(failure.Count == 1 ? 30 : 90);
+            _say($"Transition {edge.Source}->{edge.Target}: {reason}; failure {failure.Count}/3, " +
+                (failure.Permanent ? "edge blocked for this run." :
+                    $"edge blacklisted until {failure.Until:HH:mm:ss} UTC; selecting the next closest reachable room."));
+            _transition = null;
+            _destination = null;
+            _observedRoom = -1;
+            _roomQuietAt = DateTime.MinValue;
+            SMovementController.Halt();
+        }
+
+        private bool IsUnavailable(int source, int target)
+        {
+            string key = EdgeKey(source, target);
+            return (_edgeFailures.TryGetValue(key, out EdgeFailure failure) &&
+                (failure.Permanent || failure.Until > DateTime.UtcNow)) ||
+                (_reverseCooldown.TryGetValue(key, out DateTime until) && until > DateTime.UtcNow);
         }
 
         private void Navigate(Vector3 destination)
