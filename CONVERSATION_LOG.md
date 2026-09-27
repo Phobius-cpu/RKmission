@@ -182,3 +182,18 @@ crossing retries to continued source-room detection. A target-room reading
 near the doorway now continues inward without consuming a retry. Combat and
 loot routing remain gated on confirmed entry. No local compile or in-game
 test was run.
+
+### User room-entry log (continued in Codex)
+
+> Transition 1->5 detected the target room, then logged `room detected near
+> doorway; moving farther inside` before confirming. The stall remains.
+
+### Assistant action
+
+Found a mismatch between Mali's selected interior waypoint (at least 2.5m
+from the door with 0.8m wall clearance) and the player's confirmation limits
+(more than 2.5m and 0.8m respectively). Normal arrival tolerance could stop
+the player just short of confirmation. Relaxed the player's safe-entry margin,
+shortened target-room stability to 500ms, kept movement active during that
+check, and reserved deeper navigation for an actual stopped or stalled route.
+No local compile or in-game test was run.

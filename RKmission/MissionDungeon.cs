@@ -505,8 +505,8 @@ namespace RKmission
             Vector3 position = DynelManager.LocalPlayer.Position;
             bool targetDetected = detectedRoom.Instance == edge.Target;
             bool safelyInsideTarget = targetDetected &&
-                Vector3.Distance(position, edge.Threshold) > 2.5f &&
-                _layout.IsInside(edge.Target, position, 0.8f);
+                Vector3.Distance(position, edge.Threshold) > 1.5f &&
+                _layout.IsInside(edge.Target, position, 0.4f);
             if (targetDetected)
             {
                 if (_observedRoom != edge.Target)
@@ -515,16 +515,15 @@ namespace RKmission
                     _observedRoomAt = now;
                     _say($"Transition {edge.Source}->{edge.Target}: target room detected; confirming entry.");
                 }
-                if (safelyInsideTarget && now - _observedRoomAt >= TimeSpan.FromSeconds(1))
+                if (safelyInsideTarget && now - _observedRoomAt >= TimeSpan.FromMilliseconds(500))
                 {
                     ConfirmTransition();
                     return;
                 }
                 if (safelyInsideTarget)
                 {
-                    // Hold a safe interior position while room identity stabilizes.
-                    SMovementController.Halt();
-                    _destination = null;
+                    // Keep the current interior route active during the brief
+                    // stability check; confirmation will stop it once complete.
                     return;
                 }
             }
@@ -652,16 +651,17 @@ namespace RKmission
             if (targetDetected)
             {
                 // A target-room reading is progress, even if the player is still
-                // near the threshold. Do not count it as a failed crossing.
+                // near the threshold. Only push deeper if the interior route
+                // actually ends or stops making progress before safe entry.
                 if (!crossing.PushingDeeper &&
-                    now - _observedRoomAt > TimeSpan.FromSeconds(2) &&
-                    (distance < 2.5f || stalled || !SMovementController.IsNavigating()))
+                    now - _observedRoomAt > TimeSpan.FromSeconds(3) &&
+                    (stalled || !SMovementController.IsNavigating()))
                 {
                     crossing.PushingDeeper = true;
                     crossing.LastProgress = now;
                     crossing.BestDistance = float.MaxValue;
                     _destination = null;
-                    _say($"Transition {edge.Source}->{edge.Target}: room detected near doorway; moving farther inside.");
+                    _say($"Transition {edge.Source}->{edge.Target}: interior route stalled before safe entry; moving farther inside.");
                 }
                 Navigate(crossing.PushingDeeper ? edge.DeepInterior : edge.Interior);
                 return;

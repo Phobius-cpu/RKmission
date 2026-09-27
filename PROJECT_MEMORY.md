@@ -233,3 +233,21 @@ Project-relevant memory and visible conversation summaries may be recorded here.
   only if the interior approach stalls. Source-room retries remain bounded.
 - Combat and loot still start only after confirmed entry. No local compile
   or in-game test was run.
+
+## Interior Arrival Confirmation (2026-09-27)
+
+- The user supplied a transition 1->5 log showing target-room detection followed
+  by `room detected near doorway; moving farther inside` before confirmation.
+- Mali's sampled interior destination can be only 2.5m from the door and 0.8m
+  from a wall. Confirmation required the player's position to exceed those
+  same limits, so navigation arrival tolerance could leave the character in
+  the target room but just short of the stricter confirmation region. The
+  crossing branch also treated proximity to the interior destination as a
+  reason to push deeper.
+- Confirmation now accepts a stable target-room reading after 500ms when the
+  player is at least 1.5m past the threshold and 0.4m inside Mali's room
+  outline. The active interior route keeps moving during that brief check.
+  A deeper route is selected only if navigation ends or stalls before this
+  safe entry condition is met. Source-room retries and the reverse-edge
+  cooldown remain in place.
+- Source only; the user will compile and test in game.
