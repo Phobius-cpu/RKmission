@@ -40,6 +40,9 @@ namespace RKmission
                         (x.RoomLink1?.Instance == room.Instance && x.RoomLink2?.Instance == adjacent) ||
                         (x.RoomLink2?.Instance == room.Instance && x.RoomLink1?.Instance == adjacent))
                         .OrderBy(x => Vector3.Distance(x.Position, threshold)).FirstOrDefault();
+                    if (door == null)
+                        door = Playfield.Doors.Where(x => Vector3.Distance(x.Position, threshold) < 2.5f)
+                            .OrderBy(x => Vector3.Distance(x.Position, threshold)).FirstOrDefault();
                     if (!TryInterior(adjacent, threshold, out Vector3 interior,
                         out Vector3 deepInterior))
                     {

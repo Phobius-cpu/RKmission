@@ -151,3 +151,18 @@ Manager.Loot skip hook for unreachable loot, and logging. Expanded combat
 selection to include nearby hostile spawns and Alarm Sentries while excluding
 players and the local player's pets. Combat now interrupts an active loot route.
 No local compile or in-game test was run.
+
+### User in-game feedback (continued in Codex)
+
+> The bot gets stuck trying to lockpick open doors, does not use the Lock Pick
+> on locked doors, and ignores lootable containers inside rooms.
+
+### Assistant action
+
+Inspected the embedded AO# door flags and reference lockpick calls, plus the
+Manager.Loot room filters. Added a brief crossing probe before a lockpick
+attempt, refreshed the physical door each tick, sent the Lock Pick to the
+`Door` object, and added a position-based fallback for door identification.
+For room loot, both candidate selection and Manager.Loot's opening loop can
+use Mali room geometry when `Dynel.Room` is missing or mismatched. Added
+door and loot candidate logs. No local compile or test was run.

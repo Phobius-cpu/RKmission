@@ -196,3 +196,24 @@ Project-relevant memory and visible conversation summaries may be recorded here.
   player's pets remain excluded. A newly selected enemy interrupts a corpse
   route immediately, and target selection is logged.
 - Source only; no local compilation or in-game tests were run.
+
+## Door Lockpicking and Room Containers (2026-09-27)
+
+- The user reported repeated lockpick attempts on visibly open doors, no
+  successful Lock Pick use on locked doors, and ignored lootable containers.
+- AO# exposes `Door.IsOpen` and `Door.IsLocked` as item flags. RKMission
+  previously trusted those flags immediately and passed `door.Identity` to
+  `Item.UseOn`. The embedded AO# examples use the `Door` object itself.
+  Transitions now refresh the door from the playfield, probe traversal for
+  three seconds before lockpicking a door flagged locked and closed, approach
+  into interaction range, and call `pick.UseOn(door)`. The log includes the
+  selected door identity and flags. If room links do not identify a physical
+  door, the layout also tries the nearest door to Mali's threshold position.
+- Manager.Loot and RKMission previously required `Dynel.Room.Instance` to
+  match the current room before considering a corpse or container. Both now
+  accept Mali's original world-space room outline as a fallback for objects
+  whose AO# room association is missing or mismatched. During a mission,
+  Manager.Loot no longer auto-disables solely because its item rule list is
+  empty; it can still open a room container. Item movement still follows the
+  user's Manager.Loot rules. Container candidates are logged by RKMission.
+- Source only; the user will compile and test in game.

@@ -41,7 +41,7 @@ namespace RKmission
         private int _lootApproachRetries;
         private int _floor;
 
-        private enum TransitionPhase { ApproachDoor, OpenDoor, CrossDoor }
+        private enum TransitionPhase { ApproachDoor, ProbeDoor, OpenDoor, CrossDoor }
         private sealed class Transition
         {
             public DungeonLayout.Connection Edge;
@@ -91,6 +91,8 @@ namespace RKmission
             _destination = null;
             _meshes = null;
             _layout = new DungeonLayout();
+            _loot.MissionRoomContains = (dynel, roomId) =>
+                _layout != null && _layout.IsInside(roomId, dynel.Position);
             if (_layout.MissingConnections > 0)
                 _say($"Mali map has no safe interior point for {_layout.MissingConnections} room connections; those routes are unavailable.");
             IsComplete = false;
@@ -118,6 +120,7 @@ namespace RKmission
         {
             IsRunning = false;
             _loot.EndMissionRoom();
+            _loot.MissionRoomContains = null;
             _destination = null;
             _transition = null;
             _layout = null;
@@ -362,6 +365,7 @@ namespace RKmission
                 _lootBestDistance = next.DistanceFrom(DynelManager.LocalPlayer);
                 _lootApproachRetries = 0;
                 _lootApproachPoint = LootApproach(room, next.Position, false);
+                _say($"Loot candidate {next.Identity.Type} {next.Identity} in room {room.Instance}; approaching Manager.Loot range.");
             }
             if (_loot.IsProcessingMissionLoot)
             {
@@ -488,13 +492,15 @@ namespace RKmission
             _loot.EndMissionRoom();
             _destination = null;
             _observedRoom = -1;
-            _say($"Transition {source}->{target}: approach doorway at {edge.Threshold}; interior {edge.Interior}.");
+            _say($"Transition {source}->{target}: approach doorway at {edge.Threshold}, door {edge.Door?.Identity.ToString() ?? "none"}; interior {edge.Interior}.");
         }
 
         private void TickTransition(Room detectedRoom)
         {
             Transition crossing = _transition;
             DungeonLayout.Connection edge = crossing.Edge;
+            Door door = edge.Door == null ? null :
+                Playfield.Doors.FirstOrDefault(x => x.Identity == edge.Door.Identity);
             DateTime now = DateTime.UtcNow;
             Vector3 position = DynelManager.LocalPlayer.Position;
             if (detectedRoom.Instance == edge.Target &&
@@ -545,15 +551,41 @@ namespace RKmission
                     return;
                 }
                 _say($"Transition {edge.Source}->{edge.Target}: door reached.");
-                crossing.Phase = TransitionPhase.OpenDoor;
+                crossing.Phase = door != null && door.IsLocked && !door.IsOpen
+                    ? TransitionPhase.ProbeDoor : TransitionPhase.OpenDoor;
                 crossing.PhaseStarted = now;
                 _destination = null;
                 SMovementController.Halt();
+                if (crossing.Phase == TransitionPhase.ProbeDoor)
+                    _say($"Transition {edge.Source}->{edge.Target}: door flags say locked and closed; probing passage before lockpicking.");
+            }
+
+            if (crossing.Phase == TransitionPhase.ProbeDoor)
+            {
+                if (door == null || door.IsOpen || !door.IsLocked)
+                {
+                    crossing.Phase = TransitionPhase.OpenDoor;
+                    crossing.PhaseStarted = now;
+                    _destination = null;
+                    SMovementController.Halt();
+                }
+                else if (now - crossing.PhaseStarted < TimeSpan.FromSeconds(3))
+                {
+                    Navigate(edge.Interior);
+                    return;
+                }
+                else
+                {
+                    crossing.Phase = TransitionPhase.OpenDoor;
+                    crossing.PhaseStarted = now;
+                    _destination = null;
+                    SMovementController.Halt();
+                    _say($"Transition {edge.Source}->{edge.Target}: passage blocked; trying Lock Pick on door {door.Identity}.");
+                }
             }
 
             if (crossing.Phase == TransitionPhase.OpenDoor)
             {
-                Door door = edge.Door;
                 if (door == null || door.IsOpen)
                 {
                     _say($"Transition {edge.Source}->{edge.Target}: doorway open; crossing.");
@@ -563,6 +595,11 @@ namespace RKmission
                     crossing.BestDistance = float.MaxValue;
                     _destination = null;
                     Navigate(edge.Interior);
+                    return;
+                }
+                if (door.DistanceFrom(DynelManager.LocalPlayer) > 4.5f)
+                {
+                    Navigate(edge.Threshold);
                     return;
                 }
                 if (now - crossing.LastAction < TimeSpan.FromSeconds(2))
@@ -579,8 +616,8 @@ namespace RKmission
                         FailTransition("locked door requires a Lock Pick");
                         return;
                     }
-                    pick.UseOn(door.Identity);
-                    _say($"Transition {edge.Source}->{edge.Target}: lockpick attempt {crossing.DoorAttempts}.");
+                    pick.UseOn(door);
+                    _say($"Transition {edge.Source}->{edge.Target}: lockpick attempt {crossing.DoorAttempts} on {door.Identity} (open={door.IsOpen}, locked={door.IsLocked}).");
                 }
                 else
                 {

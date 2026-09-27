@@ -44,6 +44,7 @@ namespace ManagerLoot
         private readonly HashSet<MissionIdentity> _unreachableMissionLoot = new HashSet<MissionIdentity>();
         // RKMission limits the original loot state machine to the room being cleared.
         public int MissionRoomId { get; private set; } = -1;
+        public Func<Dynel, int, bool> MissionRoomContains { get; set; }
         private bool _enabledForMission;
 
         public void BeginMissionRoom(int roomId)
@@ -81,10 +82,14 @@ namespace ManagerLoot
 
         public Dynel NextMissionLoot(int roomId) => DynelManager.AllDynels
             .Where(x => (x.Identity.Type == IdentityType.Corpse || x.Identity.Type == IdentityType.Container)
-                && x.Room != null && x.Room.Instance == roomId
+                && IsInMissionRoom(x, roomId)
                 && !_unreachableMissionLoot.Contains(x.Identity)
                 && !openedContainers.ContainsKey(x.Identity.Instance))
             .OrderBy(x => x.DistanceFrom(DynelManager.LocalPlayer)).FirstOrDefault();
+
+        private bool IsInMissionRoom(Dynel dynel, int roomId) =>
+            dynel.Room?.Instance == roomId ||
+            MissionRoomContains?.Invoke(dynel, roomId) == true;
 
         public bool IsProcessingMissionLoot => CorpseContainer != null ||
             CurrentProcess == ProcessState.Opening || CurrentProcess == ProcessState.PickingLock ||
@@ -358,7 +363,8 @@ namespace ManagerLoot
                 if (Game.IsZoning) return;
                 if (Time.AONormalTime < ZoneDelay) return;
 
-                if (_settings["DisableIfEmptyList"].AsBool() && Rules != null && Rules.Count == 0 && _settings["Enable"].AsBool())
+                if (MissionRoomId < 0 && _settings["DisableIfEmptyList"].AsBool() &&
+                    Rules != null && Rules.Count == 0 && _settings["Enable"].AsBool())
                 {
                     _settings["Enable"] = false;
                     _settings["DisableIfEmptyList"] = false;
@@ -401,7 +407,7 @@ namespace ManagerLoot
                         var dynel = DynelManager.AllDynels.Where(c => !openedContainers.ContainsKey(c.Identity.Instance)
                         && !_unreachableMissionLoot.Contains(c.Identity)
                         && (c.Identity.Type == IdentityType.Container || c.Identity.Type == IdentityType.Corpse)
-                        && (MissionRoomId < 0 || c.Room != null && c.Room.Instance == MissionRoomId))
+                        && (MissionRoomId < 0 || IsInMissionRoom(c, MissionRoomId)))
                             .OrderBy(d => d.Position.DistanceFrom(DynelManager.LocalPlayer.Position)).FirstOrDefault(c => DynelManager.LocalPlayer.Position.Distance2DFrom(c.Position) < 6);
 
                         if (dynel == null) return;
@@ -418,7 +424,7 @@ namespace ManagerLoot
                         else if (dynel.Identity.Type == IdentityType.Container)
                         {
                             if (!_settings["Chests"].AsBool()) return;
-                            if (DynelManager.LocalPlayer.IsAttacking || DynelManager.NPCs.Any(c => c.IsAttacking && c.FightingTarget.Identity == DynelManager.LocalPlayer.Identity)) return;
+                            if (DynelManager.LocalPlayer.IsAttacking || DynelManager.NPCs.Any(c => c.IsAttacking && c.FightingTarget?.Identity == DynelManager.LocalPlayer.Identity)) return;
 
                             var chest = new Chest(dynel);
                             if (chest.IsLocked)
