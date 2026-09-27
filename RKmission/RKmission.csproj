@@ -8,8 +8,10 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="AOSharpSDK" Version="1.0.106" />
-    <PackageReference Include="AOSharpSDK.Nav" Version="1.0.5" />
     <PackageReference Include="AOSharpSDK.SharpNav" Version="1.0.44" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="UI\RKmissionWindow.xml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

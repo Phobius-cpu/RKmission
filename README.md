@@ -7,8 +7,9 @@ uses the AOSharp SDK packages referenced in `RKmission/RKmission.csproj`.
 
 1. Stand within 7.5 m of a solo mission terminal and use it. RKMission can
    also find a nearby terminal when a use event was missed.
-2. Set the target playfield with `/rkm zone <playfield id>` (the current
-   playfield is the default), then use `/rkm start`.
+2. In the RKMission window, set the target playfield, roll limit, and difficulty,
+   then press **Start rolling / run**. The current playfield is the default.
+   Use `/rkm` to reopen the window.
 3. RKMission first chooses the nearest already accepted mission in that
    playfield. If there is none, it requests mission offers until the playfield
    matches, accepts the nearest matching offer, and travels to its entrance.
@@ -18,7 +19,8 @@ uses the AOSharp SDK packages referenced in `RKmission/RKmission.csproj`.
    chests and doors, then follows the displayed room graph. A stalled route is
    marked blocked and the closest reachable room is chosen next.
 
-Commands: `/rkm start`, `/rkm stop`, `/rkm status`, `/rkm zone <id>`,
+The window also has **Stop**, status, and a Manager.Loot-style item list. Chat
+commands remain available as a fallback: `/rkm start`, `/rkm stop`, `/rkm status`, `/rkm zone <id>`,
 `/rkm rolls <count>` (default 100), `/rkm difficulty <0-255>` (default 128),
 `/rkm loot list`, `/rkm loot add <name or item ID>`, and
 `/rkm loot remove <number>`.
@@ -27,7 +29,9 @@ Loot is an allowlist. It begins empty, so RKMission opens containers but takes
 only selected items. Rules are stored per character at
 `%LOCALAPPDATA%\AOSharp\RKmission\<character>\loot-rules.json`. The JSON uses
 Manager.Loot fields `Name`, `Lql`, `Hql`, `Quantity`, `Exact`, and `OneEach`.
-The add command creates a broad QL 1-500 rule; edit the JSON for finer rules.
+Use the window to add names or IDs with QL, quantity, exact-name, and one-each
+settings, and to remove selected rules. The add chat command creates a broad
+QL 1-500 rule.
 
 Keep a Lock Pick in normal inventory and enough free slots for loot. RKMission
 stops for a locked object without a pick, an unreachable enemy, or a failed
@@ -48,7 +52,8 @@ automatically start another run.
   seven slider arguments to `MissionTerminal.RequestMissions`, neutral values
   encoded as 255, `Mission.RollListChanged`, and `CreateQuestMessage`.
 - The wall geometry and door display come from the supplied Mali Dungeon Map
-  2.0 source. The same room connections drive breadth-first navigation and
+  2.0 source. The copied map drawing helper is included with the required
+  two-dimensional line renderer and angle conversion. The same room connections drive breadth-first navigation and
   nearest-room fallback. AO# still supplies the movement navmesh.
 - Corpse/chest opening, selective item transfer and rule fields follow the
   supplied Manager.Loot source. `Inventory.ContainerOpened` and

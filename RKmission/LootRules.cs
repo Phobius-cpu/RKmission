@@ -48,8 +48,21 @@ namespace RKmission
         {
             if (string.IsNullOrWhiteSpace(name))
                 return;
-            _rules.Add(new LootRule { Name = name.Trim() });
+            Add(name, 1, 500, 999, false, false);
+        }
+
+        public bool Add(string name, int low, int high, int quantity, bool exact, bool oneEach)
+        {
+            if (string.IsNullOrWhiteSpace(name) || low < 1 || high > 500 || low > high || quantity < 1 || quantity > 999)
+                return false;
+            _rules.Add(new LootRule
+            {
+                Name = name.Trim(), Lql = low.ToString(), Hql = high.ToString(),
+                Quantity = quantity.ToString(), Exact = exact.ToString().ToLowerInvariant(),
+                OneEach = oneEach.ToString().ToLowerInvariant()
+            });
             Save();
+            return true;
         }
 
         public bool Remove(int oneBasedIndex)

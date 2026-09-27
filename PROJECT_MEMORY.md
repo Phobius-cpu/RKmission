@@ -99,3 +99,23 @@ Project-relevant memory and visible conversation summaries may be recorded here.
 - `AOSharp.NewBots.sln` was removed from the repository.
 - These changes are source-only. The user will compile and test in-game and
   report any compiler errors or behavior that needs iteration.
+
+## Compile Inspection and Interface Follow-up (2026-09-27)
+
+- The user could not compile the previous revision and requested a static source
+  inspection. The copied Mali dungeon-map files referenced `MDebug.DrawLine`
+  and `MathExtras.Rad2Deg`, but the defining helper file was omitted. RKMission
+  now includes the needed map line renderer and angle constant in its own map
+  source. The drawing helper uses the same AO# debugger entry point and default
+  scale as the reference map.
+- Checked mission, inventory, room, door, and SharpNav signatures against the
+  referenced AOSharpSDK 1.0.106 and AOSharpSDK.SharpNav 1.0.44 APIs. The
+  `SetNavDestination`, `LoadNavmesh`, and `GenerateNavMeshAsync` calls are valid.
+- Removed the unused AOSharpSDK.Nav package reference. The map and movement
+  code uses AOSharpSDK.SharpNav; no stale solution file remains in the tree.
+- Added an AO# window adapted from Mali's rolling controls and Manager.Loot's
+  rule editor. It covers playfield, difficulty, roll limit, start/stop, status,
+  and per-character loot add/remove with QL, quantity, exact, and one-each
+  settings. `/rkm` reopens it; chat subcommands remain fallback controls.
+- No local build or in-game test was run. The user will pull, compile, and
+  test in AO#.

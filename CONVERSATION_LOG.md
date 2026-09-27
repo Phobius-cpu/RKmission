@@ -75,3 +75,22 @@ dungeon layout display and graph-based room routing with a nearest reachable
 fallback after a stalled edge; added per-character selected-item loot rules;
 and removed `AOSharp.NewBots.sln`. No local compile or test was performed,
 per the user's workflow.
+
+### User compile feedback (continued in Codex)
+
+> Check the repo for issues; I cannot compile the last iteration. Inspect the
+> source and project references, fix clear compile issues on main, and leave
+> compilation and in-game testing to me.
+
+### User interface follow-up
+
+> Also, if possible, use the Mali mission roller and Manager.Loot interface
+> instead of chat commands for those tasks.
+
+### Assistant action
+
+Compared RKMission with the upstream map source and the referenced AO# package
+APIs. Restored the omitted map drawing and angle helpers, removed an unused
+legacy navigation package reference, and added an AO# window for mission rolling
+and selected loot rules. Updated README and project memory. No local build or
+test was run.

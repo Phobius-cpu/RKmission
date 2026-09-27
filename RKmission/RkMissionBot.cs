@@ -15,6 +15,7 @@ namespace RKmission
         private MissionRoller _roller;
         private MissionDungeon _dungeon;
         private LootRules _lootRules;
+        private RkMissionWindow _window;
         private bool _running;
         private DateTime _nextTick;
         private DateTime _nextTravel;
@@ -33,7 +34,11 @@ namespace RKmission
             Game.OnUpdate += Update;
             Mission.RollListChanged += OffersChanged;
             Network.N3MessageReceived += MessageReceived;
-            Say("Loaded. Use a mission terminal, then /rkm zone <id> and /rkm start. /rkm loot lists selected items.");
+            _window = new RkMissionWindow(pluginDir, _roller, _lootRules,
+                zone => { _zoneId = zone; _roller.ZoneId = zone; },
+                Start, Stop, StatusText, Say);
+            _window.Show();
+            Say("Loaded. Use a mission terminal, then choose the zone, rolling and loot settings in the RKMission window.");
         }
 
         public override void Teardown()
@@ -43,6 +48,7 @@ namespace RKmission
             Mission.RollListChanged -= OffersChanged;
             Network.N3MessageReceived -= MessageReceived;
             _dungeon.Dispose();
+            _window?.Close();
         }
 
         private static void Say(string text) => Chat.WriteLine("RKMission: " + text);
@@ -51,7 +57,7 @@ namespace RKmission
         {
             if (args == null || args.Length == 0)
             {
-                Status();
+                _window.Show();
                 return;
             }
 
@@ -161,11 +167,11 @@ namespace RKmission
             SMovementController.Halt();
         }
 
-        private void Status()
-        {
-            Say($"Running={_running}, zone={_zoneId}, rolling={_roller.IsRolling}, " +
-                $"mission={_roller.Selected?.DisplayName ?? "none"}, dungeon={_dungeon.Status}.");
-        }
+        private string StatusText() =>
+            $"Running={_running}, zone={_zoneId}, rolling={_roller.IsRolling}, " +
+            $"mission={_roller.Selected?.DisplayName ?? "none"}, dungeon={_dungeon.Status}.";
+
+        private void Status() => Say(StatusText());
 
         private void OffersChanged(object sender, RollListChangedArgs offers)
         {
@@ -192,6 +198,7 @@ namespace RKmission
                 return;
 
             _nextTick = DateTime.UtcNow.AddMilliseconds(250);
+            _window?.Refresh();
             try
             {
                 if (!DynelManager.LocalPlayer.IsAlive)
