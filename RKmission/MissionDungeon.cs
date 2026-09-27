@@ -49,7 +49,7 @@ namespace RKmission
             public DateTime Started, PhaseStarted, LastAction, LastProgress;
             public float BestDistance;
             public int DoorAttempts, CrossingRetries;
-            public bool PushingDeeper;
+            public bool PushingDeeper, DoorApproachLogged;
         }
         private sealed class EdgeFailure
         {
@@ -559,10 +559,18 @@ namespace RKmission
                     Navigate(edge.Threshold);
                     return;
                 }
-                _say($"Transition {edge.Source}->{edge.Target}: door reached.");
+                string liveDoorRange = door == null ? "none" :
+                    $"{Vector3.Distance(position, door.Position):0.0}m";
+                string aoDoorRange = door == null ? "none" :
+                    $"{door.DistanceFrom(DynelManager.LocalPlayer):0.0}m";
+                _say($"Transition {edge.Source}->{edge.Target}: door reached " +
+                    $"(threshold {Vector3.Distance(position, edge.Threshold):0.0}m, " +
+                    $"door {liveDoorRange}, AO# range {aoDoorRange}).");
                 crossing.Phase = door != null && door.IsLocked && !door.IsOpen
                     ? TransitionPhase.ProbeDoor : TransitionPhase.OpenDoor;
                 crossing.PhaseStarted = now;
+                crossing.LastProgress = now;
+                crossing.BestDistance = float.MaxValue;
                 _destination = null;
                 SMovementController.Halt();
                 if (crossing.Phase == TransitionPhase.ProbeDoor)
@@ -575,6 +583,8 @@ namespace RKmission
                 {
                     crossing.Phase = TransitionPhase.OpenDoor;
                     crossing.PhaseStarted = now;
+                    crossing.LastProgress = now;
+                    crossing.BestDistance = float.MaxValue;
                     _destination = null;
                     SMovementController.Halt();
                 }
@@ -587,6 +597,8 @@ namespace RKmission
                 {
                     crossing.Phase = TransitionPhase.OpenDoor;
                     crossing.PhaseStarted = now;
+                    crossing.LastProgress = now;
+                    crossing.BestDistance = float.MaxValue;
                     _destination = null;
                     SMovementController.Halt();
                     _say($"Transition {edge.Source}->{edge.Target}: passage blocked; trying Lock Pick on door {door.Identity}.");
@@ -606,9 +618,25 @@ namespace RKmission
                     Navigate(edge.Interior);
                     return;
                 }
-                if (door.DistanceFrom(DynelManager.LocalPlayer) > 4.5f)
+                float doorDistance = Vector3.Distance(position, door.Position);
+                if (doorDistance > 4.5f)
                 {
-                    Navigate(edge.Threshold);
+                    if (doorDistance + 0.5f < crossing.BestDistance)
+                    {
+                        crossing.BestDistance = doorDistance;
+                        crossing.LastProgress = now;
+                    }
+                    if (!crossing.DoorApproachLogged)
+                    {
+                        crossing.DoorApproachLogged = true;
+                        _say($"Transition {edge.Source}->{edge.Target}: closing {doorDistance:0.0}m to door {door.Identity} before interaction.");
+                    }
+                    if (now - crossing.LastProgress > TimeSpan.FromSeconds(6))
+                    {
+                        FailTransition($"could not reach door {door.Identity} for interaction ({doorDistance:0.0}m away)");
+                        return;
+                    }
+                    Navigate(door.Position);
                     return;
                 }
                 if (now - crossing.LastAction < TimeSpan.FromSeconds(2))

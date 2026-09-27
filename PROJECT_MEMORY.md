@@ -251,3 +251,19 @@ Project-relevant memory and visible conversation summaries may be recorded here.
   safe entry condition is met. Source-room retries and the reverse-edge
   cooldown remain in place.
 - Source only; the user will compile and test in game.
+
+## Silent Door Approach After Reaching Threshold (2026-09-27)
+
+- The user supplied a transition 1->3 log with `door reached` followed by a
+  30-second timeout and no probe, open, lockpick, or crossing log.
+- In `OpenDoor`, the only silent loop after `door reached` was the range branch:
+  it checked `Door.DistanceFrom(player) > 4.5f` and repeatedly navigated to
+  the mapped threshold, even though the preceding phase used world-space
+  distance to that threshold. The old log has no distances, so the precise
+  AO# range discrepancy cannot be measured retrospectively.
+- Door interaction now uses world-space distance to the refreshed door
+  position and approaches that same live position if needed. A stalled door
+  approach fails in six seconds with its distance in the log, rather than
+  silently consuming the full transition timeout. The `door reached` log now
+  includes threshold, live door, and AO# distances for in-game diagnosis.
+- Source only; the user will compile and test in game.

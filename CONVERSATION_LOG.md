@@ -197,3 +197,18 @@ the player just short of confirmation. Relaxed the player's safe-entry margin,
 shortened target-room stability to 500ms, kept movement active during that
 check, and reserved deeper navigation for an actual stopped or stalled route.
 No local compile or in-game test was run.
+
+### User failed doorway log (continued in Codex)
+
+> Transition 1->3 reached a door, then timed out after 30 seconds without
+> any door action or crossing message and selected another room.
+
+### Assistant action
+
+Traced the silent `OpenDoor` branch: the reach check used a different distance
+API from the threshold check and could keep navigating to the threshold
+without ever attempting door interaction. Switched interaction approach to
+world-space distance and the refreshed door position, bounded a stalled
+approach at six seconds, and logged both distance readings at the doorway.
+The original log does not contain those readings, so the exact discrepancy
+will be visible on the next in-game run. No local compile or test was run.
