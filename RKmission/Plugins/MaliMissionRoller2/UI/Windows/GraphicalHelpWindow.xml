@@ -1,0 +1,9 @@
+﻿<?xml version="1.0" standalone="yes"?>
+<Root>
+	<View>
+		<BitmapView name="Image">
+			<Button layout_borders="Rect(507,4,0,0)" min_size="Point(15,15)"  max_size="Point(15,15)" name="Close"/>
+			<VLayoutSpacer/>
+		</BitmapView>
+	</View>
+</Root>

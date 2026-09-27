@@ -5,6 +5,7 @@ using AOSharp.Common.GameData;
 using AOSharp.Core;
 using AOSharp.Core.Inventory;
 using AOSharp.Pathfinding;
+using ManagerLoot;
 using SharpNav;
 
 namespace RKmission
@@ -16,18 +17,12 @@ namespace RKmission
     internal sealed class MissionDungeon : IDisposable
     {
         private readonly Action<string> _say;
-        private readonly LootRules _lootRules;
+        private readonly ManagerLoot.ManagerLoot _loot;
         private readonly HashSet<int> _clearedRooms = new HashSet<int>();
         private readonly HashSet<string> _blockedEdges = new HashSet<string>();
-        private readonly HashSet<Identity> _processedLoot = new HashSet<Identity>();
-        private readonly HashSet<Identity> _failedLoot = new HashSet<Identity>();
         private NavMesh[] _meshes;
         private DungeonLayout _layout;
-        private Container _openedContainer;
-        private Identity _lootTarget = Identity.None;
         private Identity _combatTarget = Identity.None;
-        private Identity _pendingItem = Identity.None;
-        private LootRule _pendingRule;
         private Mission _mission;
         private bool _objectiveAttempted;
         private int _currentRoom = -1;
@@ -35,10 +30,12 @@ namespace RKmission
         private Vector3? _destination;
         private DateTime _actionAt;
         private DateTime _roomQuietAt;
-        private DateTime _lastProgress;
-        private Vector3 _lastPosition;
+        private DateTime _transitionStarted;
+        private DateTime _observedRoomAt;
+        private int _observedRoom = -1;
+        private DateTime _lootWaitStarted;
+        private Identity _waitingForLoot = Identity.None;
         private int _floor;
-        private int _lootAttempts;
         private int _doorAttempts;
 
         public bool IsRunning { get; private set; }
@@ -46,11 +43,10 @@ namespace RKmission
         public string Status => IsComplete ? "complete" : !IsRunning ? "idle" :
             $"cleared {_clearedRooms.Count} rooms";
 
-        public MissionDungeon(Action<string> say, LootRules lootRules)
+        public MissionDungeon(Action<string> say, ManagerLoot.ManagerLoot loot)
         {
             _say = say;
-            _lootRules = lootRules;
-            Inventory.ContainerOpened += ContainerOpened;
+            _loot = loot;
         }
 
         public void Start(Mission mission)
@@ -61,12 +57,8 @@ namespace RKmission
                 return;
             _clearedRooms.Clear();
             _blockedEdges.Clear();
-            _processedLoot.Clear();
-            _failedLoot.Clear();
-            _lootTarget = Identity.None;
             _combatTarget = Identity.None;
-            _pendingItem = Identity.None;
-            _pendingRule = null;
+            _waitingForLoot = Identity.None;
             _mission = (Mission.List ?? new List<Mission>())
                 .FirstOrDefault(x => mission != null && x.Identity == mission.Identity) ??
                 (mission == null && Mission.List?.Count == 1 ? Mission.List[0] : null);
@@ -74,16 +66,13 @@ namespace RKmission
             _currentRoom = -1;
             _targetRoom = -1;
             _destination = null;
-            _openedContainer = null;
             _meshes = null;
-            _layout?.Dispose();
-            _layout = new DungeonLayout(_clearedRooms);
-            _layout.Show(() => _targetRoom);
+            _layout = new DungeonLayout();
             IsComplete = false;
             IsRunning = true;
             _roomQuietAt = DateTime.MinValue;
-            _lastProgress = DateTime.UtcNow;
-            _lastPosition = DynelManager.LocalPlayer.Position;
+            _transitionStarted = DateTime.MinValue;
+            _observedRoom = -1;
             _floor = Math.Abs(DynelManager.LocalPlayer.Room.Floor);
             new DungeonNavMeshFactory().GenerateNavMeshAsync().ContinueWith(task =>
             {
@@ -104,11 +93,9 @@ namespace RKmission
         public void Stop()
         {
             IsRunning = false;
-            _lootTarget = Identity.None;
-            _openedContainer = null;
+            _loot.EndMissionRoom();
             _destination = null;
             _targetRoom = -1;
-            _layout?.Dispose();
             _layout = null;
             SMovementController.Halt();
         }
@@ -116,13 +103,6 @@ namespace RKmission
         public void Dispose()
         {
             Stop();
-            Inventory.ContainerOpened -= ContainerOpened;
-        }
-
-        private void ContainerOpened(object sender, Container container)
-        {
-            if (IsRunning && container.Identity == _lootTarget)
-                _openedContainer = container;
         }
 
         private void LoadFloor()
@@ -146,32 +126,47 @@ namespace RKmission
             }
 
             Room room = DynelManager.LocalPlayer.Room;
-            if (room.Instance != _currentRoom)
+            if (_targetRoom >= 0 && _transitionStarted != DateTime.MinValue &&
+                DateTime.UtcNow - _transitionStarted > TimeSpan.FromSeconds(18))
             {
+                FailTransition(_currentRoom, _targetRoom);
+                if (room.Instance != _currentRoom) return;
+            }
+            if (_currentRoom < 0)
+            {
+                _currentRoom = room.Instance;
+                _roomQuietAt = DateTime.MinValue;
+            }
+            else if (room.Instance != _currentRoom)
+            {
+                if (_observedRoom != room.Instance)
+                {
+                    _observedRoom = room.Instance;
+                    _observedRoomAt = DateTime.UtcNow;
+                }
+                // A doorway can briefly report either room. Do not treat a boundary
+                // flicker as a completed transition or plan a route back through it.
+                if (DateTime.UtcNow - _observedRoomAt < TimeSpan.FromSeconds(1))
+                    return;
+                if (_targetRoom >= 0 && room.Instance != _targetRoom)
+                {
+                    FailTransition(_currentRoom, _targetRoom);
+                    return;
+                }
                 _currentRoom = room.Instance;
                 _targetRoom = -1;
                 _destination = null;
+                _transitionStarted = DateTime.MinValue;
+                _observedRoom = -1;
                 _roomQuietAt = DateTime.MinValue;
                 _doorAttempts = 0;
-                _lastProgress = DateTime.UtcNow;
-                _lastPosition = DynelManager.LocalPlayer.Position;
-            }
-
-            if (Vector3.Distance(_lastPosition, DynelManager.LocalPlayer.Position) > 1f)
-            {
-                _lastPosition = DynelManager.LocalPlayer.Position;
-                _lastProgress = DateTime.UtcNow;
-            }
-            else if (_targetRoom >= 0 &&
-                DateTime.UtcNow - _lastProgress > TimeSpan.FromSeconds(12))
-            {
-                _blockedEdges.Add(EdgeKey(room.Instance, _targetRoom));
-                _say($"Route to room {_targetRoom} stalled; choosing the closest reachable room.");
-                _targetRoom = -1;
-                _destination = null;
-                _lastProgress = DateTime.UtcNow;
                 SMovementController.Halt();
             }
+            else
+            {
+                _observedRoom = -1;
+            }
+            _loot.BeginMissionRoom(room.Instance);
             if (HandleObjective(room, false) || FightInRoom(room) ||
                 HandleObjective(room, true) || LootInRoom(room))
             {
@@ -303,122 +298,37 @@ namespace RKmission
 
         private bool LootInRoom(Room room)
         {
-            if (_lootTarget != Identity.None)
-                return ContinueLoot();
-
-            Dynel loot = DynelManager.AllDynels
-                .Where(x => (x.Identity.Type == IdentityType.Corpse ||
-                             x.Identity.Type == IdentityType.Container) &&
-                            x.Room != null && x.Room.Instance == room.Instance &&
-                            !_processedLoot.Contains(x.Identity) &&
-                            !_failedLoot.Contains(x.Identity))
-                .OrderBy(x => x.DistanceFrom(DynelManager.LocalPlayer))
-                .FirstOrDefault();
-            if (loot == null)
-                return false;
-
-            _lootTarget = loot.Identity;
-            _lootAttempts = 0;
-            _openedContainer = null;
-            _pendingItem = Identity.None;
-            _pendingRule = null;
-            _actionAt = DateTime.MinValue;
-            return ContinueLoot();
-        }
-
-        private bool ContinueLoot()
-        {
-            Dynel loot = DynelManager.GetDynel(_lootTarget);
-            if (loot == null)
+            // Manager.Loot owns the list, chest/lockpick handling and item moves.
+            // RKMission only brings it within range of the next object in this room.
+            if (_loot.IsProcessingMissionLoot)
             {
-                _processedLoot.Add(_lootTarget);
-                _lootTarget = Identity.None;
+                SMovementController.Halt();
                 return true;
             }
-
-            if (loot.DistanceFrom(DynelManager.LocalPlayer) > 4f)
+            Dynel next = _loot.NextMissionLoot(room.Instance);
+            if (next == null)
             {
-                Navigate(loot.Position);
+                _waitingForLoot = Identity.None;
+                return _loot.IsProcessingMissionLoot;
+            }
+            if (_waitingForLoot != next.Identity)
+            {
+                _waitingForLoot = next.Identity;
+                _lootWaitStarted = DateTime.UtcNow;
+            }
+            if (next.DistanceFrom(DynelManager.LocalPlayer) > 4.5f)
+            {
+                Navigate(next.Position);
                 return true;
             }
             SMovementController.Halt();
-
-            if (_openedContainer != null)
+            if (DateTime.UtcNow - _lootWaitStarted > TimeSpan.FromSeconds(20))
             {
-                if (_pendingItem != Identity.None)
-                {
-                    if (_openedContainer.Items.All(x => x.UniqueIdentity != _pendingItem) ||
-                        Inventory.Items.Any(x => x.UniqueIdentity == _pendingItem &&
-                            x.Slot.Type == IdentityType.Inventory))
-                    {
-                        _lootRules.RecordLoot(_pendingRule);
-                        _pendingItem = Identity.None;
-                        _pendingRule = null;
-                        _lootAttempts = 0;
-                    }
-                    else if (DateTime.UtcNow - _actionAt < TimeSpan.FromSeconds(2))
-                        return true;
-                    else if (++_lootAttempts > 4)
-                    {
-                        Stop();
-                        _say("Selected loot did not move to inventory; stopped in this room.");
-                        return true;
-                    }
-                }
-
-                Item item = _openedContainer.Items.FirstOrDefault(x => _lootRules.Match(x) != null);
-                if (item != null)
-                {
-                    if (Inventory.NumFreeSlots == 0)
-                    {
-                        Stop();
-                        _say("Inventory full; loot remains in this room.");
-                        return true;
-                    }
-                    if (DateTime.UtcNow - _actionAt > TimeSpan.FromMilliseconds(650))
-                    {
-                        _pendingItem = item.UniqueIdentity;
-                        _pendingRule = _lootRules.Match(item);
-                        item.MoveToInventory();
-                        _actionAt = DateTime.UtcNow;
-                    }
-                    return true;
-                }
-                // Unselected items stay in the corpse/chest, as in Manager.Loot.
-                _processedLoot.Add(_lootTarget);
-                _lootTarget = Identity.None;
-                _openedContainer = null;
-                return true;
-            }
-
-            if (DateTime.UtcNow - _actionAt < TimeSpan.FromSeconds(2))
-                return true;
-            if (++_lootAttempts > 4)
-            {
-                _failedLoot.Add(_lootTarget);
                 Stop();
-                _say($"Unable to open or loot {_lootTarget}; stopped in this room.");
-                return true;
+                _say($"Manager.Loot could not finish {next.Identity} in room {room.Instance}.");
             }
-
-            if (loot.Identity.Type == IdentityType.Container &&
-                new LockableItem(loot).IsLocked)
-            {
-                if (!Inventory.Find("Lock Pick", out Item pick))
-                {
-                    Stop();
-                    _say("Locked chest found without a Lock Pick.");
-                    return true;
-                }
-                pick.UseOn(loot.Identity);
-            }
-            else
-                loot.Use();
-
-            _actionAt = DateTime.UtcNow;
             return true;
         }
-
         private Room NextRoom(Room current)
         {
             if (_layout == null)
@@ -462,7 +372,13 @@ namespace RKmission
 
         private void MoveToAdjacentRoom(Room current, Room next)
         {
-            _targetRoom = next.Instance;
+            if (_targetRoom != next.Instance)
+            {
+                _targetRoom = next.Instance;
+                _transitionStarted = DateTime.UtcNow;
+                _destination = null;
+                _doorAttempts = 0;
+            }
             Door door = Playfield.Doors.FirstOrDefault(x =>
                 (x.RoomLink1?.Instance == current.Instance && x.RoomLink2?.Instance == next.Instance) ||
                 (x.RoomLink2?.Instance == current.Instance && x.RoomLink1?.Instance == next.Instance));
@@ -504,6 +420,17 @@ namespace RKmission
             }
 
             Navigate(next.Center);
+        }
+
+        private void FailTransition(int fromRoom, int toRoom)
+        {
+            _blockedEdges.Add(EdgeKey(fromRoom, toRoom));
+            _say($"Entry from room {fromRoom} to {toRoom} was not confirmed; trying another closest reachable room.");
+            _targetRoom = -1;
+            _destination = null;
+            _transitionStarted = DateTime.MinValue;
+            _observedRoom = -1;
+            SMovementController.Halt();
         }
 
         private void Navigate(Vector3 destination)

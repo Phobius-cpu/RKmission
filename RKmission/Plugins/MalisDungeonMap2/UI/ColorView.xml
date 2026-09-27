@@ -1,0 +1,9 @@
+﻿<?xml version="1.0" standalone="yes"?>
+<root>
+	<View>
+		<View view_layout="horizontal">
+			<TextView name="ColorHeaderText" value="Terminal:" min_size="Point(130,15)"/>
+			<TextInputView name="ColorInputText" value=""  max_size="Point(59,15)" min_size="Point(59,15)"/>
+		</View>
+	</View>
+</root>

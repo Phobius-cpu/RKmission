@@ -100,22 +100,43 @@ Project-relevant memory and visible conversation summaries may be recorded here.
 - These changes are source-only. The user will compile and test in-game and
   report any compiler errors or behavior that needs iteration.
 
-## Compile Inspection and Interface Follow-up (2026-09-27)
+## Compile Inspection Before Embedding (2026-09-27)
 
-- The user could not compile the previous revision and requested a static source
-  inspection. The copied Mali dungeon-map files referenced `MDebug.DrawLine`
-  and `MathExtras.Rad2Deg`, but the defining helper file was omitted. RKMission
-  now includes the needed map line renderer and angle constant in its own map
-  source. The drawing helper uses the same AO# debugger entry point and default
-  scale as the reference map.
-- Checked mission, inventory, room, door, and SharpNav signatures against the
-  referenced AOSharpSDK 1.0.106 and AOSharpSDK.SharpNav 1.0.44 APIs. The
-  `SetNavDestination`, `LoadNavmesh`, and `GenerateNavMeshAsync` calls are valid.
-- Removed the unused AOSharpSDK.Nav package reference. The map and movement
-  code uses AOSharpSDK.SharpNav; no stale solution file remains in the tree.
-- Added an AO# window adapted from Mali's rolling controls and Manager.Loot's
-  rule editor. It covers playfield, difficulty, roll limit, start/stop, status,
-  and per-character loot add/remove with QL, quantity, exact, and one-each
-  settings. `/rkm` reopens it; chat subcommands remain fallback controls.
-- No local build or in-game test was run. The user will pull, compile, and
-  test in AO#.
+- The user could not compile the previous revision. A subsequent `main` commit
+  supplied the missing drawing helpers, removed the unused AOSharpSDK.Nav
+  package, and added an interim RKMission window. The embedded original map
+  includes its own `MDebug`/`MathExtras`; the interim helpers and window were
+  removed with their substitute classes during this integration.
+
+## Embedded Plugin Architecture and Doorway Fix (2026-09-27)
+
+- The user requires the original plugin code and interfaces, rather than RKMission
+  lookalikes. The source trees from `malis-mission-roller-2.0-main.zip`,
+  `malis-dungeon-map-2.0-master.zip`, and `aosp-bots-master.zip` Manager.Loot are
+  embedded under `RKmission/Plugins` with their namespaces, UI XML, textures,
+  sounds, JSON databases, and rule model. Their archive project/solution files
+  and duplicate assembly attributes were excluded from the one RKmission project.
+  Their original public `Run`/UI APIs remain callable; only RKmission derives
+  from `AOPluginEntry` so AO# has one unambiguous entry point in the assembly.
+- RKMission invokes `MaliMissionRoller2.Main` and `MainWindow` for offers and
+  acceptance. A small `StartZoneRolling` addition selects the nearest offer in
+  the configured zone while the original slider UI and `/mmr` remain available.
+- RKMission invokes `MalisDungeonMap2.DungeonMap` for the original map renderer,
+  `/mapsettings`, and config UI. The local duplicate wall renderer was removed;
+  `DungeonLayout` retains only AO# room adjacency for routing.
+- RKMission invokes `ManagerLoot.ManagerLoot` for its original rules, settings UI,
+  corpse/chest lockpicking, and item movement. It sets the active room and walks
+  into range, while Manager.Loot's own state machine performs looting. The old
+  `LootRules` substitute and `/rkm loot add/remove` were removed. Use
+  `/ManagerLoot` to select items. Rules remain in Manager.Loot's own per-character
+  or shared folder format.
+- The prior room loop was caused by accepting any instantaneous room change at
+  a doorway and resetting the target, while progress was measured by character
+  position even without a confirmed room entry. A room ID can flicker across a
+  threshold and the character can move without crossing it. The bot now keeps a
+  target until the destination room ID is stable for one second, gives each edge
+  18 seconds regardless of position movement, blocks failed edges for the run,
+  and finds the next closest reachable unvisited room without returning to that
+  doorway. It clears each confirmed room before choosing another edge.
+- No local compile or tests were run, per the user's workflow. The next validation
+  is the user's build and in-game room-entry, map, rolling, and loot checks.

@@ -1,0 +1,124 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<root>
+	<View>
+		<BorderView v_alignment="TOP" h_alignment="CENTER" name="Settings" max_size="Point(16000,-1)" layout_borders="Rect(5,5,5,0)">
+			<View view_layout="vertical" v_alignment="TOP" h_alignment="Center">
+				<Button name="InfoView" label="Info" layout_borders="Rect(5,5,5,5)" max_size="Point(50,20)" h_alignment="LEFT"/>
+				<Button name="Enable_Disable_Button" label="" layout_borders="Rect(5,5,5,5)" max_size="Point(80,20)" h_alignment="LEFT"/>
+
+				<View view_layout="horizontal" h_alignment="LEFT">
+					<OptionCheckBox label="Reverse" opt_category="AOSharp" opt_type="variant" opt_variable="ManagerLoot__Reverse" layout_borders="Rect(2,5,2,0)"/>
+					<OptionCheckBox label="Delete leftovers" opt_category="AOSharp" opt_type="variant" opt_variable="ManagerLoot__Delete" layout_borders="Rect(2,5,4,0)"/>
+				</View>
+
+				<View view_layout="horizontal" h_alignment="LEFT">
+					<OptionCheckBox label="Disable if inv full" opt_category="AOSharp" opt_type="variant" opt_variable="ManagerLoot__Disable" layout_borders="Rect(2,5,5,5)"/>
+					<OptionCheckBox label="Disable if empty list" opt_category="AOSharp" opt_type="variant" opt_variable="ManagerLoot__DisableIfEmptyList" layout_borders="Rect(5,5,5,5)"/>
+					<OptionCheckBox label="Open chests" opt_category="AOSharp" opt_type="variant" opt_variable="ManagerLoot__Chests" layout_borders="Rect(5,5,2,5)"/>
+				</View>
+			</View>
+		</BorderView>
+
+		<BorderView v_alignment="TOP" h_alignment="CENTER" name="Settings" max_size="Point(16000,-1)" layout_borders="Rect(5,5,5,0)">
+			<View view_layout="vertical" v_alignment="TOP" h_alignment="Center">
+				<View view_layout="horizontal" h_alignment="CENTER">
+					<TextView value="Name or Item ID" layout_borders="Rect(10,5,5,0)"/>
+					<TextInputView name="TextName" max_size="Point(200,13)" min_size="Point(200,13)" layout_borders="Rect(5,5,5,0)" />
+					<OptionCheckBox name="_itemExactName" label="Exact Name" opt_category="AOSharp" opt_type="variant" opt_variable="ManagerLoot__Exact" layout_borders="Rect(2,5,10,0)"/>
+					<OptionCheckBox name="_oneOfEach" label="One each" opt_category="AOSharp" opt_type="variant" opt_variable="ManagerLoot__OneOfEach" layout_borders="Rect(2,5,10,0)"/>
+				</View>
+
+				<View view_layout="horizontal" h_alignment="CENTER">
+					<TextView name="tvminq" value="Min QL" layout_borders="Rect(5,5,5,0)" />
+					<TextInputView feature_flags="TVF_ACCEPT_TXT_INPUT|TVF_ACCEPT_MOUSE_INPUT|TVF_NUMERIC" name="_itemMinQL" max_size="Point(30,13)" min_size="Point(30,13)" layout_borders="Rect(2,5,2,0)" />
+					<TextView name="tvmaxq" value="Max QL" layout_borders="Rect(5,5,5,0)" />
+					<TextInputView feature_flags="TVF_ACCEPT_TXT_INPUT|TVF_ACCEPT_MOUSE_INPUT|TVF_NUMERIC" name="_itemMaxQL" max_size="Point(30,13)" min_size="Point(30,13)" layout_borders="Rect(2,5,2,0)" />
+					<TextView name="tvqty" value="Quantity" layout_borders="Rect(5,5,5,0)" />
+					<TextInputView feature_flags="TVF_ACCEPT_TXT_INPUT|TVF_ACCEPT_MOUSE_INPUT|TVF_NUMERIC" name="_itemQuantity" max_size="Point(30,13)" min_size="Point(30,13)" layout_borders="Rect(2,5,2,0)" />
+				</View>
+
+				<View view_layout="horizontal" h_alignment="CENTER">
+					<TextView value="Bag Name" layout_borders="Rect(5,5,5,5)"/>
+					<DropdownMenu name="BagName" layout_borders="Rect(5,5,5,5)" />
+					<Button name="buttonAdd" label="Add" h_alignment="LEFT" layout_borders="Rect(5,5,5,5)" />
+				</View>
+			</View>
+		</BorderView>
+
+		<BorderView v_alignment="TOP" h_alignment="CENTER" name="Settings1" max_size="Point(16000,-1)" layout_borders="Rect(5,5,5,0)">
+			<View view_layout="vertical" v_alignment="TOP" h_alignment="Center">
+				<Button name="ToggleFolderScope" label="Use Shared: False" h_alignment="LEFT" layout_borders="Rect(5,5,5,5)"/>
+				<View view_layout="horizontal" h_alignment="CENTER">
+					<TextView value="List Name:" layout_borders="Rect(5,5,5,5)" />
+					<TextInputView name="SaveAs" min_size="Point(100, 15)" max_size="Point(100, 15)" layout_borders="Rect(5,5,5,5)" />
+					<Button name="buttonNew" label="New" h_alignment="LEFT" layout_borders="Rect(5,5,5,5)" />
+				</View>
+
+				<View view_layout="horizontal" h_alignment="CENTER">
+					<DropdownMenu name="filePath" layout_borders="Rect(5,5,5,5)" />
+					<Button name="buttonLoad" label="Load" h_alignment="LEFT" layout_borders="Rect(5,5,5,5)" />
+					<Button name="buttonRemove" label="Delete" h_alignment="LEFT" layout_borders="Rect(5,5,5,5)" />
+					<Button name="OpenLootFolder" label="Open Folder" layout_borders="Rect(5,5,5,5)"/>
+				</View>
+			</View>
+
+		</BorderView>
+
+		<View view_layout="horizontal" layout_borders="Rect(15,5,5,0)">
+			<TextView value="Inx"       min_size="Point(21,0)"/>
+			<TextView value="|"         layout_borders="Rect(2,0,2,0)"/>
+			<TextView value="QL"        min_size="Point(62,0)"/>
+			<TextView value="|"         layout_borders="Rect(2,0,2,0)"/>
+			<TextView value="Name"      min_size="Point(230,0)"/>
+			<TextView value="|"         layout_borders="Rect(2,0,2,0)"/>
+			<TextView value="Qty"       min_size="Point(21,0)"/>
+			<TextView value="|"         layout_borders="Rect(2,0,2,0)"/>
+			<TextView value="Exact"     min_size="Point(30,0)"/>
+			<TextView value="|"         layout_borders="Rect(2,0,2,0)"/>
+			<TextView value="One"		min_size="Point(30,0)"/>
+			<TextView value="|"			layout_borders="Rect(2,0,2,0)"/>
+			<TextView value="Bag"       />
+			<HLayoutSpacer/>
+		</View>
+
+		<BorderView v_alignment="TOP" h_alignment="LEFT" view_layout="vertical" name="Settings2" layout_borders="Rect(5,2,5,10)" min_size="Point(0,200)">
+			<View layout_borders="Rect(0,5,0,5)">
+				<ScrollView h_alignment="LEFT" label="#Behaviour/s" v_scrollbar_mode="auto" scroll_client="behaviour_s_scroll" layout_borders="Rect(5,5,5,5)">
+					<ScrollViewChild name="behaviour_s_scroll" layout_borders="Rect(0,0,0,0)">
+						<View name="ScrollListRoot">
+							<Haxxor/>
+						</View>
+						<VLayoutSpacer/>
+					</ScrollViewChild>
+				</ScrollView>
+			</View>
+		</BorderView>
+
+		<BorderView v_alignment="TOP" h_alignment="CENTER" name="Settings1" max_size="Point(16000,-1)" layout_borders="Rect(5,5,5,0)">
+			<View view_layout="horizontal">
+				<TextView name="tvIndex" value="Remove" layout_borders="Rect(5,5,5,5)" />
+				<TextInputView feature_flags="TVF_ACCEPT_TXT_INPUT|TVF_ACCEPT_MOUSE_INPUT|TVF_NUMERIC" name="RemoveIndex" max_size="Point(30,13)" min_size="Point(30,13)" layout_borders="Rect(5,5,5,5)" />
+				<Button name="buttonDel" label="Del" h_alignment="LEFT" layout_borders="Rect(5,5,5,5)" />
+			</View>
+
+			<Button name="ClearList" label="Clear List" layout_borders="Rect(5,5,5,5)" />
+		</BorderView>
+
+		<BorderView v_alignment="TOP" h_alignment="CENTER" name="Settings1" max_size="Point(16000,-1)" layout_borders="Rect(5,5,5,0)">
+
+			<View view_layout="horizontal" >
+				<TextView name="ErrorMessage" value="" layout_borders="Rect(5,5,5,5)" />
+			</View>
+		</BorderView>
+
+		<View view_layout="center">
+			<View name="Errors" view_layout="vertical" v_alignment="TOP" h_alignment="center" layout_borders="Rect(0,0,0,0)" max_size="Point(16000,-1)">
+				<Haxxor/>
+			</View>
+		</View>
+
+		<TextView value="" layout_borders="Rect(0,0,0,2)"/>
+		<TextView name="VersionNumber" value="" layout_borders="Rect(0,0,0,2)"/>
+		<TextView value="" layout_borders="Rect(0,0,0,2)"/>
+	</View>
+</root>

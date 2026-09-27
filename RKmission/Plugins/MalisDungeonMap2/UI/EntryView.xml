@@ -1,0 +1,10 @@
+﻿<?xml version="1.0" standalone="yes"?>
+<root>
+	<View>
+		<View view_layout="horizontal">
+			<TextView name="HeaderText" min_size="Point(115,15)"/>
+			<CheckBox name="Show" value="true" max_size="Point(60,15)" min_size="Point(60,15)"/>
+			<CheckBox name="Outline"/>
+		</View>
+	</View>
+</root>

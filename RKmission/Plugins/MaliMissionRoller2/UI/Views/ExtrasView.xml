@@ -1,0 +1,41 @@
+﻿<?xml version="1.0" standalone="yes"?>
+<Root>
+	<View>
+		<BitmapView name="Background" max_size="Point(100,80)">
+			<View view_layout="horizontal">
+				<HLayoutSpacer/>
+				<TextView font="BOLD" value="- EXTRAS -" feature_flags="TVF_RENDER_SHADOW" layout_borders="Rect(10,5,0,0)" color="0x00FFF1AC"/>
+				<HLayoutSpacer/>
+				<Button name="Dev" layout_borders="Rect(0,4,4,0)"/>
+			</View>
+			<View layout_borders="Rect(2,4,0,0)">
+				<View view_layout="horizontal" min_size="Point(80,15)">
+					<Button name="PlayAlertSound" layout_borders="Rect(2,1,2,1)"/>
+					<TextView font="SMALL" value="Play Sound on Hit" layout_borders="Rect(2,0,2,0)" color="0x00FFF1AC"/>
+					<HLayoutSpacer/>
+				</View>
+				<View view_layout="horizontal" min_size="Point(80,15)">
+					<Button name="AutoAdjustQl" layout_borders="Rect(2,1,2,1)"/>
+					<TextView font="SMALL" value="Auto Adjust Lvl Slider" layout_borders="Rect(2,0,2,0)" color="0x00FFF1AC"/>
+					<HLayoutSpacer/>
+				</View>
+				<View view_layout="horizontal"  min_size="Point(80,15)">
+					<Button name="RemoveRoll" layout_borders="Rect(2,1,2,0)"/>
+					<TextView font="SMALL" value="Remove Rolled Entries" layout_borders="Rect(2,0,2,0)" color="0x00FFF1AC"/>
+					<HLayoutSpacer/>
+				</View>
+				<View view_layout="horizontal" min_size="Point(80,15)">
+					<Button name="AutoAccept" layout_borders="Rect(2,1,2,0)"/>
+					<TextView font="SMALL" value="Auto Accept Missions" layout_borders="Rect(2,0,2,0)" color="0x00FFF1AC"/>
+					<HLayoutSpacer/>
+				</View>
+				<View view_layout="horizontal" min_size="Point(80,15)">
+					<Button name="ShowBounds" layout_borders="Rect(2,1,2,0)"/>
+					<TextView font="SMALL" value="Show Playfield Bounds" layout_borders="Rect(2,0,2,0)" color="0x00FFF1AC"/>
+					<HLayoutSpacer/>
+				</View>
+				<VLayoutSpacer/>
+			</View>
+		</BitmapView>
+	</View>
+</Root>

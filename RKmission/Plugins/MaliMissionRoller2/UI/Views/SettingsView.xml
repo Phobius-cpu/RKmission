@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" standalone="yes"?>
+<Root>
+	<View name="SettingsViewRoot" v_alignment="UP" view_layout="vertical">
+		<View name="ItemDisplayRoot">
+			<Haxxor/>
+		</View>
+		<View view_layout="horizontal">
+			<View name="TypesRoot" view_layout="horizontal">
+				<Haxxor/>
+			</View>
+			<View name="ExtrasRoot" view_layout="horizontal">
+				<Haxxor/>
+			</View>
+		</View>
+		<View name="LocationRoot" view_layout="horizontal">
+			<Haxxor/>
+		</View>
+		<View name="SliderRoot" view_layout="horizontal">
+			<Haxxor/>
+		</View>
+		<VLayoutSpacer/>
+	</View>
+</Root>

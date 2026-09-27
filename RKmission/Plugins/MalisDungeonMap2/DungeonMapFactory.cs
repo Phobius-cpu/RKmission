@@ -1,4 +1,4 @@
-﻿using AOSharp.Common.GameData;
+using AOSharp.Common.GameData;
 using AOSharp.Core;
 using STriangle = SharpNav.Geometry.Triangle3;
 using System.Collections.Generic;
@@ -27,8 +27,7 @@ namespace MalisDungeonMap2
             Dictionary<int, Dictionary<int, List<STriangle>>> roomFloorMesh = new Dictionary<int, Dictionary<int, List<STriangle>>>();
             Dictionary<int, List<DoorTransform>> doorPos = new Dictionary<int, List<DoorTransform>>();
             DungeonRDBTilemap tilemap = Playfield.RDBTilemap as DungeonRDBTilemap;
-            var entranceDoor = Playfield.Doors.FirstOrDefault();
-            var entranceDoorPos = entranceDoor != null ? entranceDoor.Position : Vector3.Zero;
+            var entranceDoorPos = Playfield.Doors.FirstOrDefault()?.Position ?? Vector3.Zero;
 
             foreach (Room room in Playfield.Rooms)
             {
@@ -41,13 +40,13 @@ namespace MalisDungeonMap2
                 {
                     if (room.GetDoorConnectZone(i) == room.Instance)
                         continue;
-                    
+
                     room.GetDoorPosRot(i, out Vector3 pos, out Quaternion rot);
 
                     if (doorPos[room.Floor].Any(x => x.Pos == pos))
                         continue;
 
-                    doorPos[room.Floor].Add(new DoorTransform(pos, rot, entranceDoor != null && Vector3.Distance(entranceDoorPos, pos) < 0.1f));
+                    doorPos[room.Floor].Add(new DoorTransform(pos, rot, Vector3.Distance(entranceDoorPos, pos) < 0.1f));
                 }
                 roomFloorMesh[room.Floor].Add(room.Instance, DungeonTerrainHeight.CreateMesh(room, tilemap));
             }
@@ -76,7 +75,7 @@ namespace MalisDungeonMap2
                 foreach (var s in floorEdgeData)
                 {
                     List<Edge> edges = new List<Edge>();
-                    
+
                     foreach (var ed in s.Value)
                         edges.Add(new Edge(ed.V1 - center, ed.V2 - center));
 
@@ -118,7 +117,7 @@ namespace MalisDungeonMap2
                 dungeonData.MeshData.Add(floorTrisData.Key, new MeshData(recenteredfloorEdgeData, center, doorData));
 
             }
-         
+
             return dungeonData;
         }
     }

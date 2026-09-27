@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<root>
+	<View>
+		<View view_layout="horizontal" layout_borders="Rect(5,1,5,1)">
+			<TextView name="Index"     min_size="Point(21,0)"/>
+			<TextView value="|"        layout_borders="Rect(2,0,2,0)"/>
+			<TextView name="Range"     min_size="Point(62,0)"/>
+			<TextView value="|"        layout_borders="Rect(2,0,2,0)"/>
+			<TextView name="Name"      min_size="Point(230,0)"/>
+			<TextView value="|"        layout_borders="Rect(2,0,2,0)"/>
+			<TextView name="Quantity"  min_size="Point(21,0)"/>
+			<TextView value="|"        layout_borders="Rect(2,0,2,0)"/>
+			<TextView name="Exact"     min_size="Point(30,0)"/>
+			<TextView value="|"        layout_borders="Rect(2,0,2,0)"/>
+			<TextView name="OneEach"   min_size="Point(30,0)"/>
+			<TextView value="|"        layout_borders="Rect(2,0,2,0)"/>
+			<TextView name="Bag"       />
+			<HLayoutSpacer/>
+		</View>
+	</View>
+</root>

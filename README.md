@@ -7,31 +7,25 @@ uses the AOSharp SDK packages referenced in `RKmission/RKmission.csproj`.
 
 1. Stand within 7.5 m of a solo mission terminal and use it. RKMission can
    also find a nearby terminal when a use event was missed.
-2. In the RKMission window, set the target playfield, roll limit, and difficulty,
-   then press **Start rolling / run**. The current playfield is the default.
-   Use `/rkm` to reopen the window.
+2. Set the target playfield with `/rkm zone <playfield id>` (the current
+   playfield is the default), then use `/rkm start`.
 3. RKMission first chooses the nearest already accepted mission in that
    playfield. If there is none, it requests mission offers until the playfield
    matches, accepts the nearest matching offer, and travels to its entrance.
-4. Inside, it generates a dungeon navmesh and displays the room walls and doors
-   from Mali's Dungeon Map 2.0. It clears hostiles in the current room, handles
-   a visible mission objective, opens corpses and chests, lockpicks locked
-   chests and doors, then follows the displayed room graph. A stalled route is
-   marked blocked and the closest reachable room is chosen next.
+4. Inside, it generates a dungeon navmesh and starts Mali's original Dungeon
+   Map 2.0 renderer. It clears hostiles in the current room, handles a visible
+   objective, walks within range of corpses and chests for Manager.Loot to
+   process, lockpicks locked doors, then follows AO# room connections. A room
+   change must remain confirmed for one second; failed connections are blocked
+   and the closest reachable unvisited room is chosen next.
 
-The window also has **Stop**, status, and a Manager.Loot-style item list. Chat
-commands remain available as a fallback: `/rkm start`, `/rkm stop`, `/rkm status`, `/rkm zone <id>`,
-`/rkm rolls <count>` (default 100), `/rkm difficulty <0-255>` (default 128),
-`/rkm loot list`, `/rkm loot add <name or item ID>`, and
-`/rkm loot remove <number>`.
+Commands: `/rkm start`, `/rkm stop`, `/rkm status`, `/rkm zone <id>`,
+`/rkm rolls <count>` (default 100), `/rkm loot`, and `/rkm map`.
 
-Loot is an allowlist. It begins empty, so RKMission opens containers but takes
-only selected items. Rules are stored per character at
-`%LOCALAPPDATA%\AOSharp\RKmission\<character>\loot-rules.json`. The JSON uses
-Manager.Loot fields `Name`, `Lql`, `Hql`, `Quantity`, `Exact`, and `OneEach`.
-Use the window to add names or IDs with QL, quantity, exact-name, and one-each
-settings, and to remove selected rules. The add chat command creates a broad
-QL 1-500 rule.
+Use `/ManagerLoot` for the original item list and settings, `/mmr` for Mali's
+roller settings, and `/mapsettings` for the original map settings. Manager.Loot
+keeps its own per-character or shared JSON lists under
+`%LOCALAPPDATA%\AOSharp\ManagerLoot`.
 
 Keep a Lock Pick in normal inventory and enough free slots for loot. RKMission
 stops for a locked object without a pick, an unreachable enemy, or a failed
@@ -48,16 +42,13 @@ automatically start another run.
 
 ## Source decisions
 
-- Mission requests and acceptance follow the supplied Mali mission roller:
-  seven slider arguments to `MissionTerminal.RequestMissions`, neutral values
-  encoded as 255, `Mission.RollListChanged`, and `CreateQuestMessage`.
-- The wall geometry and door display come from the supplied Mali Dungeon Map
-  2.0 source. The copied map drawing helper is included with the required
-  two-dimensional line renderer and angle conversion. The same room connections drive breadth-first navigation and
-  nearest-room fallback. AO# still supplies the movement navmesh.
-- Corpse/chest opening, selective item transfer and rule fields follow the
-  supplied Manager.Loot source. `Inventory.ContainerOpened` and
-  `Item.MoveToInventory()` are used for each chosen item.
+- The original Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot
+  source trees and UI/config assets are embedded in `RKmission/Plugins`.
+  RKMission invokes their classes directly; the small additions set a target
+  rolling zone and limit Manager.Loot to the current room.
+- AO# supplies the room graph and movement navmesh. The original Mali map
+  renderer supplies the dungeon display. Manager.Loot owns corpse/chest
+  opening, lockpicking, list matching, and selected item transfers.
 - Locked objects use AO# `LockableItem`/`Door` state and `Lock Pick.UseOn`.
 - The uploaded `RKmission.zip` contained an earlier, separate dungeon bot
   experiment. The old repository held disconnected placeholders and duplicate

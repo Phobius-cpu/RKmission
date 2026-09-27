@@ -1,0 +1,36 @@
+﻿<?xml version="1.0" standalone="yes"?>
+<Root>
+	<View>
+		<BitmapView name="Background">
+			<TextView font="BOLD" value="- TYPES -" feature_flags="TVF_RENDER_SHADOW" layout_borders="Rect(0,5,0,0)" color="0x00FFF1AC"/>
+			<View layout_borders="Rect(2,4,0,0)">
+				<View view_layout="horizontal" min_size="Point(80,15)">
+					<Button name="ReturnItem" layout_borders="Rect(2,1,2,1)"/>
+					<TextView font="SMALL" value="Return Item" layout_borders="Rect(2,0,2,0)" color="0x00FFF1AC"/>
+					<HLayoutSpacer/>
+				</View>
+				<View view_layout="horizontal" min_size="Point(80,15)">
+					<Button name="KillTarget" layout_borders="Rect(2,1,2,1)"/>
+					<TextView font="SMALL" value="Kill Target" layout_borders="Rect(2,0,2,0)" color="0x00FFF1AC"/>
+					<HLayoutSpacer/>
+				</View>
+				<View view_layout="horizontal"  min_size="Point(80,15)">
+					<Button name="FindTarget" layout_borders="Rect(2,1,2,0)"/>
+					<TextView font="SMALL" value="Find Target" layout_borders="Rect(2,0,2,0)" color="0x00FFF1AC"/>
+					<HLayoutSpacer/>
+				</View>
+				<View view_layout="horizontal" min_size="Point(80,15)">
+					<Button name="FindItem" layout_borders="Rect(2,1,2,0)"/>
+					<TextView font="SMALL" value="Find Item" layout_borders="Rect(2,0,2,0)" color="0x00FFF1AC"/>
+					<HLayoutSpacer/>
+				</View>
+				<View view_layout="horizontal"  min_size="Point(80,15)">
+					<Button name="UseItem" layout_borders="Rect(2,1,2,0)"/>
+					<TextView font="SMALL" value="Use Item" layout_borders="Rect(2,0,2,0)" color="0x00FFF1AC"/>
+					<HLayoutSpacer/>
+				</View>
+				<VLayoutSpacer/>
+			</View>
+		</BitmapView>
+	</View>
+</Root>

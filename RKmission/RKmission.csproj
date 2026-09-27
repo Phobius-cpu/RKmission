@@ -3,6 +3,7 @@
     <TargetFramework>net48</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>RKmission</AssemblyName>
     <RootNamespace>RKmission</RootNamespace>
   </PropertyGroup>
@@ -12,6 +13,6 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
   <ItemGroup>
-    <None Update="UI\RKmissionWindow.xml" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Plugins\MaliMissionRoller2\JSON\**\*;Plugins\MaliMissionRoller2\UI\**\*;Plugins\MaliMissionRoller2\Sound\**\*;Plugins\MalisDungeonMap2\UI\**\*;Plugins\ManagerLoot\UI\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

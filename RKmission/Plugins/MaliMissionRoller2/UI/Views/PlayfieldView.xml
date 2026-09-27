@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" standalone="yes"?>
+<Root>
+	<View>
+		<BitmapView name="Background">
+			<View view_layout="horizontal">
+				<TextView color="0x00FFF1AC" font="BOLD" value="- Playfields -" feature_flags="TVF_RENDER_SHADOW" layout_borders="Rect(0,5,0,0)"/>
+			</View>
+			<View layout_borders="Rect(0,3,0,2)">
+				<ScrollView h_alignment="LEFT" label="#Behaviour/s" v_scrollbar_mode="auto" scroll_client="behaviour_s_scroll">
+					<ScrollViewChild name="behaviour_s_scroll"  max_size="Point(235,50)">
+						<View name="ScrollListRoot">
+							<Haxxor/>
+						</View>
+						<VLayoutSpacer/>
+					</ScrollViewChild>
+				</ScrollView>
+			</View>
+			<View view_layout="horizontal" layout_borders="Rect(4,0,4,4)">
+				<Button name="EnableAll"/>
+				<HLayoutSpacer/>
+				<Button name="DisableAll"/>
+				<HLayoutSpacer/>
+				<Button name="Coords"/>
+			</View>
+		</BitmapView>
+	</View>
+</Root>

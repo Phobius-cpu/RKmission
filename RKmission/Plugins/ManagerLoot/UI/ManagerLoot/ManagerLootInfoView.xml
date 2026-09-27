@@ -1,0 +1,53 @@
+﻿<?xml version="1.0" standalone="yes"?>
+<root>
+	<BorderView v_alignment="TOP" h_alignment="CENTER" view_layout="vertical" name="Info" layout_borders="Rect(0,0,0,2)" max_size="Point(16000,-1)">
+		<TextView value=" " layout_borders="Rect(0,0,0,2)"/>
+		<TextView value="General Information" font="HUGE" layout_borders="Rect(5,5,5,5)" color="0x0000FF00"/>
+
+		<TextView value="Enable: Starts or stops ManagerLoot." layout_borders="Rect(0,0,0,2)"/>
+		<TextView value="Reverse: Loots everything except what’s on the list. Those items go to bags named 'loot'." layout_borders="Rect(0,0,0,2)"/>
+		<TextView value="Delete leftovers: Deletes any remaining items on the corpse." layout_borders="Rect(0,0,0,2)"/>
+		<TextView value="Disable when full: Turns the bot off if inventory becomes full." layout_borders="Rect(0,0,0,2)"/>
+		<TextView value="Open chests: Opens containers like treasure chests, skulls, barrels. Uses lock pick if locked." layout_borders="Rect(0,0,0,2)"/>
+
+		<BitmapView bitmap_id="GFX_GUI_FRIENDLIST_SPLITTER" layout_borders="Rect(5,5,5,5)"/>
+
+		<TextView value="Name: The item name to match." layout_borders="Rect(0,0,0,2)"/>
+		<TextView value="Exact Name: Check this if the name must match exactly." layout_borders="Rect(0,0,0,2)"/>
+		<TextView value="One Each: Loots only one of each item with a unique name match" layout_borders="Rect(0,0,0,0)"/>
+		<TextView value="(e.g., different Symbiant types). Cannot be used with Exact Name." layout_borders="Rect(0,0,0,2)"/>
+		<TextView value="Min QL: Minimum quality level to loot." layout_borders="Rect(0,0,0,2)"/>
+		<TextView value="Max QL: Maximum quality level to loot." layout_borders="Rect(0,0,0,2)"/>
+		<TextView value="Quantity: How many of the item to loot. 999 = infinite." layout_borders="Rect(0,0,0,2)"/>
+		<TextView value="Bag Name: The name of the bag the item should be moved to." layout_borders="Rect(0,0,0,2)"/>
+		<TextView value="Add: Adds the item rule to the list." layout_borders="Rect(0,0,0,2)"/>
+
+		<BitmapView bitmap_id="GFX_GUI_FRIENDLIST_SPLITTER" layout_borders="Rect(5,5,5,5)"/>
+
+		<TextView value="To assign a bag, rename it to anything." layout_borders="Rect(0,0,0,2)"/>
+		<TextView value="Not case sensitive. Bags named a, b, c will fill in order." layout_borders="Rect(0,0,0,2)"/>
+
+		<BitmapView bitmap_id="GFX_GUI_FRIENDLIST_SPLITTER" layout_borders="Rect(5,5,5,5)"/>
+
+		<TextView value="Use Shared: If true, settings are saved to and loaded from the shared folder." layout_borders="Rect(0,0,0,0)"/>
+		<TextView value="If false, settings are stored in the character-specific folder." layout_borders="Rect(0,0,0,2)"/>
+
+		<TextView value="Save As Name: Enter name to save loot list as." layout_borders="Rect(0,0,0,2)"/>
+		<TextView value="Default name is 'Default' if none provided." layout_borders="Rect(0,0,0,2)"/>
+		<TextView value="Save: Saves the current loot list." layout_borders="Rect(0,0,0,2)"/>
+		<TextView value="Dropdown: Select a saved loot list, then click Load." layout_borders="Rect(0,0,0,2)"/>
+		<TextView value="Open Folder: Opens the folder where loot lists are stored." layout_borders="Rect(0,0,0,2)"/>
+
+		<BitmapView bitmap_id="GFX_GUI_FRIENDLIST_SPLITTER" layout_borders="Rect(5,5,5,5)"/>
+
+		<TextView value="Remove: Enter the line number and click Del to remove it." layout_borders="Rect(0,0,0,2)"/>
+
+		<BitmapView bitmap_id="GFX_GUI_FRIENDLIST_SPLITTER" layout_borders="Rect(5,5,5,5)"/>
+
+		<TextView value="Commands:" font="HUGE" layout_borders="Rect(5,5,5,5)" color="0x0000FF00"/>
+		<TextView value="/lm enables:disables" layout_borders="Rect(0,0,0,2)"/>
+		<TextView value="/printitems prints the corpse items" layout_borders="Rect(0,0,0,2)"/>
+
+		<TextView value=" " layout_borders="Rect(0,0,0,2)"/>
+	</BorderView>
+</root>

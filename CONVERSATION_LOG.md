@@ -76,21 +76,27 @@ fallback after a stalled edge; added per-character selected-item loot rules;
 and removed `AOSharp.NewBots.sln`. No local compile or test was performed,
 per the user's workflow.
 
-### User compile feedback (continued in Codex)
+### Compile inspection and interim UI change
 
-> Check the repo for issues; I cannot compile the last iteration. Inspect the
-> source and project references, fix clear compile issues on main, and leave
-> compilation and in-game testing to me.
+The user reported that the prior revision would not compile. A later `main`
+commit restored missing Mali map drawing helpers, removed an unused Nav package
+reference, and added an RKMission window based on the earlier local roller and
+loot-rule classes. That window is superseded by the original plugin UIs below.
+The user still reserved compilation and in-game testing for themselves.
 
-### User interface follow-up
+### User correction (continued in Codex)
 
-> Also, if possible, use the Mali mission roller and Manager.Loot interface
-> instead of chat commands for those tasks.
+> Integrate the actual Malis Mission Roller, Malis Dungeon Map 2.0, and
+> Manager.Loot plugin code and interfaces into RKmission, rather than adapted
+> replacements. Fix the back-and-forth loop at room doorways. Do not compile or
+> test locally; commit the source and update the project history.
 
 ### Assistant action
 
-Compared RKMission with the upstream map source and the referenced AO# package
-APIs. Restored the omitted map drawing and angle helpers, removed an unused
-legacy navigation package reference, and added an AO# window for mission rolling
-and selected loot rules. Updated README and project memory. No local build or
-test was run.
+Embedded the original plugin source and UI/config assets in RKmission, called
+their classes directly from the bot, and removed the local roller, wall map,
+and loot-rule replacements. Added only the hooks needed for RKmission's zone
+rolling and room-scoped Manager.Loot operation. Doorway navigation now waits
+for a stable destination room ID, times out by elapsed transition time, and
+blocks failed edges before selecting another closest reachable room. No local
+compile or test was performed, as requested.

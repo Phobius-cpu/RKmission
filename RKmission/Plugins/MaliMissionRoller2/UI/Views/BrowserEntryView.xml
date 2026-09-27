@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" standalone="yes"?>
+<root>
+	<View name="Root">
+		<BitmapView view_layout="horizontal" name="Bitmap" min_size="Point(224,26)" max_size="Point(224,26)">
+			<BorderView alpha="0" layout_borders="Rect(3,0,0,0)" name="Preview" min_size="Point(42,24)">
+				<Haxxor/>
+				<TextView font="SMALL" feature_flags="TVF_MULTILINE" color="0x00FFF1AC" name="Range" min_size="Point(24,24)" max_size="Point(24,24)" layout_borders="Rect(36,0,0,0)"/>
+			</BorderView>
+			<TextView color="0x00FFF1AC" name="Name" layout_borders="Rect(3,0,0,0)" min_size="Point(106,12)" max_size="Point(106,12)"/>
+			<TextView feature_flags="TVF_ACCEPT_TXT_INPUT|TVF_ACCEPT_MOUSE_INPUT|TVF_NUMERIC" color="0x00FFF1AC" name="Ql" layout_borders="Rect(9,1,0,0)" min_size="Point(22,14)" max_size="Point(22,14)"/>
+			<Button name="Button" h_alignment="LEFT" view_layout="vertical" min_size="Point(10,10)" max_size="Point(10,10)"  layout_borders="Rect(5,0,0,0)"  />
+			<HLayoutSpacer/>
+		</BitmapView>
+	</View>
+</root>

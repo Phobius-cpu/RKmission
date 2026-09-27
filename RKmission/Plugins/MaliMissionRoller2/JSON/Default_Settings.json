@@ -1,0 +1,641 @@
+{
+  "Types": {
+    "ReturnItem": true,
+    "KillTarget": true,
+    "FindTarget": true,
+    "FindItem": true,
+    "UseItem": true
+  },
+  "Extras": {
+    "PlayAlertSound": true,
+    "AutoAdjustQl": true,
+    "RemoveRoll": true,
+    "AutoAccept": true,
+    "ShowBounds": true,
+    "StartHelp": true
+  },
+  "Dev": {
+    "MaxItems": 35,
+    "ShopValue": 4
+  },
+  "Sliders": {
+    "EasyHard": 6.0,
+    "GoodBad": 0.0,
+    "OrderChaos": 0.0,
+    "OpenHidden": 0.0,
+    "PhysicalMystical": 0.0,
+    "HeadonStealth": 0.0,
+    "CreditsXp": 0.0
+  },
+  "Database": {
+    "Implants": true,
+    "Refined": true,
+    "Clusters": true,
+    "Nanos": true,
+    "Rest": true
+  },
+  "Locations": {
+    "4 Holes": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Aegean": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Andromeda": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Athen Shire": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Athen West": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Avalon": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Belial Forest": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Borealis City": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Broken Shores": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Central Artery Valley": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Clondyke": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Deep Artery Valley": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Eastern Fouls Plains": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Galway County": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Galway Shire": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Greater Omni Forest": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Greater Tir County": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Holes In the Wall": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Lush Fields": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Milky Way": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Mort": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Mutant Domain": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Newland": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Newland City": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Newland Desert": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Old Athen": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Omni Forest": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Omni-1 Entertainment": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Omni-1 HQ": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Omni-1 Trade": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Perpetual Wastelands": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Pleasant Meadows": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Rome Blue district": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Rome Green district": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Rome Red district": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Southern Artery Valley": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Southern Fouls Hills": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Stret East Bank": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Stret West Bank": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "The Longest Road": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Tir": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Tir County": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Upper Stret East Bank": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Varmint Woods": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Wailing Wastes": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    },
+    "Wartorn Valley": {
+      "Bounds": {
+        "Coord1": {
+          "X": 0.0,
+          "Y": 0.0
+        },
+        "Coord2": {
+          "X": 0.0,
+          "Y": 0.0
+        }
+      },
+      "State": true
+    }
+  },
+  "Frame": {
+    "X": 386.0,
+    "Y": 383.0
+  }
+}

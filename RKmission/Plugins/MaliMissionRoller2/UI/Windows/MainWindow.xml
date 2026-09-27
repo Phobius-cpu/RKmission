@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" standalone="yes"?>
+<Root>
+	<View view_layout="vertical">
+		<View name="HeaderRoot">
+			<Haxxor/>
+		</View>
+		<View name="MissionRoot" v_alignment="TOP" view_layout="vertical">
+			<Haxxor/>
+		</View>
+		<View name="SettingsRoot" v_alignment="TOP" view_layout="vertical">
+			<Haxxor/>
+		</View>
+	</View>
+</Root>

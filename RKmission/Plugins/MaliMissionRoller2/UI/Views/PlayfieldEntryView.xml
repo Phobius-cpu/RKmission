@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" standalone="yes"?>
+<root>
+	<View>
+		<BitmapView name="Background" min_size="Point(223,30)" max_size="Point(223,30)">
+			<View view_layout="horizontal" layout_borders="Rect(0,3,0,3)">
+				<Button name="Toggle" h_alignment="LEFT" layout_borders="Rect(4,1,0,0)"  />
+				<TextView color="0x00FFF1AC" name="Name" layout_borders="Rect(4,1,0,0)" min_size="Point(120,12)" max_size="Point(120,12)"/>
+				<HLayoutSpacer/>
+				<View >
+					<TextView font="SMALL" color="0x00FFF1AC" name="Coord1" layout_borders="Rect(0,1,0,0)" min_size="Point(75,12)" max_size="Point(75,15)"/>
+					<TextView font="SMALL" color="0x00FFF1AC" name="Coord2" layout_borders="Rect(0,1,0,0)" min_size="Point(75,12)" max_size="Point(75,15)"/>
+				</View>
+				<HLayoutSpacer/>
+			</View>
+		</BitmapView>
+	</View>
+</root>

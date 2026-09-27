@@ -1,0 +1,742 @@
+{
+  "MaxHealth": [
+    "max",
+    "health"
+  ],
+  "Health": [
+    "hit"
+  ],
+  "ProjectileAC": [
+    "projectile",
+    "ac"
+  ],
+  "MeleeAC": [
+    "melee",
+    "ac"
+  ],
+  "EnergyAC": [
+    "energy",
+    "ac"
+  ],
+  "ChemicalAC": [
+    "chemical",
+    "ac"
+  ],
+  "RadiationAC": [
+    "radiation",
+    "ac"
+  ],
+  "ColdAC": [
+    "cold",
+    "ac"
+  ],
+  "PoisonAC": [
+    "disease",
+    "poison",
+    "ac"
+  ],
+  "FireAC": [
+    "fire",
+    "ac"
+  ],
+  "Adventuring": [
+    "adventuring"
+  ],
+  "MaxNanoEnergy": [
+    "max",
+    "nano"
+  ],
+  "NanoDelta": [
+    "nanodelta"
+  ],
+  "HealDelta": [
+    "healdelta"
+  ],
+  "_1hBlunt": [
+    "1hb",
+    "blunt",
+    "weapons"
+  ],
+  "_1hEdged": [
+    "1he",
+    "edged",
+    "weapons"
+  ],
+  "_2hBlunt": [
+    "2hb",
+    "blunt",
+    "weapons"
+  ],
+  "Skill2hEdged": [
+    "2he",
+    "edged",
+    "weapons"
+  ],
+  "Agility": [
+    "agility"
+  ],
+  "AimedShot": [
+    "aimed",
+    "shot"
+  ],
+  "AssaultRifle": [
+    "assault",
+    "rifle"
+  ],
+  "BiologicalMetamorphosis": [
+    "biological",
+    "metamorphosis"
+  ],
+  "BodyDevelopment": [
+    "body",
+    "development"
+  ],
+  "Bow": [
+    "bow"
+  ],
+  "BowSpecialAttack": [
+    "bow",
+    "and",
+    "special",
+    "attack"
+  ],
+  "Brawl": [
+    "brawl"
+  ],
+  "BreakingEntry": [
+    "break&entry",
+    "break",
+    "and",
+    "entry"
+  ],
+  "Burst": [
+    "burst"
+  ],
+  "Chemistry": [
+    "chemistry"
+  ],
+  "ComputerLiteracy": [
+    "computer",
+    "literacy"
+  ],
+  "Concealment": [
+    "concealment"
+  ],
+  "Dimach": [
+    "dimach"
+  ],
+  "DodgeRanged": [
+    "dodge",
+    "ranged",
+    "attacks"
+  ],
+  "DuckExp": [
+    "duck",
+    "explosions",
+    "and",
+    "thrown",
+    "objects"
+  ],
+  "ElectricalEngineering": [
+    "electrical",
+    "engineering"
+  ],
+  "EvadeClsC": [
+    "evade",
+    "close",
+    "combat",
+    "and",
+    "martial",
+    "arts",
+    "attacks"
+  ],
+  "FastAttack": [
+    "fast",
+    "attack"
+  ],
+  "FirstAid": [
+    "first",
+    "aid"
+  ],
+  "FlingShot": [
+    "fling",
+    "shot"
+  ],
+  "FullAuto": [
+    "full",
+    "auto"
+  ],
+  "Grenade": [
+    "grenade"
+  ],
+  "HeavyWeapons": [
+    "heavy",
+    "weapons"
+  ],
+  "Intelligence": [
+    "intelligence"
+  ],
+  "MapNavigation": [
+    "map",
+    "navigation"
+  ],
+  "MartialArts": [
+    "martial",
+    "arts"
+  ],
+  "MaterialCreation": [
+    "matter",
+    "creations"
+  ],
+  "MaterialMetamorphosis": [
+    "matter",
+    "metamorphosis"
+  ],
+  "MechanicalEngineering": [
+    "mechanical",
+    "engineering"
+  ],
+  "MeleeEnergy": [
+    "melee",
+    "energy",
+    "weapons"
+  ],
+  "MeleeInit": [
+    "melee",
+    "weapons",
+    "initiative"
+  ],
+  "MGSMG": [
+    "smg",
+    "machine",
+    "gun",
+    "submachine",
+    "gun"
+  ],
+  "MultiMelee": [
+    "multi",
+    "melee",
+    "weapons"
+  ],
+  "MultiRanged": [
+    "multi",
+    "ranged",
+    "weapons"
+  ],
+  "NanoCInit": [
+    "nano",
+    "execution",
+    "init"
+  ],
+  "NanoPool": [
+    "nano",
+    "energy",
+    "pool"
+  ],
+  "NanoProgramming": [
+    "nano",
+    "bot",
+    "programming"
+  ],
+  "NanoResist": [
+    "nano",
+    "resist"
+  ],
+  "Parry": [
+    "deflect"
+  ],
+  "Perception": [
+    "perception"
+  ],
+  "Pharmaceuticals": [
+    "pharmacological",
+    "technology"
+  ],
+  "PhysicalInit": [
+    "physical",
+    "prowess",
+    "initiative"
+  ],
+  "Piercing": [
+    "piercing"
+  ],
+  "Pistol": [
+    "pistol"
+  ],
+  "Psychic": [
+    "psychic"
+  ],
+  "PsychologicalModification": [
+    "psychological",
+    "modifications"
+  ],
+  "Psychology": [
+    "psychology"
+  ],
+  "QuantumFT": [
+    "quantum",
+    "force",
+    "field",
+    "technology"
+  ],
+  "RangedEnergy": [
+    "ranged",
+    "energy",
+    "weapons"
+  ],
+  "RangedInit": [
+    "ranged",
+    "weapons",
+    "initiative"
+  ],
+  "Rifle": [
+    "rifle"
+  ],
+  "Riposte": [
+    "riposte"
+  ],
+  "RunSpeed": [
+    "run",
+    "speed"
+  ],
+  "Sense": [
+    "sense"
+  ],
+  "SensoryImprovement": [
+    "sensory",
+    "improvement",
+    "and",
+    "modification"
+  ],
+  "SharpObject": [
+    "knife",
+    "or",
+    "sharp",
+    "object",
+    "throwing"
+  ],
+  "Shotgun": [
+    "shotgun"
+  ],
+  "SneakAttack": [
+    "sneak",
+    "attack"
+  ],
+  "SpaceTime": [
+    "time",
+    "and",
+    "space",
+    "alternation"
+  ],
+  "Stamina": [
+    "stamina"
+  ],
+  "Strength": [
+    "strength"
+  ],
+  "Swimming": [
+    "swimming"
+  ],
+  "TrapDisarm": [
+    "trap",
+    "disarmament"
+  ],
+  "Treatment": [
+    "treatment"
+  ],
+  "Tutoring": [
+    "tutoring"
+  ],
+  "VehicleAir": [
+    "vehicle",
+    "navigation",
+    "airborne"
+  ],
+  "VehicleGround": [
+    "vehicle",
+    "navigation",
+    "ground"
+  ],
+  "VehicleWater": [
+    "vehicle",
+    "navigation",
+    "water"
+  ],
+  "WeaponSmithing": [
+    "weapon",
+    "smithing"
+  ],
+  "SkillLockModifier": [
+    "skill",
+    "lock",
+    "modifier"
+  ],
+  "InterruptModifier": [
+    "interrupt",
+    "modifier"
+  ],
+  "AddAllOff": [
+    "add",
+    "all",
+    "offense"
+  ],
+  "AddAllDef": [
+    "add",
+    "all",
+    "defense"
+  ],
+  "RangeIncreaserWeapon": [
+    "range",
+    "increase",
+    "weapon"
+  ],
+  "NPCostModifier": [
+    "nanopoint",
+    "cost",
+    "modifier"
+  ],
+  "NanoRange": [
+    "nano",
+    "range"
+  ],
+  "ShieldFireAC": [
+    "shield",
+    "fire",
+    "ac"
+  ],
+  "ShieldRadiationAC": [
+    "shield",
+    "radiation",
+    "ac"
+  ],
+  "ShieldProjectileAC ": [
+    "shield",
+    "projectile",
+    "ac"
+  ],
+  "ShieldEnergyAC": [
+    "shield",
+    "energy",
+    "ac"
+  ],
+  "ShieldChemicalAC": [
+    "shield",
+    "chemical",
+    "ac"
+  ],
+  "ShieldMeleeAC": [
+    "shield",
+    "melee",
+    "ac"
+  ],
+  "ShieldPoisonAC": [
+    "shield",
+    "poison",
+    "ac"
+  ],
+  "ShieldColdAC": [
+    "shield",
+    "cold",
+    "ac"
+  ],
+  "EnergyDamageModifier": [
+    "energy",
+    "damage",
+    "modifier"
+  ],
+  "PoisonDamageModifier": [
+    "posion",
+    "damage",
+    "modifier"
+  ],
+  "RadiationDamageModifier": [
+    "radiation",
+    "damage",
+    "modifier"
+  ],
+  "MeleeDamageModifier": [
+    "melee",
+    "damage",
+    "modifier"
+  ],
+  "FireDamageModifier": [
+    "fire",
+    "damage",
+    "modifier"
+  ],
+  "ColdDamageModifier": [
+    "cold",
+    "damage",
+    "modifier"
+  ],
+  "ChemicalDamageModifier": [
+    "chemical",
+    "damage",
+    "modifier"
+  ],
+  "ProjectileDamageModifier": [
+    "projectile",
+    "damage",
+    "modifier"
+  ],
+  "MaxReflectedPoisonDmg": [
+    "max",
+    "reflected",
+    "poison",
+    "damage"
+  ],
+  "MaxReflectedFireDmg": [
+    "max",
+    "reflected",
+    "fire",
+    "damage"
+  ],
+  "MaxReflectedColdDmg": [
+    "max",
+    "reflected",
+    "cold",
+    "damage"
+  ],
+  "MaxReflectedRadiationDmg": [
+    "max",
+    "reflected",
+    "radiation",
+    "damage"
+  ],
+  "MaxReflectedChemicalDmg": [
+    "max",
+    "reflected",
+    "chemical",
+    "damage"
+  ],
+  "MaxReflectedEnergyDmg": [
+    "max",
+    "reflected",
+    "energy",
+    "damage"
+  ],
+  "MaxReflectedMeleeDmg": [
+    "max",
+    "reflected",
+    "melee",
+    "damage"
+  ],
+  "MaxReflectedProjectileDmg": [
+    "max",
+    "reflected",
+    "projectile",
+    "damage"
+  ],
+  "ReflectPoisonAC": [
+    "reflect",
+    "poison",
+    "ac"
+  ],
+  "ReflectFireAC": [
+    "reflect",
+    "fire",
+    "ac"
+  ],
+  "ReflectColdAC": [
+    "reflect",
+    "cold",
+    "ac"
+  ],
+  "ReflectRadiationAC": [
+    "reflect",
+    "radiation",
+    "ac"
+  ],
+  "ReflectChemicalAC": [
+    "reflect",
+    "chemical",
+    "ac"
+  ],
+  "ReflectEnergyAC": [
+    "reflect",
+    "energy",
+    "ac"
+  ],
+  "ReflectMeleeAC": [
+    "reflect",
+    "melee",
+    "ac"
+  ],
+  "ReflectProjectileAC": [
+    "reflect",
+    "projectile",
+    "ac"
+  ],
+  "AbsorbPoisonAC": [
+    "absorb",
+    "poison",
+    "ac"
+  ],
+  "AbsorbFireAC": [
+    "absorb",
+    "fire",
+    "ac"
+  ],
+  "AbsorbColdAC": [
+    "absorb",
+    "cold",
+    "ac"
+  ],
+  "AbsorbRadiationAC": [
+    "absorb",
+    "radiation",
+    "ac"
+  ],
+  "AbsorbChemicalAC": [
+    "absorb",
+    "chemical",
+    "ac"
+  ],
+  "AbsorbEnergyAC": [
+    "absorb",
+    "energy",
+    "ac"
+  ],
+  "AbsorbMeleeAC": [
+    "absorb",
+    "melee",
+    "ac"
+  ],
+  "AbsorbProjectileAC": [
+    "absorb",
+    "projectile",
+    "ac"
+  ],
+  "XPModifier": [
+    "xp",
+    "modifier"
+  ],
+  "PetReqVal3": [
+    "petreqval3"
+  ],
+  "PetReqVal2": [
+    "petreqval2"
+  ],
+  "PetReqVal1": [
+    "petreqval1"
+  ],
+  "PetReq3 ": [
+    "petreq3"
+  ],
+  "PetReq2": [
+    "petreq2"
+  ],
+  "PetReq1": [
+    "petreq1"
+  ],
+  "PetType": [
+    "pettype"
+  ],
+  "Scale": [
+    "scale"
+  ],
+  "689": [
+    "689"
+  ],
+  "AggDef": [
+    "aggdef"
+  ],
+  "VisualProfession": [
+    "visual",
+    "profession"
+  ],
+  "Aggressiveness": [
+    "aggressivness"
+  ],
+  "DamageType1": [
+    "damagetype1"
+  ],
+  "ProcNano2": [
+    "procnano2"
+  ],
+  "ProcChance2": [
+    "damagetype1"
+  ],
+  "ProcInitiative2 ": [
+    "procinitiative2"
+  ],
+  "BeltSlots": [
+    "belt"
+  ],
+  "CurrentNCU": [
+    "current",
+    "ncu"
+  ],
+  "Level": [
+    "level",
+    "lvl"
+  ],
+  "SpecialAttackShield": [
+    "special",
+    "attack",
+    "shield"
+  ],
+  "CriticalIncrease ": [
+    "critical",
+    "increase"
+  ],
+  "CritialResistance": [
+    "critical",
+    "decrease"
+  ],
+  "MaxNCU": [
+    "max",
+    "ncu"
+  ],
+  "Unknown": [
+    "unknown"
+  ],
+  "Soldier": [
+    "soldier"
+  ],
+  "MartialArtist": [
+    "martial",
+    "artist"
+  ],
+  "Engineer": [
+    "engineer"
+  ],
+  "Fixer": [
+    "fixer"
+  ],
+  "Agent": [
+    "agent"
+  ],
+  "Adventurer": [
+    "adventurer"
+  ],
+  "Trader": [
+    "trader"
+  ],
+  "Bureaucrat": [
+    "bureaucrat"
+  ],
+  "Enforcer": [
+    "enforcer"
+  ],
+  "Doctor": [
+    "doctor"
+  ],
+  "NanoTechnician": [
+    "nano",
+    "technician"
+  ],
+  "Metaphysicist": [
+    "meta",
+    "physicist"
+  ],
+  "Monster": [
+    "monster"
+  ],
+  "Keeper": [
+    "keeper"
+  ],
+  "Shade": [
+    "shade"
+  ]
+}

@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" standalone="yes"?>
+<root>
+	<View name="Root">
+		<BitmapView view_layout="horizontal" name="Bitmap"  min_size="Point(224,26)" max_size="Point(224,26)">
+			<BorderView alpha="0" layout_borders="Rect(3,0,0,0)" name="Preview" min_size="Point(42,24)">
+				<Haxxor/>
+				<TextView font="SMALL" color="0x00FFF1AC" name="Range" min_size="Point(24,24)" max_size="Point(24,24)" layout_borders="Rect(36,8,0,0)"/>
+			</BorderView>
+			<TextView color="0x00FFF1AC" name="Name" layout_borders="Rect(4,0,0,0)" min_size="Point(118,12)" max_size="Point(118,12)"/>
+			<TextView font="SMALL" name="Count" color="0x00FFF1AC" min_size="Point(18,12)" max_size="Point(18,12)"  layout_borders="Rect(7,0,0,0)"/>
+			<View>
+				<Button name="Plus"  min_size="Point(10,10)" max_size="Point(10,10)"  layout_borders="Rect(0,0,0,0)"  />
+				<Button name="Minus" min_size="Point(10,10)" max_size="Point(10,10)"  layout_borders="Rect(0,0,0,0)"  />
+			</View>
+			<HLayoutSpacer/>
+		</BitmapView>
+	</View>
+</root>

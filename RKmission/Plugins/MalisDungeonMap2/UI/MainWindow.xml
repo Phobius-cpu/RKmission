@@ -1,0 +1,85 @@
+<?xml version="1.0" standalone="yes"?>
+<root>
+	<View>
+		<View h_alignment="LEFT"  min_size="Point(200,-1)" max_size="Point(200,-1)">
+			<BorderView layout_borders="Rect(5,5,5,5)">
+				<TextView font="BOLD" value="Core Settings" layout_borders="Rect(0,5,0,5)"/>
+				<View layout_borders="Rect(5,5,5,5)">
+					<View view_layout ="horizontal" max_size="Point(154,15)" min_size="Point(154,15)">
+						<TextView value="Offset X:" max_size="Point(60,15)" min_size="Point(60,15)" />
+						<Slider name="OffsetX"
+								layout_borders="Rect(3,0,3,0)"
+								default_value ="0"
+								min_value="-1"
+								max_value="1"/>
+						</View>
+						<View view_layout ="horizontal" max_size="Point(154,15)" min_size="Point(154,15)">
+							<TextView value="Offset Y:" max_size="Point(60,15)" min_size="Point(60,15)"/>
+							<Slider name="OffsetY"
+									layout_borders="Rect(3,0,3,0)"
+									default_value ="0"
+									min_value="-1"
+									max_value="1"/>
+						</View>
+						<View view_layout ="horizontal" max_size="Point(154,15)" min_size="Point(154,15)">
+							<TextView value="Scale:" max_size="Point(60,15)" min_size="Point(60,15)"/>
+							<Slider name="Scale"
+									layout_borders="Rect(3,0,3,0)"
+									default_value ="0.005"
+									min_value="0.00025"
+									max_value="0.01"/>
+						</View>
+						<View view_layout ="horizontal" max_size="Point(154,15)" min_size="Point(154,15)">
+							<TextView value="Distance:" max_size="Point(60,15)" min_size="Point(60,15)"/>
+							<Slider name="ViewDistance"
+									layout_borders="Rect(3,0,3,0)"
+									default_value ="1000"
+									min_value="0"
+									max_value="1000"/>
+						</View>
+						<View view_layout ="horizontal" max_size="Point(154,15)" min_size="Point(154,15)">
+							<TextView value="Outline:" max_size="Point(60,15)" min_size="Point(60,15)"/>
+							<Slider name="OutlineOffset"
+									layout_borders="Rect(3,0,3,0)"
+									default_value ="0"
+									min_value="0"
+									max_value="1"/>
+						</View>
+					<View view_layout="horizontal">
+							<TextView value="Show Settings On Start:" min_size="Point(176,15)"/>
+							<CheckBox name="ShowConfigOnStart"  value="true"/>
+						</View>
+				</View>
+			</BorderView>
+			<BorderView layout_borders="Rect(5,5,5,5)">
+				<TextView font="BOLD" value="Excluded Zones" layout_borders="Rect(0,5,0,5)"/>
+				<TextInputView name="BlacklistView" feature_flags="TVF_MULTILINE" max_size="Point(201,80)" min_size="Point(201,80)"/>
+			</BorderView>
+			<BorderView layout_borders="Rect(5,5,5,5)">
+				<TextView font="BOLD" value="Line Settings" layout_borders="Rect(0,5,0,5)"/>
+				<TextView value="                         Show   Outline"  />
+				<View layout_borders="Rect(5,5,5,5)">
+					<View name="LineEntryRoot">
+						<Haxxor/>
+					</View>
+				</View>
+			</BorderView>
+			<BorderView layout_borders="Rect(5,5,5,5)">
+				<TextView font="BOLD" value="Shape Settings" layout_borders="Rect(0,5,0,5)"/>
+				<TextView value="                         Show   Outline"  />
+				<View layout_borders="Rect(5,5,5,5)">
+					<View name="ShapeEntryRoot">
+						<Haxxor/>
+					</View>
+				</View>
+			</BorderView>
+			<BorderView layout_borders="Rect(5,5,5,5)" max_size="Point(207,-1)" min_size="Point(207,-1)">
+				<TextView font="BOLD" value="Color Settings" layout_borders="Rect(0,5,0,5)"/>
+				<View name="ColorRoot" layout_borders="Rect(5,5,5,5)">
+					<Haxxor/>
+				</View>
+			</BorderView>
+		</View>
+		<Button name="SaveConfigButton" label="Save" max_size="Point(60,15)" min_size="Point(60,15)"/>
+	</View>
+</root>
