@@ -14,6 +14,7 @@ namespace RKmission
     {
         private MissionRoller _roller;
         private MissionDungeon _dungeon;
+        private LootRules _lootRules;
         private bool _running;
         private DateTime _nextTick;
         private DateTime _nextTravel;
@@ -24,14 +25,15 @@ namespace RKmission
         {
             _zoneId = Playfield.ModelIdentity.Instance;
             _roller = new MissionRoller(Say) { ZoneId = _zoneId };
-            _dungeon = new MissionDungeon(Say);
+            _lootRules = new LootRules();
+            _dungeon = new MissionDungeon(Say, _lootRules);
             SMovementController.Set();
             SMovementController.AutoLoadNavmeshes($"{pluginDir}\\NavMeshes");
             Chat.RegisterCommand("rkm", Command);
             Game.OnUpdate += Update;
             Mission.RollListChanged += OffersChanged;
             Network.N3MessageReceived += MessageReceived;
-            Say("Loaded. Use a mission terminal, then /rkm zone <id> and /rkm start.");
+            Say("Loaded. Use a mission terminal, then /rkm zone <id> and /rkm start. /rkm loot lists selected items.");
         }
 
         public override void Teardown()
@@ -89,10 +91,36 @@ namespace RKmission
                         Say($"Difficulty slider set to {difficulty}.");
                     }
                     break;
+                case "loot":
+                    LootCommand(args);
+                    break;
                 default:
-                    Say("Commands: zone <id>, start, stop, status, rolls <count>, difficulty <0-255>.");
+                    Say("Commands: zone <id>, start, stop, status, rolls <count>, difficulty <0-255>, loot.");
                     break;
             }
+        }
+
+        private void LootCommand(string[] args)
+        {
+            if (args.Length == 1 || args[1].Equals("list", StringComparison.OrdinalIgnoreCase))
+            {
+                Say(_lootRules.Describe());
+                return;
+            }
+            if (args[1].Equals("add", StringComparison.OrdinalIgnoreCase) && args.Length > 2)
+            {
+                _lootRules.Add(string.Join(" ", args.Skip(2)));
+                Say(_lootRules.Describe());
+                return;
+            }
+            if (args[1].Equals("remove", StringComparison.OrdinalIgnoreCase) && args.Length > 2 &&
+                int.TryParse(args[2], out int index) && _lootRules.Remove(index))
+            {
+                Say(_lootRules.Describe());
+                return;
+            }
+            Say("Loot: /rkm loot list, /rkm loot add <item name or ID>, /rkm loot remove <number>. Edit " +
+                _lootRules.PathOnDisk + " for QL, quantity, exact and one-each settings.");
         }
 
         private void Start()
@@ -109,8 +137,17 @@ namespace RKmission
                 _roller.Start();
             if (Playfield.IsDungeon)
             {
-                _dungeon.Start(_roller.Selected);
-                _dungeonStarted = _dungeon.IsRunning;
+                try
+                {
+                    _dungeon.Start(_roller.Selected);
+                    _dungeonStarted = _dungeon.IsRunning;
+                }
+                catch (Exception ex)
+                {
+                    Stop();
+                    Say("Dungeon map could not be loaded: " + ex.Message);
+                    return;
+                }
             }
             Say("Started.");
         }

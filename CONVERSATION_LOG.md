@@ -55,3 +55,23 @@ placeholder classes with one AO# plugin, a zone-filtered mission roller, and
 a dungeon room-clearing loop. Documented the cross-playfield navigation and
 quest-completion checks for in-game follow-up. No local compile or test was
 performed.
+
+### User in-game feedback (continued in Codex)
+
+> The bot doesn't seems to roll any missions, use malis-mission-roller to roll
+> the missions. As for the navigation inside the missions use
+> malis-dungeon-map2.0 to display the mission layout and the bot is stalling
+> as seen (18:15) RKMission: Navigation stalled; stopped to avoid skipping a
+> room. Pick the closest room available to avoid stall. For the portion part
+> of the looting use the Manager.Loot found on aosp-bots to let me choose
+> which items I want to loot. Also get rid of the AOSharp.NewBots.sln in the
+> github repo.
+
+### Assistant action
+
+Used the uploaded mission roller, dungeon map, and Manager.Loot ZIPs as the
+feature references. Updated the rolling request/response cycle; added the
+dungeon layout display and graph-based room routing with a nearest reachable
+fallback after a stalled edge; added per-character selected-item loot rules;
+and removed `AOSharp.NewBots.sln`. No local compile or test was performed,
+per the user's workflow.

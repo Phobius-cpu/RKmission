@@ -67,10 +67,35 @@ Project-relevant memory and visible conversation summaries may be recorded here.
   to clear rooms in order. It prioritizes enemies, mission objective
   interaction, corpse/chest loot, locked object handling, and movement to
   another uncleared room.
-- No object or enemy is silently skipped after a failed interaction: the run
-  stops and reports the reason for the user's in-game diagnosis.
+- Failed object/enemy interactions stop with a reason for in-game diagnosis.
+  Stalled room routes now trigger the graph fallback described below.
 - Navigation can resume in the target outdoor playfield but does not route
   automatically across playfields. Objective completion/reward status requires
   in-game confirmation; the plugin reports room clearance separately.
 - User retains compilation and in-game testing responsibility. Do not run
   local builds/tests unless they request it.
+
+## Latest In-Game Feedback and Source Changes (2026-09-27)
+
+- The user reported that mission rolling did not start and dungeon navigation
+  stopped with `Navigation stalled; stopped to avoid skipping a room.`
+- Mission rolling now uses the seven-argument `RequestMissions` call from
+  `malis-mission-roller-2.0-main.zip`, including 255 for the six neutral
+  sliders. It waits for `Mission.RollListChanged` before another request,
+  retries after a response timeout, and finds a nearby mission terminal if
+  the terminal-use event was missed. Zone filtering and mission acceptance
+  still apply.
+- The wall/door geometry from `malis-dungeon-map-2.0-master.zip` is included
+  in the plugin. A displayed room graph is built from the same dungeon rooms
+  and door connections used to navigate. The bot clears the current room
+  before traversing one graph edge at a time. On movement stall it blocks
+  that edge and chooses the closest reachable adjacent route to an unvisited
+  room. If blocked paths leave rooms inaccessible, it reports that rather
+  than claiming the mission is fully clear.
+- Loot now uses a per-character allowlist adapted from the `Manager.Loot`
+  `Name`/QL/quantity/exact/one-each rule pattern in `aosp-bots-master.zip`.
+  `/rkm loot add|remove|list` edits the list; the JSON under local AOSharp
+  app data supports finer rules. Unselected items stay in containers.
+- `AOSharp.NewBots.sln` was removed from the repository.
+- These changes are source-only. The user will compile and test in-game and
+  report any compiler errors or behavior that needs iteration.

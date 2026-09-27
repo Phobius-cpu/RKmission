@@ -16,16 +16,22 @@ namespace RKmission
     internal sealed class MissionDungeon : IDisposable
     {
         private readonly Action<string> _say;
+        private readonly LootRules _lootRules;
         private readonly HashSet<int> _clearedRooms = new HashSet<int>();
+        private readonly HashSet<string> _blockedEdges = new HashSet<string>();
         private readonly HashSet<Identity> _processedLoot = new HashSet<Identity>();
         private readonly HashSet<Identity> _failedLoot = new HashSet<Identity>();
         private NavMesh[] _meshes;
+        private DungeonLayout _layout;
         private Container _openedContainer;
         private Identity _lootTarget = Identity.None;
         private Identity _combatTarget = Identity.None;
+        private Identity _pendingItem = Identity.None;
+        private LootRule _pendingRule;
         private Mission _mission;
         private bool _objectiveAttempted;
         private int _currentRoom = -1;
+        private int _targetRoom = -1;
         private Vector3? _destination;
         private DateTime _actionAt;
         private DateTime _roomQuietAt;
@@ -40,9 +46,10 @@ namespace RKmission
         public string Status => IsComplete ? "complete" : !IsRunning ? "idle" :
             $"cleared {_clearedRooms.Count} rooms";
 
-        public MissionDungeon(Action<string> say)
+        public MissionDungeon(Action<string> say, LootRules lootRules)
         {
             _say = say;
+            _lootRules = lootRules;
             Inventory.ContainerOpened += ContainerOpened;
         }
 
@@ -53,18 +60,25 @@ namespace RKmission
             if (!Playfield.IsDungeon || DynelManager.LocalPlayer?.Room == null)
                 return;
             _clearedRooms.Clear();
+            _blockedEdges.Clear();
             _processedLoot.Clear();
             _failedLoot.Clear();
             _lootTarget = Identity.None;
             _combatTarget = Identity.None;
+            _pendingItem = Identity.None;
+            _pendingRule = null;
             _mission = (Mission.List ?? new List<Mission>())
                 .FirstOrDefault(x => mission != null && x.Identity == mission.Identity) ??
                 (mission == null && Mission.List?.Count == 1 ? Mission.List[0] : null);
             _objectiveAttempted = false;
             _currentRoom = -1;
+            _targetRoom = -1;
             _destination = null;
             _openedContainer = null;
             _meshes = null;
+            _layout?.Dispose();
+            _layout = new DungeonLayout(_clearedRooms);
+            _layout.Show(() => _targetRoom);
             IsComplete = false;
             IsRunning = true;
             _roomQuietAt = DateTime.MinValue;
@@ -93,6 +107,9 @@ namespace RKmission
             _lootTarget = Identity.None;
             _openedContainer = null;
             _destination = null;
+            _targetRoom = -1;
+            _layout?.Dispose();
+            _layout = null;
             SMovementController.Halt();
         }
 
@@ -128,29 +145,37 @@ namespace RKmission
                 _roomQuietAt = DateTime.MinValue;
             }
 
+            Room room = DynelManager.LocalPlayer.Room;
+            if (room.Instance != _currentRoom)
+            {
+                _currentRoom = room.Instance;
+                _targetRoom = -1;
+                _destination = null;
+                _roomQuietAt = DateTime.MinValue;
+                _doorAttempts = 0;
+                _lastProgress = DateTime.UtcNow;
+                _lastPosition = DynelManager.LocalPlayer.Position;
+            }
+
             if (Vector3.Distance(_lastPosition, DynelManager.LocalPlayer.Position) > 1f)
             {
                 _lastPosition = DynelManager.LocalPlayer.Position;
                 _lastProgress = DateTime.UtcNow;
             }
-            else if (SMovementController.IsNavigating() &&
+            else if (_targetRoom >= 0 &&
                 DateTime.UtcNow - _lastProgress > TimeSpan.FromSeconds(12))
             {
-                Stop();
-                _say("Navigation stalled; stopped to avoid skipping a room.");
-                return;
-            }
-
-            Room room = DynelManager.LocalPlayer.Room;
-            if (room.Instance != _currentRoom)
-            {
-                _currentRoom = room.Instance;
-                _roomQuietAt = DateTime.MinValue;
-                _doorAttempts = 0;
+                _blockedEdges.Add(EdgeKey(room.Instance, _targetRoom));
+                _say($"Route to room {_targetRoom} stalled; choosing the closest reachable room.");
+                _targetRoom = -1;
+                _destination = null;
+                _lastProgress = DateTime.UtcNow;
+                SMovementController.Halt();
             }
             if (HandleObjective(room, false) || FightInRoom(room) ||
                 HandleObjective(room, true) || LootInRoom(room))
             {
+                _targetRoom = -1;
                 _roomQuietAt = DateTime.MinValue;
                 return;
             }
@@ -168,6 +193,12 @@ namespace RKmission
             if (next == null)
             {
                 SMovementController.Halt();
+                if (_blockedEdges.Count > 0 && _clearedRooms.Count < Playfield.Rooms.Count)
+                {
+                    Stop();
+                    _say("No further reachable rooms; blocked doors/routes remain. The current room was cleared.");
+                    return;
+                }
                 if (_mission != null && !_objectiveAttempted && _mission.Actions.Any(x =>
                     x is FindItemAction || x is FindPersonAction || x is UseItemOnItemAction))
                 {
@@ -289,6 +320,8 @@ namespace RKmission
             _lootTarget = loot.Identity;
             _lootAttempts = 0;
             _openedContainer = null;
+            _pendingItem = Identity.None;
+            _pendingRule = null;
             _actionAt = DateTime.MinValue;
             return ContinueLoot();
         }
@@ -312,7 +345,28 @@ namespace RKmission
 
             if (_openedContainer != null)
             {
-                Item item = _openedContainer.Items.FirstOrDefault();
+                if (_pendingItem != Identity.None)
+                {
+                    if (_openedContainer.Items.All(x => x.UniqueIdentity != _pendingItem) ||
+                        Inventory.Items.Any(x => x.UniqueIdentity == _pendingItem &&
+                            x.Slot.Type == IdentityType.Inventory))
+                    {
+                        _lootRules.RecordLoot(_pendingRule);
+                        _pendingItem = Identity.None;
+                        _pendingRule = null;
+                        _lootAttempts = 0;
+                    }
+                    else if (DateTime.UtcNow - _actionAt < TimeSpan.FromSeconds(2))
+                        return true;
+                    else if (++_lootAttempts > 4)
+                    {
+                        Stop();
+                        _say("Selected loot did not move to inventory; stopped in this room.");
+                        return true;
+                    }
+                }
+
+                Item item = _openedContainer.Items.FirstOrDefault(x => _lootRules.Match(x) != null);
                 if (item != null)
                 {
                     if (Inventory.NumFreeSlots == 0)
@@ -323,11 +377,14 @@ namespace RKmission
                     }
                     if (DateTime.UtcNow - _actionAt > TimeSpan.FromMilliseconds(650))
                     {
+                        _pendingItem = item.UniqueIdentity;
+                        _pendingRule = _lootRules.Match(item);
                         item.MoveToInventory();
                         _actionAt = DateTime.UtcNow;
                     }
                     return true;
                 }
+                // Unselected items stay in the corpse/chest, as in Manager.Loot.
                 _processedLoot.Add(_lootTarget);
                 _lootTarget = Identity.None;
                 _openedContainer = null;
@@ -364,7 +421,11 @@ namespace RKmission
 
         private Room NextRoom(Room current)
         {
-            var rooms = Playfield.Rooms;
+            if (_layout == null)
+                return null;
+            if (_targetRoom >= 0 && _layout.Neighbors(current.Instance).Contains(_targetRoom) &&
+                !_blockedEdges.Contains(EdgeKey(current.Instance, _targetRoom)))
+                return _layout.Room(_targetRoom);
             var queue = new Queue<int>();
             var parent = new Dictionary<int, int>();
             queue.Enqueue(current.Instance);
@@ -373,18 +434,24 @@ namespace RKmission
             while (queue.Count > 0)
             {
                 int index = queue.Dequeue();
-                Room room = rooms[index];
+                Room room = _layout.Room(index);
+                if (room == null)
+                    continue;
                 if (!_clearedRooms.Contains(index))
                 {
                     while (parent[index] != current.Instance && parent[index] != -1)
                         index = parent[index];
-                    return rooms[index];
+                    return _layout.Room(index);
                 }
 
-                for (int door = 0; door < room.NumDoors; door++)
+                // BFS preserves room-by-room travel. Sort each frontier by distance
+                // so a stalled route falls back to the nearest reachable neighbor.
+                foreach (int adjacent in _layout.Neighbors(index)
+                    .Where(id => !_blockedEdges.Contains(EdgeKey(index, id)))
+                    .OrderBy(id => Vector3.Distance(_layout.Room(id).Center,
+                        DynelManager.LocalPlayer.Position)))
                 {
-                    int adjacent = room.GetDoorConnectZone(door);
-                    if (adjacent < 0 || adjacent >= rooms.Count || parent.ContainsKey(adjacent))
+                    if (parent.ContainsKey(adjacent))
                         continue;
                     parent[adjacent] = index;
                     queue.Enqueue(adjacent);
@@ -395,6 +462,7 @@ namespace RKmission
 
         private void MoveToAdjacentRoom(Room current, Room next)
         {
+            _targetRoom = next.Instance;
             Door door = Playfield.Doors.FirstOrDefault(x =>
                 (x.RoomLink1?.Instance == current.Instance && x.RoomLink2?.Instance == next.Instance) ||
                 (x.RoomLink2?.Instance == current.Instance && x.RoomLink1?.Instance == next.Instance));
@@ -447,5 +515,8 @@ namespace RKmission
                 _destination = destination;
             }
         }
+
+        private static string EdgeKey(int a, int b) =>
+            a < b ? $"{a}:{b}" : $"{b}:{a}";
     }
 }

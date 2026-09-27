@@ -17,6 +17,7 @@ namespace RKmission
         private int _attempts;
         private Identity _pendingAcceptance = Identity.None;
         private DateTime _acceptedAt;
+        private bool _awaitingOffers;
 
         public int ZoneId { get; set; }
         public int MaxRolls { get; set; } = 100;
@@ -36,12 +37,14 @@ namespace RKmission
             _pendingAcceptance = Identity.None;
             Selected = null;
             IsRolling = true;
+            _awaitingOffers = false;
             _nextRequest = DateTime.MinValue;
         }
 
         public void Stop()
         {
             IsRolling = false;
+            _awaitingOffers = false;
             _pendingAcceptance = Identity.None;
         }
 
@@ -53,8 +56,11 @@ namespace RKmission
 
         public void OnOffers(MissionInfo[] offers)
         {
-            if (!IsRolling || _pendingAcceptance != Identity.None || offers == null)
+            if (!IsRolling || !_awaitingOffers || _pendingAcceptance != Identity.None || offers == null)
                 return;
+
+            _awaitingOffers = false;
+            _nextRequest = DateTime.UtcNow.AddMilliseconds(1500);
 
             // The terminal can be outside the requested zone. In that case the nearest
             // offer is measured from the zone's origin until the player reaches it.
@@ -98,6 +104,10 @@ namespace RKmission
             if (!IsRolling || DateTime.UtcNow < _nextRequest)
                 return;
 
+            // Mali's roller waits for RollListChanged, then requests the next list.
+            // A lost response is retried after the request timeout.
+            _awaitingOffers = false;
+
             if (_attempts >= MaxRolls)
             {
                 Stop();
@@ -107,8 +117,18 @@ namespace RKmission
 
             if (_terminal == null || !DynelManager.IsValid(_terminal))
             {
+                Dynel nearby = DynelManager.AllDynels
+                    .Where(x => x.Identity.Type == IdentityType.MissionTerminal &&
+                        x.DistanceFrom(DynelManager.LocalPlayer) < 7.5f)
+                    .OrderBy(x => x.DistanceFrom(DynelManager.LocalPlayer))
+                    .FirstOrDefault();
+                RememberTerminal(nearby);
+            }
+            if (_terminal == null || !DynelManager.IsValid(_terminal) ||
+                Vector3.Distance(_terminal.Position, DynelManager.LocalPlayer.Position) > 7.5f)
+            {
                 Stop();
-                _say("Use a mission terminal, then start RKMission again.");
+                _say("Stand by a mission terminal, use it, then start RKMission again.");
                 return;
             }
 
@@ -119,9 +139,14 @@ namespace RKmission
                 return;
             }
 
-            _terminal.RequestMissions(Difficulty);
+            // Match Mali's seven-argument request. Its neutral slider setting is
+            // encoded as 255 (unchecked byte -1), not an omitted argument.
+            _awaitingOffers = true;
+            _nextRequest = DateTime.UtcNow.AddSeconds(5);
+            _terminal.RequestMissions(Difficulty, 255, 255, 255, 255, 255, 255);
             _attempts++;
-            _nextRequest = DateTime.UtcNow.AddSeconds(2);
+            if (_attempts == 1 || _attempts % 10 == 0)
+                _say($"Requested mission offers ({_attempts}/{MaxRolls}) for zone {ZoneId}.");
         }
 
         public void SelectAcceptedMission()
