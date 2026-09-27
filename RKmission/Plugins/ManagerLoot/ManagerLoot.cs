@@ -12,6 +12,7 @@ using Newtonsoft.Json;
 using SmokeLounge.AOtomation.Messaging.GameData;
 using SmokeLounge.AOtomation.Messaging.Messages;
 using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
+using MissionIdentity = AOSharp.Common.GameData.Identity;
 
 namespace ManagerLoot
 {
@@ -40,6 +41,7 @@ namespace ManagerLoot
         private static List<Rule> Rules;
 
         private readonly Dictionary<int, double> openedContainers = new Dictionary<int, double>();
+        private readonly HashSet<MissionIdentity> _unreachableMissionLoot = new HashSet<MissionIdentity>();
         // RKMission limits the original loot state machine to the room being cleared.
         public int MissionRoomId { get; private set; } = -1;
         private bool _enabledForMission;
@@ -64,9 +66,23 @@ namespace ManagerLoot
             _enabledForMission = false;
         }
 
+        public void ResetMissionLootSkips() => _unreachableMissionLoot.Clear();
+        public int SkippedMissionLootCount => _unreachableMissionLoot.Count;
+
+        public void SkipUnreachableMissionLoot(MissionIdentity identity)
+        {
+            _unreachableMissionLoot.Add(identity);
+            if (CurrentCorpse?.Identity == identity && CorpseContainer == null)
+            {
+                CurrentCorpse = null;
+                CurrentProcess = ProcessState.Open_Corpse;
+            }
+        }
+
         public Dynel NextMissionLoot(int roomId) => DynelManager.AllDynels
             .Where(x => (x.Identity.Type == IdentityType.Corpse || x.Identity.Type == IdentityType.Container)
                 && x.Room != null && x.Room.Instance == roomId
+                && !_unreachableMissionLoot.Contains(x.Identity)
                 && !openedContainers.ContainsKey(x.Identity.Instance))
             .OrderBy(x => x.DistanceFrom(DynelManager.LocalPlayer)).FirstOrDefault();
 
@@ -74,6 +90,9 @@ namespace ManagerLoot
             CurrentProcess == ProcessState.Opening || CurrentProcess == ProcessState.PickingLock ||
             CurrentProcess == ProcessState.Move_To_Inventory || CurrentProcess == ProcessState.Move_To_BackPack ||
             CurrentProcess == ProcessState.Close_Corpse;
+        public MissionIdentity WaitingMissionLootIdentity =>
+            MissionRoomId >= 0 && CurrentProcess == ProcessState.Opening &&
+            CorpseContainer == null ? CurrentCorpse?.Identity ?? MissionIdentity.None : MissionIdentity.None;
         private Dynel CurrentCorpse;
 
         private readonly List<string> ErrorMessages = new List<string>();
@@ -380,6 +399,7 @@ namespace ManagerLoot
                         if (Spell.HasPendingCast || Item.HasPendingUse || PerkAction.List.Any(perk => perk.IsExecuting)) return;
 
                         var dynel = DynelManager.AllDynels.Where(c => !openedContainers.ContainsKey(c.Identity.Instance)
+                        && !_unreachableMissionLoot.Contains(c.Identity)
                         && (c.Identity.Type == IdentityType.Container || c.Identity.Type == IdentityType.Corpse)
                         && (MissionRoomId < 0 || c.Room != null && c.Room.Instance == MissionRoomId))
                             .OrderBy(d => d.Position.DistanceFrom(DynelManager.LocalPlayer.Position)).FirstOrDefault(c => DynelManager.LocalPlayer.Position.Distance2DFrom(c.Position) < 6);

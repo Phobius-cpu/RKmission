@@ -34,7 +34,11 @@ namespace RKmission
         private DateTime _observedRoomAt;
         private int _observedRoom = -1;
         private DateTime _lootWaitStarted;
+        private DateTime _lootLastProgress;
         private Identity _waitingForLoot = Identity.None;
+        private Vector3 _lootApproachPoint;
+        private float _lootBestDistance;
+        private int _lootApproachRetries;
         private int _floor;
 
         private enum TransitionPhase { ApproachDoor, OpenDoor, CrossDoor }
@@ -77,6 +81,7 @@ namespace RKmission
             _reverseCooldown.Clear();
             _combatTarget = Identity.None;
             _waitingForLoot = Identity.None;
+            _loot.ResetMissionLootSkips();
             _mission = (Mission.List ?? new List<Mission>())
                 .FirstOrDefault(x => mission != null && x.Identity == mission.Identity) ??
                 (mission == null && Mission.List?.Count == 1 ? Mission.List[0] : null);
@@ -218,6 +223,8 @@ namespace RKmission
                 }
                 IsComplete = true;
                 IsRunning = false;
+                if (_loot.SkippedMissionLootCount > 0)
+                    _say($"{_loot.SkippedMissionLootCount} unreachable loot objects were skipped; see the loot logs.");
                 return;
             }
 
@@ -226,10 +233,35 @@ namespace RKmission
 
         private bool FightInRoom(Room room)
         {
+            SimpleChar player = DynelManager.LocalPlayer;
+            var players = new HashSet<Identity>(DynelManager.Players.Select(x => x.Identity));
+            var hostileOwners = new HashSet<int>(DynelManager.NPCs
+                .Where(x => !x.IsPet && x.Room?.Instance == room.Instance)
+                .Select(x => x.Identity.Instance));
             SimpleChar enemy = DynelManager.NPCs
-                .Where(x => x.IsAlive && !x.IsPet && x.Room != null &&
-                    x.Room.Instance == room.Instance)
-                .OrderBy(x => x.DistanceFrom(DynelManager.LocalPlayer))
+                .Concat(DynelManager.AllDynels.OfType<SimpleChar>())
+                .GroupBy(x => x.Identity).Select(group => group.First())
+                .Where(x =>
+                {
+                    if (!x.IsAlive || players.Contains(x.Identity) ||
+                        x.Identity == player.Identity ||
+                        (x.IsPet && x.PetOwnerId == player.Identity.Instance))
+                        return false;
+                    bool attackingPlayer = x.IsAttacking &&
+                        x.FightingTarget?.Identity == player.Identity;
+                    bool alarmSentry = x.Name != null &&
+                        x.Name.IndexOf("Alarm Sentry", StringComparison.OrdinalIgnoreCase) >= 0;
+                    bool spawnedByEnemy = x.IsPet && hostileOwners.Contains(x.PetOwnerId);
+                    bool inRoom = x.Room?.Instance == room.Instance;
+                    bool near = x.DistanceFrom(player) < 25f;
+                    return (!x.IsPet && inRoom) ||
+                        (near && attackingPlayer) ||
+                        (near && spawnedByEnemy) ||
+                        (near && alarmSentry && (inRoom || x.Room == null));
+                })
+                .OrderByDescending(x => x.IsAttacking &&
+                    x.FightingTarget?.Identity == player.Identity)
+                .ThenBy(x => x.DistanceFrom(player))
                 .FirstOrDefault();
             if (enemy == null)
             {
@@ -241,6 +273,11 @@ namespace RKmission
             {
                 _combatTarget = enemy.Identity;
                 _actionAt = DateTime.UtcNow;
+                _waitingForLoot = Identity.None;
+                _destination = null;
+                SMovementController.Halt();
+                _say($"Targeting {enemy.Name} ({enemy.Identity}) in room {room.Instance}" +
+                    (enemy.IsPet ? " (spawned entity)." : "."));
             }
             if (DateTime.UtcNow - _actionAt > TimeSpan.FromSeconds(20))
             {
@@ -258,7 +295,7 @@ namespace RKmission
                      DynelManager.LocalPlayer.FightingTarget?.Identity != enemy.Identity))
                     DynelManager.LocalPlayer.Attack(enemy);
             }
-            else if (!SMovementController.IsNavigating())
+            else
                 Navigate(enemy.Position);
 
             return true;
@@ -314,35 +351,90 @@ namespace RKmission
         private bool LootInRoom(Room room)
         {
             // Manager.Loot owns the list, chest/lockpick handling and item moves.
-            // RKMission only brings it within range of the next object in this room.
+            // RKMission approaches and can defer an unreachable object.
+            Dynel next = _loot.NextMissionLoot(room.Instance);
+            DateTime now = DateTime.UtcNow;
+            if (next != null && _waitingForLoot != next.Identity)
+            {
+                _waitingForLoot = next.Identity;
+                _lootWaitStarted = now;
+                _lootLastProgress = _lootWaitStarted;
+                _lootBestDistance = next.DistanceFrom(DynelManager.LocalPlayer);
+                _lootApproachRetries = 0;
+                _lootApproachPoint = LootApproach(room, next.Position, false);
+            }
             if (_loot.IsProcessingMissionLoot)
             {
                 SMovementController.Halt();
+                if (next != null && _loot.WaitingMissionLootIdentity == next.Identity &&
+                    now - _lootWaitStarted > TimeSpan.FromSeconds(30))
+                    SkipLoot(next, room.Instance, "Manager.Loot could not open it within 30 seconds");
                 return true;
             }
-            Dynel next = _loot.NextMissionLoot(room.Instance);
             if (next == null)
             {
                 _waitingForLoot = Identity.None;
-                return _loot.IsProcessingMissionLoot;
+                return false;
             }
-            if (_waitingForLoot != next.Identity)
+            float distance = next.DistanceFrom(DynelManager.LocalPlayer);
+            if (distance > 5.5f)
             {
-                _waitingForLoot = next.Identity;
-                _lootWaitStarted = DateTime.UtcNow;
-            }
-            if (next.DistanceFrom(DynelManager.LocalPlayer) > 4.5f)
-            {
-                Navigate(next.Position);
+                if (distance + 0.5f < _lootBestDistance)
+                {
+                    _lootBestDistance = distance;
+                    _lootLastProgress = now;
+                }
+                bool stalled = now - _lootLastProgress > TimeSpan.FromSeconds(10) ||
+                    (now - _lootWaitStarted > TimeSpan.FromSeconds(3) &&
+                        !SMovementController.IsNavigating());
+                if (stalled && _lootApproachRetries == 0)
+                {
+                    _lootApproachRetries = 1;
+                    _lootApproachPoint = LootApproach(room, next.Position, true);
+                    _lootLastProgress = now;
+                    _destination = null;
+                    _say($"Loot {next.Identity} is still {distance:0.0}m away; trying another approach.");
+                }
+                else if ((stalled && _lootApproachRetries > 0) ||
+                    now - _lootWaitStarted > TimeSpan.FromSeconds(30))
+                {
+                    SkipLoot(next, room.Instance, $"path stayed blocked at {distance:0.0}m");
+                    return true;
+                }
+                Navigate(_lootApproachPoint);
                 return true;
             }
             SMovementController.Halt();
-            if (DateTime.UtcNow - _lootWaitStarted > TimeSpan.FromSeconds(20))
-            {
-                Stop();
-                _say($"Manager.Loot could not finish {next.Identity} in room {room.Instance}.");
-            }
+            if (now - _lootWaitStarted > TimeSpan.FromSeconds(30))
+                SkipLoot(next, room.Instance, "Manager.Loot did not finish within 30 seconds");
             return true;
+        }
+
+        private Vector3 LootApproach(Room room, Vector3 target, bool alternate)
+        {
+            Vector3 player = DynelManager.LocalPlayer.Position;
+            float dx = player.X - target.X, dz = player.Z - target.Z;
+            float length = (float)Math.Sqrt(dx * dx + dz * dz);
+            if (length < 0.1f) return target;
+            dx = dx / length * 3.5f;
+            dz = dz / length * 3.5f;
+            var points = new[]
+            {
+                new Vector3(target.X + dx, target.Y, target.Z + dz),
+                new Vector3(target.X - dz, target.Y, target.Z + dx),
+                new Vector3(target.X + dz, target.Y, target.Z - dx),
+                new Vector3(target.X - dx, target.Y, target.Z - dz)
+            }.Where(point => _layout.IsInside(room.Instance, point, 0.4f)).ToList();
+            return points.Count == 0 ? target : points[Math.Min(alternate ? 1 : 0, points.Count - 1)];
+        }
+
+        private void SkipLoot(Dynel loot, int roomId, string reason)
+        {
+            _loot.SkipUnreachableMissionLoot(loot.Identity);
+            _say($"Skipping unreachable loot {loot.Identity} in room {roomId}: {reason}. Exploration continues.");
+            _waitingForLoot = Identity.None;
+            _destination = null;
+            SMovementController.Halt();
         }
         private Room NextRoom(Room current)
         {

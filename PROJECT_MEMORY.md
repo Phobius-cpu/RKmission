@@ -177,3 +177,22 @@ Project-relevant memory and visible conversation summaries may be recorded here.
 - Both references now explicitly use `MaliMissionRoller2.MainWindow`.
   A source scan found `RkMissionBot.cs` to be the only file importing both
   namespaces. No local build or test was run under the user's workflow.
+
+## Blocked Corpse and Spawned Sentry Feedback (2026-09-27)
+
+- The user observed the bot stopping near a corpse behind an obstruction and
+  not targeting an Alarm Sentry spawned by a security camera.
+- `LootInRoom` previously checked its 20-second failure timer only after
+  reaching within 4.5m; the out-of-range branch could navigate forever.
+  It now picks a standoff point within the original Manager.Loot interaction
+  radius, tries one alternate point if progress stops, and skips an unreachable
+  object after bounded attempts. A narrow RKMission hook keeps skipped objects
+  out of both Manager.Loot's room candidate list and its own opening loop for
+  the rest of the mission. Skips are logged and summarized.
+- The combat filter previously excluded every `IsPet` entity and required a
+  non-null room match. It now considers nearby spawned entities owned by an
+  enemy in the current room, nearby attackers, and Alarm Sentries even when
+  room assignment is temporarily missing. Player characters and the local
+  player's pets remain excluded. A newly selected enemy interrupts a corpse
+  route immediately, and target selection is logged.
+- Source only; no local compilation or in-game tests were run.

@@ -136,3 +136,18 @@ Located the two unqualified `MainWindow.CurrentTerminal` references in
 the referenced `CurrentTerminal` member belongs to the mission roller.
 Qualified both references as `MaliMissionRoller2.MainWindow` and checked for
 other files importing both plugin namespaces. No local compile or test was run.
+
+### User in-game feedback (continued in Codex)
+
+> The bot got stuck, possibly because an object blocked its path to a corpse.
+> It did not target an Alarm Sentry spawned by a security camera.
+
+### Assistant action
+
+Found an unbounded out-of-range corpse approach in `MissionDungeon` and a
+combat filter that discarded pet-like and roomless spawned entities. Added
+alternate standoff approaches, time and progress limits, a mission-scoped
+Manager.Loot skip hook for unreachable loot, and logging. Expanded combat
+selection to include nearby hostile spawns and Alarm Sentries while excluding
+players and the local player's pets. Combat now interrupts an active loot route.
+No local compile or in-game test was run.
