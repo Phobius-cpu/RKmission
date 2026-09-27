@@ -123,3 +123,16 @@ cooldown, and temporary edge failure blacklisting with nearest reachable
 fallback. Kept Manager.Loot, combat, and objective handling after confirmed
 room entry. Added logs for each phase and failure. No local compile or
 in-game test was performed.
+
+### User compiler feedback (continued in Codex)
+
+> \"MainWindow\" é uma referência ambígua entre
+> \"MaliMissionRoller2.MainWindow\" e \"MalisDungeonMap2.MainWindow\".
+
+### Assistant action
+
+Located the two unqualified `MainWindow.CurrentTerminal` references in
+`RkMissionBot.cs`. Both original plugins contain a `MainWindow` class, and
+the referenced `CurrentTerminal` member belongs to the mission roller.
+Qualified both references as `MaliMissionRoller2.MainWindow` and checked for
+other files importing both plugin namespaces. No local compile or test was run.

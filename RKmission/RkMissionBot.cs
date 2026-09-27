@@ -104,7 +104,7 @@ namespace RKmission
         private void StartRoller()
         {
             if (_rolling || Main.Window == null) return;
-            if (MainWindow.CurrentTerminal == null)
+            if (MaliMissionRoller2.MainWindow.CurrentTerminal == null)
             {
                 Dynel terminal = DynelManager.AllDynels
                     .Where(x => x.Identity.Type == IdentityType.MissionTerminal &&
@@ -113,7 +113,7 @@ namespace RKmission
                 if (terminal != null)
                     Main.Window.UpdateTerminal(new MissionTerminal(terminal));
             }
-            if (MainWindow.CurrentTerminal == null)
+            if (MaliMissionRoller2.MainWindow.CurrentTerminal == null)
             {
                 Stop();
                 Say("Stand by a mission terminal and use it before starting.");

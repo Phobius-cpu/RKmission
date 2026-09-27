@@ -166,3 +166,14 @@ Project-relevant memory and visible conversation summaries may be recorded here.
   logged. Existing Manager.Loot and mission roller integrations remain in place.
 - Source only. No local compilation or tests were performed; the user will
   pull, compile, and test in game.
+
+## Namespace Collision Reported by User (2026-09-27)
+
+- The user reported a compiler ambiguity between
+  `MaliMissionRoller2.MainWindow` and `MalisDungeonMap2.MainWindow`.
+  `RkMissionBot.cs` imported both namespaces and used the unqualified
+  `MainWindow.CurrentTerminal` twice. Both plugin sources define that class,
+  but only the mission roller class contains `CurrentTerminal`.
+- Both references now explicitly use `MaliMissionRoller2.MainWindow`.
+  A source scan found `RkMissionBot.cs` to be the only file importing both
+  namespaces. No local build or test was run under the user's workflow.
