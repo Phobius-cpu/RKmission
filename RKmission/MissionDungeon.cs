@@ -503,18 +503,28 @@ namespace RKmission
                 Playfield.Doors.FirstOrDefault(x => x.Identity == edge.Door.Identity);
             DateTime now = DateTime.UtcNow;
             Vector3 position = DynelManager.LocalPlayer.Position;
-            if (detectedRoom.Instance == edge.Target &&
+            bool targetDetected = detectedRoom.Instance == edge.Target;
+            bool safelyInsideTarget = targetDetected &&
                 Vector3.Distance(position, edge.Threshold) > 2.5f &&
-                _layout.IsInside(edge.Target, position, 0.8f))
+                _layout.IsInside(edge.Target, position, 0.8f);
+            if (targetDetected)
             {
                 if (_observedRoom != edge.Target)
                 {
                     _observedRoom = edge.Target;
                     _observedRoomAt = now;
+                    _say($"Transition {edge.Source}->{edge.Target}: target room detected; confirming entry.");
                 }
-                if (now - _observedRoomAt >= TimeSpan.FromSeconds(1))
+                if (safelyInsideTarget && now - _observedRoomAt >= TimeSpan.FromSeconds(1))
                 {
                     ConfirmTransition();
+                    return;
+                }
+                if (safelyInsideTarget)
+                {
+                    // Hold a safe interior position while room identity stabilizes.
+                    SMovementController.Halt();
+                    _destination = null;
                     return;
                 }
             }
@@ -639,7 +649,24 @@ namespace RKmission
                 (distance < 2.5f || (!SMovementController.IsNavigating() &&
                     now - crossing.PhaseStarted > TimeSpan.FromSeconds(2)));
             bool stalled = now - crossing.LastProgress > TimeSpan.FromSeconds(6);
-            if ((arrivedWithoutEntry || stalled) &&
+            if (targetDetected)
+            {
+                // A target-room reading is progress, even if the player is still
+                // near the threshold. Do not count it as a failed crossing.
+                if (!crossing.PushingDeeper &&
+                    now - _observedRoomAt > TimeSpan.FromSeconds(2) &&
+                    (distance < 2.5f || stalled || !SMovementController.IsNavigating()))
+                {
+                    crossing.PushingDeeper = true;
+                    crossing.LastProgress = now;
+                    crossing.BestDistance = float.MaxValue;
+                    _destination = null;
+                    _say($"Transition {edge.Source}->{edge.Target}: room detected near doorway; moving farther inside.");
+                }
+                Navigate(crossing.PushingDeeper ? edge.DeepInterior : edge.Interior);
+                return;
+            }
+            if (detectedRoom.Instance == edge.Source && (arrivedWithoutEntry || stalled) &&
                 now - crossing.PhaseStarted > TimeSpan.FromSeconds(2))
             {
                 if (++crossing.CrossingRetries > 3)

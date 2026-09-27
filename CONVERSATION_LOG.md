@@ -166,3 +166,19 @@ attempt, refreshed the physical door each tick, sent the Lock Pick to the
 For room loot, both candidate selection and Manager.Loot's opening loop can
 use Mali room geometry when `Dynel.Room` is missing or mismatched. Added
 door and loot candidate logs. No local compile or test was run.
+
+### User room-entry log (continued in Codex)
+
+> Transition 2->6 reached an open door, then logged `still in room 6;
+> pushing deeper` after an enemy attacked, and only then confirmed room 6.
+> Minimize the stall without introducing navigation conflicts.
+
+### Assistant action
+
+Found that the stall retry condition could fire even after AO# detected the
+target room. Started confirmation timing on the first target-room reading,
+kept the safe interior and one-second confirmation checks, and limited
+crossing retries to continued source-room detection. A target-room reading
+near the doorway now continues inward without consuming a retry. Combat and
+loot routing remain gated on confirmed entry. No local compile or in-game
+test was run.

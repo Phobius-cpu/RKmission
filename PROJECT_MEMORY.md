@@ -217,3 +217,19 @@ Project-relevant memory and visible conversation summaries may be recorded here.
   empty; it can still open a room container. Item movement still follows the
   user's Manager.Loot rules. Container candidates are logged by RKMission.
 - Source only; the user will compile and test in game.
+
+## Target Room Detection During Crossing (2026-09-27)
+
+- The user supplied a log for transition 2->6 where AO# already reported room
+  6, but RKMission printed `still in room 6; pushing deeper` before confirming.
+- The crossing stall timer was allowed to trigger regardless of which room was
+  detected. The target-room stability timer also began only after the player
+  met the stricter interior clearance check, adding another second of delay.
+- RKMission now starts the stability timer as soon as the target room is
+  detected. It confirms only after the same one-second stable reading and
+  safe Mali interior check, and holds that safe position while waiting.
+  When detection reports the target near its doorway, it continues inward
+  without incrementing source-room retries; one deeper destination is used
+  only if the interior approach stalls. Source-room retries remain bounded.
+- Combat and loot still start only after confirmed entry. No local compile
+  or in-game test was run.
