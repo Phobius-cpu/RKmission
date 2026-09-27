@@ -243,3 +243,20 @@ mission objectives now use it; one survey per room logs visible enemies,
 containers, and corpses. This covers entities as the client loads or spawns
 them, since the plugin has no separate list of unseen entities. No local
 compile or in-game test was run.
+
+## 2026-09-28
+
+### User compile error (continued in Codex)
+
+> Fix C# CS0136 for `adjacent` after the navigation patch. Rename the
+> conflicting variables without changing behavior, check nearby scopes,
+> and commit to main. Do not compile or test locally.
+
+### Assistant action
+
+Located the enclosing nullable target and nested traversal variable in
+`RKmission/MissionDungeon.cs`, `NextRoom`. Renamed them to `adjacentTarget`
+and `adjacentCandidate` and updated their references. Inspected the full
+method and surrounding transition methods for similar shadowing; no other
+conflicts were found there. Navigation behavior and log output are unchanged.
+No local compilation or tests were run; the user will pull and compile.

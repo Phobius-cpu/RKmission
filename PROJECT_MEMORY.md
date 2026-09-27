@@ -1,6 +1,6 @@
 # RKMission Project Memory
 
-_Last updated: 2026-09-27_
+_Last updated: 2026-09-28_
 
 This file is a durable project-context summary for future RKMission development sessions.
 
@@ -304,3 +304,14 @@ Project-relevant memory and visible conversation summaries may be recorded here.
   containers, and corpses; new spawns are still evaluated on later ticks.
   Mali wall outlines are cached for repeated entity checks.
 - Source only; no local compile or in-game test was run.
+
+## Adjacent Local Scope Compile Fix (2026-09-28)
+
+- The user reported C# CS0136 after the adjacent-room priority patch.
+  `MissionDungeon.NextRoom` declared both a method-scope nullable `adjacent`
+  target and a nested `foreach` variable with the same name.
+- Renamed them to `adjacentTarget` and `adjacentCandidate`, including all
+  references. Room selection, graph traversal, and log output are unchanged.
+  Source inspection found no other similar conflicts in `NextRoom` or the
+  surrounding transition methods.
+- No local compilation or tests were run; the user will pull and compile.

@@ -464,16 +464,16 @@ namespace RKmission
         {
             if (_layout == null)
                 return null;
-            int? adjacent = _layout.Neighbors(current.Instance)
+            int? adjacentTarget = _layout.Neighbors(current.Instance)
                 .Where(id => !_visitedRooms.Contains(id) && !IsUnavailable(current.Instance, id))
                 .OrderBy(id => Vector3.Distance(_layout.Edge(current.Instance, id).Threshold,
                     DynelManager.LocalPlayer.Position))
                 .Select(id => (int?)id)
                 .FirstOrDefault();
-            if (adjacent.HasValue)
+            if (adjacentTarget.HasValue)
             {
-                _say($"Choosing adjacent unvisited room {adjacent} from {current.Instance}.");
-                return _layout.Room(adjacent.Value);
+                _say($"Choosing adjacent unvisited room {adjacentTarget} from {current.Instance}.");
+                return _layout.Room(adjacentTarget.Value);
             }
 
             // Backtrack only when no usable adjacent room remains unexplored.
@@ -503,15 +503,15 @@ namespace RKmission
                 Vector3 entryPosition = index == current.Instance
                     ? DynelManager.LocalPlayer.Position
                     : _layout.Edge(parent[index], index).Interior;
-                foreach (int adjacent in _layout.Neighbors(index)
+                foreach (int adjacentCandidate in _layout.Neighbors(index)
                     .Where(id => !IsUnavailable(index, id))
                     .OrderBy(id => Vector3.Distance(_layout.Edge(index, id).Threshold,
                         entryPosition)))
                 {
-                    if (parent.ContainsKey(adjacent))
+                    if (parent.ContainsKey(adjacentCandidate))
                         continue;
-                    parent[adjacent] = index;
-                    queue.Enqueue(adjacent);
+                    parent[adjacentCandidate] = index;
+                    queue.Enqueue(adjacentCandidate);
                 }
             }
             return null;
