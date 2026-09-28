@@ -4,11 +4,11 @@ AO# plugin for solo Rubi-Ka missions in Anarchy Online. It combines the original
 Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
 mission travel, room exploration, combat targeting, door handling, and looting.
 
-**Status (2026-09-28):** the user reports previous mission paths work, but one
-entrance stops lowering at Y=19.9 toward an estimated Y=16.2. The latest repair
-remembers the area of an observed blocked descent, seeks a farther outside drop,
-and tightens descent waypoint arrival; it awaits the user's build and in-game
-validation. Dungeon
+**Status (2026-09-28):** the user still reports unstable final height alignment.
+The latest repair selects approach height earlier on clear routes, adds vehicle
+clearance and brakes near precise waypoints. Movement labels follow the committed
+leg instead of alternating with small height changes. It awaits the user's build
+and in-game validation. Dungeon
 exploration, combat, room doors, lockpicking, and loot behavior are preserved; one hook refreshes
 the live mission binding.
 
@@ -50,8 +50,10 @@ the live mission binding.
 5. On foot, use a complete mesh path if available, otherwise locally sampled
    waypoints/arcs around obstacles. In a flying vehicle, the bot attempts direct
    world-space travel along a committed waypoint sequence to a point about
-   1.5 m outside the chosen entrance. Within 2 m horizontally, select the
-   entrance height, align the character to it, then proceed to entry.
+   1.5 m outside the chosen entrance. Within 24 m, select a locally resolved
+   entrance height and approach at that height when the direct corridor is clear.
+   Obstructions retain elevated travel and detours. Within 2 m horizontally,
+   confirm height alignment, then proceed to entry.
    **Stay in your flying vehicle**: height alignment, approach and interaction
    continue in flight. Live door height takes priority; unresolved height
    remains provisional. There is no required dismount or ground detour.
@@ -132,12 +134,27 @@ retrying an unfinished accepted mission.
   The former rotate-in-place gate is removed. Intermediate cruise arrival uses
   1.2-2.5 m according to speed. During entrance height alignment, reach an outside
   waypoint within 0.75 m before lowering; finish a lowering leg within 0.75 m
-  vertically before returning sideways. Final height and entrance checks remain tighter.
+  vertically before returning sideways. Within 6 m of an alignment/entrance
+  waypoint, movement checks run as often as every 25 ms on game updates instead
+  of 100 ms, steer directly to that leg, and release forward when current velocity
+  predicts arrival/overshoot. Resume movement after slowing if still outside the
+  0.45 m waypoint tolerance. Cruise remains at 100 ms; ground/dungeon updates stay
+  at 250 ms. This does not alter game speed or player position.
 - Flight follows `FlightCruise -> EntranceHeight -> EntranceApproach -> EnterDoor`.
-  At no more than 2 m horizontally from the chosen entrance, resolve a unique
-  live door's exact height or refresh the nearby surface consensus. Align to
-  floor +1 m of vehicle clearance, within 0.75 m vertically, while remaining
-  within 2 m horizontally. Only then proceed to door/proximity entry. Height is
+  Local live door/surface data resolves the height within 24 m. Every 500 ms in
+  that range, check the direct approach with centre, side and upper body rays
+  plus observed obstruction memory. If clear, commit the approach at entrance
+  height before reaching the doorway instead of staying high until within 2 m.
+  If obstructed/inconclusive, keep elevated travel and the existing obstacle
+  routing; that hint cannot reject the selected mission. Later obstacles still
+  trigger the normal bounded recovery. These checks concern only the chosen entrance.
+  Select clearance as vehicle radius +0.25 m, bounded to 1.5-2 m above the
+  resolved floor; it is a travel allowance, not a new floor measurement. Use
+  this same target for planning, alignment, proximity entry and live door drift
+  checks. Confirm alignment within 0.75 m vertically and within 2 m horizontally.
+  Alignment targets stay 1.5 m outside the doorway so waypoint arrival tolerance
+  cannot stop the character outside that final horizontal check.
+  Only then proceed to door/proximity entry. Height is
   rechecked before each use; drift or a new live door height returns to alignment.
   If the direct descent is blocked, a complete outward/down/return path can reach
   the alignment target. Before the grid search, sample 16 headings at
@@ -169,7 +186,7 @@ retrying an unfinished accepted mission.
   three independent supporting columns and centre/inner support. It refreshes
   every two seconds within 24 m during cruise/alignment/approach with a 0.5 m tolerance.
   A newly resolved floor can raise cruise clearance before final height selection.
-  The within-2-metre height/entry sequence still governs descent and interaction. Live door
+  The within-2-metre alignment check still governs final interaction. Live door
   data overrides terrain; zero/stale accepted height remains provisional and
   cannot alone invalidate a mission. No outdoor mesh is needed. Manually leaving
   flight near the entrance can continue the same mission on ground.
@@ -273,10 +290,14 @@ deployed plugin folders.
   obstruction and bounded search retries. `Entrance alignment side changed`
   identifies a reachable approach around the same entrance. Watch
   `outside descent prefix` / `outside descent and entrance return`,
-  `outside alignment for descent` and `lowering beside entrance` for roof avoidance.
+  `outside alignment for descent` and `descending to approach height` for roof avoidance.
   The descent search reports clear columns/drops and the direct-drop surface Y.
-  Watch `Entrance height selected within 2 m` / `Entrance height aligned` for the
-  height-before-entry sequence. Flight progress includes the vertical gap.
+  Watch `Entrance height selected during clear approach` for early height planning,
+  `Early flight height approach deferred` for an obstructed early corridor, and
+  `Entrance height selected within 2 m` / `Entrance height aligned` for final
+  alignment. Selection logs include vehicle radius/clearance; flight progress
+  includes the vertical gap and velocity. Movement labels use the committed
+  leg's starting altitude so slight corrections cannot alternate/log every tick.
   Idle selection checks retry every five seconds; mode warnings are suppressed
   when unchanged. During movement, the selected mission remains fixed.
 - **Fallback stopped:** `Local travel HARD FAILURE` identifies an actual

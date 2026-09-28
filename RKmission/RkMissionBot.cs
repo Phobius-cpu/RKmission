@@ -165,7 +165,7 @@ namespace RKmission
         private void Update(object sender, float elapsed)
         {
             if (Game.IsZoning || DynelManager.LocalPlayer == null || DateTime.UtcNow < _nextTick) return;
-            _nextTick = DateTime.UtcNow.AddMilliseconds(_travel.IsFlightActive ? 100 : 250);
+            _nextTick = DateTime.UtcNow.AddMilliseconds(_travel.UpdateIntervalMilliseconds);
             try
             {
                 _missions.Refresh(); // Track acceptance/removal even while local automation is disarmed.

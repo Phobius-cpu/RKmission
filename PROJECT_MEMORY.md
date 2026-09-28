@@ -873,3 +873,63 @@ connected obstacle search or the near-entrance height sequence.
   code are untouched. Updated README/CONVERSATION_LOG. Source/API/diff inspection
   only; no local compilation, restore, tests or in-game run. User pulls main,
   compiles and validates a farther outside drop/return at this entrance in game.
+
+## Early Clear Flight Approach and Waypoint Braking (2026-09-28)
+
+- User says the previous solution is clearly not working. The 10:45 logs follow
+  a two-leg route from (751.9482, 17.2718, 1468.75) to final alignment target
+  (751.2989, 16.2, 1463.457), repeatedly alternating "lowering beside entrance"
+  and "entrance height alignment" for that unchanged target. User stopped the
+  bot and requested appropriate height selection before reaching entrances
+  while pathing, when no objects obstruct the route. This supersedes the earlier
+  requirement to delay height selection until within 1-2 m; keep final alignment
+  and precise entry checks there.
+- Inspected main bf05957. Cruise refreshes height within 24 m but preserves
+  elevated cruise altitude until within 2 m. FlyMove commands continuous forward
+  movement to within only 0.1 m of its target, with 100 ms updates and no arrival
+  braking. Labels depend on current vertical gap crossing 1 m, explaining the
+  repeated text without a new target or phase. Logs alone do not establish the
+  exact physical entrance height or prove a particular object at that location.
+- Within 24 m, once live door/local surface data has resolved entrance height,
+  check a direct approach every 500 ms using centre/side/upper body rays and
+  observed obstruction memory. A clear corridor begins EntranceHeight early,
+  committing travel to the chosen outside point at approach altitude. If the
+  corridor is blocked/inconclusive, retain elevated cruise/obstacle planning;
+  do not reject the mission. Early alignment remains in the same phase until
+  within 2 m horizontally and 0.75 m vertically; subsequent obstacles retain
+  bounded recovery. Provisional distant zero height still cannot start a blind
+  early descent. Nearest-from-captured-origin selection is unchanged.
+- Replace fixed floor+1 targets with consistent vehicle clearance, radius+0.25
+  bounded to 1.5-2 m. This keeps approach altitude above the surface estimate
+  without treating a roof stop as the door height. Planner goal/ring, alignment,
+  proximity entry, live-door movement/drift checks and logs share the clearance.
+  Keep live door use's existing <=2.5 m height and <=3/3.5 m distance gates;
+  floor/live door identity and exact dungeon handoff are unchanged.
+- For EntranceHeight/EntranceApproach waypoints within 6 m, request 25 ms game
+  updates, steer precisely to the committed target and release forward if
+  measured velocity over the reaction interval predicts reaching/passing the
+  0.45 m arrival tolerance. Resume after slowing if still outside tolerance.
+  Cruise retains 100 ms and other phases 250 ms. The coordinator's single
+  timing line reads this interval; dungeon/ground logic is unchanged. No game
+  speed, position or movement-state writes are added.
+- Save the actual planning origin and classify each committed leg's purpose
+  from that origin/previous waypoint, not the character's changing altitude.
+  Logs stay stable for the same leg; report early selection/deferred approach,
+  radius/clearance, and velocity alongside vertical gap. No log-only suppression
+  hides changes to the actual target. Braking, changes of estimate and replans
+  cannot reset the existing progress/entry deadlines; entering height alignment
+  early starts its existing three-minute bound earlier.
+- Initial height anchors now use a 1.5 m outside point on the current side (the
+  captured-origin side for early approach), rather than a vertical target at an
+  arbitrary current distance up to 2 m. If the live entrance shifts, reproject
+  an anchor outside 1.51 m while retaining its side. Together with 0.45 m arrival,
+  this leaves margin inside the final 2 m gate instead of stopping just outside it.
+- Rechecked AOSharp Dynel.Radius/Velocity/Position/Rotation and pinned
+  SMovementController: movement actions are queued and drained on game updates;
+  Halt stops navigation and the existing FullStop action releases movement.
+  Reuse these APIs; no SDK dependency or native interop additions. Retain
+  obstruction memory/search, vehicle equipment, ground fallback and working
+  dungeon exploration/combat/interior doors/lockpick/loot. Updated README and
+  CONVERSATION_LOG. Source/API/diff review only; no build, restore, local tests
+  or in-game run. User pulls main, compiles and checks early clear descent and
+  stable final approach in game.

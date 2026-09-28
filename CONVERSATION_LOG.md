@@ -644,3 +644,32 @@ observed area size, stopping/requested heights and retained entrance height.
 Updated README.md and PROJECT_MEMORY.md. Source/API/diff review only; no local
 compilation, restore, tests or in-game run. User pulls main, compiles and checks
 the farther descent/return at this entrance in game.
+
+### User failed final alignment and earlier height request (2026-09-28)
+
+The user says the prior solution is clearly not working. At 10:45 a two-leg
+flight reaches an alignment target near Y=16.2, but movement labels alternate
+repeatedly between lowering and height alignment for the same target. The user
+stopped the bot and asked it to choose an appropriate height while pathing,
+before reaching the entrance, when no objects obstruct the way.
+
+### Assistant early clear approach and precision movement repair
+
+Inspected main bf05957. The bot resolves local height but stays at elevated
+cruise altitude until within 2 m; final movement lacks arrival braking and the
+log label depends on the changing vertical gap. Clear approaches now select
+resolved entrance height from up to 24 m away and travel toward the outside
+entrance point at that altitude. Obstructed corridors retain elevated travel
+and bounded obstacle routing. Final within-2-metre height alignment still
+precedes entry, and the vehicle stays equipped.
+
+Use a consistent bounded vehicle clearance above the resolved floor for the
+flight targets. Check precise movement more often near waypoints, release
+forward before velocity predicts overshoot, and stop inside arrival tolerance.
+Classify movement labels from the committed leg rather than slight current
+height changes. Logs include early selection/deferred approach, vehicle
+radius/clearance and velocity. Keep unique live door/exact dungeon verification,
+progress limits, selected mission, ground fallback and working dungeon behavior.
+Updated README.md and PROJECT_MEMORY.md. Source/API/diff review only; no local
+compilation, restore, tests or game run. User pulls main, compiles and checks
+early height planning and a stable approach at this entrance in game.

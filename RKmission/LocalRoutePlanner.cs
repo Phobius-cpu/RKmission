@@ -51,7 +51,7 @@ namespace RKmission
             route.CruiseEnd.Y = Math.Max(origin.Y, entrance.Y + 12);
             route.Cost = Vector3.Distance(origin, route.CruiseEnd) +
                 Math.Abs(route.CruiseEnd.Y - entrance.Y) + 1.5f;
-            route.Reason = "committed flight path; select entrance height within 2 m, align, then enter in vehicle";
+            route.Reason = "committed flight path; select height early on a clear local approach, align, then enter in vehicle";
             return route;
         }
 
