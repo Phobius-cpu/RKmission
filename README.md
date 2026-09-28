@@ -4,15 +4,13 @@ AO# plugin for solo Rubi-Ka missions in Anarchy Online. It combines the original
 Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
 mission travel, room exploration, combat targeting, door handling, and looting.
 
-**Status (2026-09-28):** the reported doorway is X=553.2, Z=1475.0,
-height(Y)=18.1 in playfield 665. A correction uses that measured point only for
-mission markers within 2 m there. Valid quest heights are preserved, and terrain
-floors no longer overwrite them or get confused with live door coordinates.
-Both modes approach a checked point 1.5 m from the entrance before entry. Clear
-routes stay straight; obstructions trigger committed detours and observed stall
-recovery. This awaits the user's build and in-game validation. Dungeon
-exploration, combat, room doors, lockpicking, and loot behavior are preserved; one hook refreshes
-the live mission binding.
+**Status (2026-09-28):** outdoor mission coordinates are search anchors. Ground
+and flight now share live door acquisition, alternate approach sides/heights,
+identity refresh, and bounded recovery across candidates. A nonzero quest height
+is also provisional. Entry still requires exact mission/dungeon verification.
+The user's build and in-game validation are pending; no local compilation or
+tests were run. Dungeon exploration, combat, interior doors, lockpicking and loot
+are unchanged by this entrance fix.
 
 ## Setup
 
@@ -49,23 +47,21 @@ the live mission binding.
 4. Default `/rkm travel auto` reads AO# `MovementState.Fly`. Use
    `/rkm travel ground` or `/rkm travel flying` to override route selection for
    this plugin session. These commands do not equip or remove a vehicle.
-5. On foot, use a complete mesh path if available, otherwise locally sampled
-   waypoints/arcs around obstacles. In a flying vehicle, the bot attempts direct
-   world-space travel along a committed waypoint sequence to a point about
-   1.5 m outside the chosen entrance. Within 24 m, commit that point and the
-   selected entrance height. A clear corridor can adjust height during travel;
-   otherwise reach the coordinates at current clearance, then align height.
-   Confirm actual position 1-2 m horizontally from the entrance and within
-   0.75 m of the selected flight height before proceeding to entry.
-   **Stay in your flying vehicle**: height alignment, approach and interaction
-   continue in flight. Measured entrance coordinates take priority, then live
-   door/valid quest coordinates; terrain heights remain estimates when neither
-   is available. There is no required dismount or ground detour.
-6. Both modes approach the chosen entrance and use a unique nearby live door
-   when available. Without one, movement continues to the selected entrance
-   trigger point while waiting for a door or zoning. AO# must associate the
-   dungeon with the exact selected mission for a stable
-   second before the existing `MissionDungeon` logic starts.
+5. On foot, use a complete mesh path when available, otherwise sampled local
+   waypoints/arcs. Flight follows committed world-space waypoints. Within 48 m
+   of the marker, both modes scan live doors within 40 m of that anchor. They
+   rank candidates and approach sides, using live origin and local threshold
+   height alternatives instead of demanding the marker's exact X/Y/Z.
+   Flight aligns to a selected side/height before closing on the threshold;
+   ground follows terrain and checks the live door's actual interaction range.
+   **Stay in your flying vehicle**: the bot does not change equipment. Manual
+   landing near the anchor continues the same mission through ground acquisition.
+6. Door use refreshes the live identity and checks actual distance and the short
+   interaction corridor. No transition after use triggers a short threshold
+   crossing, then alternate sides/doors. Without live doors, bounded radial
+   waypoints search around the marker. Arrival or a use command alone never
+   proves entry. AO# must associate the dungeon with the exact selected mission
+   for a stable second before the existing `MissionDungeon` logic starts.
 7. Check the game's objective/reward. Use `/rkm complete` (or
    `/rkm complete <bound mission id>`) to record confirmed completion, then
    **exit the dungeon yourself**. While still armed, the bot chooses the next
@@ -79,185 +75,118 @@ retrying an unfinished accepted mission.
 
 ## Travel and completion boundary
 
-- Acceptance/removal is polled from `Mission.List` about once a second, even
-  while disarmed. Only outdoor Rubi-Ka destinations from Mali's playfield
-  catalog are eligible; unresolved/unsupported accepted records are retained
-  for visibility, and unresolved locations are reconsidered on later polls.
-  Roller filter settings do not restrict this collection.
-- Each mission retains its identity, entrance, dungeon identity, action types,
-  objective target/item identities, room-clearance state, and completion evidence.
-  Removal is `RemovedUnconfirmed`; it can mean reward, deletion, or expiration.
-- Selection uses distance estimates from one captured origin, not competing
-  route costs. The chosen mission ID and entrance coordinates stay fixed while
-  moving; a movement-state change cannot select another mission. An explicit
-  stop/start or travel-mode change, removal, zoning, or completion can start
-  a new selection. Only the chosen entrance is planned, in one movement mode.
-- For the chosen ground route, complete navmesh path length plus endpoint
-  approach supplies its path cost when available. Missing, partial, or
-  disconnected meshes use the selected entrance's horizontal distance estimate.
-  AOSharpSDK.SharpNav 1.0.44 `SetDestination` queues a direct waypoint without
-  a pathfinder; `SetNavDestination` requires one. Ground fallback samples
-  16 headings at 2/4/8/12 m, including tangent and backward arcs. Scores prefer
-  progress, clear probes and plausible terrain; recent visited/failed points
-  and a preferred detour side reduce oscillation. If every probe hits, a short
-  cautious waypoint can still be attempted. Each reached/stalled leg resamples
-  from the actual new position. There is no three-recovery limit.
-- Flying travel estimates a route to a point 1.5 m outside the entrance,
-  anchored to the captured origin. With a resolved height, prefer a straight
-  sloped route instead of always climbing 12 m first. Only the selected mission is planned. The bot
-  first tries direct and complete climb/cruise/approach paths. For obstructions, a bounded connected
-  search links 4 m cells at current/target height and raised levels, up to the
-  initial cruise/refined floor ceiling +40 m. It can follow several building
-  faces, go around a tree, seek a cave opening, or climb over an object and return
-  at entrance height. Clear stretches are combined into longer legs before the
-  entire route is committed. Search margins expand from 32 to 80 m after retries;
-  each attempt allows at most 450 expanded cells and 6,000 surface probes, with
-  the search stopping around 4,000 to reserve probes for combining clear stretches.
-  Cells can connect to a visible target at any distance, rather than only within 12 m.
-  Body-offset hits rank clearance; missing geometry remains provisional.
-  A known centre hit or observed failed direction excludes that segment, without
-  rejecting the selected mission. If the final approach remains unresolved, keep
-  a validated useful section of the path, then continue planning from its actual
-  reached endpoint. Prefixes require at least 8 m horizontal or 6 m vertical
-  displacement and a better estimated approach, or a clear launch climb while
-  far from the entrance or a necessary outside drop. Progress scoring uses actual
-  3D distance so vertical improvement is not outweighed by lateral displacement.
-  A necessary climb or descent detour can temporarily increase final distance
-  under the same progress deadline. Shorter samples are not committed as repeated
-  micro-hops. Near the entrance, an inconclusive search can instead commit a
-  bounded direct/arc movement estimate to the same stage target (see below).
-  Hold/retry when neither a usable section nor such an attempt remains. Logs
-  distinguish search limits from physical hits. Local searches cannot certify global access.
-- The committed waypoint list is followed in order. New plans require
-  changed destinations, eight seconds without waypoint progress, or sustained
-  nearby surface obstruction; failed retries are separated by at least three seconds.
-  Reaching a validated prefix immediately plans the next section, without treating
-  that endpoint as the mission entrance or recording it as a failed direction.
-  A short surface check runs every 400 ms and can pause a normally planned path
-  for a nearby hit. On an explicitly advisory entrance attempt, surface hits are
-  logged hints; observed failed movement still blocks the attempted direction.
-  Scene/offset probe hints alone do not repeatedly stop moving characters. Normal
-  arrival advances the existing path without stopping, after checking the next
-  segment from the actual position to avoid cutting a corner. Moderate heading changes
-  are smoothed, and sharp/corner-conflicting turns face the next leg directly.
-  The former rotate-in-place gate is removed. Intermediate cruise arrival uses
-  1.2-2.5 m according to speed. During entrance height alignment, reach an outside
-  waypoint within 0.75 m before lowering; finish a lowering leg within 0.75 m
-  vertically before returning sideways. Within 6 m of an alignment/entrance
-  waypoint, movement checks run as often as every 25 ms on game updates instead
-  of 100 ms, steer directly to that leg, and release forward when current velocity
-  predicts arrival/overshoot. Resume movement after slowing if still outside the
-  0.45 m waypoint tolerance. Cruise remains at 100 ms; ground/dungeon updates stay
-  at 250 ms. This does not alter game speed or player position.
-- Flight follows `FlightCruise -> EntrancePosition -> EntranceHeight -> EntranceApproach -> EnterDoor`.
-  Within 24 m, commit one approach point 1.5 m outside the selected entrance.
-  Check both travel to that point and its short final entry corridor with centre
-  and body-offset probes. Keep the straight side when clear; otherwise compare
-  16 sides once and choose an entry side for the existing connected detour planner.
-  Reconsider the side after actual stalled movement, not on every update.
-  Resolve flight height from measured/live door/quest coordinates or, when
-  unavailable, a terrain estimate. Check the direct
-  corridor once on starting the coordinate stage: clear data allows early height
-  adjustment; otherwise keep at least current altitude/selected clearance while
-  reaching the entrance neighborhood. Provisional height cannot alone reject
-  this coordinate attempt. Keep the same approach side across probe retries;
-  changed entrance data or an actual blocked leg permits another checked side.
-  Actual horizontal distance between 1 and 2 m, within 0.75 m horizontally of
-  the checked side, completes EntrancePosition.
-  Then confirm that same distance range and <=0.75 m vertical error to complete
-  EntranceHeight. An aligned observed position is not vetoed by a synthetic ray.
-  Add vehicle clearance (radius +0.25 m, bounded to 1.5-2 m) only to a terrain
-  floor or a quest/live-door origin matching that floor within 0.5 m. Preserve
-  quest/live-door coordinates instead of overwriting them with terrain; other
-  entry heights and the supplied measured point receive no extra offset. Use
-  this same target for planning, alignment, proximity entry and live door drift
-  checks. These stages plan only one coordinate/height goal; the former 16 extra
-  doorway endpoints per search cell are removed. A staging prefix cannot replace
-  the committed approach point or count as final alignment.
-  Without a live door, final proximity movement uses <=0.45 m horizontal and
-  <=0.75 m vertical error to the entrance trigger point, matching height alignment
-  instead of chasing a tighter 3D height tolerance after coordinates are reached.
-  Only then proceed to door/proximity entry. Height is
-  rechecked before each use; drift or a new live door height returns to alignment.
-  If the direct descent is blocked, a complete outward/down/return path can reach
-  the alignment target. Before the grid search, sample 16 headings at
-  4/8/12/20/28/40/56/72 m within the current search margin, testing the sideways
-  leg at current height and the drop to selected entry height. Intermediate planes
-  6/12/18 m below current altitude allow safe partial lowering around roofs.
-  This search gets about 2,000 probes within the existing shared budget. Keep both
-  sideways/lowering legs even if the final doorway leg is unresolved, then continue
-  from the lower position. A detour away from the entrance is not a reason to
-  discard an otherwise clear descent. Its staging column cannot change the chosen
-  entrance floor or count as completed height alignment. This descent search
-  also handles gaps over 1 m during final stages instead of only gaps over 3 m.
-  Ground also stages at the 1.5 m approach, confirms actual 1-2 m proximity
-  and its existing 2.5 m height tolerance, then enters. Its direct fallback
-  chooses a clear forward segment first before sampling arcs.
-  The entrance coordinate, mission and live door identity
-  remain fixed; the vehicle stays equipped throughout.
-- AO's displayed coordinate order is X, Z, height Y, whereas `Vector3` stores
-  X, Y, Z. Logs now label these axes explicitly with decimal points and distinguish
-  the accepted marker, resolved entrance, movement waypoint and stage target.
-  The known playfield-665 correction is `(553.2, 18.1, 1475.0)` internally.
-  It cannot affect markers more than 2 m away or other playfields. Nearby terrain
-  cannot lower that measured height. A live door can refine other unresolved
-  markers, but association is limited to 2 m for measured/nonzero quest points
-  (6 m for unresolved zero-height map markers), with ambiguity checks retained.
-- If normal surface search returns no usable section within 24 m, rank bounded
-  estimates ending at the same coordinate/height target. Try direct and coherent
-  outside/drop/return arcs at 4/8/12/20 m in 16 directions, at current/target
-  altitude and +4 m. Allow up to 512 extra centre probes, scoring their hits as
-  hints; actual failed legs/descents remain exclusions. `advisory=True` and
-  `Flight committed attempt leg` distinguish these estimates from regular paths.
-  Follow the entire sequence with the existing arrival/braking control, log
-  nearby probe hints at most every eight seconds, and recover after eight seconds
-  of actual waypoint stall. Estimates cannot bypass coordinate/height or door
-  gates, reset progress limits, move the player directly, or change equipment.
-  A probe-only pause replans without adding a falsely observed failed leg.
-- An actual eight-second movement stall on a nearly vertical entrance descent
-  learns an obstruction area around the stopping point, even if terrain rays
-  report a clear drop. Start with a 4 m radius; another stalled descent inside
-  that area at a similar height expands it by 4 m, up to 16 m. Avoid crossing
-  the learned plane just below the stopped vehicle; sideways escape above it
-  and a return underneath remain candidates. Both planning and execution respect
-  this memory, including early waypoint transitions and smoothed turns. A probe
-  pause alone cannot learn or enlarge the area. Memory belongs to this selected
-  mission and clears on reset/new selection. Logs show held versus requested
-  height, area radius and retained entrance height. The stopping altitude is an
-  obstruction observation, not proof of the door's height; live door data still
-  takes priority over the terrain estimate, and recovery retains the progress limits.
-- Height sampling uses 17 nearby columns and up to four surface layers, requiring
-  three independent supporting columns and centre/inner support. It refreshes
-  every two seconds within 24 m during cruise/alignment/approach with a 0.5 m tolerance.
-  A newly resolved floor can raise cruise clearance before final height selection.
-  The within-2-metre alignment check still governs final interaction. Live door
-  data overrides terrain; zero/stale accepted height remains provisional and
-  cannot alone invalidate a mission. No outdoor mesh is needed. Manually leaving
-  flight near the entrance can continue the same mission on ground.
-- Ground probes remain soft hints. Ground/flight waypoint stalls of eight
-  seconds trigger resampling; ground mesh movement stalls of 15 seconds
-  trigger direct fallback. Recoveries and entrance-height corrections do not
-  reset the final-target progress deadline: ground requires new best horizontal
-  distance, flight new best 3D distance, within 90 seconds. Productive detours
-  continue until the 15-minute overall limit. Precise approach/entry allows
-  three minutes, unresolved door lookup/proximity entry 45 seconds, and door
-  use retains three attempts/20 seconds. Client geometry queries and local
-  sampling cannot guarantee a route around arbitrary terrain or large obstacles.
-- AO# uses **Y for altitude**, with X/Z as the horizontal plane. Zero/stale
-  accepted entrance height cannot alone invalidate a route or hide a door:
-  nearby terrain/player height supplies provisional travel elevation, and door
-  lookup uses a 6 m horizontal neighborhood. The live door's actual position
-  and height still govern live-door interaction; ambiguous door use is withheld.
-  Entry is limited to three uses and a bounded wait. A wrong or unidentified
-  dungeon cannot start exploration. Interior room-door logic is unchanged.
-- AOSharpSDK 1.0.106 exposes no dependable completion/reward flag. Room
-  clearance, an objective interaction, and a disappearing mission are not
-  completion evidence. `/rkm complete` records the user's in-game confirmation
-  for the verified bound mission, including a removed mission. This pass does
-  not add objective solvers or automatic exit traversal.
-- Mission history and travel-mode overrides last for the loaded plugin session.
-  Reloading rebuilds acceptance from the game; completion confirmations are
-  not written to disk. No quest is deleted by RKMission.
+- Acceptance/removal is polled from `Mission.List` about once a second. Only
+  resolved outdoor Rubi-Ka destinations are travel eligible. Removal can mean
+  reward, deletion or expiration; it is not proof of completion. Identity,
+  objectives, dungeon binding and completion evidence remain attached to the
+  selected accepted mission.
+- Nearest selection compares horizontal distance from one captured origin.
+  Only that mission is planned. Its captured marker and mission identity stay
+  fixed during travel; live entrance targets can change without selecting a
+  different mission. Completion confirmations and travel settings are session
+  state; no quest is deleted.
+- Ground uses complete navmesh paths, then local direct waypoints if the mesh
+  is absent/disconnected. Fallback samples multiple headings/radii and remembers
+  visited/failed points. Flight retains the connected obstacle/descent planner,
+  committed waypoint execution, braking and observed blocked-leg/descent memory.
+  Surface probes rank approach alternatives; synthetic hits do not discard the
+  mission. Inconclusive final searches can attempt bounded advisory paths that
+  still exclude observed failed movement. No direct player position, altitude,
+  speed or movement-state writes are introduced.
+  Coarse flight holds departure height until acquisition (obstacles can require
+  climbs); stale quest Y cannot command an early climb/descent. Direct ground
+  forward steps use horizontal distance before sampling local terrain, so stale
+  Y cannot shrink a normal step to a negligible horizontal movement.
+
+### Marker versus physical entrance
+
+`AcceptedMissions.Refresh` copies `Mission.Location.Pos` from AOSharp's
+`GetQuestWorldPos`. The reference API exposes a quest world position, with no
+contract that it equals the physical door, threshold, building centre or plot
+centre, and no outdoor door-to-quest mapping. The available logs do not establish
+how often each layout supplies an approximate anchor or zero/stale elevation.
+We therefore treat every marker as an outdoor search anchor rather than claim a
+specific interpretation for all missions. AOSharp uses X/Y/Z with **Y altitude**;
+AO displays X/Z/height(Y). A reported Z=0 needs this distinction checked first.
+
+Source inspected: current RKMission main `4a822e1`, earlier entrance history and
+[AOSharp Mission](https://github.com/anarchydevs/aosp.knows-aosharp-mods/blob/master/AOSharp.Core/Mission.cs),
+[DynelManager](https://github.com/anarchydevs/aosp.knows-aosharp-mods/blob/master/AOSharp.Core/Dynel/DynelManager.cs),
+[Door](https://github.com/anarchydevs/aosp.knows-aosharp-mods/blob/master/AOSharp.Core/Dynel/Door.cs),
+[Dynel](https://github.com/anarchydevs/aosp.knows-aosharp-mods/blob/master/AOSharp.Core/Dynel/Dynel.cs)
+and SimpleItem reference sources. `Playfield.Doors` already derives from live
+`AllDynels` with `IdentityType.Door`. Outdoor room links return null; they cannot
+prove a mission association. Names, open/locked flags and collision probes are
+ranking hints. Arbitrary scenery/items are not cast to Door. `Use()` sends a
+command without a success acknowledgement. Exact association is established by
+the existing current-dungeon mission lookup after zoning.
+
+| Earlier behavior | Why an entrance could work | Why another layout could fail |
+| --- | --- | --- |
+| Door scan within 2 m of a nonzero/measured marker, 6 m for unresolved height | Live door coincides closely with marker | Offset building/cave door excluded; measured point freezes lookup |
+| Nonzero quest height treated as exact | Quest height matches doorway | Stale elevation forces wrong alignment; zero height takes a different path |
+| One bound identity; near ties return no door | One visible door | Multiple doors never resolve; disappearance stops entry |
+| One 1.5 m side and mandatory 1-2 m annulus | Outside side is accessible | Door inside facade, roof, slope or offset origin blocks that point |
+| Marker range plus door range; one failed use sequence stops run | Both coordinate checks happen to agree | Player reaches real door but fails marker/height gate or needs trigger crossing |
+
+Earlier 11:08 logs showed height searches exhausting roughly 4,040 probes with
+zero observed failed legs. The user later measured X=553.2, Z=1475.0, height=18.1
+in playfield 665. Those observations support a target/probe mismatch as a possible
+cause, not proof of every building's marker semantics or a universal correction.
+The measured point is retained only as a local coarse/search hint for markers
+within 2 m there; it cannot override the selected live door or all other missions.
+
+### Shared entrance acquisition
+
+- Start within 48 m horizontally of the captured anchor. Scan every two seconds
+  for finite live Door positions within a 40 m horizontal radius, independent
+  of quest elevation. Record identity, position, anchor offset, name/type,
+  open/locked flags, outdoor room-data unavailability and accessibility score.
+  Anchor distance dominates ranking; player distance, height difference and
+  corridor probes refine it. No close-tie ambiguity veto remains.
+- For each observed door, generate eight sides at 1.5 m and four at 3 m,
+  oriented by its live rotation, with player-facing fallback if rotation is
+  unusable. Rank travel and final corridor probes as hints. Try live origin
+  height, a supported local floor/threshold alternative (1.5 m clearance in
+  flight), and nearby grounded-player height when materially different. Terrain
+  estimates do not replace every live origin with the lowest floor. Mission Y,
+  including nonzero Y, never gates final acquisition.
+- Ground and flight share candidates, identity refresh, retries and interaction.
+  Flight reaches the selected horizontal side, aligns within 0.9 m of its
+  approach point, then closes on the live threshold. Clear direct travel allows
+  early lowering; obstructed travel retains clearance and the existing planner.
+  Ground commits arrival at the side before continuing inward, avoiding a loop
+  back to the staging point. Ground does not demand exact marker elevation.
+- Use requires <=2 m horizontally and <=3.5 m in 3D from a freshly resolved
+  live door. Check the short corridor before the door face, excluding its final
+  0.6 m so a closed door itself does not block use. Floor/model origin offsets
+  are handled through height alternatives; being on another floor is not arrival.
+- Send at most two uses per approach, four seconds apart. Log command delivery
+  and await actual zoning. After another four seconds without a transition, try
+  crossing 0.8 m past the threshold from that side; after eight seconds from
+  the last use without zoning, advance to another side/door. Disappearance,
+  changed live position, a managed use error, or 18 seconds without approach
+  progress also advances acquisition. Candidates alternate before repeatedly
+  retrying one building. Native Door pointers are never retained between ticks.
+- If no untried live candidate is available, visit the marker and eight headings
+  at 8/16/28/40 m, deriving provisional height from local floor/player data.
+  A waypoint with eight seconds of no progress yields to the next. A newly
+  loaded door preempts marker searching. Reaching a marker alone is not entry;
+  proximity-trigger zoning still goes through the exact dungeon verification.
+- Attempts and phases do not reset the acquisition progress clock. Only a new
+  observed distance minimum on a finite attempt updates it. Exhausting all
+  observed candidate approaches and radial waypoints plus 90 seconds without
+  progress stops acquisition. The existing 15-minute overall travel limit still
+  bounds the run. A single stalled door, missing door or failed use no longer
+  causes a hard failure. Manual flight/ground changes regenerate approach
+  geometry for the same mission without resetting the global progress clock.
+
+Candidate association remains provisional: AOSharp's outdoor API does not
+identify which nearby door belongs to a quest. The exact mission/dungeon gate
+is unchanged and refuses mismatched or unidentified dungeons. Large offsets
+beyond 40 m, unloaded/unexposed trigger objects, or inaccessible geometry may
+still require user intervention. Dungeon exploration/combat/interior doors,
+lockpicking and loot are unchanged.
 
 ## Commands
 
@@ -326,7 +255,8 @@ deployed plugin folders.
   plans for the mission list. Finite estimates remain attemptable even when
   clearance probes hit. Watch `Active movement` for the actual waypoint,
   `progress` for final-target distance,
-  `Entrance height refined` for floor/source changes,
+  `Entrance candidate` / `Entrance selected` for live position, anchor offset,
+  candidate properties, selected side and height source,
   `Flight path committed` for the entire waypoint sequence and replan reason,
   `complete=True/False` for complete routes versus validated sections,
   `Flight committed path leg` / `Flight committed prefix leg` for progress through that sequence, and
@@ -336,11 +266,10 @@ deployed plugin folders.
   `outside descent prefix` / `outside descent and entrance return`,
   `outside alignment for descent` and `descending to approach height` for roof avoidance.
   The descent search reports clear columns/drops and the direct-drop surface Y.
-  Watch `Entrance approach point set`, `Entrance coordinates reached`, then
-  `Entrance coordinates and height aligned` before entry. These logs show the
-  committed point, actual entrance distance and vertical error. An early clear
-  corridor can still adjust height during coordinate travel. Selection logs include
-  vehicle radius/clearance; flight progress
+  Watch `Entrance scan`, `Entrance aligned`, `Entrance interaction`,
+  `Entrance alternate attempt` and `Entrance search waypoint` for acquisition.
+  Interaction logs distinguish sent commands from absent zoning and threshold
+  crossing; alternate logs explain candidate/side changes. Flight progress
   includes the vertical gap and velocity. Movement labels use the committed
   leg's starting altitude so slight corrections cannot alternate/log every tick.
   Idle selection checks retry every five seconds; mode warnings are suppressed
@@ -354,7 +283,8 @@ deployed plugin folders.
   equipped. No dismount prompt/wait exists. Mode selection does not change
   equipment. Explicit ground mode requires actual ground movement.
 - **Entrance/handoff failure:** read the coordinate, door identity, route cost,
-  and entry logs. Ambiguous doors or an unmatched dungeon stop/hold entry.
+  and entry logs. Candidate association is provisional; unmatched or unidentified
+  dungeons still stop/hold the handoff.
 - **Clearance without confirmed completion:** check the objective/reward in
   game and use `/rkm complete` for that bound mission. Deleted/expired missions
   are not automatically marked complete; stop/start to abandon that binding.

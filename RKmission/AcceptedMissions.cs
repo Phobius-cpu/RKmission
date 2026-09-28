@@ -14,6 +14,8 @@ namespace RKmission
         public Identity Id;
         public string Name, Objectives, CompletionEvidence;
         public int PlayfieldId;
+        // Quest world-position anchor (legacy field name), not a guaranteed physical door.
+        // AOSharp Vector3 uses Y for altitude and X/Z for the outdoor plane.
         public Vector3 Entrance;
         public Identity DungeonInstance;
         public List<MissionAction> Actions;

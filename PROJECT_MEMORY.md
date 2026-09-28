@@ -23,18 +23,19 @@ The current responsibility boundary supersedes earlier automatic rolling plans:
 3. On reaching a playfield with accepted missions, capture one player origin,
    estimate horizontal entrance distances, choose nearest (mission ID breaks
    ties), and build only that entrance's route in the active movement mode.
-   Keep the chosen identity/entrance fixed during movement. Estimates are not
+   Keep the chosen identity/search anchor fixed during movement. Estimates are not
    certified complete paths; other missions receive no route/probe planning.
 4. Ground uses complete navmesh paths when available, otherwise bounded AO#
    direct local waypoints. Flying commits a complete waypoint sequence to
-   within 2 m of the chosen entrance, selects/aligns entrance height, then
-   proceeds to precise entrance approach and interaction in the flying vehicle. AO# flight state
+   toward the chosen quest anchor, then shares live entrance acquisition with
+   ground within 48 m. Scan doors within 40 m, rank identities/sides/heights,
+   align the selected approach and interact in the flying vehicle. AO# flight state
    selects automatically; `/rkm travel auto|ground|flying` overrides by session.
 5. Flight has no dismount prompt/wait or forced ground approach. Both modes
-   converge on the chosen entrance, a unique live door when exposed or a
-   proximity entry attempt, and exact mission/dungeon verification. Refine
-   entrance coordinates from measured/live door/valid quest data, using terrain
-   only for missing height. Prefer complete
+   converge on shared live-door acquisition, alternate approaches and exact
+   mission/dungeon verification. Quest X/Y/Z are provisional outdoor anchors;
+   derive final coordinates/height from live doors/local threshold geometry.
+   No live candidate triggers a bounded radial anchor search. Prefer complete
    clear flight paths around/over objects; retain estimates when geometry is
    inconclusive. Follow the full waypoint list, then gate entry on near-entrance
    height alignment. Avoid speculative-probe hopping and frequent turn stops.
@@ -1054,3 +1055,78 @@ connected obstacle search or the near-entrance height sequence.
   no local compilation, restore, tests or game run. User pulls main, builds and
   checks the exact measured entrance plus other missions and obstruction detours.
   Documentation updated; runtime success remains unconfirmed.
+
+## Shared Outdoor Entrance Acquisition (2026-09-28)
+
+This model supersedes earlier unique-door, exact nonzero quest-height, fixed
+1.5 m side, 2/6 m door-search and three-minute/45-second final-approach rules.
+
+- User asks to compare entrances that work/fail, fix marker-to-physical-door
+  acquisition, tolerate zero/stale elevation and building offsets, try multiple
+  door candidates/sides, preserve dungeon systems, update history and commit main.
+  No compilation, package restore or local/in-game tests are authorized here.
+- Baseline main is 4a822e1. AcceptedMissions copies Mission.Location.Pos from
+  GetQuestWorldPos without axis conversion. AOSharp Vector3 is X/Y/Z, with Y
+  altitude; AO /pos uses X/Z/height(Y). Reference code does not promise door,
+  building/plot or exact threshold semantics, or an outdoor quest-door mapping.
+  Available logs do not prove the prevalence of zero/stale height. Treating all
+  marker types as exact was an assumption, not a verified SDK guarantee.
+- Prior ResolveDoor searches only 2 m for nonzero/measured coordinates and 6 m
+  for unresolved heights. Close ties return null; bound identity disappearance
+  fails. One origin-facing 1.5 m approach and an actual 1-2 m annulus plus marker
+  and live-door checks couple entry to layout offsets. Nonzero quest Y is
+  preserved as exact. Working layouts can align all these assumptions; offset,
+  multiple-door, obstructed-side, different-floor or proximity-trigger layouts
+  can break them. Source-derived explanation, not confirmed per-mission telemetry.
+- Earlier 11:08 searches exhausted ~4,040 probes with zero observed failed legs;
+  the later measured PF665 doorway is (553.2,18.1,1475) internally. This supports
+  investigating targets/probe gates. Keep the measured correction only as a
+  local search/coarse hint for markers within 2 m there; live acquisition now
+  determines final targets instead of freezing that measurement over a door.
+- Coarse flight holds departure height instead of trusting stale quest
+  Y; direct ground forward steps flatten Y before sizing the horizontal step.
+  This avoids exaggerated flight altitude or negligible forward movement caused
+  by an incorrect marker elevation. New EntranceAcquisition owns managed
+  candidate/approach records and keeps no native pointers. Start within 48 m
+  of the captured marker; scan every two seconds
+  within 40 m horizontally, with no quest-height exclusion. Playfield.Doors
+  already wraps AllDynels filtered by IdentityType.Door. Reject invalid/nonfinite
+  objects; do not cast arbitrary props/items. Outdoor Door room links are null,
+  so room data cannot rank mission association. Logs state this limitation.
+- Rank anchor offset first, player distance/height and corridor hints next;
+  open/locked flags and mission-like names are weak hints, never proof. Alternate
+  candidates before repeatedly trying one identity; close-score ambiguity does
+  not veto acquisition. Generate eight 1.5 m sides and four 3 m sides per height,
+  based on rotation with player-facing fallback. Try live door origin, supported
+  local floor/threshold (plus 1.5 m for flight), and nearby grounded-player height
+  when materially different. Surface hits rank, not discard, these alternatives.
+- Ground/flight use one acquisition state. Flight stages horizontally then aligns
+  within 0.9 m of the selected approach and closes on its threshold; ground follows
+  terrain, remembers completed staging and uses actual door range rather than
+  requiring marker height. Existing ground/flight obstacle planners, braking and
+  learned blocked geometry remain. Manual landing regenerates mode-specific
+  geometry on the same mission without resetting global progress.
+- Fresh lookup before every use; actual <=2 m horizontal/<=3.5 m 3D range and
+  short corridor ending 0.6 m before the face. Use has no acknowledgement: log
+  command sent, then observe zoning through the unchanged coordinator. Send two
+  uses four seconds apart; if still outside after four more seconds, move 0.8 m
+  past the threshold. After eight seconds from the last use, try another approach.
+  Disappearance/moved origin, managed use errors and 18-second attempt stalls
+  also yield to alternatives. Keep native objects only within the current tick.
+- If no untried live door remains, visit marker plus eight directions at
+  8/16/28/40 m with local floor/player height. Search stalls yield after eight
+  seconds; newly loaded doors preempt the search. Marker arrival is never entry.
+  Switching sides/phases does not count as progress; only new observed minima
+  on finite attempts refresh the acquisition clock. Fail after all observed
+  approaches/search points exhaust plus 90 seconds without progress. Existing
+  15-minute total travel limit remains a separate cap. One failed door/use does
+  not hard-fail; coarse travel still retains its existing 90-second progress bound.
+- Exact selected-mission dungeon verification is unchanged. Candidate ownership
+  cannot be proved outdoors; a wrong/unidentified dungeon remains refused after
+  zoning. No changes to MissionDungeon, DungeonLayout, interior door/lockpick,
+  combat, roller, map, loot, package versions or equipment handling.
+- Logs cover captured anchor, candidate identity/type/properties/live position,
+  offset/height delta, approach/source, range/corridor, sent use/no-zone/crossing,
+  and alternate reason. README contains the source comparison and boundaries.
+  Source/API/diff inspection only; the user pulls main, compiles and validates
+  working/failing entrance layouts, ground/flight, stale Y and object refresh in game.

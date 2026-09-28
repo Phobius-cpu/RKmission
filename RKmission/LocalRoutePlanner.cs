@@ -16,7 +16,7 @@ namespace RKmission
         public AcceptedMission Mission;
         public Vector3 Origin, Entrance, EntrancePoint, FlightApproach, CruiseEnd;
         public float EntranceDistance, Cost;
-        public bool Flying, GroundUsesMesh, EntranceHeightVerified, EntranceIsFloor, EntranceMeasured;
+        public bool GroundUsesMesh, EntranceIsFloor;
         public string Reason, HeightSource;
     }
 
@@ -31,7 +31,7 @@ namespace RKmission
             bool measured = TryMeasuredEntrance(mission, out Vector3 entrance);
             bool heightVerified = measured || !HeightMissing(mission.Entrance);
             bool floor = false;
-            string source = measured ? "user-measured entrance" : heightVerified ? "accepted entrance height" : "player height, provisional";
+            string source = measured ? "user-measured search hint" : heightVerified ? "quest anchor height, provisional" : "player height, provisional";
             if (!measured)
             {
                 entrance = ResolveEntranceHeight(mission.Entrance, origin, out heightVerified);
@@ -43,8 +43,8 @@ namespace RKmission
             var route = new LocalRoute
             {
                 Mission = mission, Origin = origin, Entrance = mission.Entrance,
-                EntrancePoint = entrance, Flying = flying, EntranceHeightVerified = heightVerified,
-                EntranceIsFloor = floor, EntranceMeasured = measured,
+                EntrancePoint = entrance,
+                EntranceIsFloor = floor,
                 EntranceDistance = HorizontalDistance(origin, mission.Entrance),
                 HeightSource = source
             };
@@ -61,10 +61,11 @@ namespace RKmission
             // climb/cruise/descent corridor to select a finite world-space destination.
             route.FlightApproach = OutsideEntrance(entrance, origin, 1.5f);
             route.CruiseEnd = route.FlightApproach;
-            route.CruiseEnd.Y = heightVerified ? entrance.Y + (floor ? 1.5f : 0) : Math.Max(origin.Y, entrance.Y + 12);
-            route.Cost = Vector3.Distance(origin, route.CruiseEnd) +
-                Math.Abs(route.CruiseEnd.Y - entrance.Y) + 1.5f;
-            route.Reason = "committed flight path; set 1.5 m approach coordinates, align height within 1-2 m, then enter in vehicle";
+            // Quest height, even nonzero, is only a coarse hint. Live acquisition
+            // takes over before final descent; do not steer into an assumed doorway.
+            route.CruiseEnd.Y = origin.Y;
+            route.Cost = Vector3.Distance(origin, route.CruiseEnd) + 1.5f;
+            route.Reason = "coarse flight toward quest anchor; acquire nearby live door and alternate approaches within 48 m";
             return route;
         }
 
@@ -124,8 +125,8 @@ namespace RKmission
         public static Vector3 ResolveEntranceHeight(Vector3 entrance, Vector3 position, out bool verified)
         {
             float height = entrance.Y;
-            // A nonzero quest position is a doorway coordinate, not terrain.
-            // Never overwrite it with lower ground under a platform or cave.
+            // Retain nonzero quest height only as a coarse travel hint. The shared
+            // acquisition routine replaces it with live origin/threshold alternatives.
             verified = !HeightMissing(entrance);
             if (verified) return entrance;
             verified = HorizontalDistance(entrance, position) <= 24 &&
@@ -133,45 +134,6 @@ namespace RKmission
             if (verified) entrance.Y = height;
             else if (HeightMissing(entrance)) entrance.Y = position.Y;
             return entrance;
-        }
-
-        // Select a side once, then keep it until movement actually fails. Prefer
-        // the straight 1.5 m approach; only inspect other sides when obstructed.
-        // The final short entry leg must also be checked, not just travel to the ring.
-        public static Vector3 SelectEntranceApproach(Vector3 origin, Vector3 entrance,
-            Vector3 entry, float radius, bool flying, IList<FlightBlockedLeg> blocked, out bool viable, out string reason)
-        {
-            Vector3 preferred = OutsideEntrance(entrance, origin, 1.5f);
-            preferred.Y = entry.Y;
-            Vector3 best = preferred;
-            float bestCost = float.PositiveInfinity;
-            int probes = 0;
-            double heading = Math.Atan2(preferred.Z - entrance.Z, preferred.X - entrance.X);
-            for (int i = 0; i < 16; i++)
-            {
-                int turn = i == 0 ? 0 : (i % 2 == 1 ? 1 : -1) * ((i + 1) / 2);
-                double angle = heading + turn * Math.PI / 8;
-                Vector3 candidate = entrance + new Vector3((float)Math.Cos(angle) * 1.5f, 0,
-                    (float)Math.Sin(angle) * 1.5f);
-                candidate.Y = entry.Y;
-                Vector3 from = flying ? origin : origin + Vector3.Up;
-                Vector3 to = flying ? candidate : candidate + Vector3.Up;
-                Vector3 trigger = flying ? entry : entry + Vector3.Up;
-                // Leave only the last 0.35 m for the door trigger itself.
-                trigger = Toward(to, trigger, Math.Max(0, Vector3.Distance(to, trigger) - 0.35f));
-                float travel = FlightEdge(from, to, radius, blocked, false, ref probes, out int travelHints);
-                float final = FlightEdge(to, trigger, radius, blocked, false, ref probes, out int entryHints);
-                if (final < 0 || float.IsInfinity(final) || RepeatsBlockedLeg(from, to, radius, blocked)) continue;
-                float cost = Vector3.Distance(origin, candidate) + Math.Abs(turn) * 0.15f +
-                    (travel < 0 ? 100 : travelHints * 8) + entryHints * 12;
-                if (cost < bestCost) { best = candidate; bestCost = cost; }
-                if (i == 0 && travel >= 0 && travelHints == 0 && entryHints == 0)
-                { viable = true; reason = "straight approach and final entry corridor clear"; return candidate; }
-            }
-            viable = !float.IsInfinity(bestCost);
-            reason = float.IsInfinity(bestCost) ? "approach side provisional; no certified entry corridor" :
-                "obstructed straight approach; selected least obstructed entry side, coherent detour required if travel is blocked";
-            return best;
         }
 
         private struct SurfaceSample
@@ -262,8 +224,8 @@ namespace RKmission
             side = 0;
             float distance = HorizontalDistance(origin, destination);
             if (distance < 0.6f) return false;
-            Vector3 forward = Toward(origin, destination, Math.Min(12, distance));
-            forward.Y = origin.Y;
+            Vector3 levelDestination = destination; levelDestination.Y = origin.Y;
+            Vector3 forward = Toward(origin, levelDestination, Math.Min(12, distance));
             bool forwardSurface = TrySurface(forward, origin.Y, out Vector3 forwardFloor);
             if (forwardSurface && Math.Abs(forwardFloor.Y - origin.Y) <= 5) forward.Y = forwardFloor.Y;
             if ((!forwardSurface || Math.Abs(forwardFloor.Y - origin.Y) <= 5) &&

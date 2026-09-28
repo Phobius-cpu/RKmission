@@ -731,3 +731,39 @@ entrance alongside movement targets. Preserve vehicle equipment, one selected
 mission, bounded recovery and exact dungeon handoff; dungeon behavior is untouched.
 Updated README.md and PROJECT_MEMORY.md. Source/diff review only, without local
 compilation, package restore, tests or game execution; the user validates in game.
+
+### User marker-to-physical-entrance investigation (2026-09-28)
+
+Continue the RKMission entrance failures: compare successful and failing layouts,
+inspect current main/AOSharp references, treat mission coordinates as search
+anchors, dynamically acquire nearby live doors, tolerate zero/stale height and
+building offsets, try alternate candidates/approach points, and log the evidence.
+Preserve working dungeon systems, update README/PROJECT_MEMORY/CONVERSATION_LOG,
+commit coherent changes to main. Do not compile or test locally; user validates.
+
+### Assistant shared entrance-acquisition repair
+
+Inspected main 4a822e1, earlier entrance commits/history and AOSharp Mission,
+DynelManager, Dynel, Door, SimpleItem, vector and pinned movement reference sources.
+Quest world coordinates have no exposed exact-door contract or outdoor ownership
+mapping. Y is altitude; zero/stale prevalence and exact plot/marker semantics
+cannot be established from these logs. Found layout-sensitive assumptions:
+2/6 m scan, close-tie rejection, immutable selected identity, exact nonzero height,
+one 1.5 m side, 1-2 m annulus and marker checks alongside real door range.
+
+Add shared managed acquisition within 48 m, scanning live Doors within 40 m.
+Rank anchor offsets/properties/accessibility, alternate candidates, generate
+1.5/3 m sides and live/local-floor/grounded-player height alternatives. Ground
+commits staging before moving inward; flight stages/aligns using its existing
+planner. Refresh identity/range before use. Log sent commands rather than claimed
+success; use bounded threshold crossing and alternate sides/doors when no zoning
+occurs. Door disappearance is recoverable. No live door triggers radial searches
+at 8/16/28/40 m. Phase/candidate changes cannot reset global progress; finite
+attempt exhaustion plus 90 seconds without progress ends acquisition, with the
+existing 15-minute total travel cap. Retain exact mission/dungeon handoff and all
+working dungeon/combat/interior-door/lockpick/loot code. Prior PF665 measurement
+is now a search hint rather than final authority over a live door.
+
+Updated all three documentation files with comparison, reference limitations,
+new diagnostics and retry boundaries. Reviewed source/API/diff only; no local
+compilation, restore, tests or game run. Runtime success remains for user validation.
