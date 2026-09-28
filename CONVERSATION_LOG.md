@@ -560,3 +560,33 @@ dungeon verification, ground fallback, tracking and working dungeon behavior.
 Updated README.md and PROJECT_MEMORY.md and inspected the source/diff. No local
 compilation, package restore, tests or in-game run; the user pulls main, compiles
 and validates the building/tree/cave detour in game.
+
+### User stationary flight launch regression (2026-09-28)
+
+The user supplied 09:30-09:31 logs after the connected-search change. Mission
+1442233633 is selected about 149 m away, in Fly state without an outdoor mesh.
+The accepted entrance Y is zero, so initial floor/cruise elevation is provisional.
+Searches repeatedly return no route with exactly 183 cells and 103 blocked edges,
+even as margins widen from 32 to 80 m. The character never moves.
+
+### Assistant flight launch and search-budget correction
+
+Inspected main 29803a5. The planner required a whole path but only connected
+cells to the destination within 12 m, discarded all usable sections at the
+fixed probe limit, and counted budget exhaustion as obstruction. Cruise also
+kept the distant provisional height until the final alignment phase.
+
+Restored complete climb/cruise candidate routes and retained validated longer
+sections when the final approach remains unresolved. Long cruise sections can
+launch without proving the distant descent first; grid cells can connect to
+the target at any distance. Reserve probes for path simplification so the result
+keeps coherent movement. Follow a validated prefix and continue planning from
+its observed endpoint without confusing it with the entrance or an obstacle.
+
+Refresh the floor/cruise clearance as nearby live door/surface data loads; retain
+height selection/alignment within 2 m and entry in the vehicle. Logs distinguish
+complete routes, prefixes, actual arrival, physical blocks and search budgets.
+Obstacle search, failed-direction memory, original progress bounds, mission
+selection, ground fallback and working dungeon systems remain. Updated README.md
+and PROJECT_MEMORY.md. Source/diff review only; no local compilation, restore,
+tests or in-game run. User pulls main, compiles and validates launch/travel in game.

@@ -242,6 +242,8 @@ namespace RKmission
             public bool Closed;
         }
 
+        private const int FlightProbeLimit = 6000, FlightSearchProbeLimit = 4000;
+
         // Observed failed movement blocks a short direction, not the mission or its
         // entrance. This also handles scene objects absent from the surface ray data.
         public struct FlightBlockedLeg
@@ -276,7 +278,9 @@ namespace RKmission
             hints = 0;
             float length = Vector3.Distance(from, to);
             if (length < 0.1f) return 0;
-            if (RepeatsBlockedLeg(from, to, radius, blocked) || probes >= 6000) return -1;
+            // Budget exhaustion is not a physical obstruction.
+            if (probes >= FlightProbeLimit) return float.PositiveInfinity;
+            if (RepeatsBlockedLeg(from, to, radius, blocked)) return -1;
             Vector3 end = portal ? Toward(from, to, Math.Max(0, length - 1)) : to;
             Vector3 start = Toward(from, end, 0.3f);
             probes++;
@@ -286,7 +290,7 @@ namespace RKmission
                 new Vector3(-(to.Z - from.Z) * radius / horizontal, 0, (to.X - from.X) * radius / horizontal);
             foreach (Vector3 offset in new[] { side, side * -1, Vector3.Up * radius })
             {
-                if (probes >= 6000) { hints++; continue; }
+                if (probes >= FlightProbeLimit) { hints++; continue; }
                 probes++;
                 if (!ClearSegment(start + offset, end + offset)) hints++;
             }
@@ -298,8 +302,9 @@ namespace RKmission
         // faces or reach a cave opening. Commit/simplify the whole path, not each cell.
         public static List<Vector3> PlanFlightPath(Vector3 origin, Vector3 destination,
             float ceiling, float radius, IList<FlightBlockedLeg> blocked, float extent,
-            Vector3? entranceCentre, bool portal, out string reason)
+            Vector3? entranceCentre, bool portal, out bool complete, out string reason)
         {
+            complete = true;
             var goals = new List<Vector3> { destination };
             if (entranceCentre.HasValue)
             {
@@ -315,6 +320,73 @@ namespace RKmission
             float direct = FlightEdge(origin, destination, radius, blocked, portal, ref probes, out directHints);
             if (direct >= 0 && directHints == 0)
             { reason = "direct complete flight path; surface probes clear"; return new List<Vector3> { destination }; }
+
+            // Cheap whole-route candidates avoid spending the local grid budget on
+            // hundreds of metres of open travel. Retain clear prefixes even if the
+            // provisional final height/last descent cannot yet be reached.
+            List<Vector3> bestComplete = direct >= 0 ? new List<Vector3> { destination } : null;
+            float bestCompleteCost = direct >= 0 ? direct : float.PositiveInfinity;
+            int bestCompleteHints = directHints;
+            List<Vector3> prefix = null;
+            float prefixScore = float.PositiveInfinity;
+            Func<Vector3, float, float> progressScore = (point, cost) =>
+                HorizontalDistance(point, destination) + Math.Abs(point.Y - destination.Y) * 0.2f + cost * 0.025f;
+            float initialScore = progressScore(origin, 0);
+            bool launching = !entranceCentre.HasValue && !portal && HorizontalDistance(origin, destination) > 24;
+            Action<List<Vector3>, float> retainPrefix = (points, cost) =>
+            {
+                if (points.Count == 0) return;
+                Vector3 end = points[points.Count - 1];
+                // Useful multi-leg travel/climb, not repeated two-unit micro-hops.
+                if (HorizontalDistance(origin, end) < 8 && Math.Abs(origin.Y - end.Y) < 6) return;
+                float score = progressScore(end, cost);
+                // Getting out from under a canopy/low start can first increase
+                // final distance. Permit a validated launch climb under the same
+                // deadline; prefer any section that already improves the approach.
+                if (score >= initialScore - 0.5f && !(launching && end.Y >= origin.Y + 6)) return;
+                if (score >= prefixScore) return;
+                prefixScore = score; prefix = new List<Vector3>(points);
+            };
+            foreach (float rise in new float[] { 0, 12, 24, 40 })
+            {
+                float height = Math.Min(ceiling, Math.Max(origin.Y, destination.Y) + rise);
+                Vector3 climb = origin, cruise = destination;
+                climb.Y = cruise.Y = height;
+                var candidate = new List<Vector3>();
+                Vector3 previous = origin;
+                float cost = 0;
+                int hints = 0;
+                bool reachesGoal = true;
+                foreach (Vector3 point in new[] { climb, cruise, destination })
+                {
+                    if (Vector3.Distance(previous, point) < 0.05f) continue;
+                    float edge = FlightEdge(previous, point, radius, blocked,
+                        portal && Vector3.Distance(point, destination) < 0.05f, ref probes, out int edgeHints);
+                    if (edge < 0 || float.IsInfinity(edge)) { reachesGoal = false; break; }
+                    cost += edge; hints += edgeHints; candidate.Add(point); previous = point;
+                }
+                if (!reachesGoal) { retainPrefix(candidate, cost); continue; }
+                bool better = bestComplete == null || (hints == 0 && bestCompleteHints != 0) ||
+                    ((hints == 0) == (bestCompleteHints == 0) && cost < bestCompleteCost);
+                if (!better) continue;
+                bestComplete = candidate; bestCompleteCost = cost; bestCompleteHints = hints;
+            }
+            if (bestComplete != null && bestCompleteHints == 0)
+            {
+                reason = $"complete climb/cruise/approach flight path; {bestComplete.Count} legs, surface probes clear";
+                return bestComplete;
+            }
+            if (prefix != null && launching &&
+                HorizontalDistance(origin, prefix[prefix.Count - 1]) >= 24)
+            {
+                // Cruise can start on a clear long section while an unverified final
+                // elevation is refined nearer the entrance. Do not preflight-veto it.
+                complete = false;
+                List<Vector3> section = SimplifyFlightPath(origin, prefix, radius, blocked, false, ref probes);
+                reason = $"validated climb/cruise prefix; {section.Count} legs, endpoint={section[section.Count - 1]}; " +
+                    $"final approach pending local height/obstacle refinement; probes={probes}/{FlightProbeLimit}";
+                return section;
+            }
 
             var heights = new List<float> { origin.Y };
             foreach (float height in new[] { destination.Y, Math.Min(ceiling, Math.Max(origin.Y, destination.Y) + 12),
@@ -335,7 +407,9 @@ namespace RKmission
                 foreach (Vector3 goal in goals) best = Math.Min(best, Vector3.Distance(point, goal));
                 return best;
             };
-            while (expanded < 450 && probes < 6000)
+            // Reserve probes for smoothing the result instead of returning a raw
+            // cell-by-cell path when the search budget runs out.
+            while (expanded < 450 && probes < FlightSearchProbeLimit)
             {
                 int current = -1;
                 float priority = float.PositiveInfinity;
@@ -353,7 +427,6 @@ namespace RKmission
                 // confined to 1.5 m around this same entrance at selected entry height.
                 foreach (Vector3 goal in goals)
                 {
-                    if (Vector3.Distance(node.Point, goal) > 12) continue;
                     float cost = FlightEdge(node.Point, goal, radius, blocked, portal, ref probes, out _);
                     if (cost < 0) { surfaceBlocks++; continue; }
                     cost += node.Cost + Vector3.Distance(goal, destination) * 0.25f;
@@ -385,41 +458,66 @@ namespace RKmission
             }
             if (found < 0)
             {
-                // Unknown/body-offset data still permits an estimate; a known blocked
-                // centre leg never becomes the same one-leg "estimate" repeatedly.
-                if (direct >= 0)
+                // Unknown/body-offset data still permits a complete estimate.
+                if (bestComplete != null)
                 {
-                    reason = $"direct flight estimate; {directHints} body-clearance hints; bounded contour search inconclusive";
-                    return new List<Vector3> { destination };
+                    reason = $"complete flight estimate; {bestComplete.Count} legs, {bestCompleteHints} body-clearance hints; contour search bounded";
+                    return bestComplete;
                 }
-                reason = $"no connected clear flight path in {extent:F0} m search margin; {expanded} cells, " +
-                    $"{surfaceBlocks} blocked edges, {blocked.Count} observed failed legs; holding for expanded retry";
-                return new List<Vector3>();
+                // Every finite-cost node has a validated chain from the actual
+                // origin. Keep the best useful frontier when full access is unknown.
+                for (int n = 1; n < nodes.Count; n++)
+                {
+                    if (float.IsInfinity(nodes[n].Cost)) continue;
+                    float score = progressScore(nodes[n].Point, nodes[n].Cost);
+                    if (score >= prefixScore) continue;
+                    var candidate = new List<Vector3>();
+                    for (int i = n; i > 0; i = nodes[i].Parent) candidate.Add(nodes[i].Point);
+                    candidate.Reverse(); retainPrefix(candidate, nodes[n].Cost);
+                }
+                complete = false;
+                string stop = probes >= FlightSearchProbeLimit ? "search probe budget" : expanded >= 450 ? "cell budget" : "local frontier exhausted";
+                string stats = $"{stop}; {expanded} cells, {probes} probes, {surfaceBlocks} physical/observed blocked edges; margin={extent:F0} m";
+                if (prefix == null)
+                {
+                    reason = $"no useful clear flight section; {stats}; {blocked.Count} observed failed legs; holding for retry";
+                    return new List<Vector3>();
+                }
+                List<Vector3> section = SimplifyFlightPath(origin, prefix, radius, blocked, false, ref probes);
+                reason = $"validated flight prefix; {section.Count} legs, endpoint={section[section.Count - 1]}; " +
+                    $"final approach still pending; {stats}; total probes={probes}/{FlightProbeLimit}; continue planning after observed arrival";
+                return section;
             }
             var raw = new List<Vector3> { foundGoal };
             for (int i = found; i > 0; i = nodes[i].Parent) raw.Add(nodes[i].Point);
             raw.Reverse();
-            // Collapse clear straight portions so a long arc is a coherent set of
-            // corners, rather than visible 4 m grid hops. Keep proven adjacent edges
-            // if the budget cannot certify a further shortcut.
+            List<Vector3> path = SimplifyFlightPath(origin, raw, radius, blocked, portal, ref probes);
+            reason = $"connected obstacle route; {path.Count} legs, {expanded} cells, {surfaceBlocks} blocked edges; " +
+                $"probes={probes}/{FlightProbeLimit}, search margin={extent:F0} m, endpoint={foundGoal}" +
+                (Vector3.Distance(foundGoal, destination) > 0.1f ? "; clear side of the same entrance" : "");
+            return path;
+        }
+
+        private static List<Vector3> SimplifyFlightPath(Vector3 origin, List<Vector3> raw, float radius,
+            IList<FlightBlockedLeg> blocked, bool portal, ref int probes)
+        {
+            // Use longer certified stretches while keeping proven adjacent edges
+            // if the remaining budget cannot certify a further shortcut.
             var path = new List<Vector3>();
             Vector3 previous = origin;
             for (int i = 0; i < raw.Count;)
             {
                 int chosen = i;
-                for (int j = raw.Count - 1; j > i && probes < 6000; j--)
+                for (int j = raw.Count - 1; j > i && probes < FlightProbeLimit; j--)
                 {
                     float cost = FlightEdge(previous, raw[j], radius, blocked,
                         portal && j == raw.Count - 1, ref probes, out int hints);
-                    if (cost >= 0 && hints == 0) { chosen = j; break; }
+                    if (cost >= 0 && !float.IsInfinity(cost) && hints == 0) { chosen = j; break; }
                 }
                 if (Vector3.Distance(previous, raw[chosen]) > 0.05f) path.Add(raw[chosen]);
                 previous = raw[chosen]; i = chosen + 1;
             }
-            if (path.Count == 0) path.Add(foundGoal);
-            reason = $"connected obstacle route; {path.Count} legs, {expanded} cells, {surfaceBlocks} blocked edges; " +
-                $"search margin={extent:F0} m, endpoint={foundGoal}" +
-                (Vector3.Distance(foundGoal, destination) > 0.1f ? "; clear side of the same entrance" : "");
+            if (path.Count == 0) path.Add(raw[raw.Count - 1]);
             return path;
         }
 

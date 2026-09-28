@@ -4,9 +4,9 @@ AO# plugin for solo Rubi-Ka missions in Anarchy Online. It combines the original
 Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
 mission travel, room exploration, combat targeting, door handling, and looting.
 
-**Status (2026-09-28):** the user reports improved committed flight movement,
-but a mission building still blocks the final approach. The latest repair adds
-connected obstacle detours and clear-side entrance alignment; it awaits the
+**Status (2026-09-28):** the connected search caused a stationary launch regression
+on a 149 m flight. The latest repair retains validated travel sections, restores
+complete climb/cruise candidates and refines cruise elevation nearby; it awaits the
 user's build and in-game validation. Dungeon
 exploration, combat, room doors, lockpicking, and loot behavior are preserved; one hook refreshes
 the live mission binding.
@@ -97,21 +97,30 @@ retrying an unfinished accepted mission.
   from the actual new position. There is no three-recovery limit.
 - Flying travel estimates an elevated route to a point 1.5 m outside the entrance,
   anchored to the captured origin. Only the selected mission is planned. The bot
-  first tries a direct surface-clear path. For obstructions, a bounded connected
+  first tries direct and complete climb/cruise/approach paths. For obstructions, a bounded connected
   search links 4 m cells at current/target height and raised levels, up to the
   initial cruise/refined floor ceiling +40 m. It can follow several building
   faces, go around a tree, seek a cave opening, or climb over an object and return
   at entrance height. Clear stretches are combined into longer legs before the
   entire route is committed. Search margins expand from 32 to 80 m after retries;
-  each attempt allows at most 450 expanded cells and 6,000 surface probes.
+  each attempt allows at most 450 expanded cells and 6,000 surface probes, with
+  the search stopping around 4,000 to reserve probes for combining clear stretches.
+  Cells can connect to a visible target at any distance, rather than only within 12 m.
   Body-offset hits rank clearance; missing geometry remains provisional.
   A known centre hit or observed failed direction excludes that segment, without
-  rejecting the selected mission. If no complete clear route is found, hold and
-  retry under the existing progress deadline instead of recommitting the same
-  physically blocked direct estimate. Local searches cannot certify global access.
-- The full waypoint list is committed and followed in order. New plans require
+  rejecting the selected mission. If the final approach remains unresolved, keep
+  a validated useful section of the path, then continue planning from its actual
+  reached endpoint. Prefixes require at least 8 m horizontal or 6 m vertical
+  displacement and a better estimated approach, or a clear launch climb while
+  far from the entrance; a necessary climb can temporarily increase final distance
+  under the same progress deadline. Shorter samples are not committed as repeated
+  micro-hops. Hold/retry only when no usable section exists. Logs
+  distinguish search limits from physical hits. Local searches cannot certify global access.
+- The committed waypoint list is followed in order. New plans require
   changed destinations, eight seconds without waypoint progress, or sustained
-  nearby surface obstruction; retries are separated by at least three seconds.
+  nearby surface obstruction; failed retries are separated by at least three seconds.
+  Reaching a validated prefix immediately plans the next section, without treating
+  that endpoint as the mission entrance or recording it as a failed direction.
   A short actual surface check runs every 400 ms and can pause for a nearby hit.
   Scene/offset probe hints alone do not repeatedly stop moving characters. Normal
   arrival advances the existing path without stopping, after checking the next
@@ -132,7 +141,9 @@ retrying an unfinished accepted mission.
   remain fixed; the vehicle stays equipped throughout.
 - Height sampling uses 17 nearby columns and up to four surface layers, requiring
   three independent supporting columns and centre/inner support. It refreshes
-  every two seconds during alignment/approach with a 0.5 m tolerance. Live door
+  every two seconds within 24 m during cruise/alignment/approach with a 0.5 m tolerance.
+  A newly resolved floor can raise cruise clearance before final height selection.
+  The within-2-metre height/entry sequence still governs descent and interaction. Live door
   data overrides terrain; zero/stale accepted height remains provisional and
   cannot alone invalidate a mission. No outdoor mesh is needed. Manually leaving
   flight near the entrance can continue the same mission on ground.
@@ -230,7 +241,8 @@ deployed plugin folders.
   `progress` for final-target distance,
   `Entrance height refined` for floor/source changes,
   `Flight path committed` for the entire waypoint sequence and replan reason,
-  `Flight committed path leg` for progress through that sequence, and
+  `complete=True/False` for complete routes versus validated sections,
+  `Flight committed path leg` / `Flight committed prefix leg` for progress through that sequence, and
   `Flight blocked leg recorded` / `Flight obstacle search waiting` for observed
   obstruction and bounded search retries. `Entrance alignment side changed`
   identifies a reachable approach around the same entrance. Watch

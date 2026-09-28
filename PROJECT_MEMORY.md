@@ -739,3 +739,51 @@ movement and the within-2-metre height-before-entry sequence.
   exploration/combat/interior doors/lockpick/loot are preserved. Source/API/diff
   inspection only; no local compilation, restore, tests or in-game run. User pulls
   main, compiles and checks this obstructed building approach in game.
+
+## Flight Launch After Bounded Search Exhaustion (2026-09-28)
+
+This corrects the stationary launch regression in 29803a5 without removing the
+connected obstacle search or the near-entrance height sequence.
+
+- User's 09:30-09:31 logs: Fly state, no outdoor mesh, mission 1442233633 selected
+  from (649.0104,5.515,1314.629), accepted entrance (626.6214,0,1461.9), 149 m away.
+  Height is provisional player Y; cruise target Y=17.515. Repeated empty searches
+  report exactly 183 cells/103 blocked edges while margins grow 32/48/64/80 m.
+  Character never moves; no observed failed legs exist.
+- Source diagnosis: only cells within 12 m could connect to the target. The
+  fixed 6,000-probe cap could be reached before local-grid expansion arrived there.
+  All reachable sections were discarded unless a complete path existed. Budget
+  exhaustion returned the same negative value as a physical hit, inflating the
+  obstruction count. Widening the margin did not increase useful search work.
+  Grid search also consumed the shortcut budget. Cruise never refreshed a distant
+  zero-height entrance until height alignment, potentially aiming below local terrain.
+- Restore cheap whole direct/climb/cruise/approach candidates at current/target,
+  +12/+24/+40 raised levels within the fixed ceiling. Prefer body-clear candidates.
+  A long validated climb/cruise section can launch when its final descent/approach
+  is still unresolved. Connected search remains for buildings/trees/caves and can
+  connect cells to the target at any distance. Search stops around 4,000 probes,
+  reserving the rest of the 6,000 total for combining clear stretches.
+- If complete access remains unknown, retain the best useful validated prefix
+  from candidate legs or finite-cost grid nodes. Require >=8 m horizontal or
+  >=6 m vertical displacement and improved approach score, or a validated launch
+  climb >24 m from the entrance to leave a low/canopy start. A launch climb may
+  temporarily increase final distance under the same clock. Simplify/commit the
+  whole prefix. Hold only if neither complete route nor useful prefix exists.
+  A known blocked direct leg is still excluded, and observed failed-leg memory stays.
+- Execution distinguishes complete routes and prefixes. Actual arrival on the
+  final prefix leg with local clearance immediately continues planning from the
+  new position. This is neither an obstruction nor a final entrance: it does not
+  record a failed direction, move the entrance anchor, enable the final doorway
+  probe exemption or reset the 90-second final progress clock. Minor destination
+  changes cannot overwrite a validated prefix endpoint with the unresolved goal.
+- During cruise within 24 m, refresh the floor estimate from live door/17-column
+  consensus and raise cruise clearance to at least floor+12. Final floor selection,
+  alignment and vehicle entry still follow the within-2-metre sequence. Accepted
+  zero/stale coordinates do not require an outdoor mesh or a dismount.
+- Logs show complete=True/False, path/prefix leg, actual prefix arrival continuation,
+  probe/cell budgets and physical/observed edge counts. Budget exhaustion is now
+  distinct from obstruction. Nearest-from-origin selection, accepted mission/door
+  identity, ground fallback and dungeon exploration/combat/interior doors/loot stay
+  unchanged. Updated README/CONVERSATION_LOG. Source/diff inspection only; no local
+  compilation, restore, tests or in-game run. User pulls main, compiles and checks
+  launch from the reported position and subsequent entrance avoidance in game.
