@@ -17,6 +17,7 @@ namespace RKmission
         public float MaxFlightBypassRadius { get; set; } = 36;
         public float FlightClimbLimit { get; set; } = 48;
         public float FlightCruiseClearance { get; set; } = 6;
+        public float FlightCruiseLegLength { get; set; } = 60;
         public int MaxEntrances { get; set; } = 256;
         public int AttemptsPerEntrance { get; set; } = 96;
 
@@ -40,6 +41,7 @@ namespace RKmission
             settings.MaxFlightBypassRadius = Clamp(settings.MaxFlightBypassRadius, settings.MaxProbeRadius, 60, 36);
             settings.FlightClimbLimit = Clamp(settings.FlightClimbLimit, 8, 96, 48);
             settings.FlightCruiseClearance = Clamp(settings.FlightCruiseClearance, 2, 16, 6);
+            settings.FlightCruiseLegLength = Clamp(settings.FlightCruiseLegLength, 20, 120, 60);
             settings.LegStallSeconds = Math.Max(6, Math.Min(20, settings.LegStallSeconds));
             settings.NoProgressSeconds = Math.Max(60, Math.Min(300, settings.NoProgressSeconds));
             settings.TravelLimitMinutes = Math.Max(5, Math.Min(30, settings.TravelLimitMinutes));
@@ -47,7 +49,7 @@ namespace RKmission
             settings.AttemptsPerEntrance = Math.Max(16, Math.Min(192, settings.AttemptsPerEntrance));
             say($"Outdoor navigation settings: sectors={settings.Sectors}, movement rings=6/{settings.ProbeRadius}/{settings.MaxProbeRadius} m, " +
                 $"Fly exterior bound={settings.MaxFlightBypassRadius} m, Fly climb bound={settings.FlightClimbLimit} m, " +
-                $"Fly cruise clearance={settings.FlightCruiseClearance} m, entry height trigger=10 m, " +
+                $"Fly cruise clearance={settings.FlightCruiseClearance} m, cruise leg={settings.FlightCruiseLegLength} m, entry height trigger=10 m, " +
                 $"door association radius=6 m, leg stall={settings.LegStallSeconds} s, no-progress={settings.NoProgressSeconds} s, file={path}.");
             return settings;
         }

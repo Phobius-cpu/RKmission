@@ -1052,3 +1052,31 @@ learning records intact. Updated README and PROJECT_MEMORY, preserving the histo
 of repeated wall-running and height regressions. Source/diff inspection only; no
 local compilation, restore, tests or game execution. Accepted mission filtering,
 Door association and dungeon exploration/combat/interior-door/loot remain unchanged.
+
+### User reported improvement but too many travel stops
+
+The 18:47-18:48 PF665 log verifies mission 1442298249 entered at Y=20.61 after
+cruise clearance, the actual 9.99 m height trigger, matched entrance height and
+reached sector 13. Exact selected dungeon 14654046 was verified; existing room
+exploration and loot resumed. The user felt it stopped/restarted navigation too
+often and suggested longer travel distances. Full evidence preserved in
+docs/navigation-evidence/2026-09-28-pf665-1847-success-and-cruise-pauses.txt.
+
+### Assistant extended clear cruise and retained movement through waypoints
+
+No actual stalls appear in this successful log. Clear transit repeatedly completed
+20 m legs; the executor sends a full stop at arrival before starting another.
+Use configurable 60 m clear cruise legs (20-120 m), shortening to 20 m when a
+distant obstacle is hinted before invoking the same nearby over/around choices.
+During nearly straight/level clear transit, check a continuation with 8 m left
+and extend the target without halting, restarting the phase or resetting the
+observed progress clock. Require real progress and keep continuation outside
+18 m from the anchor. Pure look-ahead preserves the active bypass strategy.
+Record continued segments explicitly rather than claiming waypoint arrival.
+
+Keep short obstacle/perimeter maneuvers, the actual 10 m stop, entrance height
+matching, side diagnosis and precise final entry unchanged. The lesson is that
+waypoint pauses can resemble recovery even when no wall stall occurs. Preserve
+the successful height/entry sequence and all earlier failed evidence. README and
+PROJECT_MEMORY updated; source/diff inspection only, no local compilation, restore,
+tests or game execution. Mission selection and dungeon systems unchanged.

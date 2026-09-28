@@ -37,6 +37,7 @@ namespace RKmission
         private int _pathIndex, _recoveries, _uses;
         private float _coarseBest;
         private DateTime _started, _coarseProgress, _nextLog, _phaseStarted, _lastUse;
+        private DateTime _nextCruiseExtensionCheck;
         private string _lastEvaluation;
         public TravelMode Mode { get; set; } = TravelMode.Auto;
         public string Status => _phase.ToString();
@@ -99,6 +100,7 @@ namespace RKmission
             FinishRun("interrupted", reason);
             _movement.Reset(); _route = null; _entrance = null; _orbit = null; _flight = null; _flyExteriorActive = false; _path.Clear(); _accepted.Clear();
             _flyCruiseReady = _flyHeightMatched = _flyDescentRelocating = false; _flyHeightRecoveries = 0;
+            _nextCruiseExtensionCheck = DateTime.MinValue;
             _phase = Phase.Idle; _legActive = _pendingZoning = false; _lastEvaluation = null;
         }
 
@@ -140,6 +142,7 @@ namespace RKmission
                 _flying = flying; _movement.Halt(); _legActive = false;
                 _flight = flying ? new FlightPathPlanner(player, _settings, _say) : null; _flyExteriorActive = false; _orbit = null;
                 _flyCruiseReady = _flyHeightMatched = _flyDescentRelocating = false; _flyHeightRecoveries = 0;
+                _nextCruiseExtensionCheck = DateTime.MinValue;
                 _say($"Observed travel mode changed to {(flying ? "Fly" : "Run")}; selected mission, diagnostics and overall progress deadline retained.");
             }
             if (flying && !_flyCruiseReady) return CoarseTravel(player, now);
@@ -408,6 +411,7 @@ namespace RKmission
                 return Fail($"coarse travel made no net horizontal improvement for {_settings.NoProgressSeconds} seconds; remaining={remaining:F2} m, recoveries={_recoveries}");
             if (_legActive)
             {
+                ContinueFlyCruise(player, now, remaining);
                 MovementResult result = _movement.Tick(); LogProgress(player, now);
                 if (_flying && result != MovementResult.Moving) RecordFlightLeg(_runRecord, player, result);
                 _runRecord.LastPosition = NavigationPoint.From(player); _runRecord.LastTarget = NavigationPoint.From(_movement.Target);
@@ -443,9 +447,7 @@ namespace RKmission
                 }
                 // Stop inside the 10 m trigger without flying through the
                 // marker before entrance height and side have been diagnosed.
-                Vector3 incoming = player - _route.Anchor; incoming.Y = 0;
-                if (remaining > 0.1f) destination = _route.Anchor + incoming.Normalize() * (FlightEntryRadius - 1);
-                destination.Y = player.Y;
+                destination = FlyTransitGoal(player);
                 Vector3 step = _flight.Next(player, destination, _route.Anchor);
                 SetPhase(_flight.Strategy == "direct" ? Phase.FlyToEntrance : Phase.FlyAvoidObstacle);
                 _movement.Begin(step, true, true, stallSeconds: 4); _legActive = true; return true;
@@ -455,6 +457,32 @@ namespace RKmission
             else destination = _movement.CoarseStep(destination, _recoveries);
             _movement.Begin(destination, _flying, false, mesh); _legActive = true;
             return true;
+        }
+
+        private Vector3 FlyTransitGoal(Vector3 player)
+        {
+            Vector3 incoming = player - _route.Anchor; incoming.Y = 0;
+            Vector3 goal = _route.Anchor;
+            if (LocalRoutePlanner.HorizontalDistance(player, goal) > 0.1f)
+                goal += incoming.Normalize() * (FlightEntryRadius - 1);
+            goal.Y = player.Y; return goal;
+        }
+
+        private void ContinueFlyCruise(Vector3 player, DateTime now, float anchorDistance)
+        {
+            if (!_flying || !_flyCruiseReady || _entrance != null || _phase != Phase.FlyToEntrance ||
+                anchorDistance <= FlightEntryRadius + 8 || now < _nextCruiseExtensionCheck) return;
+            float remaining = Vector3.Distance(player, _movement.Target);
+            if (remaining > 8) return;
+            _nextCruiseExtensionCheck = now.AddMilliseconds(250);
+            if (!_flight.TryCruiseContinuation(player, FlyTransitGoal(player), out Vector3 next) ||
+                !_movement.CanExtendFlightTarget(next)) return;
+            // This is a continued transit segment, not an arrival or a success.
+            RecordFlightLeg(_runRecord, player, MovementResult.Moving, "continued without stopping");
+            _movement.ExtendFlightTarget(next);
+            _say($"Fly cruise continuation: previous remaining={remaining:F2} m, " +
+                $"next=({LocalRoutePlanner.Coordinates(next)}), leg distance={_movement.StartDistance:F2} m, " +
+                $"anchor distance={anchorDistance:F2} m; keep flying, no waypoint full stop.");
         }
 
         private bool Interact(Vector3 player, DateTime now)
@@ -501,14 +529,14 @@ namespace RKmission
         private static bool DoorWithinUseRange(Vector3 player, Door door) =>
             LocalRoutePlanner.HorizontalDistance(player, door.Position) <= 2 && Vector3.Distance(player, door.Position) <= 3.5f;
 
-        private void RecordFlightLeg(EntranceAttemptRecord record, Vector3 player, MovementResult result)
+        private void RecordFlightLeg(EntranceAttemptRecord record, Vector3 player, MovementResult result, string outcome = null)
         {
             record.FlightLegs.Add(new FlightLegRecord { FinishedUtc = DateTime.UtcNow,
                 Origin = NavigationPoint.From(_movement.StartPosition), Target = NavigationPoint.From(_movement.Target),
                 Position = NavigationPoint.From(player), Stage = _phase.ToString(),
                 Strategy = _flyExteriorActive || _entrance == null ? _flight.Strategy :
                     _phase == Phase.FlyMatchEntryHeight ? (_flyDescentRelocating ? _flight.Strategy : "mission entrance height match") :
-                    "entry alignment/approach", Result = result.ToString() });
+                    "entry alignment/approach", Result = outcome ?? result.ToString() });
             if (record.FlightLegs.Count > 12) record.FlightLegs.RemoveAt(0);
             if (_entrance?.Active?.Record == record) _entrance.SaveAttempt();
             else _learning.Record(_runMemory, record);

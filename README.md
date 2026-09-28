@@ -180,6 +180,22 @@ and vertical-over routes. Execute one leg, then re-evaluate at the actual positi
 Rays remain incomplete hints; motion failures can override apparently clear rays.
 No outdoor navmesh or clearance certificate is required.
 
+Clear Fly transit uses `FlightCruiseLegLength` (default 60 m, previously 20 m).
+With 8 m left to a waypoint, check a continuation at most every 250 ms. If the
+next corridor is clear and nearly straight/level, extend the target while keeping
+forward movement and the existing no-progress clock. Record this as continued
+flight, not waypoint arrival. A distant obstruction shortens the horizon to 20 m;
+nearby obstruction or actual non-progress still invokes the same over/around
+planner. Exterior relocation retains its 20 m maximum and short perimeter legs.
+No cruise continuation occurs within 18 m of the anchor; the actual 10 m stop,
+height match, side diagnosis and precise final approach remain unchanged.
+
+The 18:47-18:48 PF665 evidence verified entry for mission 1442298249 at Y=20.61.
+Its repeated clear 20 m legs contained no observed stalls: waypoint completion
+sent a full stop before each new leg. Longer legs with continued steering address
+those transit pauses without changing the successful entrance sequence. Full log:
+`docs/navigation-evidence/2026-09-28-pf665-1847-success-and-cruise-pauses.txt`.
+
 `FlyClearance` samples support/obstacles below the current point, the next 20 m
 and the mission anchor. Request `FlightCruiseClearance` (default 6 m) above observed
 surfaces, including allowance for transit stopping tolerance. Keep a sufficient
@@ -304,6 +320,7 @@ the plugin is unloaded, then reload it; no new chat commands were added.
 | `MaxFlightBypassRadius` | 36 | Fly footprint clearance limit, outer Ground radius to 60 m. |
 | `FlightClimbLimit` | 48 | Maximum climb above this run's initial aircraft height, 8-96 m. |
 | `FlightCruiseClearance` | 6 | Requested clearance above sampled obstacles before transit, 2-16 m. |
+| `FlightCruiseLegLength` | 60 | Clear Fly transit horizon, 20-120 m; distant obstacles shorten it to 20 m. Missing field in older settings uses 60 m. |
 | `MaxEntrances` | 256 | Retained entrances, 16-512. |
 | `AttemptsPerEntrance` | 96 | Retained diagnostic records each, 16-192. |
 

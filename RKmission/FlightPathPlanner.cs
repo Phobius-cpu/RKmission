@@ -27,6 +27,7 @@ namespace RKmission
         private readonly float _maximumRadius;
         private readonly float _minimumRadius;
         private readonly float _cruiseClearance;
+        private readonly float _cruiseLegLength;
         private int _sidePreference, _perimeterPreference;
         private int _committedDirection;
         private bool _committedPerimeter, _hasGoal;
@@ -41,7 +42,8 @@ namespace RKmission
         {
             _ceiling = origin.Y + settings.FlightClimbLimit; _maximumRadius = settings.MaxFlightBypassRadius;
             _minimumRadius = settings.ProbeRadius;
-            _cruiseClearance = settings.FlightCruiseClearance; _say = say;
+            _cruiseClearance = settings.FlightCruiseClearance;
+            _cruiseLegLength = settings.FlightCruiseLegLength; _say = say;
         }
 
         public float PrepareCruise(Vector3 player, Vector3 anchor)
@@ -96,6 +98,32 @@ namespace RKmission
                 OverpassResult = "ascent completed; maintain higher height through obstacle bypass";
         }
 
+        // A look-ahead check must not change the strategy or release a committed
+        // bypass while its current leg is still executing.
+        public bool TryCruiseContinuation(Vector3 player, Vector3 destination, out Vector3 next)
+        {
+            next = CruiseDirect(player, destination, out bool blocked, out _, out bool observed);
+            return !blocked && !observed;
+        }
+
+        private Vector3 CruiseDirect(Vector3 player, Vector3 destination,
+            out bool blocked, out Vector3 hit, out bool observed)
+        {
+            destination.Y = player.Y;
+            Vector3 direct = LocalRoutePlanner.Toward(player, destination, _cruiseLegLength);
+            blocked = LocalRoutePlanner.FlightCorridor(player, direct, out hit);
+            observed = RepeatsFailure(player, direct);
+            // A distant obstacle shortens the horizon before it asks for a turn.
+            // Keep the old 20 m neighborhood for actual over/around decisions.
+            if ((blocked || observed) && LocalRoutePlanner.HorizontalDistance(player, direct) > 20)
+            {
+                direct = LocalRoutePlanner.Toward(player, destination, 20);
+                blocked = LocalRoutePlanner.FlightCorridor(player, direct, out hit);
+                observed = RepeatsFailure(player, direct);
+            }
+            return direct;
+        }
+
         public Vector3 Next(Vector3 player, Vector3 destination, Vector3 anchor,
             float perimeterRadius = 0, int preferredDirection = 0)
         {
@@ -107,8 +135,14 @@ namespace RKmission
             { _committedDirection = 0; _goal = destination; _hasGoal = true; }
             _committedPerimeter = perimeter;
             Vector3 direct = LocalRoutePlanner.Toward(player, destination, 20);
-            bool blocked = LocalRoutePlanner.FlightCorridor(player, direct, out Vector3 hit);
-            bool observed = RepeatsFailure(player, direct);
+            bool blocked, observed;
+            Vector3 hit;
+            if (perimeter)
+            {
+                blocked = LocalRoutePlanner.FlightCorridor(player, direct, out hit);
+                observed = RepeatsFailure(player, direct);
+            }
+            else direct = CruiseDirect(player, destination, out blocked, out hit, out observed);
             bool aboveBypass = !float.IsNaN(_overpassHeight) && player.Y >= _overpassHeight - 0.8f && !blocked;
             float radius = LocalRoutePlanner.HorizontalDistance(player, anchor);
             float closestRadius = ClosestRadius(player, direct, anchor);

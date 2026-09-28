@@ -62,6 +62,27 @@ namespace RKmission
                 $"corridor={(LocalRoutePlanner.ClearSegment(player + lift, target + lift) ? "clear hint" : "hit hint; observed attempt allowed")}.");
         }
 
+        public bool CanExtendFlightTarget(Vector3 target)
+        {
+            if (!_active || !_owns || !_steering || !_flying || !_precise || !AcceptedMissions.Finite(target)) return false;
+            Vector3 player = DynelManager.LocalPlayer.Position;
+            Vector3 oldDirection = _target - player, newDirection = target - player;
+            float oldDistance = Vector3.Distance(player, _target), newDistance = Vector3.Distance(player, target);
+            // Only level, nearly straight cruise can retain forward movement.
+            // Turns, vertical legs and entrance precision still finish normally.
+            return Progress >= 2 && oldDistance > 1 && newDistance > oldDistance + 5 &&
+                Math.Abs(oldDirection.Y) <= 1 && Math.Abs(newDirection.Y) <= 1 &&
+                Vector3.Dot(oldDirection.Normalize(), newDirection.Normalize()) >= 0.966f;
+        }
+
+        public void ExtendFlightTarget(Vector3 target)
+        {
+            // The owner checks CanExtendFlightTarget and records the old leg first.
+            // Preserve steering ownership and the observed no-progress clock.
+            _target = target; StartPosition = DynelManager.LocalPlayer.Position;
+            StartDistance = BestDistance = Vector3.Distance(StartPosition, target);
+        }
+
         public MovementResult Tick()
         {
             if (!_active) return MovementResult.Stalled;

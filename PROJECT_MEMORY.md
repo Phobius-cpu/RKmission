@@ -1513,3 +1513,39 @@ onto the new architecture.
   Exact dungeon verification remains the only success gate. Accepted selection,
   current playfield filtering, map upload, conservative Door association, dungeon
   exploration/combat/interior-door/loot implementations are preserved.
+
+## Smoother Fly cruise after verified entry (2026-09-28, 18:47-18:48 log)
+
+- User reports improvement but too many stops/restarts and asks to extend travel
+  distance. Preserve no local compilation, restore, tests or game execution.
+- Full evidence: `docs/navigation-evidence/2026-09-28-pf665-1847-success-and-cruise-pauses.txt`.
+  Mission 1442298249, PF665, anchor X=718.59/Z=1470.90. Initial distance 171.7 m;
+  cruise reached Y=20.99, actual 10 m gate fired at 9.99 m, entrance height
+  resolved to 20.61 m. Sector 13 exterior was actually reached, threshold crossed
+  at Y=20.61, and exact mission verified in dungeon 14654046. Existing room/loot
+  logic resumed. No observed stalls or blocked approaches in this run.
+- Clear transit repeatedly finished 20 m legs. LocalMovement.Tick halted on
+  arrival; Begin and SetPhase also halt before the next leg. The user's perceived
+  pauses agree with this source behavior; logs do not time each individual stop.
+  Two short right-side obstacle maneuvers and precise entry legs were intentional.
+- Add FlightCruiseLegLength default 60 m, bounded 20-120 m. Only coarse Fly direct
+  travel uses it. A hit on a long ray first reduces the horizon to the existing
+  20 m neighborhood before choosing a detour; corridor hints remain advisory.
+- At <=8 m remaining, at most every 250 ms, check a clear forward continuation
+  while still farther than 18 m from the anchor. Extend an active level target
+  only after >=2 m observed progress, within 15 degrees of its current direction,
+  and with >=5 m additional remaining distance. Keep movement ownership, forward
+  steering, last steering time and both observed/overall no-progress clocks.
+  Do not call Begin/Halt/SetPhase or mark a continued leg Reached. Record the old
+  segment as 'continued without stopping' in existing bounded flight diagnostics.
+- Look-ahead checks do not mutate the active route strategy or committed bypass.
+  Turns, climbs, descents, exterior/perimeter routing, actual 10 m entrance halt,
+  height matching and final precision remain unchanged. No new recovery layer.
+  Existing JSON files missing the setting use its property initializer default.
+- Lesson: repeated waypoint completion can look like navigation recovery even
+  when movement is progressing correctly. Retain the earlier wall-routing and
+  entrance-height lessons and all previous evidence. Do not infer learned success
+  from continued cruise; exact dungeon verification remains the success gate.
+- README and conversation history updated. Source/diff inspection only, no local
+  compile/tests/restore/game run. Accepted/current-playfield selection, map upload,
+  live Door association and dungeon exploration/combat/interior-door/loot unchanged.
