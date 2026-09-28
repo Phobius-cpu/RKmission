@@ -39,6 +39,17 @@ namespace RKmission
         public float WallBearingDegrees, WallRadius, ExteriorRingRadius, AngularSpanDegrees;
         public bool ExteriorReached, BypassSideReached;
         public string OverpassResult;
+        public NavigationPoint EntryPoint, ReachedExteriorPoint;
+        public List<float> FailedEntryHeights = new List<float>();
+        public string FlightStrategy;
+        public List<FlightLegRecord> FlightLegs = new List<FlightLegRecord>();
+    }
+
+    internal sealed class FlightLegRecord
+    {
+        public DateTime FinishedUtc;
+        public NavigationPoint Origin, Target, Position;
+        public string Stage, Strategy, Result;
     }
 
     internal sealed class EntranceMemory
@@ -48,6 +59,7 @@ namespace RKmission
         public NavigationPoint Anchor;
         public DateTime UpdatedUtc, LastSuccessUtc;
         public NavigationPoint LastSuccessVector, LastSuccessDoorPosition, LastSuccessDoorForward;
+        public NavigationPoint LastSuccessEntryPoint;
         public string LastSuccessMode;
         public int LastSuccessSector = -1, LastBypassDirection, WallSectorCount;
         public float LastExteriorRingRadius, LastBypassAngularSpanDegrees;
@@ -128,6 +140,7 @@ namespace RKmission
                 memory.LastSuccessMode = attempt.Mode;
                 memory.LastSuccessDoorPosition = attempt.DoorPosition;
                 memory.LastSuccessDoorForward = attempt.DoorForward;
+                memory.LastSuccessEntryPoint = attempt.EntryPoint;
                 memory.LastSuccessSector = attempt.Sector;
                 memory.LastBypassDirection = attempt.BypassDirection;
                 memory.LastExteriorRingRadius = attempt.ExteriorRingRadius;

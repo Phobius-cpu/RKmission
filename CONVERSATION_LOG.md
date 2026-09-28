@@ -929,3 +929,43 @@ Only source/API/diff inspection was performed. No local compilation, package
 restore, automated tests or in-game run. Accepted mission selection, current
 playfield filtering, narrow Door association, exact MissionDungeon handoff and
 existing dungeon/exploration/combat/interior-door/loot code were preserved.
+
+### User Fly-navigation follow-up after 7a5ebaf (2026-09-28)
+
+The path is still the same, stalls in the same place and chooses the wrong height.
+For flying, the requested sequence is: enter zone, fly toward mission entrance
+coordinates while avoiding intervening objects, choose whether over or around
+seems best, diagnose the entrance side when nearby, adjust paths and enter.
+The user supplied a behavior report in this turn, without a fresh coordinate log.
+Prior no-local-build/test and dungeon preservation instructions remain in force.
+
+### Assistant simplified reactive Fly path and deferred entry height
+
+Inspected main 7a5ebaf. Fly still selected a low candidate floor before reaching
+an exterior and considered overpass only after perimeter retries. Added one
+FlightPathPlanner for coarse Fly travel and entrance-side relocation, replacing
+the old Fly fan and Ground-orbit-derived Fly fallback. Compare around/over now
+using corridor hints, actual failed directions, route length and revisits; execute
+one leg from the observed position. Keep successful cruise height through the
+obstacle. Near a mission, around paths retain exterior clearance; elevated clear
+transit may go over the footprint. Expanding clearance also moves the actual goal,
+preventing requests to arrive inside the protected radius.
+
+Compare approach sides' inward corridors before selecting one. Reach actual
+exterior position/bearing, then resolve height using the selected live Door,
+previous exact verified entry height, or first local exterior support. Fly no
+longer follows broad lower-layer anchor floor votes. Missing-Door entry-height
+failures try bounded alternatives on that reached side, returning outside before
+vertical alignment; final inward movement uses short legs. Arrival/Use/crossing
+alone still cannot validate success; exact selected MissionDungeon verification
+remains the gate.
+
+Persist rejected heights, reached exterior, entry point/source, route/overpass
+outcome and up to 12 actual completed/stalled legs per attempt, keeping old
+bounded history. New Fly limits default to 36 m exterior radius and 48 m climb
+above initial aircraft height. Ground movement/recovery retains its behavior.
+Updated README and PROJECT_MEMORY, retaining the prior failed implementation and
+original PF665 log as evidence. No compilation, package restore, automated tests
+or in-game run. Accepted mission selection, current-playfield filtering, native
+map upload, conservative Door association and existing dungeon/combat/door/loot
+implementations were preserved. User pulls, compiles and validates in-game.

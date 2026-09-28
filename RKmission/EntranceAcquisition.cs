@@ -28,6 +28,9 @@ namespace RKmission
             public int Sector, Pass;
             public float Radius, Lateral, Score;
             public bool KnownGood, AlternateHeight;
+            public bool FlightHeightResolved;
+            public float FlightBaseHeight;
+            public int FlightHeightTrial;
             public EntranceAttemptRecord Record;
         }
         private readonly Dictionary<Identity, Candidate> _candidates = new Dictionary<Identity, Candidate>();
@@ -38,7 +41,6 @@ namespace RKmission
         private readonly int[] _sectorVisits;
         private readonly float[] _sectorScores, _blockedRadii;
         private readonly Vector3[] _blockedPositions;
-        private readonly HashSet<int> _covered = new HashSet<int>();
         private readonly HashSet<string> _coveredRings = new HashSet<string>();
         private readonly HashSet<string> _orbitCoverage = new HashSet<string>();
         private readonly Action<string> _say;
@@ -60,9 +62,11 @@ namespace RKmission
         public bool BypassExhausted { get; private set; }
         public Attempt Active { get; private set; }
         public DateTime LastProgress { get; private set; }
-        public bool FullSpaceCovered => _coveredRings.Count >= _settings.Sectors *
+        public bool FullSpaceCovered => _mode == 1 ? CoveredSectors >= _settings.Sectors :
+            _coveredRings.Count(x => x.StartsWith(_mode + ":", StringComparison.Ordinal)) >= _settings.Sectors *
             new[] { _settings.ProbeRadius, _settings.MaxProbeRadius, 6f }.Distinct().Count();
-        public int CoveredSectors => _covered.Count;
+        public int CoveredSectors => _coveredRings.Where(x => x.StartsWith(_mode + ":", StringComparison.Ordinal))
+            .Select(x => x.Split(':')[1]).Distinct().Count();
 
         public EntranceAcquisition(AcceptedMission mission, List<AcceptedMission> accepted, Vector3 anchor,
             OutdoorNavigationSettings settings, EntranceLearning learning, Action<string> say)
@@ -78,7 +82,8 @@ namespace RKmission
                 x.LastPosition?.Valid == true && x.Stage != "CoarseTravel"))
                 RememberWall(record.LastPosition.Vector, null, false);
             _say($"Entrance search: mission={_missionId}, playfield={mission.PlayfieldId}, anchor=({LocalRoutePlanner.Coordinates(anchor)}), " +
-                $"door association radius={SearchRadius} m, movement search radius={settings.MaxProbeRadius} m, sectors={settings.Sectors}, " +
+                $"door association radius={SearchRadius} m, Ground movement bound={settings.MaxProbeRadius} m, " +
+                $"Fly exterior bound={settings.MaxFlightBypassRadius} m, sectors={settings.Sectors}, " +
                 $"learning key={_memory.Key}; quest altitude is not an entry target.");
         }
 
@@ -160,7 +165,10 @@ namespace RKmission
                 known = Vector3.Distance(_memory.LastSuccessDoorPosition.Vector, door.Position) <= 2 &&
                     (!door.Oriented || _memory.LastSuccessDoorForward?.Valid != true || Vector3.Dot(_memory.LastSuccessDoorForward.Vector, door.Forward) >= 0.8f);
             if (known) directions.Insert(0, remembered.Normalize());
-            foreach (float radius in new[] { _settings.ProbeRadius, _settings.MaxProbeRadius, 6f }.Distinct())
+            // Fly diagnoses sides on one adaptive exterior, rather than repeat
+            // the same ground ring three times with different nominal radii.
+            foreach (float radius in (flying ? new[] { _settings.ProbeRadius } :
+                new[] { _settings.ProbeRadius, _settings.MaxProbeRadius, 6f }).Distinct())
                 foreach (Vector3 normal in directions)
                 {
                     double angle = PositiveAngle(LocalRoutePlanner.Angle(normal));
@@ -183,6 +191,7 @@ namespace RKmission
         {
             if (Active != null) return Active;
             var eligible = _plans.Where(x => x.DoorId == Identity.None || (_candidates.TryGetValue(x.DoorId, out Candidate door) && door.Visible && Vector3.Distance(x.DoorOrigin, door.Position) <= 0.5f));
+            if (_candidates.Values.Any(x => x.Visible)) eligible = eligible.Where(x => x.DoorId != Identity.None);
             if (BypassRequired)
                 eligible = eligible.Where(x => Math.Abs(AngleDelta(LocalRoutePlanner.Angle(x.Normal) -
                     LocalRoutePlanner.Angle(player - _anchor))) >= Math.PI / 6 || (x.KnownGood && !_sessionWallObserved));
@@ -193,23 +202,28 @@ namespace RKmission
             if (next == null) return null;
             next.Pass = Visits(next.Key); _visits[next.Key] = next.Pass + 1; _sectorVisits[next.Sector]++;
             next.Lateral = next.Pass % 3 == 1 ? 0.8f : next.Pass % 3 == 2 ? -0.8f : 0; next.AlternateHeight = next.Pass % 2 == 1;
-            next.Exterior = LocalRoutePlanner.LocalElevation(_anchor + next.Normal * next.Radius, player, flying, _settings, out string elevation);
+            string elevation;
+            if (flying)
+            {
+                next.Exterior = _anchor + next.Normal * Math.Max(next.Radius, FlightRingRadius);
+                next.Exterior.Y = player.Y;
+                elevation = "actual flight height during side diagnosis; entry height deferred until exterior arrival";
+            }
+            else next.Exterior = LocalRoutePlanner.LocalElevation(_anchor + next.Normal * next.Radius, player, false, _settings, out elevation);
             Candidate selectedDoor = null;
             if (next.DoorId != Identity.None) _candidates.TryGetValue(next.DoorId, out selectedDoor);
             Vector3 threshold = selectedDoor?.Position ?? _anchor;
-            if (selectedDoor != null && !next.AlternateHeight)
+            if (!flying && selectedDoor != null && !next.AlternateHeight)
             {
-                bool originIsFloor = flying && LocalRoutePlanner.TryEntranceSurface(selectedDoor.Position, player.Y, out float floor, out _) &&
-                    Math.Abs(selectedDoor.Position.Y - floor) <= 0.5f;
-                if (originIsFloor) threshold.Y += _settings.FlightFloorClearance;
                 next.Exterior.Y = threshold.Y;
-                elevation = originIsFloor ? "live mission-door origin confirmed at floor plus flight clearance" : "live mission-door origin";
+                elevation = "live mission-door origin";
             }
             else threshold.Y = next.Exterior.Y;
-            if (selectedDoor == null && next.AlternateHeight)
+            if (!flying && selectedDoor == null && next.AlternateHeight)
             { next.Exterior.Y = threshold.Y = player.Y; elevation = "current player elevation alternative; floor estimate being validated"; }
             if (selectedDoor != null && !selectedDoor.QuestLinked && !_fallbackBound) { _fallbackBound = true; _fallbackThreshold = selectedDoor.Position; }
             next.Threshold = threshold; next.HeightSource = elevation;
+            next.FlightHeightResolved = false; next.FlightHeightTrial = 0;
             next.Record = new EntranceAttemptRecord { StartedUtc = DateTime.UtcNow, Playfield = _mission.PlayfieldId, MissionId = _missionId,
                 Sector = next.Sector, SectorCount = _settings.Sectors, Mode = flying ? "Fly" : "Run", Stage = "ProbeExterior", Source = next.Source, ElevationSource = elevation,
                 AngleDegrees = (float)(PositiveAngle(LocalRoutePlanner.Angle(next.Normal)) * 180 / Math.PI), Radius = next.Radius,
@@ -223,7 +237,8 @@ namespace RKmission
             next.Record.ExteriorRingRadius = _lastRingRadius;
             next.Record.AngularSpanDegrees = _lastAngularSpan;
             Active = next; _learning.Record(_memory, next.Record);
-            _say($"Entrance candidate: mission={_missionId}, sector={next.Sector}/{_settings.Sectors}, angle={next.Record.AngleDegrees:F1} deg, radius={next.Radius:F1} m, " +
+            _say($"Entrance candidate: mission={_missionId}, sector={next.Sector}/{_settings.Sectors}, angle={next.Record.AngleDegrees:F1} deg, requested radius={next.Radius:F1} m, " +
+                $"actual exterior radius={LocalRoutePlanner.HorizontalDistance(next.Exterior, _anchor):F1} m, " +
                 $"pass={next.Pass + 1}, source={next.Source}, point=({LocalRoutePlanner.Coordinates(next.Exterior)}), elevation source={elevation}, " +
                 $"sector score={_sectorScores[next.Sector]:F1}, door={next.DoorId}, rotation={selectedDoor?.Rotation.ToString() ?? "unavailable"}.");
             return next;
@@ -231,6 +246,18 @@ namespace RKmission
         private float Rank(Attempt attempt, Vector3 player)
         {
             float rank = attempt.Score + _sectorScores[attempt.Sector] + LocalRoutePlanner.HorizontalDistance(player, _anchor + attempt.Normal * attempt.Radius) * 0.2f;
+            if (_mode == 1)
+            {
+                // Diagnose the inward corridor on EACH side before choosing it.
+                // Use its local exterior support, never a broad anchor floor vote.
+                Vector3 exterior = _anchor + attempt.Normal * Math.Max(attempt.Radius, FlightRingRadius);
+                float height = player.Y;
+                if (LocalRoutePlanner.TryExteriorFloor(exterior, player.Y, out float floor)) height = floor + _settings.FlightFloorClearance;
+                if (attempt.DoorId != Identity.None) height = attempt.DoorOrigin.Y;
+                exterior.Y = height;
+                Vector3 inward = attempt.Threshold + attempt.Normal * 3; inward.Y = height;
+                if (LocalRoutePlanner.FlightCorridor(exterior, inward, out _)) rank += 50;
+            }
             if (_oppositeSector >= 0)
             { int gap = Math.Abs(attempt.Sector - _oppositeSector); rank += Math.Min(gap, _settings.Sectors - gap) * 4; }
             // A candidate that never arrived is not a blocked entrance side.
@@ -238,17 +265,84 @@ namespace RKmission
             return rank + (_memory.WallSectorCount == _settings.Sectors &&
                 _memory.FailedWallBearingSectors?.Contains(attempt.Sector) == true ? 4 : 0);
         }
-        public EntranceOrbit Orbit(Attempt attempt, Vector3 player, bool flying)
+        public EntranceOrbit GroundOrbit(Attempt attempt, Vector3 player)
         {
-            bool compatible = _memory.LastSuccessMode == (flying ? "Fly" : "Run");
+            bool compatible = _memory.LastSuccessMode == "Run";
             int preferred = _lastBypassDirection != 0 ? _lastBypassDirection : compatible ? _memory.LastBypassDirection : 0;
             float rememberedRadius = Math.Max(_lastRingRadius, compatible ? _memory.LastExteriorRingRadius : 0);
             bool requireChange = BypassRequired && !(attempt.KnownGood && !_sessionWallObserved &&
                 Math.Abs(AngleDelta(LocalRoutePlanner.Angle(attempt.Normal) - LocalRoutePlanner.Angle(player - _anchor))) < Math.PI / 6);
             _say($"Perimeter route requested: sector={attempt.Sector}, target bearing={attempt.Record.AngleDegrees:F1} deg; side not yet reached.");
-            return new EntranceOrbit(_anchor, attempt.Exterior, player, flying, requireChange, _wallRadius,
+            return new EntranceOrbit(_anchor, attempt.Exterior, player, requireChange, _wallRadius,
                 rememberedRadius, preferred, _settings, _say);
         }
+        public float FlightRingRadius => Math.Min(_settings.MaxFlightBypassRadius,
+            Math.Max(_settings.ProbeRadius, Math.Max(_wallRadius + 4, _memory.LastSuccessMode == "Fly" ? _memory.LastExteriorRingRadius : 0)));
+        public int PreferredFlightDirection => _memory.LastSuccessMode == "Fly" ? _memory.LastBypassDirection : 0;
+        public bool NeedsFlightSideChange(Attempt attempt) => BypassRequired && !(attempt.KnownGood && !_sessionWallObserved);
+        public void ResolveFlyingHeight(Vector3 player)
+        {
+            if (Active == null || Active.FlightHeightResolved) return;
+            float height = player.Y; string source = "observed aircraft height; no supported local exterior floor";
+            if (Active.DoorId != Identity.None)
+            {
+                height = Active.DoorOrigin.Y; source = "associated live mission Door height";
+                if (LocalRoutePlanner.TryExteriorFloor(player, player.Y, out float doorFloor) && Math.Abs(height - doorFloor) <= 0.5f)
+                { height += _settings.FlightFloorClearance; source += " plus clearance at confirmed exterior support"; }
+            }
+            else if (Active.KnownGood && _memory.LastSuccessMode == "Fly" && _memory.LastSuccessEntryPoint?.Valid == true)
+            { height = _memory.LastSuccessEntryPoint.Y; source = "previous exact verified entry height; revalidation required"; }
+            else if (LocalRoutePlanner.TryExteriorFloor(player, player.Y, out float exteriorFloor))
+            { height = exteriorFloor + _settings.FlightFloorClearance; source = "first supported floor directly below reached exterior plus flight clearance"; }
+            Active.FlightBaseHeight = height; Active.FlightHeightResolved = true;
+            SetFlightHeight(height, source);
+        }
+        public bool TryNextFlyingHeight(string reason)
+        {
+            if (Active == null || !Active.FlightHeightResolved || Active.DoorId != Identity.None) return false;
+            Active.Record.FailedEntryHeights.Add(Active.Threshold.Y);
+            // Diagnose heights on the validated side before calling it a wall.
+            // The bounded alternatives are relative to THIS side's support plane.
+            float[] offsets = { 0, 2, 4, -1 };
+            if (++Active.FlightHeightTrial >= offsets.Length) return false;
+            SetFlightHeight(Active.FlightBaseHeight + offsets[Active.FlightHeightTrial], "bounded observed entry-height alternative on reached side");
+            _say($"Fly entry-height correction: sector={Active.Sector}, trial={Active.FlightHeightTrial + 1}/4, " +
+                $"height={Active.Threshold.Y:F2}, reason={reason}; return outside before aligning, no assumed doorway floor.");
+            _learning.Record(_memory, Active.Record); return true;
+        }
+        private void SetFlightHeight(float height, string source)
+        {
+            Active.Threshold.Y = Active.Exterior.Y = height; Active.HeightSource = source;
+            Active.Record.ElevationSource = source; Active.Record.EntryPoint = NavigationPoint.From(Active.Threshold);
+            Active.Record.ApproachPoint = NavigationPoint.From(Active.Threshold + Active.Normal * 1.5f);
+            _say($"Fly entrance height: sector={Active.Sector}, height={height:F2}, source={source}; " +
+                "align vertically only at reached exterior, then approach along its direction.");
+        }
+        public void ObserveFlight(Vector3 player, FlightPathPlanner flight, float angularTravel)
+        {
+            if (Active == null) return;
+            Active.Record.BypassDirection = flight.BypassDirection;
+            Active.Record.ExteriorRingRadius = LocalRoutePlanner.HorizontalDistance(Active.Exterior, _anchor);
+            Active.Record.AngularSpanDegrees = angularTravel;
+            Active.Record.FlightStrategy = flight.Strategy;
+            Active.Record.OverpassResult = flight.OverpassResult;
+            if (_orbitCoverage.Add($"fly:{Sector(LocalRoutePlanner.Angle(player - _anchor))}:{(int)(player.Y / 4)}"))
+                LastProgress = DateTime.UtcNow;
+        }
+        public void FlyingExteriorReached(Vector3 player)
+        {
+            if (Active == null) return;
+            Active.Record.ExteriorReached = true; Active.Record.BypassSideReached = BypassRequired;
+            Active.Exterior.X = player.X; Active.Exterior.Z = player.Z;
+            Active.Record.ReachedExteriorPoint = NavigationPoint.From(player);
+            _sectorScores[Active.Sector] = Math.Max(-12, _sectorScores[Active.Sector] - 4);
+            Cover(Active); BypassExhausted = false;
+            _say($"Fly reached-side confirmation: requested sector={Active.Sector}, actual bearing=" +
+                $"{PositiveAngle(LocalRoutePlanner.Angle(player - _anchor)) * 180 / Math.PI:F1} deg, " +
+                $"radius={LocalRoutePlanner.HorizontalDistance(player, _anchor):F2}, height={player.Y:F2}; resolve entry height now.");
+            ResolveFlyingHeight(player);
+        }
+        public void SaveAttempt() { if (Active != null) _learning.Record(_memory, Active.Record); }
         public void ObserveOrbit(EntranceOrbit orbit, Vector3 player)
         {
             orbit.Observe(player);
@@ -260,7 +354,6 @@ namespace RKmission
             Active.Record.BypassDirection = orbit.Direction;
             Active.Record.ExteriorRingRadius = orbit.Radius;
             Active.Record.AngularSpanDegrees = orbit.AngularSpanDegrees;
-            Active.Record.OverpassResult = orbit.OverpassResult;
         }
         public void OrbitBlocked(Vector3 player, bool exhausted)
         {
@@ -286,7 +379,7 @@ namespace RKmission
             // Compare fixed candidate goals across retries, not a fresh clock for each
             // orbit waypoint. Repeating a loop cannot manufacture overall progress.
             string key = $"{Active.Key}:{Active.AlternateHeight}:{Active.Lateral}:{stage}";
-            bool perimeter = stage == "ProbeExterior" || stage == "OrbitBypass" || stage == "VerticalOverpass";
+            bool perimeter = stage == "ProbeExterior" || stage == "OrbitBypass" || stage == "FlyAvoidObstacle";
             Vector3 goal = perimeter || stage == "AlignElevation" ? Active.Exterior : Active.Threshold;
             float distance = perimeter ? LocalRoutePlanner.HorizontalDistance(player, goal) : LocalMovement.Distance(player, goal, flying);
             if (!_minima.TryGetValue(key, out float previous))
@@ -319,7 +412,8 @@ namespace RKmission
             if (log) _sessionWallObserved = true;
             int wall = Sector(LocalRoutePlanner.Angle(player - _anchor));
             float radius = LocalRoutePlanner.HorizontalDistance(player, _anchor);
-            if (radius > _settings.MaxProbeRadius + 4 || radius < 1) return;
+            float maximum = _mode == 0 ? _settings.MaxProbeRadius : _settings.MaxFlightBypassRadius;
+            if (radius > maximum + 4 || radius < 1) return;
             foreach (int neighbor in new[] { wall, (wall + 1) % _settings.Sectors, (wall + _settings.Sectors - 1) % _settings.Sectors })
                 if (!float.IsNaN(_blockedRadii[neighbor]) && Math.Abs(_blockedRadii[neighbor] - radius) <= 3 &&
                     LocalRoutePlanner.HorizontalDistance(_blockedPositions[neighbor], player) <= 6)
@@ -376,7 +470,7 @@ namespace RKmission
         private static string Geometry(Candidate door) => $"door:{door.Id}:{Math.Round(door.Position.X * 2)}:" +
             $"{Math.Round(door.Position.Z * 2)}:{Math.Round(door.Position.Y * 2)}:{(door.Oriented ? Math.Round(LocalRoutePlanner.Angle(door.Forward) * 180 / Math.PI) : 999)}";
         private void Cover(Attempt attempt)
-        { _covered.Add(attempt.Sector); _coveredRings.Add($"{attempt.Sector}:{attempt.Radius}"); }
+        { _coveredRings.Add($"{_mode}:{attempt.Sector}:{attempt.Radius}"); }
         private static double PositiveAngle(double angle) => angle < 0 ? angle + Math.PI * 2 : angle;
         private static double AngleDelta(double angle)
         { while (angle > Math.PI) angle -= Math.PI * 2; while (angle < -Math.PI) angle += Math.PI * 2; return angle; }

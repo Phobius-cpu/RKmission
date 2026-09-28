@@ -10,7 +10,7 @@ namespace RKmission
 
     internal sealed class LocalMissionTravel
     {
-        private enum Phase { Idle, CoarseTravel, ProbeExterior, OrbitBypass, VerticalOverpass, AlignElevation, FinalApproach, Interact, CrossThreshold, AwaitTransition }
+        private enum Phase { Idle, CoarseTravel, FlyToEntrance, FlyAvoidObstacle, ProbeExterior, OrbitBypass, AlignElevation, FinalApproach, Interact, CrossThreshold, AwaitTransition }
         private readonly Action<string> _say;
         private readonly OutdoorNavigationSettings _settings;
         private readonly EntranceLearning _learning;
@@ -22,6 +22,11 @@ namespace RKmission
         private EntranceAttemptRecord _runRecord;
         private EntranceAcquisition _entrance;
         private EntranceOrbit _orbit;
+        private FlightPathPlanner _flight;
+        private bool _flyExteriorActive, _flyNeedsSideChange;
+        private int _flyRouteStalls;
+        private double _flyStartBearing, _flyLastBearing;
+        private float _flyAngularTravel;
         private Phase _phase;
         private bool _flying, _legActive, _pendingZoning;
         private int _pathIndex, _recoveries, _uses;
@@ -31,7 +36,7 @@ namespace RKmission
         public TravelMode Mode { get; set; } = TravelMode.Auto;
         public string Status => _phase.ToString();
         public Identity ActiveDoor => _entrance?.Active?.DoorId ?? Identity.None;
-        public int UpdateIntervalMilliseconds => _route != null && IsFlying ? (_phase == Phase.CoarseTravel ? 100 : 25) : 250;
+        public int UpdateIntervalMilliseconds => _route != null && IsFlying ? 25 : 250;
         private static bool IsFlying => DynelManager.LocalPlayer?.MovementState == MovementState.Fly;
         public bool MatchesAnchor(AcceptedMission mission) => _route != null && _route.Mission.Id == mission.Id &&
             _route.Playfield == mission.PlayfieldId && Vector3.Distance(_route.Anchor, mission.Entrance) <= 0.5f;
@@ -65,13 +70,14 @@ namespace RKmission
             LocalRoute nearest = estimates.FirstOrDefault();
             if (nearest == null) return null;
             Reset("new outdoor mission selected"); _route = nearest; _flying = flying;
+            if (flying) _flight = new FlightPathPlanner(origin, _settings, _say);
             _runMemory = _learning.For(nearest.Mission.PlayfieldId, nearest.Anchor);
             _runRecord = new EntranceAttemptRecord { StartedUtc = DateTime.UtcNow, Playfield = nearest.Mission.PlayfieldId,
                 MissionId = nearest.Mission.Id.Instance, Mode = flying ? "Fly" : "Run", Stage = "CoarseTravel", Source = nearest.Reason,
                 Anchor = NavigationPoint.From(nearest.Anchor), Origin = NavigationPoint.From(origin), Result = "local run started" };
             _learning.Record(_runMemory, _runRecord);
             _started = _coarseProgress = DateTime.UtcNow; _coarseBest = LocalRoutePlanner.HorizontalDistance(origin, _route.Anchor);
-            _recoveries = 0; _nextLog = DateTime.MinValue; SetPhase(Phase.CoarseTravel);
+            _recoveries = 0; _nextLog = DateTime.MinValue; SetPhase(flying ? Phase.FlyToEntrance : Phase.CoarseTravel);
             _say($"Selected accepted mission: {_route.Mission.Id.Instance}, '{_route.Mission.Name}', current playfield={_route.Mission.PlayfieldId}, " +
                 $"origin=({LocalRoutePlanner.Coordinates(origin)}), anchor=({LocalRoutePlanner.Coordinates(_route.Anchor)}), mode={(flying ? "Fly" : "Run")}, " +
                 $"estimate={nearest.Cost:F1} m; map/minimap upload handled by native accepted-mission API; final doorway unresolved.");
@@ -86,13 +92,13 @@ namespace RKmission
                 else _entrance.Finish(reason, _entrance.Active.Record.LastPosition?.Vector ?? _route.Origin, false);
             }
             FinishRun("interrupted", reason);
-            _movement.Reset(); _route = null; _entrance = null; _orbit = null; _path.Clear(); _accepted.Clear();
+            _movement.Reset(); _route = null; _entrance = null; _orbit = null; _flight = null; _flyExteriorActive = false; _path.Clear(); _accepted.Clear();
             _phase = Phase.Idle; _legActive = _pendingZoning = false; _lastEvaluation = null;
         }
 
         public void SuspendForZoning()
         {
-            _movement.Halt(); _legActive = false; _pendingZoning = _route != null;
+            _movement.Halt(); _legActive = false; _flyExteriorActive = false; _orbit = null; _pendingZoning = _route != null;
             _phase = _route == null ? Phase.Idle : Phase.AwaitTransition;
             if (_entrance?.Active != null)
             {
@@ -126,6 +132,7 @@ namespace RKmission
             if (_flying != flying)
             {
                 _flying = flying; _movement.Halt(); _legActive = false;
+                _flight = flying ? new FlightPathPlanner(player, _settings, _say) : null; _flyExteriorActive = false; _orbit = null;
                 _say($"Observed travel mode changed to {(flying ? "Fly" : "Run")}; selected mission, diagnostics and overall progress deadline retained.");
             }
             if (_entrance == null && LocalRoutePlanner.HorizontalDistance(player, _route.Anchor) <= _settings.MaxProbeRadius + 4)
@@ -150,29 +157,51 @@ namespace RKmission
                 attempt = _entrance.Select(player, flying);
                 if (attempt == null) return true;
                 _uses = 0; _lastUse = DateTime.MinValue;
-                _orbit = _entrance.Orbit(attempt, player, flying);
-                SetPhase(_entrance.BypassRequired ? Phase.OrbitBypass : Phase.ProbeExterior);
+                if (flying) BeginFlyExterior(player, _entrance.NeedsFlightSideChange(attempt));
+                else
+                {
+                    _orbit = _entrance.GroundOrbit(attempt, player);
+                    SetPhase(_entrance.BypassRequired ? Phase.OrbitBypass : Phase.ProbeExterior);
+                }
             }
+            if (_flyExteriorActive) return TickFlyExterior(player, now);
             if (_orbit != null) return TickOrbit(player, now);
             if (_phase == Phase.Interact) return Interact(player, now);
             if (_phase == Phase.AwaitTransition)
             {
-                if ((now - _phaseStarted).TotalSeconds >= 5) Retry("threshold reached/crossed but no zoning observed", player, true);
+                if ((now - _phaseStarted).TotalSeconds >= 5)
+                {
+                    const string reason = "threshold reached/crossed but no zoning observed";
+                    if (flying && _entrance.TryNextFlyingHeight(reason)) BeginFlyExterior(player, false);
+                    else Retry(reason, player, true);
+                }
                 return true;
             }
             if (_legActive)
             {
                 MovementResult result = _movement.Tick();
+                if (flying && result != MovementResult.Moving) RecordFlightLeg(attempt.Record, player, result);
                 _entrance.Observe(player, _movement.Target, _phase.ToString(), flying, _movement.StartDistance, _movement.BestDistance, _movement.StallSeconds);
                 LogProgress(player, now);
-                if (result == MovementResult.Stalled) { Retry("observed leg no-progress at " + _phase, player, true); return true; }
+                if (result == MovementResult.Stalled)
+                {
+                    string reason = "observed leg no-progress at " + _phase;
+                    if (flying) _flight.Blocked(player, _movement.Target);
+                    if (flying && (_phase == Phase.AlignElevation || _phase == Phase.FinalApproach || _phase == Phase.CrossThreshold) &&
+                        _entrance.TryNextFlyingHeight(reason)) BeginFlyExterior(player, false);
+                    else Retry(reason, player, true);
+                    return true;
+                }
                 if (result == MovementResult.Moving) return true;
-                _legActive = false; _pathIndex++;
+                _legActive = false;
+                if (!flying || _phase != Phase.FinalApproach ||
+                    LocalMovement.Distance(player, _path[_pathIndex], true) <= 0.9f) _pathIndex++;
             }
             if (_pathIndex < _path.Count)
             {
                 Vector3 target = _path[_pathIndex];
-                _movement.Begin(target, flying, true); _legActive = true;
+                if (flying && _phase == Phase.FinalApproach) target = LocalRoutePlanner.Toward(player, target, 3);
+                _movement.Begin(target, flying, true, stallSeconds: flying ? 3 : (int?)null); _legActive = true;
                 _say($"Outdoor navigation target: phase={_phase}, sector={attempt.Sector}, source={attempt.Source}, " +
                     $"target=({LocalRoutePlanner.Coordinates(target)}), elevation={attempt.HeightSource}, door={attempt.DoorId}.");
                 return true;
@@ -212,8 +241,7 @@ namespace RKmission
             }
             if (_orbit.Next(player, out Vector3 target))
             {
-                Phase phase = _orbit.VerticalOverpass ? Phase.VerticalOverpass :
-                    _entrance.BypassRequired ? Phase.OrbitBypass : Phase.ProbeExterior;
+                Phase phase = _entrance.BypassRequired ? Phase.OrbitBypass : Phase.ProbeExterior;
                 SetPhase(phase); _movement.Begin(target, _flying, true); _legActive = true;
                 _say($"Outdoor perimeter target: phase={phase}, requested sector={_entrance.Active.Sector}, " +
                     $"target=({LocalRoutePlanner.Coordinates(target)}); requested side remains unconfirmed.");
@@ -227,6 +255,63 @@ namespace RKmission
             return true;
         }
 
+        private void BeginFlyExterior(Vector3 player, bool requireNewSide)
+        {
+            _orbit = null; _flyExteriorActive = true; _flyNeedsSideChange = requireNewSide; _flyRouteStalls = 0;
+            _flyStartBearing = _flyLastBearing = LocalRoutePlanner.Angle(player - _route.Anchor);
+            _flyAngularTravel = _entrance.Active.Record.AngularSpanDegrees;
+            SetPhase(Phase.ProbeExterior);
+        }
+
+        private bool TickFlyExterior(Vector3 player, DateTime now)
+        {
+            EntranceAcquisition.Attempt attempt = _entrance.Active;
+            // If observed walls widened the clearance, update the ACTUAL goal,
+            // not only the protected footprint. Otherwise arrival could be
+            // requested inside a radius that the route correctly refuses to enter.
+            Vector3 outside = _route.Anchor + attempt.Normal * Math.Max(attempt.Radius, _entrance.FlightRingRadius);
+            attempt.Exterior.X = outside.X; attempt.Exterior.Z = outside.Z;
+            double bearing = LocalRoutePlanner.Angle(player - _route.Anchor);
+            _flyAngularTravel += (float)(Math.Abs(AngleDelta(bearing - _flyLastBearing)) * 180 / Math.PI); _flyLastBearing = bearing;
+            _entrance.ObserveFlight(player, _flight, _flyAngularTravel);
+            if (_legActive)
+            {
+                MovementResult result = _movement.Tick();
+                _entrance.Observe(player, _movement.Target, _phase.ToString(), true,
+                    _movement.StartDistance, _movement.BestDistance, _movement.StallSeconds); LogProgress(player, now);
+                if (result == MovementResult.Moving) return true;
+                RecordFlightLeg(attempt.Record, player, result);
+                _legActive = false;
+                if (result == MovementResult.Stalled)
+                {
+                    _flight.Blocked(player, _movement.Target); _entrance.OrbitBlocked(player, false);
+                    if (++_flyRouteStalls >= 4)
+                    {
+                        _entrance.OrbitBlocked(player, true);
+                        Retry("Fly over/around route repeatedly blocked before candidate arrival", player, true); return true;
+                    }
+                }
+                else _flight.Reached(player);
+            }
+            float remaining = LocalRoutePlanner.HorizontalDistance(player, attempt.Exterior);
+            float radius = LocalRoutePlanner.HorizontalDistance(player, _route.Anchor);
+            double sideChange = Math.Abs(AngleDelta(bearing - _flyStartBearing)) * 180 / Math.PI;
+            if (remaining <= 1 && radius >= _entrance.FlightRingRadius - 1 && (!_flyNeedsSideChange || sideChange >= 20))
+            {
+                _entrance.FlyingExteriorReached(player); _flyExteriorActive = false;
+                SetPath(Phase.AlignElevation, new[] { attempt.Exterior }); return true;
+            }
+            Vector3 target = _flight.Next(player, attempt.Exterior, _route.Anchor,
+                _entrance.FlightRingRadius, _entrance.PreferredFlightDirection);
+            SetPhase(_flight.Strategy == "direct" ? Phase.ProbeExterior : Phase.FlyAvoidObstacle);
+            _movement.Begin(target, true, true, stallSeconds: 4); _legActive = true;
+            _say($"Fly exterior route: requested sector={attempt.Sector}, actual bearing={bearing * 180 / Math.PI:F1} deg, " +
+                $"side change={sideChange:F1} deg, target=({LocalRoutePlanner.Coordinates(target)}), strategy={_flight.Strategy}; entry height deferred.");
+            return true;
+        }
+        private static double AngleDelta(double angle)
+        { while (angle > Math.PI) angle -= Math.PI * 2; while (angle < -Math.PI) angle += Math.PI * 2; return angle; }
+
         private bool CoarseTravel(Vector3 player, DateTime now)
         {
             float remaining = LocalRoutePlanner.HorizontalDistance(player, _route.Anchor);
@@ -236,17 +321,26 @@ namespace RKmission
             if (_legActive)
             {
                 MovementResult result = _movement.Tick(); LogProgress(player, now);
+                if (_flying && result != MovementResult.Moving) RecordFlightLeg(_runRecord, player, result);
                 _runRecord.LastPosition = NavigationPoint.From(player); _runRecord.LastTarget = NavigationPoint.From(_movement.Target);
                 _runRecord.ProgressMetres = Math.Max(0, LocalRoutePlanner.HorizontalDistance(_route.Origin, _route.Anchor) - _coarseBest);
                 _runRecord.StallSeconds = (float)_movement.StallSeconds;
                 if (result == MovementResult.Moving) return true;
                 _legActive = false;
-                if (result == MovementResult.Stalled) _recoveries++;
+                if (result == MovementResult.Stalled)
+                { _recoveries++; if (_flying) _flight.Blocked(player, _movement.Target); }
+                else if (_flying) _flight.Reached(player);
             }
             Vector3 destination = _route.Anchor; destination.Y = player.Y;
+            if (_flying)
+            {
+                Vector3 step = _flight.Next(player, destination, _route.Anchor);
+                SetPhase(_flight.Strategy == "direct" ? Phase.FlyToEntrance : Phase.FlyAvoidObstacle);
+                _movement.Begin(step, true, true, stallSeconds: 4); _legActive = true; return true;
+            }
             bool mesh = !_flying && _route.GroundUsesMesh && _recoveries == 0;
             if (mesh) destination = LocalRoutePlanner.LocalElevation(destination, player, false, _settings, out _);
-            else destination = _movement.CoarseStep(destination, _flying, _recoveries);
+            else destination = _movement.CoarseStep(destination, _recoveries);
             _movement.Begin(destination, _flying, false, mesh); _legActive = true;
             return true;
         }
@@ -295,6 +389,17 @@ namespace RKmission
         private static bool DoorWithinUseRange(Vector3 player, Door door) =>
             LocalRoutePlanner.HorizontalDistance(player, door.Position) <= 2 && Vector3.Distance(player, door.Position) <= 3.5f;
 
+        private void RecordFlightLeg(EntranceAttemptRecord record, Vector3 player, MovementResult result)
+        {
+            record.FlightLegs.Add(new FlightLegRecord { FinishedUtc = DateTime.UtcNow,
+                Origin = NavigationPoint.From(_movement.StartPosition), Target = NavigationPoint.From(_movement.Target),
+                Position = NavigationPoint.From(player), Stage = _phase.ToString(),
+                Strategy = _flyExteriorActive || _entrance == null ? _flight.Strategy : "entry alignment/approach", Result = result.ToString() });
+            if (record.FlightLegs.Count > 12) record.FlightLegs.RemoveAt(0);
+            if (_entrance?.Active?.Record == record) _entrance.SaveAttempt();
+            else _learning.Record(_runMemory, record);
+        }
+
         private void SetPhase(Phase phase)
         {
             _movement.Halt(); _legActive = false; _phase = phase; _phaseStarted = DateTime.UtcNow; _path.Clear(); _pathIndex = 0;
@@ -303,7 +408,7 @@ namespace RKmission
         private void SetPath(Phase phase, IEnumerable<Vector3> points)
         { SetPhase(phase); _path.AddRange(points.Where(AcceptedMissions.Finite)); }
         private void Retry(string reason, Vector3 player, bool blocked)
-        { _movement.Halt(); _legActive = false; _orbit = null; _entrance.Finish(reason, player, blocked); SetPhase(Phase.ProbeExterior); }
+        { _movement.Halt(); _legActive = false; _orbit = null; _flyExteriorActive = false; _entrance.Finish(reason, player, blocked); SetPhase(Phase.ProbeExterior); }
 
         private void LogProgress(Vector3 player, DateTime now)
         {

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using AOSharp.Common.GameData;
 using AOSharp.Core;
 using AOSharp.Pathfinding;
@@ -175,6 +176,49 @@ namespace RKmission
             if (Vector3.Distance(start, end) <= 0.05f) return true;
             try { return !Playfield.Raycast(start, end, out _, out _); }
             catch { return true; } // Unavailable geometry is inconclusive, never a launch gate.
+        }
+
+        // AO surface rays are incomplete hints. Sample a small flight corridor
+        // rather than just its centre; an observed movement block wins over rays.
+        public static bool FlightCorridor(Vector3 start, Vector3 end, out Vector3 firstHit)
+        {
+            firstHit = end; float closest = float.PositiveInfinity; bool blocked = false;
+            if (Vector3.Distance(start, end) <= 0.05f) return false;
+            Vector3 delta = end - start; delta.Y = 0;
+            Vector3 side = HorizontalDistance(delta, Vector3.Zero) > 0.1f ?
+                new Vector3(-delta.Z, 0, delta.X).Normalize() * 0.6f : new Vector3(0.6f, 0, 0);
+            foreach (Vector3 offset in new[] { Vector3.Zero, side, side * -1, Vector3.Up * 0.6f, Vector3.Up * -0.6f })
+                try
+                {
+                    if (!Playfield.Raycast(start + offset, end + offset, out Vector3 hit, out _) || !AcceptedMissions.Finite(hit)) continue;
+                    float distance = Vector3.Distance(start, hit);
+                    if (distance < closest) { closest = distance; firstHit = hit; }
+                    blocked = true;
+                }
+                catch { } // Missing scene evidence never vetoes motion.
+            return blocked;
+        }
+
+        public static bool TryExteriorFloor(Vector3 exterior, float referenceHeight, out float height)
+        {
+            // First local support surface, below the aircraft at the REACHED
+            // exterior. Never vote across a 6 m ring or search beneath roofs
+            // for a more popular, lower floor on another face of the building.
+            var heights = new List<float>(); height = referenceHeight;
+            foreach (Vector3 offset in new[] { Vector3.Zero, new Vector3(0.8f, 0, 0), new Vector3(-0.8f, 0, 0),
+                new Vector3(0, 0, 0.8f), new Vector3(0, 0, -0.8f) })
+                try
+                {
+                    Vector3 top = exterior + offset, bottom = top;
+                    top.Y = referenceHeight + 2; bottom.Y = referenceHeight - 96;
+                    if (Playfield.Raycast(top, bottom, out Vector3 hit, out Vector3 normal) &&
+                        AcceptedMissions.Finite(hit) && normal.Y >= 0.6f) heights.Add(hit.Y);
+                }
+                catch { }
+            if (heights.Count < 3) return false;
+            heights.Sort(); float median = heights[heights.Count / 2];
+            if (heights.Count(x => Math.Abs(x - median) <= 1) < 3) return false;
+            height = median; return true;
         }
 
         public static float AdvisoryOverpassHeight(Vector3 anchor, Vector3 player, Vector3 exterior, float baseHeight)

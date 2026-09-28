@@ -24,7 +24,7 @@ implementations below; keep that chronology as evidence of earlier outcomes.
    complete optional Run mesh cost or horizontal fallback; horizontal Fly estimate.
    Upload the exact live accepted mission via native `Mission.UploadToMap`.
 3. One `LocalMissionTravel` state machine owns coarse travel, radial exterior
-   probing/OrbitBypass, optional bounded Fly VerticalOverpass, elevation alignment,
+   probing/Ground OrbitBypass, reactive Fly over/around comparison, elevation alignment,
    final normal approach, interaction/crossing and
    transition wait. Shared `LocalMovement` handles observed Run/Fly execution.
    Outdoor mesh and synthetic flight clearance never gate finite direct travel.
@@ -39,6 +39,10 @@ implementations below; keep that chronology as evidence of earlier outcomes.
    recovery, not merely opposite-sector ranking. `EntranceOrbit` replans short
    tangential legs from actual position, widens radial clearance, compares measured
    CW/CCW progress, preserves the other direction and verifies actual side change.
+   Fly uses one `FlightPathPlanner` from transit through side relocation, compares
+   over/around immediately, retains actual cruise height through obstacles, and
+   resolves entry height only after reaching the exterior using live/verified/local
+   support. The broad multi-layer floor voter remains Ground-only.
    Fixed target minima/angular coverage survive retries. Only reached exteriors
    count as coverage; exhausted bypass may stop with an unresolved-route reason
    after no progress. Defaults: 8 s leg stalls, 90 s no-progress, 15 min total.
@@ -1354,3 +1358,53 @@ onto the new architecture.
   package restore, tests or in-game execution. Accepted/current-playfield selection,
   native map upload, narrow live-door association, exact dungeon handoff and all
   dungeon exploration/combat/interior-door/loot implementations remain unchanged.
+
+## Fly destination/obstacle/entrance separation (2026-09-28 follow-up)
+
+- User tested 7a5ebaf and reported the same route, same stall and wrong chosen
+  height. Requested the simpler sequence: enter zone, fly toward the designated
+  mission, avoid interrupting objects by comparing over/around, diagnose the best
+  entrance approach side locally, adjust the flight path and enter.
+- Source inspection found Fly still inherited candidate floor height before
+  exterior arrival and postponed overpass until perimeter widening/fallback
+  failed. The old broad 17-column/multi-layer floor vote could override useful
+  aircraft height and pick an irrelevant lower plane. This follow-up supplied a
+  behavior report, not a fresh coordinate log; exact new in-game heights are unknown.
+- `FlightPathPlanner` is now the single managed Fly transit/side-relocation
+  planner under the existing travel/movement owner. Direct legs retain actual
+  aircraft height. Five corridor rays and recorded movement failures compare
+  local around choices and 6/12/24 m climb candidates immediately. Route cost
+  accounts for path distance, obstruction hints, failed directions and revisits.
+  Execute one leg, then replan from actual position. Never require clear rays.
+- A completed climb keeps its higher altitude through the obstacle. Near the
+  selected anchor, around choices use outward/tangential perimeter segments;
+  an observed obstacle larger than the nominal ring expands both clearance AND
+  the actual exterior goal. Default Fly radius bound is 36 m, climb ceiling is
+  48 m above run-start aircraft height. Existing settings files get new defaults
+  through property initialization; no user data is erased.
+- Rank entrance sides by their own predicted inward corridor and local support
+  or live Door height, on one adaptive Fly exterior rather than three nominal
+  Ground rings. Coverage is tracked per movement mode and only records sides
+  actually reached. If an associated live Door exists, only its geometry plans
+  compete; do not endlessly retry an inferred target while a live Door is present.
+  Side selection still observes requested vs wall bearings and actual arrival.
+- Resolve final height after side arrival: associated live Door, compatible exact
+  verified entry point, or first supported surface directly below reached exterior
+  plus clearance. New Fly sampling uses five nearby columns (0.8 m), first hits
+  only; the broad/lower-layer voter remains Ground-only. Align vertically at
+  the reached exterior, then approach in short <=3 m Fly legs.
+- Missing-Door height failures or crossings without zoning try offsets
+  0/+2/+4/-1 m from that side's support plane, returning outside at current flight
+  height before each alignment. Only after those hypotheses fail does the side
+  yield. Fly transit probes stall at 4 s and entry probes at 3 s; Ground defaults
+  remain unchanged. A plausible floor/roof is still not proof of a doorway.
+- Persist entry point/height/source, rejected heights, actual reached exterior,
+  route strategy/overpass outcome and the latest 12 completed/stalled flight legs
+  per attempt, plus existing bounded sector/vector/radius/angular history.
+  Exact dungeon verification alone learns the successful entry height. Keep
+  older histories readable; do not seed success from reported observations.
+- Removed Fly ascent/descent/fallback from `EntranceOrbit` and the old Fly fan/
+  raised-step branch in `LocalMovement`; Ground recovery remains. Accepted
+  selection/current-playfield filtering, native map upload, narrow Door checks,
+  exact dungeon handoff and dungeon exploration/combat/interior-door/loot code
+  are preserved. Source/diff inspection only; no compile, restore, tests or game run.

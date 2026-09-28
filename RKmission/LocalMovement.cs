@@ -18,6 +18,7 @@ namespace RKmission
         private readonly List<Vector3> _failed = new List<Vector3>();
         private readonly List<Vector3> _visited = new List<Vector3>();
         private Vector3 _target;
+        private int _stallLimit;
         private bool _active, _owns, _mesh, _flying, _precise, _steering;
         private DateTime _lastProgress, _nextSubmit, _lastSteer;
         public float BestDistance { get; private set; }
@@ -25,6 +26,7 @@ namespace RKmission
         public float Progress => Math.Max(0, StartDistance - BestDistance);
         public double StallSeconds => (DateTime.UtcNow - _lastProgress).TotalSeconds;
         public Vector3 Target => _target;
+        public Vector3 StartPosition { get; private set; }
 
         public LocalMovement(OutdoorNavigationSettings settings, Action<string> say) { _settings = settings; _say = say; }
 
@@ -38,11 +40,13 @@ namespace RKmission
             _owns = _active = false;
         }
 
-        public void Begin(Vector3 target, bool flying, bool precise, bool tryMesh = false)
+        public void Begin(Vector3 target, bool flying, bool precise, bool tryMesh = false, int? stallSeconds = null)
         {
             Halt(); _target = target; _flying = flying; _precise = precise; _mesh = _steering = false; _active = true;
             Vector3 player = DynelManager.LocalPlayer.Position;
+            StartPosition = player;
             StartDistance = BestDistance = Distance(player, target, flying);
+            _stallLimit = Math.Max(2, stallSeconds ?? _settings.LegStallSeconds);
             _lastProgress = _lastSteer = DateTime.UtcNow; _nextSubmit = DateTime.MinValue;
             if (!flying && tryMesh)
             {
@@ -67,7 +71,7 @@ namespace RKmission
             {
                 Remember(_visited, _target); Halt(); return MovementResult.Reached;
             }
-            if (StallSeconds >= _settings.LegStallSeconds)
+            if (StallSeconds >= _stallLimit)
             {
                 Remember(_failed, _target);
                 _say($"Observed movement stall: target=({LocalRoutePlanner.Coordinates(_target)}), " +
@@ -133,41 +137,34 @@ namespace RKmission
             SMovementController.Halt(); SMovementController.SetMovement(MovementAction.FullStop); _owns = false;
         }
 
-        public Vector3 CoarseStep(Vector3 destination, bool flying, int recovery)
+        public Vector3 CoarseStep(Vector3 destination, int recovery)
         {
             Vector3 player = DynelManager.LocalPlayer.Position;
             float distance = LocalRoutePlanner.HorizontalDistance(player, destination);
             double heading = LocalRoutePlanner.Angle(destination - player);
             // Start with a linear local estimate. Fan/radii are advisory recovery,
             // not a fixed number of attempts after which the mission is discarded.
-            Vector3 direct = player + LocalRoutePlanner.Direction(heading) * Math.Min(flying ? 24 : 12, distance);
+            Vector3 direct = player + LocalRoutePlanner.Direction(heading) * Math.Min(12, distance);
             if (recovery == 0)
             {
-                if (!flying) direct = LocalRoutePlanner.LocalElevation(direct, player, false, _settings, out _);
+                direct = LocalRoutePlanner.LocalElevation(direct, player, false, _settings, out _);
                 return direct;
             }
             float best = float.PositiveInfinity;
             Vector3 chosen = direct;
-            foreach (float radius in new[] { flying ? 24f : 12f, 8f, 4f })
+            foreach (float radius in new[] { 12f, 8f, 4f })
                 for (int sector = 0; sector < 16; sector++)
                 {
                     double angle = heading + (sector + recovery % 2 * 0.5) * Math.PI / 8;
                     Vector3 candidate = player + LocalRoutePlanner.Direction(angle) * Math.Min(radius, Math.Max(2, distance));
-                    if (!flying) candidate = LocalRoutePlanner.LocalElevation(candidate, player, false, _settings, out _);
+                    candidate = LocalRoutePlanner.LocalElevation(candidate, player, false, _settings, out _);
                     float baseScore = LocalRoutePlanner.HorizontalDistance(candidate, destination) + radius * 0.25f;
                     float score = baseScore;
-                    Vector3 lift = flying ? Vector3.Zero : Vector3.Up;
+                    Vector3 lift = Vector3.Up;
                     if (!LocalRoutePlanner.ClearSegment(player + lift, candidate + lift)) score += 20;
-                    score += _failed.Count(x => (flying ? Vector3.Distance(x, candidate) : LocalRoutePlanner.HorizontalDistance(x, candidate)) < 3) * 40;
+                    score += _failed.Count(x => LocalRoutePlanner.HorizontalDistance(x, candidate) < 3) * 40;
                     score += _visited.Count(x => LocalRoutePlanner.HorizontalDistance(x, candidate) < 3) * 16;
                     if (score < best) { best = score; chosen = candidate; }
-                    // After actual flight stalls, also try a modest climb plus forward leg.
-                    if (!flying) continue;
-                    candidate.Y = player.Y + Math.Min(12, 4 + recovery * 2);
-                    float raisedScore = baseScore + 8 + _failed.Count(x => Vector3.Distance(x, candidate) < 3) * 40 +
-                        _visited.Count(x => Vector3.Distance(x, candidate) < 3) * 16;
-                    if (!LocalRoutePlanner.ClearSegment(player, candidate)) raisedScore += 20;
-                    if (raisedScore < best) { best = raisedScore; chosen = candidate; }
                 }
             return chosen;
         }

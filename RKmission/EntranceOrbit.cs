@@ -3,45 +3,42 @@ using AOSharp.Common.GameData;
 
 namespace RKmission
 {
-    // Managed perimeter planner only. LocalMissionTravel owns execution through
+    // Ground perimeter planner only. LocalMissionTravel owns execution through
     // LocalMovement. Replan each short leg from the observed position, never
     // advance a precomputed arc after scraping a wall.
     internal sealed class EntranceOrbit
     {
-        private enum Leg { Outward, Probe, Tangent, Ascend, Descend }
+        private enum Leg { Outward, Probe, Tangent }
         private readonly Vector3 _anchor, _exterior;
         private readonly OutdoorNavigationSettings _settings;
         private readonly Action<string> _say;
-        private readonly bool _flying, _newSideRequired;
+        private readonly bool _newSideRequired;
         private readonly double _startBearing, _targetBearing, _requiredChange;
-        private readonly float _baseHeight, _maximumRadius;
+        private readonly float _maximumRadius;
         private Leg _leg;
         private Vector3 _legOrigin;
         private double _lastBearing, _unwrappedBearing, _angularTravel;
         private readonly double[] _bestAngularProgress = new double[2];
         private double _probeStartBearing, _probeBestProgress, _firstProbeProgress;
         private float _probeStartRadius, _firstProbeScore;
-        private int _probeDirection, _firstProbeDirection, _stableLegs, _stalls, _heightStep;
-        private bool _probeBoth, _secondProbe, _fallbackUsed, _outwardBlocked, _descending, _landed;
+        private int _probeDirection, _firstProbeDirection, _stableLegs, _stalls;
+        private bool _probeBoth, _secondProbe, _fallbackUsed, _outwardBlocked;
         private DateTime _legStarted, _nextLog;
         public int Direction { get; private set; }
         public float Radius { get; private set; }
         public float AngularSpanDegrees => (float)(_angularTravel * 180 / Math.PI);
-        public bool VerticalOverpass => _heightStep > 0 && !_landed;
         public bool Finished { get; private set; }
         public bool Failed { get; private set; }
         public bool MadeNewProgress { get; private set; }
-        public string OverpassResult { get; private set; }
         public bool ProbeExpired => _leg == Leg.Probe && (DateTime.UtcNow - _legStarted).TotalSeconds >= 3;
         private float MinimumRadius => Radius - 1;
-        private float CruiseHeight => _baseHeight + _heightStep * 8;
 
-        public EntranceOrbit(Vector3 anchor, Vector3 exterior, Vector3 player, bool flying,
+        public EntranceOrbit(Vector3 anchor, Vector3 exterior, Vector3 player,
             bool newSideRequired, float wallRadius, float rememberedRadius, int preferredDirection,
             OutdoorNavigationSettings settings, Action<string> say)
         {
-            _anchor = anchor; _exterior = exterior; _flying = flying; _settings = settings; _say = say;
-            _newSideRequired = newSideRequired; _baseHeight = player.Y; _maximumRadius = settings.MaxProbeRadius;
+            _anchor = anchor; _exterior = exterior; _settings = settings; _say = say;
+            _newSideRequired = newSideRequired; _maximumRadius = settings.MaxProbeRadius;
             _startBearing = _lastBearing = _unwrappedBearing = Bearing(player);
             _targetBearing = Bearing(exterior);
             double gap = Math.Abs(Delta(_targetBearing - _startBearing));
@@ -73,7 +70,7 @@ namespace RKmission
             _nextLog = DateTime.UtcNow.AddSeconds(3);
             _say($"Orbit progress: bearing={Degrees(bearing):F1} deg, target bearing={Degrees(_targetBearing):F1} deg, " +
                 $"radius={radius:F2}/{Radius:F1} m, direction={Name(Direction)}, angular progress={AngularSpanDegrees:F1} deg, " +
-                $"net side change={Math.Abs(Delta(bearing - _startBearing)) * 180 / Math.PI:F1} deg, stable legs={_stableLegs}, overpass={VerticalOverpass}.");
+                $"net side change={Math.Abs(Delta(bearing - _startBearing)) * 180 / Math.PI:F1} deg, stable legs={_stableLegs}.");
         }
 
         public bool Next(Vector3 player, out Vector3 target)
@@ -85,10 +82,6 @@ namespace RKmission
             // Match the executor's 0.8 m arrival tolerance, including the small
             // diagnostic ring, so a sub-tolerance final arc cannot become a loop.
             double arrivalAngle = Math.Max(Math.PI / 45, Math.Asin(Math.Min(1, 0.9 / Math.Max(1, radius))));
-            if (_descending)
-            { _leg = Leg.Descend; target.Y = _exterior.Y; return StartLeg(player, target); }
-            if (VerticalOverpass && player.Y < CruiseHeight - 0.8f)
-            { _leg = Leg.Ascend; target.Y = CruiseHeight; return StartLeg(player, target); }
             // Outward is radial away from the structure. A small angular step is
             // used only if that outward corridor itself stalled; it cannot cut inward.
             if (radius < MinimumRadius || radius > Radius + 1)
@@ -101,7 +94,7 @@ namespace RKmission
                     $"target=({LocalRoutePlanner.Coordinates(target)}), escape angle={escape * 180 / Math.PI:F1} deg.");
                 return StartLeg(player, target);
             }
-            if (!_newSideRequired && !VerticalOverpass && Math.Abs(gap) <= arrivalAngle)
+            if (!_newSideRequired && Math.Abs(gap) <= arrivalAngle)
             { ConfirmSide(player); return false; }
             // Arrival is actual bearing + ring clearance + successful movement,
             // never a requested sector label or an exhausted waypoint list.
@@ -110,13 +103,6 @@ namespace RKmission
             if (Math.Abs(gap) <= arrivalAngle && changed &&
                 LocalRoutePlanner.HorizontalDistance(player, _exterior) <= Math.Abs(Radius - LocalRoutePlanner.HorizontalDistance(_exterior, _anchor)) + 1.5f)
             {
-                if (VerticalOverpass)
-                {
-                    _descending = true; _leg = Leg.Descend;
-                    target = player; target.Y = _exterior.Y;
-                    _say("Vertical-overpass result: opposite exterior bearing reached; descend to entrance ring elevation before FinalApproach.");
-                    return StartLeg(player, target);
-                }
                 ConfirmSide(player); return false;
             }
             if (Direction == 0)
@@ -158,20 +144,12 @@ namespace RKmission
             if (stalled)
             {
                 _stableLegs = 0;
-                if (_leg == Leg.Ascend || _leg == Leg.Descend)
-                {
-                    OverpassResult = "failed " + _leg;
-                    _say($"Vertical-overpass result: {OverpassResult}; AO movement did not complete the bounded height leg.");
-                    Failed = true; return;
-                }
                 if (_leg == Leg.Outward) _outwardBlocked = true;
                 Recover(player, "observed " + _leg + " stall"); return;
             }
             if (_leg == Leg.Outward) _outwardBlocked = false;
             if ((_leg == Leg.Tangent || _leg == Leg.Outward) && LocalRoutePlanner.HorizontalDistance(player, _anchor) >= MinimumRadius &&
                 Delta(Bearing(player) - Bearing(_legOrigin)) * (Direction == 0 ? _firstProbeDirection : Direction) >= Math.PI / 180) _stableLegs++;
-            if (_leg == Leg.Descend)
-            { _descending = false; _landed = true; OverpassResult = "descended; exterior bearing/radius verification pending"; }
         }
 
         private void Recover(Vector3 player, string reason)
@@ -197,16 +175,6 @@ namespace RKmission
                 else Direction = -Direction;
                 _say($"Orbit fallback: {reason}; try preserved {Name(Direction == 0 ? _firstProbeDirection : Direction)} at radius={Radius:F1} m."); return;
             }
-            if (_flying && _heightStep < 3 && !_descending)
-            {
-                float hintedHeight = LocalRoutePlanner.AdvisoryOverpassHeight(_anchor, player, _exterior, _baseHeight);
-                _heightStep = Math.Min(3, Math.Max(_heightStep + 1, (int)Math.Ceiling((hintedHeight - _baseHeight) / 8)));
-                _outwardBlocked = false; _landed = false;
-                OverpassResult = "attempting";
-                _say($"Vertical-overpass attempt: {reason}; ascend at current X/Z to local height={CruiseHeight:F2} " +
-                    $"(+{_heightStep * 8} m, bound=24 m), then orbit to opposite exterior and descend; collision advisory only.");
-                return;
-            }
             Failed = true;
             _say($"OrbitBypass exhausted: {reason}, radius={Radius:F1} m, recovery stalls={_stalls}; requested side was not reached.");
         }
@@ -229,18 +197,16 @@ namespace RKmission
         private Vector3 Point(double bearing, float radius, Vector3 player)
         {
             Vector3 point = _anchor + LocalRoutePlanner.Direction(bearing) * radius;
-            point.Y = VerticalOverpass ? CruiseHeight : player.Y;
-            if (!_flying) point = LocalRoutePlanner.LocalElevation(point, player, false, _settings, out _);
+            point = LocalRoutePlanner.LocalElevation(point, player, false, _settings, out _);
             return point;
         }
         private bool Corridor(Vector3 player, Vector3 target) => LocalRoutePlanner.ClearSegment(
-            player + (_flying ? Vector3.Zero : Vector3.Up), target + (_flying ? Vector3.Zero : Vector3.Up));
+            player + Vector3.Up, target + Vector3.Up);
         private bool StartLeg(Vector3 player, Vector3 target)
         { _legOrigin = player; _legStarted = DateTime.UtcNow; return AcceptedMissions.Finite(target); }
         private void ConfirmSide(Vector3 player)
         {
             Finished = true;
-            if (_landed) OverpassResult = "reached exterior ring and descended";
             _say($"Reached-new-side confirmation: bearing={Degrees(Bearing(player)):F1} deg, target={Degrees(_targetBearing):F1} deg, " +
                 $"radius={LocalRoutePlanner.HorizontalDistance(player, _anchor):F2} m, direction={Name(Direction)}, angular span={AngularSpanDegrees:F1} deg, " +
                 $"stable movement legs={_stableLegs}; resume FinalApproach from this observed exterior side.");
