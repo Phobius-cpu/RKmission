@@ -186,19 +186,32 @@ short tangential/outward segments outside the inferred footprint, expanding up t
 `MaxFlightBypassRadius` when actual walls show a larger structure. Clear elevated
 transit may cross above the footprint. Side arrival still requires actual exterior
 position/radius and a measured bearing change when recovering from a blocked side.
+Keep the chosen CW/CCW (or transit left/right) direction while its next corridor
+remains clear; release it after an observed stall, obstruction hint or changed goal.
+Shorten the final tangential step to the target bearing instead of overshooting it
+and reversing. Overpass remains available when it offers a better route.
 
 Before selecting an approach side, compare its inward corridor using live Door
 height or its own local exterior support. Once that side is reached, resolve height
 from the associated live Door, a compatible exact verified entry height, or the
-first locally supported surface immediately below that exterior plus flight clearance.
+locally supported surface plus flight clearance. A first downward hit can still
+be a roof. Check support farther OUTWARD along the reached side, within the Fly
+radius bound. If two neighboring support patches agree on a surface over 3 m
+lower, move beyond that edge at cruise height and resample after actual arrival
+before descending. A missing local surface can also trigger this outward search.
+Do not cast through a roof to select a hidden floor or borrow another side's height.
 Fly no longer uses the broad 17-column, multi-layer anchor floor vote; it does not
 align to an estimated low floor while still going around the building. Ground
 retains its existing supported-floor logic.
 
 Without a live Door, a stalled descent/approach or crossing without zoning tries
-bounded entry-height offsets 0/+2/+4/-1 m relative to that reached side's support.
+bounded entry-height corrections. With support, try 0/-1/+1/+2 m relative to the
+initial clearance height (the downward correction retains at least 0.5 m above
+support). Without support, try 0/-2/-4/-8/+2 m from the observed aircraft height.
 Return to the exterior at current flight altitude, align vertically there, then
 try the normal approach again. Exhausted height alternatives yield to another side.
+The footprint rule protects side-to-side chords; a clear radial outward escape
+or return along the same completed entry approach does not force another climb.
 Only exact dungeon verification validates a learned entry height; roof/floor rays
 cannot identify an otherwise invisible door with certainty.
 The historical PF665 measured point remains in the project history; it is no
@@ -240,6 +253,8 @@ bypass direction, ring and span. Existing version-1 history remains readable;
 old wall bearings are recovered from recorded stall positions, not sector labels.
 Fly records also retain actual exterior position, entry-height/source, failed entry
 heights and up to 12 completed/stalled flight legs with origin/target/result/strategy.
+Store the exterior support point/height/source, including outward support found
+past a suspected roof and whether relocation is still pending.
 Exact verified success saves the entry point/height alongside the approach vector.
 
 Only **exact verified entry** updates the last successful exterior vector. On a

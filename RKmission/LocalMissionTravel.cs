@@ -298,11 +298,19 @@ namespace RKmission
             double sideChange = Math.Abs(AngleDelta(bearing - _flyStartBearing)) * 180 / Math.PI;
             if (remaining <= 1 && radius >= _entrance.FlightRingRadius - 1 && (!_flyNeedsSideChange || sideChange >= 20))
             {
-                _entrance.FlyingExteriorReached(player); _flyExteriorActive = false;
-                SetPath(Phase.AlignElevation, new[] { attempt.Exterior }); return true;
+                if (_entrance.FlyingExteriorReached(player))
+                {
+                    _flyExteriorActive = false;
+                    SetPath(Phase.AlignElevation, new[] { attempt.Exterior }); return true;
+                }
+                // A lower surface beyond a likely roof requires actual outward
+                // relocation first; no descent at the old elevated support.
+                outside = _route.Anchor + attempt.Normal * _entrance.FlightRingRadius;
+                attempt.Exterior.X = outside.X; attempt.Exterior.Z = outside.Z;
             }
             Vector3 target = _flight.Next(player, attempt.Exterior, _route.Anchor,
-                _entrance.FlightRingRadius, _entrance.PreferredFlightDirection);
+                _entrance.FlightRingRadius, _entrance.PreferredFlightDirection,
+                returningFromEntry: attempt.FlightHeightResolved && attempt.Record.ExteriorReached);
             SetPhase(_flight.Strategy == "direct" ? Phase.ProbeExterior : Phase.FlyAvoidObstacle);
             _movement.Begin(target, true, true, stallSeconds: 4); _legActive = true;
             _say($"Fly exterior route: requested sector={attempt.Sector}, actual bearing={bearing * 180 / Math.PI:F1} deg, " +

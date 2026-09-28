@@ -201,9 +201,8 @@ namespace RKmission
 
         public static bool TryExteriorFloor(Vector3 exterior, float referenceHeight, out float height)
         {
-            // First local support surface, below the aircraft at the REACHED
-            // exterior. Never vote across a 6 m ring or search beneath roofs
-            // for a more popular, lower floor on another face of the building.
+            // First support beneath five nearby points. This identifies a
+            // surface, not a doorway floor: it can still be a roof/platform.
             var heights = new List<float>(); height = referenceHeight;
             foreach (Vector3 offset in new[] { Vector3.Zero, new Vector3(0.8f, 0, 0), new Vector3(-0.8f, 0, 0),
                 new Vector3(0, 0, 0.8f), new Vector3(0, 0, -0.8f) })
@@ -219,6 +218,31 @@ namespace RKmission
             heights.Sort(); float median = heights[heights.Count / 2];
             if (heights.Count(x => Math.Abs(x - median) <= 1) < 3) return false;
             height = median; return true;
+        }
+
+        public static bool TryLowerExterior(Vector3 player, Vector3 anchor, float maximumRadius,
+            bool hasLocalSupport, float localFloor, out Vector3 exterior, out float floor)
+        {
+            exterior = player; floor = localFloor;
+            float radius = HorizontalDistance(player, anchor);
+            if (radius < 1) return false;
+            Vector3 outward = player - anchor; outward.Y = 0; outward = outward.Normalize();
+            // Search only OUTWARD on the reached side, never beneath a solid
+            // roof or across other faces. Two neighboring support patches must
+            // agree before a lower surface warrants moving the aircraft there.
+            for (float nextRadius = radius + 4; nextRadius + 2 <= maximumRadius; nextRadius += 4)
+            {
+                Vector3 next = anchor + outward * nextRadius; next.Y = player.Y;
+                Vector3 farther = anchor + outward * (nextRadius + 2); farther.Y = player.Y;
+                if (!TryExteriorFloor(next, player.Y, out float nextFloor) ||
+                    !TryExteriorFloor(farther, player.Y, out float fartherFloor) ||
+                    Math.Abs(nextFloor - fartherFloor) > 1.5f ||
+                    (hasLocalSupport && nextFloor >= localFloor - 3)) continue;
+                // Leave room beyond the edge; actual arrival resamples support
+                // before any height is adopted. Descent is an observed leg.
+                exterior = farther; floor = fartherFloor; return true;
+            }
+            return false;
         }
 
         public static float AdvisoryOverpassHeight(Vector3 anchor, Vector3 player, Vector3 exterior, float baseHeight)

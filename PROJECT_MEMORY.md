@@ -1408,3 +1408,52 @@ onto the new architecture.
   selection/current-playfield filtering, native map upload, narrow Door checks,
   exact dungeon handoff and dungeon exploration/combat/interior-door/loot code
   are preserved. Source/diff inspection only; no compile, restore, tests or game run.
+
+## Fly roof support and route reversal correction (2026-09-28, 18:01-18:03 log)
+
+- Full user evidence is preserved in
+  `docs/navigation-evidence/2026-09-28-pf665-flight-success-and-height.txt`.
+  Main 4fbb10c did successfully fly to mission **1442298249**, PF665 anchor
+  X=718.59/Z=1470.90, reach sector 14, descend to entry Y=20.50, zone and verify
+  that exact mission in dungeon 14654046. Existing dungeon/ManagerLoot resumed.
+  Preserve this behavior; do not hardcode its height for other mission anchors.
+- Mission **1442298255** crossed inferred thresholds at Y=29.82 and 24.82, then
+  its accepted destination was invalidated. No verified zoning is recorded;
+  this is interrupted evidence, not success or proof of a selection defect.
+- Mission **1442298208**, anchor X=710.81/Z=1567.06, selected south sector 12.
+  At Y=37.67 it switched CW then CCW, returned to almost the initial bearing,
+  and climbed to Y=44.94. The exterior's first support selected entry Y=38.82;
+  crossing gave no zone, then the next hypothesis went UP to 40.82. Support is
+  plausibly a roof/raised surface; the log does not prove this mission's true
+  ground/door height. The user stopped before a verified entry.
+- First-hit support is now checked farther outward on the REACHED side, in 4 m
+  increments within the existing Fly radius bound. Two neighboring five-column
+  patches must agree within 1.5 m and be over 3 m below local support. Missing
+  local support may also use an outward supported patch. Move 2 m beyond the
+  first matching patch at actual cruise height, then resample after arrival.
+  Only then resolve entry height. No broad cross-face vote or through-roof
+  lower-layer search is reintroduced. Hints remain advisory; actual movement
+  decides. An elevated platform is not automatically declared a roof.
+- Supported height alternatives are now 0/-1/+1/+2 m from clearance height,
+  with the downward trial clamped to at least 0.5 m above support and duplicate
+  trials removed. Unknown support tries 0/-2/-4/-8/+2 m from observed height.
+  Associated live Door and compatible exact verified height retain priority.
+- Fly around direction persists while its next corridor remains unobstructed.
+  An actual stall, obstruction hint or changed goal releases it and retains the
+  other direction for comparison. Clip short angular legs to the target bearing
+  so the final leg does not overshoot and immediately reverse; the current
+  reached point is excluded from revisit penalties for a short advancing leg. Over/around still
+  compete; corridor hints do not hard-reject routes.
+- The protected-radius test no longer classifies a radial outward escape as a
+  side-to-side chord. A same-candidate entry return permits the sub-metre marker
+  overshoot before moving outward. Clear rays and no recorded obstruction permit
+  that return at current height, without the unnecessary +8 m climb seen in both
+  failed missions. Side-to-side crossing safeguards remain.
+- Persist support point/height/source and pending outward relocation alongside
+  existing bounded flight/sector/height history; version-1 files remain readable.
+  README and CONVERSATION_LOG distinguish verified success from unresolved entry.
+  Changing a target sector without perimeter routing caused wall-running; choosing
+  a local roof as the doorway floor then retrying higher caused roof-level loops.
+- Source/diff review only, no local compile, restore, tests or game run. Accepted
+  mission/current-playfield filtering, Door association and exact handoff remain;
+  dungeon exploration/combat/interior-door/loot implementations are unchanged.

@@ -40,6 +40,9 @@ namespace RKmission
         public bool ExteriorReached, BypassSideReached;
         public string OverpassResult;
         public NavigationPoint EntryPoint, ReachedExteriorPoint;
+        public NavigationPoint ExteriorSupportPoint;
+        public float ExteriorSupportHeight;
+        public string ExteriorSupportSource;
         public List<float> FailedEntryHeights = new List<float>();
         public string FlightStrategy;
         public List<FlightLegRecord> FlightLegs = new List<FlightLegRecord>();

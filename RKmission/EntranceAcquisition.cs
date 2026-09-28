@@ -31,6 +31,8 @@ namespace RKmission
             public bool FlightHeightResolved;
             public float FlightBaseHeight;
             public int FlightHeightTrial;
+            public float FlightExteriorRadius;
+            public bool FlightHasSupport;
             public EntranceAttemptRecord Record;
         }
         private readonly Dictionary<Identity, Candidate> _candidates = new Dictionary<Identity, Candidate>();
@@ -224,6 +226,7 @@ namespace RKmission
             if (selectedDoor != null && !selectedDoor.QuestLinked && !_fallbackBound) { _fallbackBound = true; _fallbackThreshold = selectedDoor.Position; }
             next.Threshold = threshold; next.HeightSource = elevation;
             next.FlightHeightResolved = false; next.FlightHeightTrial = 0;
+            next.FlightExteriorRadius = 0; next.FlightHasSupport = false;
             next.Record = new EntranceAttemptRecord { StartedUtc = DateTime.UtcNow, Playfield = _mission.PlayfieldId, MissionId = _missionId,
                 Sector = next.Sector, SectorCount = _settings.Sectors, Mode = flying ? "Fly" : "Run", Stage = "ProbeExterior", Source = next.Source, ElevationSource = elevation,
                 AngleDegrees = (float)(PositiveAngle(LocalRoutePlanner.Angle(next.Normal)) * 180 / Math.PI), Radius = next.Radius,
@@ -277,12 +280,14 @@ namespace RKmission
                 rememberedRadius, preferred, _settings, _say);
         }
         public float FlightRingRadius => Math.Min(_settings.MaxFlightBypassRadius,
-            Math.Max(_settings.ProbeRadius, Math.Max(_wallRadius + 4, _memory.LastSuccessMode == "Fly" ? _memory.LastExteriorRingRadius : 0)));
+            Math.Max(Active?.FlightExteriorRadius ?? 0,
+                Math.Max(_settings.ProbeRadius, Math.Max(_wallRadius + 4, _memory.LastSuccessMode == "Fly" ? _memory.LastExteriorRingRadius : 0))));
         public int PreferredFlightDirection => _memory.LastSuccessMode == "Fly" ? _memory.LastBypassDirection : 0;
         public bool NeedsFlightSideChange(Attempt attempt) => BypassRequired && !(attempt.KnownGood && !_sessionWallObserved);
-        public void ResolveFlyingHeight(Vector3 player)
+        private bool ResolveFlyingHeight(Vector3 player)
         {
-            if (Active == null || Active.FlightHeightResolved) return;
+            if (Active == null) return false;
+            if (Active.FlightHeightResolved) return true;
             float height = player.Y; string source = "observed aircraft height; no supported local exterior floor";
             if (Active.DoorId != Identity.None)
             {
@@ -292,21 +297,46 @@ namespace RKmission
             }
             else if (Active.KnownGood && _memory.LastSuccessMode == "Fly" && _memory.LastSuccessEntryPoint?.Valid == true)
             { height = _memory.LastSuccessEntryPoint.Y; source = "previous exact verified entry height; revalidation required"; }
-            else if (LocalRoutePlanner.TryExteriorFloor(player, player.Y, out float exteriorFloor))
-            { height = exteriorFloor + _settings.FlightFloorClearance; source = "first supported floor directly below reached exterior plus flight clearance"; }
+            else
+            {
+                bool supported = LocalRoutePlanner.TryExteriorFloor(player, player.Y, out float exteriorFloor);
+                if (LocalRoutePlanner.TryLowerExterior(player, _anchor, _settings.MaxFlightBypassRadius,
+                    supported, exteriorFloor, out Vector3 lowerExterior, out float lowerFloor))
+                {
+                    Active.FlightExteriorRadius = LocalRoutePlanner.HorizontalDistance(lowerExterior, _anchor);
+                    Active.Record.ExteriorSupportPoint = NavigationPoint.From(lowerExterior);
+                    Active.Record.ExteriorSupportHeight = lowerFloor;
+                    Active.Record.ExteriorSupportSource = "lower support outside suspected roof/raised surface; arrival pending";
+                    _say($"Fly exterior support diagnosis: sector={Active.Sector}, local support=" +
+                        $"{(supported ? exteriorFloor.ToString("F2") : "unknown")}, outward support={lowerFloor:F2}, " +
+                        $"radius={Active.FlightExteriorRadius:F2}; move outward at current height before descent, lower support is advisory.");
+                    SaveAttempt(); return false;
+                }
+                Active.FlightHasSupport = supported;
+                if (supported)
+                {
+                    height = exteriorFloor + _settings.FlightFloorClearance;
+                    source = "reached-side support checked outward for lower exterior; doorway still unverified";
+                    Active.Record.ExteriorSupportPoint = NavigationPoint.From(player);
+                    Active.Record.ExteriorSupportHeight = exteriorFloor;
+                    Active.Record.ExteriorSupportSource = source;
+                }
+            }
             Active.FlightBaseHeight = height; Active.FlightHeightResolved = true;
-            SetFlightHeight(height, source);
+            SetFlightHeight(height, source); return true;
         }
         public bool TryNextFlyingHeight(string reason)
         {
             if (Active == null || !Active.FlightHeightResolved || Active.DoorId != Identity.None) return false;
             Active.Record.FailedEntryHeights.Add(Active.Threshold.Y);
-            // Diagnose heights on the validated side before calling it a wall.
-            // The bounded alternatives are relative to THIS side's support plane.
-            float[] offsets = { 0, 2, 4, -1 };
+            // A supported surface permits small clearance corrections, never
+            // a descent through it. Without support, look DOWN before climbing.
+            float[] offsets = Active.FlightHasSupport ?
+                new[] { 0f, Math.Max(-1f, 0.5f - _settings.FlightFloorClearance), 1f, 2f }.Distinct().ToArray() :
+                new[] { 0f, -2f, -4f, -8f, 2f };
             if (++Active.FlightHeightTrial >= offsets.Length) return false;
             SetFlightHeight(Active.FlightBaseHeight + offsets[Active.FlightHeightTrial], "bounded observed entry-height alternative on reached side");
-            _say($"Fly entry-height correction: sector={Active.Sector}, trial={Active.FlightHeightTrial + 1}/4, " +
+            _say($"Fly entry-height correction: sector={Active.Sector}, trial={Active.FlightHeightTrial + 1}/{offsets.Length}, " +
                 $"height={Active.Threshold.Y:F2}, reason={reason}; return outside before aligning, no assumed doorway floor.");
             _learning.Record(_memory, Active.Record); return true;
         }
@@ -329,9 +359,9 @@ namespace RKmission
             if (_orbitCoverage.Add($"fly:{Sector(LocalRoutePlanner.Angle(player - _anchor))}:{(int)(player.Y / 4)}"))
                 LastProgress = DateTime.UtcNow;
         }
-        public void FlyingExteriorReached(Vector3 player)
+        public bool FlyingExteriorReached(Vector3 player)
         {
-            if (Active == null) return;
+            if (Active == null || !ResolveFlyingHeight(player)) return false;
             Active.Record.ExteriorReached = true; Active.Record.BypassSideReached = BypassRequired;
             Active.Exterior.X = player.X; Active.Exterior.Z = player.Z;
             Active.Record.ReachedExteriorPoint = NavigationPoint.From(player);
@@ -339,8 +369,8 @@ namespace RKmission
             Cover(Active); BypassExhausted = false;
             _say($"Fly reached-side confirmation: requested sector={Active.Sector}, actual bearing=" +
                 $"{PositiveAngle(LocalRoutePlanner.Angle(player - _anchor)) * 180 / Math.PI:F1} deg, " +
-                $"radius={LocalRoutePlanner.HorizontalDistance(player, _anchor):F2}, height={player.Y:F2}; resolve entry height now.");
-            ResolveFlyingHeight(player);
+                $"radius={LocalRoutePlanner.HorizontalDistance(player, _anchor):F2}, height={player.Y:F2}; entry alignment may begin.");
+            return true;
         }
         public void SaveAttempt() { if (Active != null) _learning.Record(_memory, Active.Record); }
         public void ObserveOrbit(EntranceOrbit orbit, Vector3 player)

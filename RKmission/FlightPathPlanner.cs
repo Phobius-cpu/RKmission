@@ -16,6 +16,7 @@ namespace RKmission
             public Vector3 First;
             public float Score;
             public int Direction;
+            public bool Obstructed;
         }
         private sealed class Failure { public Vector3 Position, Target; }
         private readonly List<Failure> _failed = new List<Failure>();
@@ -24,6 +25,9 @@ namespace RKmission
         private readonly float _ceiling;
         private readonly float _maximumRadius;
         private int _sidePreference, _perimeterPreference;
+        private int _committedDirection;
+        private bool _committedPerimeter, _hasGoal;
+        private Vector3 _goal;
         private float _overpassHeight = float.NaN;
         public string Strategy { get; private set; } = "direct";
         public int BypassDirection { get; private set; }
@@ -35,6 +39,11 @@ namespace RKmission
         public void Blocked(Vector3 position, Vector3 target)
         {
             _failed.Add(new Failure { Position = position, Target = target });
+            if (_committedDirection != 0)
+            {
+                _say("Fly bypass direction released after actual stall; compare retained opposite direction and overpass.");
+                _committedDirection = 0;
+            }
             if (Strategy == "over") OverpassResult = "ascent blocked; compare around route next";
             if (_failed.Count > 48) _failed.RemoveAt(0);
             _say($"Fly obstruction observed: position=({LocalRoutePlanner.Coordinates(position)}), " +
@@ -49,25 +58,41 @@ namespace RKmission
         }
 
         public Vector3 Next(Vector3 player, Vector3 destination, Vector3 anchor,
-            float perimeterRadius = 0, int preferredDirection = 0)
+            float perimeterRadius = 0, int preferredDirection = 0, bool returningFromEntry = false)
         {
             // Transit always retains the ACTUAL flight altitude, including a
             // successful climb. It cannot descend toward the old goal's Y.
             destination.Y = player.Y;
+            bool perimeter = perimeterRadius > 0;
+            if (!_hasGoal || LocalRoutePlanner.HorizontalDistance(destination, _goal) > 2 || _committedPerimeter != perimeter)
+            { _committedDirection = 0; _goal = destination; _hasGoal = true; }
+            _committedPerimeter = perimeter;
             Vector3 direct = LocalRoutePlanner.Toward(player, destination, 20);
             bool blocked = LocalRoutePlanner.FlightCorridor(player, direct, out Vector3 hit);
             bool observed = RepeatsFailure(player, direct);
             bool aboveBypass = !float.IsNaN(_overpassHeight) && player.Y >= _overpassHeight - 0.8f && !blocked;
-            bool cutsStructure = perimeterRadius > 0 && !aboveBypass && ClosestRadius(player, direct, anchor) < perimeterRadius - 0.8f;
+            float radius = LocalRoutePlanner.HorizontalDistance(player, anchor);
+            float closestRadius = ClosestRadius(player, direct, anchor);
+            // The protected footprint applies to side-to-side chords, not an
+            // escape radially OUT of it. Entry returns can cross the sub-metre
+            // marker overshoot, reversing the same already traversed approach.
+            bool outwardExit = perimeter && radius < perimeterRadius &&
+                LocalRoutePlanner.HorizontalDistance(direct, anchor) > radius + 0.5f &&
+                closestRadius >= radius - (returningFromEntry ? 1f : 0.1f);
+            bool cutsStructure = perimeter && !aboveBypass && !outwardExit && closestRadius < perimeterRadius - 0.8f;
             if (!blocked && !observed && !cutsStructure)
-            { Strategy = "direct"; return direct; }
+            {
+                if (outwardExit)
+                    _say($"Fly outward return: radius={radius:F2} -> {LocalRoutePlanner.HorizontalDistance(direct, anchor):F2}, " +
+                        $"height={player.Y:F2}, retrace entry={returningFromEntry}; clear outward corridor, no automatic overpass.");
+                _committedDirection = 0; Strategy = "direct"; return direct;
+            }
 
             var choices = new List<Choice>();
             Vector3 forward = destination - player; forward.Y = 0;
             if (LocalRoutePlanner.HorizontalDistance(forward, Vector3.Zero) < 0.1f) forward = new Vector3(1, 0, 0);
             forward = forward.Normalize();
             Vector3 sideways = new Vector3(-forward.Z, 0, forward.X);
-            float radius = LocalRoutePlanner.HorizontalDistance(player, anchor);
             if (perimeterRadius > 0)
             {
                 // Around a mission structure, compare BOTH directions on a safe
@@ -88,11 +113,15 @@ namespace RKmission
                 }
                 else foreach (int direction in new[] { -1, 1 })
                 {
-                    Vector3 next = anchor + LocalRoutePlanner.Direction(bearing + direction * Math.PI / 12) *
-                        Math.Min(_maximumRadius + 0.5f, safeRadius / (float)Math.Cos(Math.PI / 24));
-                    next.Y = player.Y;
                     double gap = Positive(direction * (LocalRoutePlanner.Angle(destination - anchor) - bearing));
-                    int preference = preferredDirection != 0 ? preferredDirection : _perimeterPreference;
+                    // Do not step past a nearby target bearing and immediately
+                    // reverse next tick. At the bearing, a blocked radial leg
+                    // still permits a modest tangential search or an overpass.
+                    double step = gap > Math.PI / 180 ? Math.Min(Math.PI / 12, gap) : Math.PI / 12;
+                    Vector3 next = anchor + LocalRoutePlanner.Direction(bearing + direction * step) *
+                        Math.Min(_maximumRadius + 0.5f, safeRadius / (float)Math.Cos(step / 2));
+                    next.Y = player.Y;
+                    int preference = _perimeterPreference != 0 ? _perimeterPreference : preferredDirection;
                     Add(choices, "around: " + EntranceOrbit.Name(direction), player, next, destination,
                         (float)(gap * safeRadius) - Vector3.Distance(next, destination) +
                         (preference != 0 && preference != direction ? 2 : 0), direction, true);
@@ -123,17 +152,37 @@ namespace RKmission
                 choices.Add(new Choice { Kind = "over", First = up,
                     Score = cost + hits * 60 + (RepeatsFailure(player, up) ? 120 : 0) });
             }
+            if (_committedDirection != 0)
+            {
+                Choice continuation = choices.Where(x => x.Direction == _committedDirection && !x.Obstructed)
+                    .OrderBy(x => x.Score).FirstOrDefault();
+                if (continuation != null)
+                {
+                    // Keep a direction that still makes a clear next leg.
+                    // Overpass and outward correction remain available; the
+                    // other tangential direction is retained until blockage.
+                    choices.RemoveAll(x => x.Direction != 0 && x.Direction != _committedDirection);
+                }
+                else
+                {
+                    _say("Fly committed bypass corridor now obstructed; release direction and compare opposite/over routes.");
+                    _committedDirection = 0;
+                }
+            }
             Choice best = choices.OrderBy(x => x.Score).First();
             Strategy = best.Kind;
-            if (best.Kind == "over") { _overpassHeight = best.First.Y; OverpassResult = "ascending to advisory bypass height"; }
+            if (best.Kind == "over")
+            { _committedDirection = 0; _overpassHeight = best.First.Y; OverpassResult = "ascending to advisory bypass height"; }
             if (best.Direction != 0)
             {
+                _committedDirection = best.Direction;
                 if (perimeterRadius > 0) _perimeterPreference = BypassDirection = best.Direction;
                 else _sidePreference = best.Direction;
             }
             _say($"Fly route choice: {best.Kind}, over cost={BestCost(choices, "over")}, around cost={BestCost(choices, "around")}, " +
                 $"current height={player.Y:F2}, next=({LocalRoutePlanner.Coordinates(best.First)}), " +
-                $"ray hit={blocked}, observed block={observed}, footprint crossing={cutsStructure}; no floor descent during bypass.");
+                $"ray hit={blocked}, observed block={observed}, footprint crossing={cutsStructure}, " +
+                $"committed direction={_committedDirection}; no floor descent during bypass.");
             return best.First;
         }
 
@@ -143,11 +192,15 @@ namespace RKmission
             // The continuation ray scores the solution, but execute just the
             // first leg and re-evaluate from the next actual position.
             float score = Vector3.Distance(player, next) + Vector3.Distance(next, goal) + bias;
-            if (LocalRoutePlanner.FlightCorridor(player, next, out _)) score += 80;
+            bool obstructed = LocalRoutePlanner.FlightCorridor(player, next, out _) || RepeatsFailure(player, next);
+            if (obstructed) score += 80;
             if (!ring && LocalRoutePlanner.FlightCorridor(next, goal, out _)) score += 30;
             if (RepeatsFailure(player, next)) score += 120;
-            score += _visited.Count(x => Vector3.Distance(x, next) < 2) * 25;
-            choices.Add(new Choice { Kind = kind, First = next, Score = score, Direction = direction });
+            // Short final angular legs naturally lie near the current reached
+            // point; penalize returning to earlier positions, not advancing
+            // from the position where this leg begins.
+            score += _visited.Count(x => Vector3.Distance(x, next) < 2 && Vector3.Distance(x, player) > 2) * 25;
+            choices.Add(new Choice { Kind = kind, First = next, Score = score, Direction = direction, Obstructed = obstructed });
         }
         private bool RepeatsFailure(Vector3 player, Vector3 next)
         {

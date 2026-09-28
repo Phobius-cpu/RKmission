@@ -969,3 +969,44 @@ original PF665 log as evidence. No compilation, package restore, automated tests
 or in-game run. Accepted mission selection, current-playfield filtering, native
 map upload, conservative Door association and existing dungeon/combat/door/loot
 implementations were preserved. User pulls, compiles and validates in-game.
+
+### User supplied the 18:01-18:03 Fly log (2026-09-28)
+
+The pasted log continues the entrance-navigation investigation after 4fbb10c.
+Mission 1442298249 at PF665 X=718.59/Z=1470.90 reached sector 14, approached at
+Y=20.50, zoned and was verified in dungeon 14654046; the existing dungeon and
+ManagerLoot logic resumed. Mission 1442298255 was invalidated without verified
+entry. Mission 1442298208 at X=710.81/Z=1567.06 switched CW to CCW while routing
+to south sector 12, then climbed. First exterior support gave entry Y=38.82;
+crossing did not zone, and its next trial increased to 40.82. The user stopped.
+Neither failed mission has a confirmed entry or a proven ground/door height.
+Full evidence is retained in
+docs/navigation-evidence/2026-09-28-pf665-flight-success-and-height.txt.
+
+### Assistant corrected roof-height assumptions and unstable Fly recovery
+
+First local support may be a roof/platform. Check lower supported patches farther
+outward on the reached side within the existing radius bound, requiring agreement
+between neighboring patches. Move beyond a suspected edge at cruise height and
+resample on actual arrival before descent. Live Door and compatible verified entry
+height still take priority; do not hardcode the successful mission's Y=20.50.
+Supported alternatives use small clearance corrections, down first and clamped
+above support. Unknown support tries bounded downward hypotheses before climbing.
+
+Keep an around direction while its next corridor is clear; release it on actual
+stall, obstruction evidence or changed goal, retaining the opposite as fallback.
+Shorten the last angular step to avoid overshooting the requested bearing and
+reversing; exclude the current point from revisit penalties on short advancing
+legs. Overpass remains a competing solution. Distinguish radial outward
+escape/entry return from side-to-side footprint chords: returning along a completed
+approach at current height no longer forces an otherwise unnecessary ascent.
+Retain the single Fly planner and movement owner. Persist support point/height/
+source with existing bounded flight and entrance history.
+
+The earlier lesson remains: changing target sector without perimeter routing
+caused repeated wall-running. This log adds a second lesson: a first surface hit
+can be a roof, so retrying higher without checking outside the edge repeats the
+wrong entry height. Preserve the verified successful flight/entry and dungeon
+handoff. Updated README and PROJECT_MEMORY. Source/diff review only; no local
+compile, restore, tests or game run. Mission selection, current-playfield filtering,
+Door association and dungeon exploration/combat/interior-door/loot remain unchanged.

@@ -1,0 +1,200 @@
+(18:01) RKMission: Movement leg: mode=Fly, target=(X=622.17, Z=1411.22, height(Y)=30.31), distance=3,00 m, executor=direct world movement, corridor=clear hint.
+(18:01) RKMission: Outdoor navigation target: phase=FinalApproach, sector=9, source=mission-anchor inferred radial side, target=(X=622.17, Z=1411.22, height(Y)=30.31), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:01) RKMission: Movement leg: mode=Fly, target=(X=624.20, Z=1412.05, height(Y)=30.11), distance=3,00 m, executor=direct world movement, corridor=clear hint.
+(18:01) RKMission: Outdoor navigation target: phase=FinalApproach, sector=9, source=mission-anchor inferred radial side, target=(X=624.20, Z=1412.05, height(Y)=30.11), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:01) RKMission: Movement leg: mode=Fly, target=(X=626.22, Z=1412.89, height(Y)=29.90), distance=3,00 m, executor=direct world movement, corridor=clear hint.
+(18:01) RKMission: Outdoor navigation target: phase=FinalApproach, sector=9, source=mission-anchor inferred radial side, target=(X=626.22, Z=1412.89, height(Y)=29.90), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:01) RKMission: Movement leg: mode=Fly, target=(X=627.01, Z=1413.22, height(Y)=29.82), distance=1,66 m, executor=direct world movement, corridor=clear hint.
+(18:01) RKMission: Outdoor navigation target: phase=FinalApproach, sector=9, source=mission-anchor inferred radial side, target=(X=627.01, Z=1413.22, height(Y)=29.82), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:01) RKMission: Outdoor progress: mission=1442298255, mode=Fly, phase=FinalApproach, position=(X=626.27, Z=1412.91, height(Y)=29.89), target=(X=627.01, Z=1413.22, height(Y)=29.82), progress delta=0,83 m, best remaining=0,82 m, leg no-progress=0,1 s, overall no-progress=15/90 s.
+(18:01) RKMission: Movement leg: mode=Fly, target=(X=628.40, Z=1413.79, height(Y)=29.82), distance=2,29 m, executor=direct world movement, corridor=clear hint.
+(18:01) RKMission: Outdoor navigation target: phase=FinalApproach, sector=9, source=mission-anchor inferred radial side, target=(X=628.40, Z=1413.79, height(Y)=29.82), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:01) RKMission: Movement leg: mode=Fly, target=(X=629.41, Z=1414.21, height(Y)=29.82), distance=1,85 m, executor=direct world movement, corridor=clear hint.
+(18:01) RKMission: Outdoor navigation target: phase=FinalApproach, sector=9, source=mission-anchor inferred radial side, target=(X=629.41, Z=1414.21, height(Y)=29.82), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:01) RKMission: Entrance crossing: mission=1442298255, sector=9, door=(None:0000), target=(X=630.52, Z=1414.67, height(Y)=29.82), reason=no live mission Door; inferred normal/proximity threshold crossing; arrival cannot prove entry.
+(18:01) RKMission: Movement leg: mode=Fly, target=(X=630.52, Z=1414.67, height(Y)=29.82), distance=1,98 m, executor=direct world movement, corridor=clear hint.
+(18:01) RKMission: Outdoor navigation target: phase=CrossThreshold, sector=9, source=mission-anchor inferred radial side, target=(X=630.52, Z=1414.67, height(Y)=29.82), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:01) Waypoint uploaded to map and compass.
+(18:01) The waypoint is shown as a white dot on the map and a yellow indicator on the compass.
+(18:01) RKMission: Live mission-door association: mission=1442298255, accepted local doors=0, active=(None:0000), sectors explored=1/16, no new observed progress=17/90 s.
+(18:01) Waypoint uploaded to map and compass.
+(18:01) The waypoint is shown as a white dot on the map and a yellow indicator on the compass.
+(18:01) RKMission: Fly entrance height: sector=9, height=24,82, source=bounded observed entry-height alternative on reached side; align vertically only at reached exterior, then approach along its direction.
+(18:01) RKMission: Fly entry-height correction: sector=9, trial=4/4, height=24,82, reason=threshold reached/crossed but no zoning observed; return outside before aligning, no assumed doorway floor.
+(18:01) RKMission: Fly route choice: over, over cost=20,1, around cost=20,1, current height=29,82, next=(X=629.87, Z=1414.40, height(Y)=37.82), ray hit=False, observed block=False, footprint crossing=True; no floor descent during bypass.
+(18:01) RKMission: Movement leg: mode=Fly, target=(X=629.87, Z=1414.40, height(Y)=37.82), distance=8,00 m, executor=direct world movement, corridor=clear hint.
+(18:01) RKMission: Fly exterior route: requested sector=9, actual bearing=22,6 deg, side change=0,0 deg, target=(X=629.87, Z=1414.40, height(Y)=37.82), strategy=over; entry height deferred.
+(18:01) RKMission: Outdoor progress: mission=1442298255, mode=Fly, phase=FlyAvoidObstacle, position=(X=629.87, Z=1414.40, height(Y)=29.82), target=(X=629.87, Z=1414.40, height(Y)=37.82), progress delta=0,00 m, best remaining=8,00 m, leg no-progress=0,0 s, overall no-progress=22/90 s.
+(18:01) RKMission: Movement leg: mode=Fly, target=(X=618.70, Z=1409.78, height(Y)=37.09), distance=12,09 m, executor=direct world movement, corridor=clear hint.
+(18:01) RKMission: Fly exterior route: requested sector=9, actual bearing=22,6 deg, side change=0,0 deg, target=(X=618.70, Z=1409.78, height(Y)=37.09), strategy=direct; entry height deferred.
+(18:01) Waypoint uploaded to map and compass.
+(18:01) The waypoint is shown as a white dot on the map and a yellow indicator on the compass.
+(18:01) RKMission: Fly reached-side confirmation: requested sector=9, actual bearing=202,5 deg, radius=11,26, height=37,09; resolve entry height now.
+(18:01) RKMission: Movement leg: mode=Fly, target=(X=619.38, Z=1410.06, height(Y)=24.82), distance=12,27 m, executor=direct world movement, corridor=clear hint.
+(18:01) RKMission: Outdoor navigation target: phase=AlignElevation, sector=9, source=mission-anchor inferred radial side, target=(X=619.38, Z=1410.06, height(Y)=24.82), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:01) RKMission: Movement leg: mode=Fly, target=(X=622.14, Z=1411.20, height(Y)=25.32), distance=3,00 m, executor=direct world movement, corridor=clear hint.
+(18:01) RKMission: Outdoor navigation target: phase=FinalApproach, sector=9, source=mission-anchor inferred radial side, target=(X=622.14, Z=1411.20, height(Y)=25.32), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:01) RKMission: Movement leg: mode=Fly, target=(X=624.17, Z=1412.04, height(Y)=25.11), distance=3,00 m, executor=direct world movement, corridor=clear hint.
+(18:01) RKMission: Outdoor navigation target: phase=FinalApproach, sector=9, source=mission-anchor inferred radial side, target=(X=624.17, Z=1412.04, height(Y)=25.11), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:01) RKMission: Movement leg: mode=Fly, target=(X=626.19, Z=1412.88, height(Y)=24.90), distance=3,00 m, executor=direct world movement, corridor=clear hint.
+(18:01) RKMission: Outdoor navigation target: phase=FinalApproach, sector=9, source=mission-anchor inferred radial side, target=(X=626.19, Z=1412.88, height(Y)=24.90), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:01) RKMission: Outdoor progress: mission=1442298255, mode=Fly, phase=FinalApproach, position=(X=625.44, Z=1412.57, height(Y)=24.98), target=(X=626.19, Z=1412.88, height(Y)=24.90), progress delta=2,03 m, best remaining=0,97 m, leg no-progress=0,1 s, overall no-progress=4/90 s.
+(18:01) RKMission: Movement leg: mode=Fly, target=(X=627.01, Z=1413.22, height(Y)=24.82), distance=1,69 m, executor=direct world movement, corridor=clear hint.
+(18:01) RKMission: Outdoor navigation target: phase=FinalApproach, sector=9, source=mission-anchor inferred radial side, target=(X=627.01, Z=1413.22, height(Y)=24.82), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:01) RKMission: Live mission-door association: mission=1442298255, accepted local doors=0, active=(None:0000), sectors explored=1/16, no new observed progress=5/90 s.
+(18:01) RKMission: Movement leg: mode=Fly, target=(X=628.40, Z=1413.79, height(Y)=24.82), distance=2,29 m, executor=direct world movement, corridor=clear hint.
+(18:01) RKMission: Outdoor navigation target: phase=FinalApproach, sector=9, source=mission-anchor inferred radial side, target=(X=628.40, Z=1413.79, height(Y)=24.82), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:01) RKMission: Movement leg: mode=Fly, target=(X=629.41, Z=1414.21, height(Y)=24.82), distance=1,87 m, executor=direct world movement, corridor=clear hint.
+(18:01) RKMission: Outdoor navigation target: phase=FinalApproach, sector=9, source=mission-anchor inferred radial side, target=(X=629.41, Z=1414.21, height(Y)=24.82), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:01) RKMission: Entrance crossing: mission=1442298255, sector=9, door=(None:0000), target=(X=630.52, Z=1414.67, height(Y)=24.82), reason=no live mission Door; inferred normal/proximity threshold crossing; arrival cannot prove entry.
+(18:01) RKMission: Movement leg: mode=Fly, target=(X=630.52, Z=1414.67, height(Y)=24.82), distance=1,97 m, executor=direct world movement, corridor=hit hint; observed attempt allowed.
+(18:01) RKMission: Outdoor navigation target: phase=CrossThreshold, sector=9, source=mission-anchor inferred radial side, target=(X=630.52, Z=1414.67, height(Y)=24.82), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:01) Nanoprogram Karma Harvest terminated...
+(18:02) Waypoint uploaded to map and compass.
+(18:02) The waypoint is shown as a white dot on the map and a yellow indicator on the compass.
+(18:02) RKMission: Mission destination invalidated: mission=1442298255; acceptance/playfield/anchor changed; choose again from current origin.
+(18:02) RKMission: Entrance attempt result: mission=1442298255, sector=9, door=(None:0000), progress delta=19,17 m, exterior reached=True, wall-bearing sector=-1, result=incomplete, reason=local automation reset/interrupted; retained for later retries.
+(18:02) RKMission: Mission route estimate: mission=1442298249, playfield=665, origin=(X=629.88, Z=1414.41, height(Y)=24.82), anchor=(X=718.59, Z=1470.90, height(Y)=0.00), mode=Fly, cost=105,2 m, source=direct horizontal Fly estimate; local entry height unresolved.
+(18:02) RKMission: Mission route estimate: mission=1442298182, playfield=665, origin=(X=629.88, Z=1414.41, height(Y)=24.82), anchor=(X=568.96, Z=1513.33, height(Y)=0.00), mode=Fly, cost=116,2 m, source=direct horizontal Fly estimate; local entry height unresolved.
+(18:02) RKMission: Mission route estimate: mission=1442298208, playfield=665, origin=(X=629.88, Z=1414.41, height(Y)=24.82), anchor=(X=710.81, Z=1567.06, height(Y)=0.00), mode=Fly, cost=172,8 m, source=direct horizontal Fly estimate; local entry height unresolved.
+(18:02) RKMission: Selected accepted mission: 1442298249, 'Hello. Thanks for taking on ...', current playfield=665, origin=(X=629.88, Z=1414.41, height(Y)=24.82), anchor=(X=718.59, Z=1470.90, height(Y)=0.00), mode=Fly, estimate=105,2 m; map/minimap upload handled by native accepted-mission API; final doorway unresolved.
+(18:02) RKMission: Map/minimap marker update: mission=1442298249, playfield=665, mission anchor=(X=718.59, Z=1470.90, height(Y)=0.00), API=Mission.UploadToMap, result=selected mission upload command sent; native GUI has no marker acknowledgement.
+(18:02) RKMission: Fly route choice: over, over cost=117,2, around cost=141,7, current height=24,82, next=(X=629.88, Z=1414.41, height(Y)=36.82), ray hit=True, observed block=False, footprint crossing=False; no floor descent during bypass.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=629.88, Z=1414.41, height(Y)=36.82), distance=12,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor progress: mission=1442298249, mode=Fly, phase=FlyAvoidObstacle, position=(X=629.88, Z=1414.41, height(Y)=24.82), target=(X=629.88, Z=1414.41, height(Y)=36.82), progress delta=0,00 m, best remaining=12,00 m, leg no-progress=0,0 s, overall no-progress=0/90 s.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=646.75, Z=1425.15, height(Y)=36.03), distance=20,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Fly route choice: around: right, over cost=94,0, around cost=92,5, current height=36,03, next=(X=646.54, Z=1420.28, height(Y)=36.03), ray hit=True, observed block=False, footprint crossing=False; no floor descent during bypass.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=646.54, Z=1420.28, height(Y)=36.03), distance=4,47 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=662.92, Z=1432.42, height(Y)=36.03), distance=20,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor progress: mission=1442298249, mode=Fly, phase=FlyToEntrance, position=(X=656.36, Z=1427.89, height(Y)=36.03), target=(X=662.92, Z=1432.42, height(Y)=36.03), progress delta=12,03 m, best remaining=7,97 m, leg no-progress=0,0 s, overall no-progress=0/90 s.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=678.72, Z=1443.34, height(Y)=36.03), distance=20,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=694.52, Z=1454.27, height(Y)=36.03), distance=20,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=710.33, Z=1465.19, height(Y)=36.03), distance=20,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Entrance search: mission=1442298249, playfield=665, anchor=(X=718.59, Z=1470.90, height(Y)=0.00), door association radius=6 m, Ground movement bound=20 m, Fly exterior bound=36 m, sectors=16, learning key=665:359:735; quest altitude is not an entry target.
+(18:02) RKMission: Live mission-door association: mission=1442298249, accepted local doors=0, active=none, sectors explored=0/16, no new observed progress=0/90 s.
+(18:02) RKMission: Entrance candidate: mission=1442298249, sector=14/16, angle=315,0 deg, requested radius=12,0 m, actual exterior radius=12,0 m, pass=1, source=mission-anchor inferred radial side, point=(X=727.07, Z=1462.42, height(Y)=36.03), elevation source=actual flight height during side diagnosis; entry height deferred until exterior arrival, sector score=0,0, door=(None:0000), rotation=unavailable.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=718.76, Z=1460.93, height(Y)=36.03), distance=20,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Fly exterior route: requested sector=14, actual bearing=-145,3 deg, side change=0,0 deg, target=(X=718.76, Z=1460.93, height(Y)=36.03), strategy=direct; entry height deferred.
+(18:02) RKMission: Outdoor progress: mission=1442298249, mode=Fly, phase=ProbeExterior, position=(X=699.31, Z=1457.58, height(Y)=36.03), target=(X=718.76, Z=1460.93, height(Y)=36.03), progress delta=0,00 m, best remaining=20,00 m, leg no-progress=0,0 s, overall no-progress=0/90 s.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=727.07, Z=1462.42, height(Y)=36.03), distance=9,23 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Fly exterior route: requested sector=14, actual bearing=-93,4 deg, side change=51,9 deg, target=(X=727.07, Z=1462.42, height(Y)=36.03), strategy=direct; entry height deferred.
+(18:02) RKMission: Fly reached-side confirmation: requested sector=14, actual bearing=311,8 deg, radius=11,56, height=36,03; resolve entry height now.
+(18:02) RKMission: Fly entrance height: sector=14, height=20,50, source=first supported floor directly below reached exterior plus flight clearance; align vertically only at reached exterior, then approach along its direction.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=726.29, Z=1462.28, height(Y)=20.50), distance=15,53 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor navigation target: phase=AlignElevation, sector=14, source=mission-anchor inferred radial side, target=(X=726.29, Z=1462.28, height(Y)=20.50), elevation=first supported floor directly below reached exterior plus flight clearance, door=(None:0000).
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=724.34, Z=1464.55, height(Y)=21.01), distance=3,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor navigation target: phase=FinalApproach, sector=14, source=mission-anchor inferred radial side, target=(X=724.34, Z=1464.55, height(Y)=21.01), elevation=first supported floor directly below reached exterior plus flight clearance, door=(None:0000).
+(18:02) RKMission: Outdoor progress: mission=1442298249, mode=Fly, phase=FinalApproach, position=(X=724.91, Z=1463.89, height(Y)=21.09), target=(X=724.34, Z=1464.55, height(Y)=21.01), progress delta=2,01 m, best remaining=0,99 m, leg no-progress=0,1 s, overall no-progress=0/90 s.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=722.90, Z=1466.22, height(Y)=20.80), distance=3,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor navigation target: phase=FinalApproach, sector=14, source=mission-anchor inferred radial side, target=(X=722.90, Z=1466.22, height(Y)=20.80), elevation=first supported floor directly below reached exterior plus flight clearance, door=(None:0000).
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=721.47, Z=1467.89, height(Y)=20.60), distance=3,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor navigation target: phase=FinalApproach, sector=14, source=mission-anchor inferred radial side, target=(X=721.47, Z=1467.89, height(Y)=20.60), elevation=first supported floor directly below reached exterior plus flight clearance, door=(None:0000).
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=720.71, Z=1468.78, height(Y)=20.50), distance=1,97 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor navigation target: phase=FinalApproach, sector=14, source=mission-anchor inferred radial side, target=(X=720.71, Z=1468.78, height(Y)=20.50), elevation=first supported floor directly below reached exterior plus flight clearance, door=(None:0000).
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=719.65, Z=1469.84, height(Y)=20.50), distance=2,28 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor navigation target: phase=FinalApproach, sector=14, source=mission-anchor inferred radial side, target=(X=719.65, Z=1469.84, height(Y)=20.50), elevation=first supported floor directly below reached exterior plus flight clearance, door=(None:0000).
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=718.87, Z=1470.62, height(Y)=20.50), distance=1,89 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor navigation target: phase=FinalApproach, sector=14, source=mission-anchor inferred radial side, target=(X=718.87, Z=1470.62, height(Y)=20.50), elevation=first supported floor directly below reached exterior plus flight clearance, door=(None:0000).
+(18:02) RKMission: Entrance crossing: mission=1442298249, sector=14, door=(None:0000), target=(X=718.02, Z=1471.47, height(Y)=20.50), reason=no live mission Door; inferred normal/proximity threshold crossing; arrival cannot prove entry.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=718.02, Z=1471.47, height(Y)=20.50), distance=1,98 m, executor=direct world movement, corridor=hit hint; observed attempt allowed.
+(18:02) RKMission: Outdoor navigation target: phase=CrossThreshold, sector=14, source=mission-anchor inferred radial side, target=(X=718.02, Z=1471.47, height(Y)=20.50), elevation=first supported floor directly below reached exterior plus flight clearance, door=(None:0000).
+(18:02) Changing area. Please wait.
+(18:02) RKMission: Entrance crossing result: mission=1442298249, door=(None:0000), zoning observed; retain managed attempt for exact dungeon verification.
+(18:02) Entering new area.
+(18:02) Executing Nano Program: Karma Harvest.
+(18:02) RKMission: Entrance interaction result: mission=1442298249, door=(None:0000), dungeon=(ACGBuildingGeneratorData:DF9A5E), result=exact selected mission verified after zoning.
+(18:02) RKMission: Entrance learning result: key=665:359:735, mission=1442298249, result=verified entry, reason=exact selected mission dungeon stable for one second with a live room, successful exterior vector=X=0.71, Z=-0.71, height(Y)=0.00.
+(18:02) RKMission: Entered mission; mapping rooms.
+(18:02) RKMission: Verified mission 1442298249 in dungeon 14654046; existing dungeon logic resumed.
+(18:02) ManagerLoot Enable
+(18:02) RKMission: Mali room 0: 0 live enemy candidates, 0 containers, 0 corpses currently visible.
+(18:02) RKMission: Choosing adjacent unvisited room 1 from 0.
+(18:02) ManagerLoot disabled
+(18:02) RKMission: Transition 0->1: approach doorway at (9,999, 5, 65), door (Door:10B94202); interior (11,5, 5, 67).
+(18:02) RKMission: Completion recorded for 1442298249: Hello. Thanks for taking on .... Exit the mission yourself; while armed, the next accepted mission in the same playfield will take over.
+(18:02) RKMission: Mission completion confirmed. Exit yourself to resume same-playfield travel.
+(18:02) Changing area. Please wait.
+(18:02) Entering 'Broken Shores'
+(18:02) Waypoint uploaded to map and compass.
+(18:02) The waypoint is shown as a white dot on the map and a yellow indicator on the compass.
+(18:02) RKMission: Mission route estimate: mission=1442298208, playfield=665, origin=(X=720.56, Z=1470.90, height(Y)=20.81), anchor=(X=710.81, Z=1567.06, height(Y)=0.00), mode=Fly, cost=96,6 m, source=direct horizontal Fly estimate; local entry height unresolved.
+(18:02) RKMission: Mission route estimate: mission=1442298182, playfield=665, origin=(X=720.56, Z=1470.90, height(Y)=20.81), anchor=(X=568.96, Z=1513.33, height(Y)=0.00), mode=Fly, cost=157,4 m, source=direct horizontal Fly estimate; local entry height unresolved.
+(18:02) RKMission: Selected accepted mission: 1442298208, 'Hello. Thanks for taking on ...', current playfield=665, origin=(X=720.56, Z=1470.90, height(Y)=20.81), anchor=(X=710.81, Z=1567.06, height(Y)=0.00), mode=Fly, estimate=96,6 m; map/minimap upload handled by native accepted-mission API; final doorway unresolved.
+(18:02) RKMission: Map/minimap marker update: mission=1442298208, playfield=665, mission anchor=(X=710.81, Z=1567.06, height(Y)=0.00), API=Mission.UploadToMap, result=selected mission upload command sent; native GUI has no marker acknowledgement.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=718.54, Z=1490.80, height(Y)=20.81), distance=20,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor progress: mission=1442298208, mode=Fly, phase=FlyToEntrance, position=(X=720.56, Z=1470.90, height(Y)=20.81), target=(X=718.54, Z=1490.80, height(Y)=20.81), progress delta=0,00 m, best remaining=20,00 m, leg no-progress=0,2 s, overall no-progress=0/90 s.
+(18:02) RKMission: Fly route choice: over, over cost=95,1, around cost=114,0, current height=20,81, next=(X=718.62, Z=1490.03, height(Y)=38.46), ray hit=True, observed block=False, footprint crossing=False; no floor descent during bypass.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=718.62, Z=1490.03, height(Y)=38.46), distance=17,65 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=716.60, Z=1509.92, height(Y)=37.67), distance=20,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor progress: mission=1442298208, mode=Fly, phase=FlyToEntrance, position=(X=716.91, Z=1506.86, height(Y)=37.67), target=(X=716.60, Z=1509.92, height(Y)=37.67), progress delta=16,92 m, best remaining=3,08 m, leg no-progress=0,0 s, overall no-progress=0/90 s.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=714.67, Z=1529.05, height(Y)=37.67), distance=20,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=712.73, Z=1548.17, height(Y)=37.67), distance=20,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Entrance search: mission=1442298208, playfield=665, anchor=(X=710.81, Z=1567.06, height(Y)=0.00), door association radius=6 m, Ground movement bound=20 m, Fly exterior bound=36 m, sectors=16, learning key=665:355:784; quest altitude is not an entry target.
+(18:02) RKMission: Live mission-door association: mission=1442298208, accepted local doors=0, active=none, sectors explored=0/16, no new observed progress=0/90 s.
+(18:02) RKMission: Entrance candidate: mission=1442298208, sector=12/16, angle=270,0 deg, requested radius=12,0 m, actual exterior radius=12,0 m, pass=1, source=mission-anchor inferred radial side, point=(X=710.81, Z=1555.06, height(Y)=37.67), elevation source=actual flight height during side diagnosis; entry height deferred until exterior arrival, sector score=0,0, door=(None:0000), rotation=unavailable.
+(18:02) RKMission: Fly route choice: around: CW, over cost=19,8, around cost=8,6, current height=37,67, next=(X=706.99, Z=1543.50, height(Y)=37.67), ray hit=True, observed block=False, footprint crossing=False; no floor descent during bypass.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=706.99, Z=1543.50, height(Y)=37.67), distance=6,21 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Fly exterior route: requested sector=12, actual bearing=-84,2 deg, side change=0,0 deg, target=(X=706.99, Z=1543.50, height(Y)=37.67), strategy=around: CW; entry height deferred.
+(18:02) RKMission: Fly route choice: around: CCW, over cost=19,9, around cost=11,3, current height=37,67, next=(X=714.00, Z=1543.35, height(Y)=37.67), ray hit=True, observed block=False, footprint crossing=False; no floor descent during bypass.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=714.00, Z=1543.35, height(Y)=37.67), distance=6,22 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Fly exterior route: requested sector=12, actual bearing=-97,3 deg, side change=13,1 deg, target=(X=714.00, Z=1543.35, height(Y)=37.67), strategy=around: CCW; entry height deferred.
+(18:02) RKMission: Outdoor progress: mission=1442298208, mode=Fly, phase=FlyAvoidObstacle, position=(X=712.02, Z=1543.41, height(Y)=37.67), target=(X=714.00, Z=1543.35, height(Y)=37.67), progress delta=4,24 m, best remaining=1,98 m, leg no-progress=0,0 s, overall no-progress=1/90 s.
+(18:02) RKMission: Fly route choice: over, over cost=19,9, around cost=35,6, current height=37,67, next=(X=713.20, Z=1543.37, height(Y)=45.67), ray hit=True, observed block=False, footprint crossing=False; no floor descent during bypass.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=713.20, Z=1543.37, height(Y)=45.67), distance=8,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Fly exterior route: requested sector=12, actual bearing=-84,2 deg, side change=0,0 deg, target=(X=713.20, Z=1543.37, height(Y)=45.67), strategy=over; entry height deferred.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=710.81, Z=1555.06, height(Y)=44.94), distance=11,92 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Fly exterior route: requested sector=12, actual bearing=-84,2 deg, side change=0,0 deg, target=(X=710.81, Z=1555.06, height(Y)=44.94), strategy=direct; entry height deferred.
+(18:02) RKMission: Fly reached-side confirmation: requested sector=12, actual bearing=270,7 deg, radius=12,76, height=44,94; resolve entry height now.
+(18:02) RKMission: Fly entrance height: sector=12, height=38,82, source=first supported floor directly below reached exterior plus flight clearance; align vertically only at reached exterior, then approach along its direction.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=710.97, Z=1554.30, height(Y)=38.82), distance=6,12 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor navigation target: phase=AlignElevation, sector=12, source=mission-anchor inferred radial side, target=(X=710.97, Z=1554.30, height(Y)=38.82), elevation=first supported floor directly below reached exterior plus flight clearance, door=(None:0000).
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=710.92, Z=1557.29, height(Y)=39.35), distance=3,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor navigation target: phase=FinalApproach, sector=12, source=mission-anchor inferred radial side, target=(X=710.92, Z=1557.29, height(Y)=39.35), elevation=first supported floor directly below reached exterior plus flight clearance, door=(None:0000).
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=710.89, Z=1559.49, height(Y)=39.17), distance=3,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor navigation target: phase=FinalApproach, sector=12, source=mission-anchor inferred radial side, target=(X=710.89, Z=1559.49, height(Y)=39.17), elevation=first supported floor directly below reached exterior plus flight clearance, door=(None:0000).
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=710.85, Z=1561.68, height(Y)=39.00), distance=3,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor navigation target: phase=FinalApproach, sector=12, source=mission-anchor inferred radial side, target=(X=710.85, Z=1561.68, height(Y)=39.00), elevation=first supported floor directly below reached exterior plus flight clearance, door=(None:0000).
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=710.82, Z=1563.88, height(Y)=38.83), distance=3,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor navigation target: phase=FinalApproach, sector=12, source=mission-anchor inferred radial side, target=(X=710.82, Z=1563.88, height(Y)=38.83), elevation=first supported floor directly below reached exterior plus flight clearance, door=(None:0000).
+(18:02) RKMission: Outdoor progress: mission=1442298208, mode=Fly, phase=FinalApproach, position=(X=710.86, Z=1560.90, height(Y)=39.06), target=(X=710.82, Z=1563.88, height(Y)=38.83), progress delta=0,00 m, best remaining=3,00 m, leg no-progress=0,0 s, overall no-progress=0/90 s.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=710.81, Z=1564.06, height(Y)=38.82), distance=0,98 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor navigation target: phase=FinalApproach, sector=12, source=mission-anchor inferred radial side, target=(X=710.81, Z=1564.06, height(Y)=38.82), elevation=first supported floor directly below reached exterior plus flight clearance, door=(None:0000).
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=710.81, Z=1565.56, height(Y)=38.82), distance=2,28 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor navigation target: phase=FinalApproach, sector=12, source=mission-anchor inferred radial side, target=(X=710.81, Z=1565.56, height(Y)=38.82), elevation=first supported floor directly below reached exterior plus flight clearance, door=(None:0000).
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=710.81, Z=1566.66, height(Y)=38.82), distance=1,88 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor navigation target: phase=FinalApproach, sector=12, source=mission-anchor inferred radial side, target=(X=710.81, Z=1566.66, height(Y)=38.82), elevation=first supported floor directly below reached exterior plus flight clearance, door=(None:0000).
+(18:02) RKMission: Entrance crossing: mission=1442298208, sector=12, door=(None:0000), target=(X=710.81, Z=1567.86, height(Y)=38.82), reason=no live mission Door; inferred normal/proximity threshold crossing; arrival cannot prove entry.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=710.81, Z=1567.86, height(Y)=38.82), distance=1,98 m, executor=direct world movement, corridor=hit hint; observed attempt allowed.
+(18:02) RKMission: Outdoor navigation target: phase=CrossThreshold, sector=12, source=mission-anchor inferred radial side, target=(X=710.81, Z=1567.86, height(Y)=38.82), elevation=first supported floor directly below reached exterior plus flight clearance, door=(None:0000).
+(18:02) RKMission: Live mission-door association: mission=1442298208, accepted local doors=0, active=(None:0000), sectors explored=1/16, no new observed progress=2/90 s.
+(18:02) RKMission: Fly entrance height: sector=12, height=40,82, source=bounded observed entry-height alternative on reached side; align vertically only at reached exterior, then approach along its direction.
+(18:02) RKMission: Fly entry-height correction: sector=12, trial=2/4, height=40,82, reason=threshold reached/crossed but no zoning observed; return outside before aligning, no assumed doorway floor.
+(18:02) RKMission: Fly route choice: over, over cost=20,1, around cost=100,1, current height=38,82, next=(X=710.81, Z=1567.14, height(Y)=46.82), ray hit=False, observed block=False, footprint crossing=True; no floor descent during bypass.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=710.81, Z=1567.14, height(Y)=46.82), distance=8,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Fly exterior route: requested sector=12, actual bearing=89,6 deg, side change=0,0 deg, target=(X=710.81, Z=1567.14, height(Y)=46.82), strategy=over; entry height deferred.
+(18:02) RKMission: Outdoor progress: mission=1442298208, mode=Fly, phase=FlyAvoidObstacle, position=(X=710.81, Z=1567.14, height(Y)=38.82), target=(X=710.81, Z=1567.14, height(Y)=46.82), progress delta=0,00 m, best remaining=8,00 m, leg no-progress=0,0 s, overall no-progress=0/90 s.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=710.81, Z=1555.06, height(Y)=46.09), distance=12,08 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Fly exterior route: requested sector=12, actual bearing=89,6 deg, side change=0,0 deg, target=(X=710.81, Z=1555.06, height(Y)=46.09), strategy=direct; entry height deferred.
+(18:02) RKMission: Fly reached-side confirmation: requested sector=12, actual bearing=270,0 deg, radius=11,26, height=46,09; resolve entry height now.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=710.81, Z=1555.80, height(Y)=40.82), distance=5,27 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor navigation target: phase=AlignElevation, sector=12, source=mission-anchor inferred radial side, target=(X=710.81, Z=1555.80, height(Y)=40.82), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=710.81, Z=1558.78, height(Y)=41.33), distance=3,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor navigation target: phase=FinalApproach, sector=12, source=mission-anchor inferred radial side, target=(X=710.81, Z=1558.78, height(Y)=41.33), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=710.81, Z=1560.97, height(Y)=41.11), distance=3,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor navigation target: phase=FinalApproach, sector=12, source=mission-anchor inferred radial side, target=(X=710.81, Z=1560.97, height(Y)=41.11), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=710.81, Z=1563.17, height(Y)=40.90), distance=3,00 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor navigation target: phase=FinalApproach, sector=12, source=mission-anchor inferred radial side, target=(X=710.81, Z=1563.17, height(Y)=40.90), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=710.81, Z=1564.06, height(Y)=40.82), distance=1,69 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor navigation target: phase=FinalApproach, sector=12, source=mission-anchor inferred radial side, target=(X=710.81, Z=1564.06, height(Y)=40.82), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=710.81, Z=1565.56, height(Y)=40.82), distance=2,29 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor navigation target: phase=FinalApproach, sector=12, source=mission-anchor inferred radial side, target=(X=710.81, Z=1565.56, height(Y)=40.82), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:02) RKMission: Outdoor progress: mission=1442298208, mode=Fly, phase=FinalApproach, position=(X=710.81, Z=1563.38, height(Y)=40.89), target=(X=710.81, Z=1565.56, height(Y)=40.82), progress delta=0,00 m, best remaining=2,29 m, leg no-progress=0,1 s, overall no-progress=4/90 s.
+(18:02) RKMission: Movement leg: mode=Fly, target=(X=710.81, Z=1566.66, height(Y)=40.82), distance=1,85 m, executor=direct world movement, corridor=clear hint.
+(18:02) RKMission: Outdoor navigation target: phase=FinalApproach, sector=12, source=mission-anchor inferred radial side, target=(X=710.81, Z=1566.66, height(Y)=40.82), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:03) RKMission: Entrance crossing: mission=1442298208, sector=12, door=(None:0000), target=(X=710.81, Z=1567.86, height(Y)=40.82), reason=no live mission Door; inferred normal/proximity threshold crossing; arrival cannot prove entry.
+(18:03) RKMission: Movement leg: mode=Fly, target=(X=710.81, Z=1567.86, height(Y)=40.82), distance=1,98 m, executor=direct world movement, corridor=clear hint.
+(18:03) RKMission: Outdoor navigation target: phase=CrossThreshold, sector=12, source=mission-anchor inferred radial side, target=(X=710.81, Z=1567.86, height(Y)=40.82), elevation=bounded observed entry-height alternative on reached side, door=(None:0000).
+(18:03) RKMission: Live mission-door association: mission=1442298208, accepted local doors=0, active=(None:0000), sectors explored=1/16, no new observed progress=6/90 s.
+(18:03) RKMission: Entrance attempt result: mission=1442298208, sector=12, door=(None:0000), progress delta=11,21 m, exterior reached=True, wall-bearing sector=-1, result=incomplete, reason=local automation reset/interrupted; retained for later retries.
+(18:03) RKMission: Stopped. Use /rkm start to arm local takeover again.
+(18:03) Nanoprogram Gridspace Freedom terminated...
