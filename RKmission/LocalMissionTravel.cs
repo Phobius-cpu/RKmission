@@ -11,12 +11,12 @@ namespace RKmission
 
     internal sealed class LocalMissionTravel
     {
-        private enum Phase { Idle, GroundTravel, FlightCruise, FlightLanding, Dismount, EntranceApproach, EnterDoor }
+        private enum Phase { Idle, GroundTravel, FlightCruise, FlightDescent, EntranceApproach, EnterDoor }
         private readonly Action<string> _say;
         private readonly List<Vector3> _recentGround = new List<Vector3>(), _recentFlight = new List<Vector3>();
         private LocalRoute _route;
         private Phase _phase;
-        private bool _ownsMovement, _forceDirect, _directActive, _flightDetour, _landingFromDoor;
+        private bool _ownsMovement, _forceDirect, _directActive, _flightDetour, _approachFromDoor, _entryProbeLogged;
         private Vector3 _lastPosition, _directStep, _groundTarget, _flightStep, _flightGoal, _loggedTarget;
         private float _bestStepDistance, _bestGroundDistance, _bestFlightDistance, _bestFlightStepDistance;
         private DateTime _stepProgress, _groundProgress, _flightProgress, _flightStepProgress, _lastMotion;
@@ -26,16 +26,13 @@ namespace RKmission
         private Identity _door = Identity.None;
         public TravelMode Mode { get; set; } = TravelMode.Auto;
         public string Status => _phase.ToString();
-        public bool IsFlightActive => _phase == Phase.FlightCruise || _phase == Phase.FlightLanding;
+        public bool IsFlightActive => _phase == Phase.FlightCruise || _phase == Phase.FlightDescent ||
+            (_phase == Phase.EntranceApproach && _route?.Flying == true && IsFlying);
         private static bool IsFlying => DynelManager.LocalPlayer.MovementState == MovementState.Fly;
-        public bool NeedsReselection => Mode == TravelMode.Auto &&
-            ((_phase == Phase.GroundTravel && IsFlying) ||
-             (IsFlightActive && !IsFlying && _route != null &&
-              LocalRoutePlanner.HorizontalDistance(DynelManager.LocalPlayer.Position, _route.Mission.Entrance) > 16));
 
         public LocalMissionTravel(Action<string> say) { _say = say; }
 
-        public AcceptedMission SelectBest(IEnumerable<AcceptedMission> missions)
+        public AcceptedMission SelectNearest(IEnumerable<AcceptedMission> missions)
         {
             bool flying = Mode == TravelMode.Flying || (Mode == TravelMode.Auto && IsFlying);
             if ((flying && !IsFlying) || (!flying && IsFlying))
@@ -45,21 +42,20 @@ namespace RKmission
                 _lastEvaluation = reason;
                 return null;
             }
-            var routes = missions.Select(LocalRoutePlanner.Evaluate).ToList();
-            string evaluation = string.Join(" | ", routes.Select(route =>
-                $"Mission {route.Mission.Id.Instance}: ground={CostText(route.GroundCost)} ({route.GroundReason}), " +
-                $"flying={CostText(route.FlyingCost)} ({route.FlyingReason})."));
-            if (_lastEvaluation != evaluation)
+            Vector3 origin = DynelManager.LocalPlayer.Position;
+            if (!AcceptedMissions.Finite(origin))
             {
-                _say($"Local travel estimates: playfield={Playfield.ModelIdentity.Instance}, position={DynelManager.LocalPlayer.Position}, " +
-                    $"movement={DynelManager.LocalPlayer.MovementState}, outdoor mesh={SMovementController.NavAgent?.HasPathfinder == true}.");
-                foreach (LocalRoute route in routes)
-                    _say($"Mission {route.Mission.Id.Instance}: ground={CostText(route.GroundCost)} ({route.GroundReason}), " +
-                        $"flying={CostText(route.FlyingCost)} ({route.FlyingReason}).");
-                _lastEvaluation = evaluation;
+                if (_lastEvaluation != "invalid origin") _say("Cannot select an entrance: player origin coordinates are invalid.");
+                _lastEvaluation = "invalid origin";
+                return null;
             }
-            _route = routes.Where(x => !float.IsInfinity(x.Cost(flying)) && !float.IsNaN(x.Cost(flying)))
-                .OrderBy(x => x.Cost(flying)).ThenBy(x => x.Mission.Id.Instance).FirstOrDefault();
+            // Compare distances only, using one captured origin. Other missions receive no
+            // navmesh query, terrain probe or flight plan. Keep the chosen identity/point.
+            AcceptedMission nearest = missions.Where(x => AcceptedMissions.Finite(x.Entrance))
+                .OrderBy(x => LocalRoutePlanner.HorizontalDistance(origin, x.Entrance))
+                .ThenBy(x => x.Id.Instance).FirstOrDefault();
+            if (nearest == null) return null;
+            _route = LocalRoutePlanner.Plan(nearest, origin, flying);
             if (_route == null) return null;
             SMovementController.Halt();
             SMovementController.SetMovement(MovementAction.FullStop);
@@ -69,15 +65,14 @@ namespace RKmission
             _travelStarted = DateTime.UtcNow;
             _forceDirect = !_route.GroundUsesMesh;
             _recentGround.Clear(); _recentFlight.Clear();
-            _landingFromDoor = false;
+            _approachFromDoor = false;
             Begin(flying ? Phase.FlightCruise : Phase.GroundTravel);
-            _say($"Selected {_route.Mission.Id.Instance}: {_route.Mission.Name}; entrance={_route.Mission.Entrance}; " +
-                $"{(flying ? _route.FlyingReason : _route.GroundReason)}, cost {_route.Cost(flying):F1} m; movement attempts enabled.");
+            _say($"Nearest entrance selected: {_route.Mission.Id.Instance}, {_route.Mission.Name}; origin={_route.Origin}, " +
+                $"entrance={_route.Entrance}, estimated distance={_route.EntranceDistance:F1} m. " +
+                $"Single {(flying ? "flying" : "ground")} route: {_route.Reason}, path cost={_route.Cost:F1} m; " +
+                $"movement={DynelManager.LocalPlayer.MovementState}, outdoor mesh={SMovementController.NavAgent?.HasPathfinder == true}.");
             return _route.Mission;
         }
-
-        private static string CostText(float value) => float.IsInfinity(value) || float.IsNaN(value)
-            ? "invalid coordinates/no estimate" : $"{value:F1} m";
 
         public void Reset()
         {
@@ -102,6 +97,7 @@ namespace RKmission
             _lastPosition = DynelManager.LocalPlayer.Position;
             _nextMove = _nextProgressLog = _nextProbeLog = DateTime.MinValue;
             _directActive = _flightDetour = false; _movementKind = null;
+            _entryProbeLogged = false;
             _bestGroundDistance = _bestFlightDistance = _bestFlightStepDistance = float.PositiveInfinity;
             _flightStepProgress = _phaseAt;
         }
@@ -118,79 +114,72 @@ namespace RKmission
             if (!AcceptedMissions.Finite(position)) return Fail("Player world coordinates are invalid.");
             if (Vector3.Distance(position, _lastPosition) >= 0.5f)
             { _lastPosition = position; _lastMotion = now; }
-            if (IsFlightActive && !IsFlying && LocalRoutePlanner.HorizontalDistance(position, mission.Entrance) <= 16)
+            if ((_phase == Phase.FlightCruise || _phase == Phase.FlightDescent) && !IsFlying &&
+                LocalRoutePlanner.HorizontalDistance(position, _route.Entrance) <= 16)
             {
-                Begin(Phase.Dismount);
-                _say("Flight state cleared near entrance; waiting for ground/falling state before door approach.");
+                _forceDirect = false;
+                Begin(Phase.EntranceApproach);
+                _say("Flight state cleared near the chosen entrance; continuing this mission's approach without reselection.");
             }
             switch (_phase)
             {
                 case Phase.GroundTravel:
                     if (IsFlying) return Fail("Ground travel requires landing/dismount; use /rkm travel auto or flying.");
-                    if (LocalRoutePlanner.HorizontalDistance(position, mission.Entrance) <= 14)
+                    if (LocalRoutePlanner.HorizontalDistance(position, _route.Entrance) <= 14)
                     {
                         Begin(Phase.EntranceApproach);
                         _say("Near mission entrance; resolving live door and precise approach height.");
                         return true;
                     }
-                    return GroundMove(LocalRoutePlanner.ResolveEntranceHeight(mission.Entrance, position, out _));
+                    return GroundMove(_route.EntrancePoint);
                 case Phase.FlightCruise:
                     // Direct elevated travel, without a mandatory vertical climb or corridor certificate.
-                    if (LocalRoutePlanner.HorizontalDistance(position, mission.Entrance) <= 16)
-                    { PrepareLanding(mission); return true; }
+                    if (LocalRoutePlanner.HorizontalDistance(position, _route.Entrance) <= 16)
+                    { PrepareFlightDescent(mission); return true; }
                     return FlyMove(_route.CruiseEnd);
-                case Phase.FlightLanding:
+                case Phase.FlightDescent:
                     // A door may become visible only after descent starts. Upgrade a terrain
                     // or provisional height once to its live approach, rather than landing on
                     // a roof solely because it was the first local terrain hit.
-                    if (!_landingFromDoor && LocalRoutePlanner.HorizontalDistance(position, mission.Entrance) <= 8 &&
+                    if (!_approachFromDoor && LocalRoutePlanner.HorizontalDistance(position, _route.Entrance) <= 8 &&
                         ResolveDoor(mission) != null)
-                    { PrepareLanding(mission); return true; }
-                    Vector3 touchdown = _route.Landing + new Vector3(0, 1.5f, 0);
-                    if (LocalRoutePlanner.HorizontalDistance(position, touchdown) <= 2 && Math.Abs(position.Y - touchdown.Y) <= 1.5f)
+                    { PrepareFlightDescent(mission); return true; }
+                    Vector3 approach = _route.FlightApproach + new Vector3(0, 1.5f, 0);
+                    if (LocalRoutePlanner.HorizontalDistance(position, approach) <= 2 && Math.Abs(position.Y - approach.Y) <= 1.5f)
                     {
-                        Begin(Phase.Dismount);
-                        _say(_route.LandingVerified
-                            ? "At the final flight approach. Dismount your vehicle; precise ground/door approach resumes automatically."
-                            : "At a provisional final flight approach; height is unresolved. Land/dismount here, then precise door approach resumes automatically.");
+                        Begin(Phase.EntranceApproach);
+                        _say("At the final flight approach; continuing to the chosen entrance in your vehicle.");
                         return true;
                     }
-                    return FlyMove(touchdown);
-                case Phase.Dismount:
-                    Halt();
-                    if (now - _phaseAt > TimeSpan.FromMinutes(2))
-                        return Fail("Dismount wait exceeded two minutes; /rkm start after landing/dismounting.");
-                    if (!IsFlying && !DynelManager.LocalPlayer.IsFalling)
-                    {
-                        _forceDirect = false; Begin(Phase.EntranceApproach);
-                        _say("Ground movement confirmed; approaching the mission door.");
-                    }
-                    return true;
+                    return FlyMove(approach);
                 case Phase.EntranceApproach: return ApproachDoor(mission);
                 case Phase.EnterDoor: return EnterDoor(mission);
                 default: return false;
             }
         }
 
-        private void PrepareLanding(AcceptedMission mission)
+        private void PrepareFlightDescent(AcceptedMission mission)
         {
             Vector3 position = DynelManager.LocalPlayer.Position;
             Door entrance = ResolveDoor(mission);
-            Vector3 anchor = entrance?.Position ?? LocalRoutePlanner.ResolveEntranceHeight(mission.Entrance, position, out _);
-            Vector3 landing = LocalRoutePlanner.OutsideEntrance(anchor, position, 4);
-            bool terrain = LocalRoutePlanner.TrySurface(landing, position.Y, out Vector3 surface);
-            bool knownHeight = entrance != null || terrain || !LocalRoutePlanner.HeightMissing(mission.Entrance);
+            Vector3 anchor = entrance?.Position ?? LocalRoutePlanner.ResolveEntranceHeight(_route.Entrance, position, out _);
+            Vector3 approach = LocalRoutePlanner.OutsideEntrance(anchor, _route.Origin, 4);
+            bool terrain = LocalRoutePlanner.TrySurface(approach, position.Y, out Vector3 surface);
+            bool knownHeight = entrance != null || terrain || !LocalRoutePlanner.HeightMissing(_route.Entrance);
             // Use live door height if a local ray hit a roof. Missing height permits a small
-            // provisional descent and user landing rather than a blind descent to map Y=0.
-            if (terrain && (entrance == null || Math.Abs(surface.Y - anchor.Y) <= 5)) landing.Y = surface.Y;
-            else if (entrance != null) landing.Y = entrance.Position.Y;
-            else if (!knownHeight) landing.Y = position.Y - 4;
-            _route.Landing = landing; _route.LandingVerified = entrance != null || terrain;
-            _landingFromDoor = entrance != null;
-            Begin(Phase.FlightLanding);
-            _say($"Flight descent/final approach: target={landing + new Vector3(0, 1.5f, 0)}, " +
+            // provisional descent rather than a blind descent to map Y=0. Flight continues
+            // through the entrance approach; this waypoint never requests a dismount.
+            if (terrain && (entrance == null || Math.Abs(surface.Y - anchor.Y) <= 5)) approach.Y = surface.Y;
+            else if (entrance != null) approach.Y = entrance.Position.Y;
+            else if (!knownHeight) approach.Y = position.Y - 4;
+            if (entrance == null) anchor.Y = approach.Y;
+            _route.EntrancePoint = anchor;
+            _route.FlightApproach = approach;
+            _approachFromDoor = entrance != null;
+            Begin(Phase.FlightDescent);
+            _say($"Flight descent/final approach: target={approach + new Vector3(0, 1.5f, 0)}, " +
                 $"height={(entrance != null ? "live door" : terrain ? "local terrain hint" : knownHeight ? "accepted coordinate, provisional" : "short provisional descent")}; " +
-                $"position={position}; entrance={mission.Entrance}. Clearance probes are advisory.");
+                $"position={position}; chosen entrance={_route.Entrance}; vehicle stays equipped. Clearance probes are advisory.");
         }
 
         private bool GroundMove(Vector3 destination)
@@ -326,7 +315,8 @@ namespace RKmission
                 _say($"Flight obstacle recovery {_flightRecoveries}: no waypoint progress for 8 seconds; " +
                     $"alternate target={target}, final target={destination}; no-progress clock continues.");
             }
-            LogMovement(_flightDetour ? "Flight recovery" : _phase == Phase.FlightLanding ? "Flight descent/final approach" : "Direct elevated flight", target, destination);
+            LogMovement(_flightDetour ? "Flight recovery" : _phase == Phase.FlightDescent ? "Flight descent/final approach" :
+                _phase == Phase.EntranceApproach ? "Flight entrance approach in vehicle" : "Direct elevated flight", target, destination);
             LogProbe(position, target, "Flight");
             Vector3 direction = target - position;
             // Ordinary waypoint arrival uses X/Z. Flight needs explicit altitude-aware steering
@@ -345,59 +335,74 @@ namespace RKmission
             // Map Y can be zero/stale. Match the horizontal neighborhood; live door height
             // governs entry. Preserve unique-door identity and exact dungeon handoff.
             var doors = Playfield.Doors.Where(x => AcceptedMissions.Finite(x.Position) &&
-                    LocalRoutePlanner.HorizontalDistance(x.Position, mission.Entrance) <= 6)
-                .OrderBy(x => LocalRoutePlanner.HorizontalDistance(x.Position, mission.Entrance)).ToList();
+                    LocalRoutePlanner.HorizontalDistance(x.Position, _route.Entrance) <= 6)
+                .OrderBy(x => LocalRoutePlanner.HorizontalDistance(x.Position, _route.Entrance)).ToList();
             if (doors.Count == 0) return null;
             if (_door != Identity.None) return doors.FirstOrDefault(x => x.Identity == _door);
-            if (doors.Count > 1 && LocalRoutePlanner.HorizontalDistance(doors[1].Position, mission.Entrance) -
-                LocalRoutePlanner.HorizontalDistance(doors[0].Position, mission.Entrance) < 1) return null;
+            if (doors.Count > 1 && LocalRoutePlanner.HorizontalDistance(doors[1].Position, _route.Entrance) -
+                LocalRoutePlanner.HorizontalDistance(doors[0].Position, _route.Entrance) < 1) return null;
             _door = doors[0].Identity;
-            _say($"Mission {mission.Id.Instance}: entrance door {_door}, precise point={doors[0].Position}, accepted point={mission.Entrance}.");
+            _say($"Mission {mission.Id.Instance}: entrance door {_door}, precise point={doors[0].Position}, chosen point={_route.Entrance}.");
             return doors[0];
         }
 
         private bool ApproachDoor(AcceptedMission mission)
         {
-            if (IsFlying) return Fail("Dismount before the precise entrance approach.");
-            if (DynelManager.LocalPlayer.IsFalling) { Halt(); return true; }
+            if (IsFlying && !_route.Flying) return Fail("Ground route changed to flying state; select /rkm travel auto or flying to restart from this origin.");
+            if (!IsFlying && DynelManager.LocalPlayer.IsFalling) { Halt(); return true; }
             Door entrance = ResolveDoor(mission);
             if (entrance == null)
             {
                 if (DateTime.UtcNow - _phaseAt > TimeSpan.FromSeconds(45))
                     return Fail("No unique mission door within 6 horizontal metres of accepted coordinates after 45 seconds; entry withheld.");
-                if (LocalRoutePlanner.HorizontalDistance(DynelManager.LocalPlayer.Position, mission.Entrance) > 2)
-                    return GroundMove(LocalRoutePlanner.ResolveEntranceHeight(mission.Entrance, DynelManager.LocalPlayer.Position, out _));
+                // Allow proximity entry even if the client exposes no live Door yet.
+                // Continue to the selected entrance itself, rather than stopping 2 m short
+                // or handing a flight route to ground detours. Exact dungeon verification
+                // remains the coordinator's gate after any resulting zone transition.
+                Vector3 target = _route.EntrancePoint + (IsFlying ? new Vector3(0, 1.5f, 0) : Vector3.Zero);
+                if (!_entryProbeLogged)
+                {
+                    _entryProbeLogged = true;
+                    _say($"No unique live door yet; approaching chosen entrance trigger point {target} " +
+                        $"{(IsFlying ? "in vehicle" : "on ground")}; awaiting door visibility or zoning.");
+                }
+                if (IsFlying && Vector3.Distance(DynelManager.LocalPlayer.Position, target) > 0.7f)
+                    return FlyMove(target);
+                if (!IsFlying && LocalRoutePlanner.HorizontalDistance(DynelManager.LocalPlayer.Position, target) > 0.7f)
+                    return GroundMove(target);
                 Halt(); return true;
             }
             Vector3 position = DynelManager.LocalPlayer.Position;
             if (Vector3.Distance(position, entrance.Position) <= 3 && Math.Abs(position.Y - entrance.Position.Y) <= 2.5f)
             {
                 Begin(Phase.EnterDoor); _lastUse = DateTime.MinValue;
-                _say($"Precise entrance approach reached at {position}; interacting with {_door}.");
+                _say($"Precise entrance approach reached at {position}; interacting with {_door} " +
+                    $"{(IsFlying ? "in vehicle" : "on ground")}.");
                 return true;
             }
-            // If aligned horizontally but on another floor, step outside before approaching
-            // again; the overall entry deadline still bounds a mismatched elevation.
-            Vector3 target = LocalRoutePlanner.HorizontalDistance(position, entrance.Position) <= 0.7f &&
+            if (IsFlying) return FlyMove(entrance.Position + new Vector3(0, 1.5f, 0));
+            // A grounded character aligned horizontally on another floor must step outside
+            // before approaching again; the overall entry deadline still bounds the attempt.
+            Vector3 groundTarget = LocalRoutePlanner.HorizontalDistance(position, entrance.Position) <= 0.7f &&
                 Math.Abs(position.Y - entrance.Position.Y) > 2.5f
                 ? LocalRoutePlanner.OutsideEntrance(entrance.Position, position, 4) : entrance.Position;
-            return GroundMove(target);
+            return GroundMove(groundTarget);
         }
 
         private bool EnterDoor(AcceptedMission mission)
         {
-            if (IsFlying) return Fail("Flying state returned before entrance entry; dismount and restart.");
+            if (IsFlying && !_route.Flying) return Fail("Ground route changed to flying state before entry; restart with the appropriate travel mode.");
             Door entrance = ResolveDoor(mission);
             if (entrance == null) return Fail("Selected entrance door disappeared before zoning.");
             Vector3 position = DynelManager.LocalPlayer.Position;
-            if (DynelManager.LocalPlayer.IsFalling || Vector3.Distance(position, entrance.Position) > 3.5f || Math.Abs(position.Y - entrance.Position.Y) > 2.5f)
+            if ((!IsFlying && DynelManager.LocalPlayer.IsFalling) || Vector3.Distance(position, entrance.Position) > 3.5f || Math.Abs(position.Y - entrance.Position.Y) > 2.5f)
             { Begin(Phase.EntranceApproach); return true; }
             if (DateTime.UtcNow - _phaseAt > TimeSpan.FromSeconds(20))
                 return Fail("Mission door did not produce a verified dungeon transition after three use attempts.");
             if (_doorAttempts < 3 && DateTime.UtcNow - _lastUse >= TimeSpan.FromSeconds(4))
             {
                 Halt(); entrance.Use(); _lastUse = DateTime.UtcNow; _doorAttempts++;
-                _say($"Using entrance {_door}, attempt {_doorAttempts}/3; awaiting exact mission/dungeon verification.");
+                _say($"Using entrance {_door} {(IsFlying ? "in vehicle" : "on ground")}, attempt {_doorAttempts}/3; awaiting exact mission/dungeon verification.");
             }
             return true;
         }

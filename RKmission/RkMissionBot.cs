@@ -77,10 +77,10 @@ namespace RKmission
                     {
                         _travel.Mode = mode;
                         if (!Playfield.IsDungeon && !_verifiedRun)
-                            _selected = null; // Re-cost every candidate after a mode change.
+                            _selected = null; // Explicit mode change starts a nearest-entrance choice from a new origin.
                         _travel.Reset();
                         _nextSelection = DateTime.MinValue;
-                        Say($"Travel mode: {mode}. Flying requires an active flying vehicle; ground requires dismount.");
+                        Say($"Travel mode: {mode}. Flying requires an active flying vehicle and continues entrance approach/entry in that vehicle; ground requires ground movement.");
                     }
                     break;
                 case "missions":
@@ -207,7 +207,7 @@ namespace RKmission
                     }
                 }
                 if (_selected != null && (!_selected.Present ||
-                    _selected.PlayfieldId != Playfield.ModelIdentity.Instance || _travel.NeedsReselection))
+                    _selected.PlayfieldId != Playfield.ModelIdentity.Instance))
                 {
                     _selected = null;
                     _travel.Reset();
@@ -222,7 +222,7 @@ namespace RKmission
                     {
                         Wait("Waiting for you to reach a playfield containing an accepted Rubi-Ka mission."); return;
                     }
-                    _selected = _travel.SelectBest(local);
+                    _selected = _travel.SelectNearest(local);
                     if (_selected == null)
                     {
                         Wait("No local estimate for the active movement state. Check world coordinates, vehicle state, and /rkm travel mode. Outdoor meshes and clearance probes do not gate a direct attempt; selection will retry.");

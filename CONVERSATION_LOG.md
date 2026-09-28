@@ -406,3 +406,33 @@ combat, interior doors, lockpick and loot code were preserved; coordinator chang
 only its idle route-selection wording. Source/API and diff review only. No local
 compilation, package restore, automated tests or in-game testing were performed.
 The user will pull, compile and validate these changes in playfield 665.
+
+### User successful descent and nearest-entrance/vehicle-entry correction (2026-09-28)
+
+The user supplied 07:09-07:10 logs showing flight descent reaching the final
+approach, then a vehicle-dismount prompt followed by ground fallback obstacle
+arcs near the entrance. They clarified: do not route multiple mission entrances;
+estimate the closest from the origin and create that path only. A chosen flying
+path must not require exiting the vehicle.
+
+### Assistant follow-up changes
+
+Capture one player origin, compare horizontal entrance distances, choose nearest
+with mission-ID tie break, then plan only that mission in the active movement
+mode. Store the chosen origin/entrance coordinates and keep mission selection
+fixed during travel; state changes do not re-rank the mission list. Route costs
+remain informational for the selected path. Later local-chain selections use
+a new origin after user-confirmed completion and exit.
+
+Removed the Dismount phase/wait. Flight descends near the chosen entrance,
+continues precise approach with 3D flight steering, and attempts live door use
+while Fly state and the vehicle remain active. No forced ground recovery or
+exit-vehicle prompt exists on a flight route. If no unique live door is exposed,
+continue to the selected entrance trigger point and await visibility/zoning,
+retaining exact selected mission/dungeon verification. If the user manually
+leaves flight near the entrance, continue that same mission on ground.
+
+Updated README.md and PROJECT_MEMORY.md to replace route-cost ranking and user
+dismount guidance. Preserved dungeon exploration/combat/interior-door/loot logic
+and accepted tracking. Source/API/diff review only; no local compilation, restore,
+automated tests or in-game testing. The user will pull main, compile and test.

@@ -5,7 +5,7 @@ Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
 mission travel, room exploration, combat targeting, door handling, and looting.
 
 **Status (2026-09-28):** the user reported working dungeon behavior before this
-travel revision. The local-travel feasibility/recovery revision is source-only and
+travel revision. The nearest-entrance/vehicle-entry revision is source-only and
 awaits the user's build and in-game validation. Dungeon exploration, combat,
 room doors, lockpicking, and loot behavior are preserved; one hook refreshes
 the live mission binding.
@@ -22,7 +22,7 @@ the live mission binding.
 - Outdoor navmeshes are **optional**. If available, place them at
   `NavMeshes/<playfield id>.nav` beside the deployed plugin for full ground
   pathfinding. Without a usable mesh, AO# direct waypoints attempt bounded local
-  ground approaches. Flight and landing do not require a ground mesh.
+  ground approaches. Flight and descent do not require a ground mesh.
   Dungeon navmeshes are generated on verified entry.
 - Keep a **Lock Pick** in normal inventory, enough lockpicking skill, and
   free inventory or configured backpack space.
@@ -37,9 +37,11 @@ the live mission binding.
 2. Check `/rkm missions`, configure `/ManagerLoot`, and use `/rkm start` to
    arm local takeover. There is no target-zone filter or RKMission roll limit.
 3. Travel between playfields yourself by any means. When your current outdoor
-   playfield contains accepted missions, RKMission evaluates every local
-   entrance and ranks routes for the active movement mode. Direct ground costs
-   are estimates for an attempted approach, not proof of full-path reachability.
+   playfield contains accepted missions, RKMission captures your position as
+   the origin, estimates horizontal distance to each entrance, and chooses the
+   nearest (mission ID breaks ties). It creates one route from that origin to
+   the chosen entrance, using the active movement mode. Other entrances receive
+   no path/terrain/flight planning. Estimates do not guarantee full reachability.
 4. Default `/rkm travel auto` reads AO# `MovementState.Fly`. Use
    `/rkm travel ground` or `/rkm travel flying` to override route selection for
    this plugin session. These commands do not equip or remove a vehicle.
@@ -47,18 +49,21 @@ the live mission binding.
    waypoints/arcs around obstacles. In a flying vehicle, the bot attempts direct
    world-space travel toward an elevated point near the entrance, then prepares
    descent within 16 horizontal metres. Collision probes advise recovery;
-   they do not reject the mission or stop moving characters. **Dismount when
-   prompted**; ground approach resumes once flight/falling state clears. If
-   local height remains unresolved, the bot makes a short provisional descent
-   and asks you to land/dismount before the precise door approach.
-6. Both modes approach a unique nearby entrance door and attempt entry. AO#
-   must associate the dungeon with the exact selected mission for a stable
+   they do not reject the mission or stop moving characters. **Stay in your
+   flying vehicle**: descent, the precise entrance approach, and door interaction
+   continue in flight. Unresolved height allows a short provisional descent
+   followed by entrance approach; there is no dismount pause or ground detour
+   while you remain in Fly state.
+6. Both modes approach the chosen entrance and use a unique nearby live door
+   when available. Without one, movement continues to the selected entrance
+   trigger point while waiting for a door or zoning. AO# must associate the
+   dungeon with the exact selected mission for a stable
    second before the existing `MissionDungeon` logic starts.
 7. Check the game's objective/reward. Use `/rkm complete` (or
    `/rkm complete <bound mission id>`) to record confirmed completion, then
    **exit the dungeon yourself**. While still armed, the bot chooses the next
-   cheapest accepted mission in that same outdoor playfield. If none remains,
-   it disarms; travel to another playfield yourself and use `/rkm start` again.
+   nearest accepted mission from your new origin in that same outdoor playfield.
+   If none remains, it disarms; travel to another playfield yourself and use `/rkm start` again.
 
 Starting inside a mission uses AO#'s exact current-dungeon mission lookup;
 it never guesses from mission-list order. Stop with `/rkm stop` whenever you
@@ -75,9 +80,14 @@ retrying an unfinished accepted mission.
 - Each mission retains its identity, entrance, dungeon identity, action types,
   objective target/item identities, room-clearance state, and completion evidence.
   Removal is `RemovedUnconfirmed`; it can mean reward, deletion, or expiration.
-- Ground cost uses complete navmesh path length plus endpoint approach when
-  available. A missing, partial, or disconnected mesh falls back to a direct
-  horizontal distance estimate, preserving that mission as an attemptable candidate.
+- Selection uses distance estimates from one captured origin, not competing
+  route costs. The chosen mission ID and entrance coordinates stay fixed while
+  moving; a movement-state change cannot select another mission. An explicit
+  stop/start or travel-mode change, removal, zoning, or completion can start
+  a new selection. Only the chosen entrance is planned, in one movement mode.
+- For the chosen ground route, complete navmesh path length plus endpoint
+  approach supplies its path cost when available. Missing, partial, or
+  disconnected meshes use the selected entrance's horizontal distance estimate.
   AOSharpSDK.SharpNav 1.0.44 `SetDestination` queues a direct waypoint without
   a pathfinder; `SetNavDestination` requires one. Ground fallback samples
   16 headings at 2/4/8/12 m, including tangent and backward arcs. Scores prefer
@@ -87,29 +97,32 @@ retrying an unfinished accepted mission.
   from the actual new position. There is no three-recovery limit.
 - Flying cost estimates direct world-space travel to a point 4 m outside the
   entrance, at least 12 m above its estimated height, followed by descent/final
-  approach. Every finite local entrance retains a flight estimate; a synthetic
-  climb/cruise/descent probe cannot discard it. Within 16 horizontal metres,
-  the bot resolves local terrain/live door height and prepares descent. A live
+  approach. This cost describes the single chosen flight route and does not
+  rank other missions. A synthetic climb/cruise/descent probe cannot discard it.
+  Within 16 horizontal metres, the bot resolves local terrain/live door height
+  and prepares descent. A live
   door loaded during descent replaces a provisional/terrain approach. Without
   height evidence or a usable accepted height, a 4 m provisional surface target
-  allows a small descent before requesting user landing. No mesh is needed.
-  Both alternatives are calculated; active mode selects ranking, with mission
-  ID as tie-breaker. Landing near the entrance joins the same ground approach.
+  allows a small descent before continuing to the chosen entrance in flight.
+  No mesh is needed. The approach side is anchored to the captured origin.
+  Flight steering remains active through precise approach; door use is allowed
+  in Fly state for a selected flight route. Manually leaving flight near the
+  entrance can continue the same mission on ground; this is never required.
 - Collision/terrain probes are soft hints. Ground/flight waypoint stalls of
   eight seconds trigger resampling; ground mesh movement stalls of 15 seconds
   trigger direct fallback. Flight recovery samples lateral/raised waypoints
   with a ceiling 40 m above the initial elevated target. Recoveries do not
   reset the final-target progress deadline: ground requires new best horizontal
   distance, flight new best 3D distance, within 90 seconds. Productive detours
-  continue until the 15-minute overall limit. Dismount waits two minutes;
-  precise approach/entry allows three minutes, unresolved door lookup 45
-  seconds, and door use retains three attempts/20 seconds. Local sampling
+  continue until the 15-minute overall limit. Precise approach/entry allows
+  three minutes, unresolved door lookup/proximity entry 45 seconds, and door
+  use retains three attempts/20 seconds. Local sampling
   cannot guarantee a route around arbitrary terrain or large obstacles.
 - AO# uses **Y for altitude**, with X/Z as the horizontal plane. Zero/stale
   accepted entrance height cannot alone invalidate a route or hide a door:
   nearby terrain/player height supplies provisional travel elevation, and door
   lookup uses a 6 m horizontal neighborhood. The live door's actual position
-  and height still govern final interaction; ambiguous doors are withheld.
+  and height still govern live-door interaction; ambiguous door use is withheld.
   Entry is limited to three uses and a bounded wait. A wrong or unidentified
   dungeon cannot start exploration. Interior room-door logic is unchanged.
 - AOSharpSDK 1.0.106 exposes no dependable completion/reward flag. Room
@@ -182,22 +195,25 @@ deployed plugin folders.
 - **Waiting for local missions:** inspect `/rkm missions`, acceptance and
   resolved destination; travel to the matching outdoor playfield. `/rkm start`
   is required again after the local chain finishes.
-- **Route diagnosis:** candidate logs include playfield, player position,
-  actual movement state, mesh availability, costs, and route reasons. With no
-  mesh, expect `ground=... (no outdoor mesh; direct estimate)` and
-  `flying=... (world-space flight estimate; elevated approach, local descent on arrival)`.
-  Finite estimates remain attemptable even when clearance probes hit. Watch
-  `Active movement` for the actual waypoint, `progress` for final-target distance,
+- **Route diagnosis:** `Nearest entrance selected` logs the captured origin,
+  chosen mission/entrance, estimated distance, single route/mode, path cost,
+  movement state and mesh availability. There are no competing ground/flight
+  plans for the mission list. Finite estimates remain attemptable even when
+  clearance probes hit. Watch `Active movement` for the actual waypoint,
+  `progress` for final-target distance,
   `obstacle hint/recovery` for advisory probes/resampling, and
-  `Flight descent/final approach` for the locally resolved landing target.
-  Idle checks retry every five seconds and suppress unchanged candidate logs.
+  `Flight descent/final approach` for descent, then
+  `Flight entrance approach in vehicle` for the last metres.
+  Idle selection checks retry every five seconds; mode warnings are suppressed
+  when unchanged. During movement, the selected mission remains fixed.
 - **Fallback stopped:** `Local travel HARD FAILURE` identifies an actual
   timeout/no-progress, invalid coordinates/state, or entrance failure. Three
   obstruction probes no longer stop a run. Move around the obstacle or closer
   to the entrance, then `/rkm start`. An optional outdoor mesh improves difficult ground routes.
   Do not assume a direct estimate guarantees passage through every obstacle.
-- **Landing pause:** dismount when prompted. Mode selection does not change
-  your vehicle or force a flight-state switch.
+- **Vehicle entry:** flight routes continue to the entrance with the vehicle
+  equipped. No dismount prompt/wait exists. Mode selection does not change
+  equipment. Explicit ground mode requires actual ground movement.
 - **Entrance/handoff failure:** read the coordinate, door identity, route cost,
   and entry logs. Ambiguous doors or an unmatched dungeon stop/hold entry.
 - **Clearance without confirmed completion:** check the objective/reward in
@@ -213,7 +229,7 @@ deployed plugin folders.
   enemies, failed routes/missing geometry, missing objective items or objectives,
   and AO# exceptions.
 
-The user owns rolling, selection, inter-playfield transport, vehicle dismount,
+The user owns rolling, selection, inter-playfield transport, vehicle equipment,
 reward confirmation, and dungeon exit. RKMission owns local route selection,
 travel/door entry, verified dungeon handoff, and same-playfield continuation.
 The working dungeon systems continue to own exploration, combat and loot.

@@ -12,38 +12,44 @@ namespace RKmission
     internal sealed class LocalRoute
     {
         public AcceptedMission Mission;
-        public float GroundCost = float.PositiveInfinity, FlyingCost = float.PositiveInfinity;
-        public Vector3 Landing, CruiseEnd;
-        public bool GroundUsesMesh, LandingVerified;
-        public string GroundReason, FlyingReason;
-        public float Cost(bool flying) => flying ? FlyingCost : GroundCost;
+        public Vector3 Origin, Entrance, EntrancePoint, FlightApproach, CruiseEnd;
+        public float EntranceDistance, Cost;
+        public bool Flying, GroundUsesMesh;
+        public string Reason;
     }
 
     internal static class LocalRoutePlanner
     {
-        public static LocalRoute Evaluate(AcceptedMission mission)
+        // Called once, after selecting the nearest entrance by a cheap distance estimate.
+        // Build only this mission's path and only for the selected movement mode.
+        public static LocalRoute Plan(AcceptedMission mission, Vector3 origin, bool flying)
         {
-            var route = new LocalRoute { Mission = mission };
-            Vector3 origin = DynelManager.LocalPlayer.Position;
             if (!AcceptedMissions.Finite(origin) || !AcceptedMissions.Finite(mission.Entrance))
+                return null;
+            Vector3 entrance = ResolveEntranceHeight(mission.Entrance, origin, out _);
+            var route = new LocalRoute
             {
-                route.GroundReason = route.FlyingReason = "invalid world coordinates";
+                Mission = mission, Origin = origin, Entrance = mission.Entrance,
+                EntrancePoint = entrance, Flying = flying,
+                EntranceDistance = HorizontalDistance(origin, mission.Entrance)
+            };
+            if (!flying)
+            {
+                route.GroundUsesMesh = TryGroundCost(origin, entrance, out float ground);
+                route.Cost = route.GroundUsesMesh ? ground : route.EntranceDistance;
+                route.Reason = route.GroundUsesMesh ? "complete navmesh path" :
+                    SMovementController.NavAgent?.HasPathfinder == true ? "mesh does not connect endpoints; direct estimate" :
+                    "no outdoor mesh; direct estimate";
                 return route;
             }
-            Vector3 entrance = ResolveEntranceHeight(mission.Entrance, origin, out _);
-            route.GroundUsesMesh = TryGroundCost(origin, entrance, out float ground);
-            route.GroundCost = route.GroundUsesMesh ? ground : HorizontalDistance(origin, entrance);
-            route.GroundReason = route.GroundUsesMesh ? "complete navmesh path" :
-                SMovementController.NavAgent?.HasPathfinder == true ? "mesh does not connect endpoints; direct estimate" :
-                "no outdoor mesh; direct estimate";
             // This is an estimate, not a clearance certificate. Never require a synthetic
             // climb/cruise/descent corridor to select a finite world-space destination.
-            route.Landing = OutsideEntrance(entrance, origin, 4);
-            route.CruiseEnd = route.Landing;
+            route.FlightApproach = OutsideEntrance(entrance, origin, 4);
+            route.CruiseEnd = route.FlightApproach;
             route.CruiseEnd.Y = Math.Max(origin.Y, entrance.Y + 12);
-            route.FlyingCost = Vector3.Distance(origin, route.CruiseEnd) +
+            route.Cost = Vector3.Distance(origin, route.CruiseEnd) +
                 Math.Abs(route.CruiseEnd.Y - entrance.Y) + 4;
-            route.FlyingReason = "world-space flight estimate; elevated approach, local descent on arrival";
+            route.Reason = "direct elevated flight; descent and entrance approach in vehicle";
             return route;
         }
 

@@ -20,22 +20,26 @@ The current responsibility boundary supersedes earlier automatic rolling plans:
    between outdoor playfields by any means.
 2. `/rkm start` arms local takeover. RKMission tracks all resolved accepted
    Rubi-Ka destinations, independent of Mali roller filter settings.
-3. On reaching a playfield with accepted missions, evaluate every local
-   entrance by route cost for the active mode; select the cheapest candidate.
-   Direct fallback costs are estimates, not certified complete paths.
+3. On reaching a playfield with accepted missions, capture one player origin,
+   estimate horizontal entrance distances, choose nearest (mission ID breaks
+   ties), and build only that entrance's route in the active movement mode.
+   Keep the chosen identity/entrance fixed during movement. Estimates are not
+   certified complete paths; other missions receive no route/probe planning.
 4. Ground uses complete navmesh paths when available, otherwise bounded AO#
-   direct local waypoints. Flying uses climb/direct cruise/descent to a terrain
-   approach independently of the mesh, then a precise ground approach. AO# flight state
+   direct local waypoints. Flying uses elevated direct cruise/descent to an
+   approach independently of the mesh, then precise entrance approach and
+   interaction in the flying vehicle. AO# flight state
    selects automatically; `/rkm travel auto|ground|flying` overrides by session.
-5. The user dismounts when prompted. Both modes converge on precise ground
-   approach, a unique entrance door, and exact mission/dungeon verification.
+5. Flight has no dismount prompt/wait or forced ground approach. Both modes
+   converge on the chosen entrance, a unique live door when exposed or a
+   proximity entry attempt, and exact mission/dungeon verification.
 6. Existing `MissionDungeon` owns room exploration/navigation, combat, doors,
    lockpicking, and Manager.Loot. Preserve these working systems.
 7. Preserve identity/action/target/completion metadata per accepted mission.
    Room clearance and removal are not quest completion. The user checks the
    in-game objective/reward and records it with `/rkm complete [bound id]`.
-8. The user exits the dungeon. While armed, choose the next best accepted
-   mission in that same playfield. If none remains, disarm and leave transport
+8. The user exits the dungeon. While armed, choose the nearest accepted mission
+   from the new origin in that same playfield. If none remains, disarm and leave transport
    to the next playfield to the user; `/rkm start` re-arms there.
 
 Automatic exit traversal and objective-solver rewrites are outside this pass.
@@ -494,3 +498,43 @@ This section supersedes the clearance gates and three-recovery limits above.
   dungeon handoff are unchanged. Source/API inspection only: no compilation,
   package restore, local tests or in-game run. User pulls main, compiles and
   validates ground recovery/flight approach/descent/door interaction in game.
+
+## Nearest Entrance from Captured Origin and Vehicle Entry (2026-09-28)
+
+This correction supersedes all earlier route-cost ranking and dismount steps.
+
+- User's 07:09-07:10 logs confirm successful FlightLanding/descent, then a
+  dismount prompt and ground obstacle arcs for the last few metres. The user
+  requested estimating the nearest entrance from the origin and building only
+  its path, plus staying in the vehicle when a flying path was chosen.
+- `SelectNearest` captures player position once, compares horizontal entrance
+  distances only (mission ID breaks ties), and calls `LocalRoutePlanner.Plan`
+  exactly once for the chosen mission and active mode. Other missions receive
+  no terrain, navmesh or flight planning. The route stores origin and accepted
+  entrance coordinates separately from the mutable accepted-mission record.
+  Path cost is informational for the chosen route, not a ranking criterion.
+- Removed automatic mission reselection on movement-state changes. The chosen
+  mission/entrance persists through local travel and recovery. Explicit mode
+  change/stop-start, mission removal, zoning, or completion can select anew.
+  Same-playfield continuation chooses nearest from the next captured origin.
+- Removed Dismount phase and two-minute wait. FlightCruise -> FlightDescent ->
+  EntranceApproach -> EnterDoor retains flight steering and the vehicle. Final
+  approach gets the 100 ms flight update cadence; live door use permits Fly
+  for a selected flight route, retaining actual distance/height and identity
+  checks. If the user manually leaves flight near the entrance, the same
+  mission can continue on ground; the bot never requires that action.
+- Descent/approach side uses the captured origin. Local terrain/live door height
+  still resolves stale accepted altitude. Cached resolved entrance height keeps
+  a missing live door from causing a moving flight target. Without a unique
+  exposed door, move to the chosen entrance trigger point (within 0.7 m) and
+  await visibility or zoning; do not stop two metres short. Ambiguous live
+  door use remains withheld; exact dungeon/quest verification is unchanged.
+- Nearest-selection logs include origin, chosen mission/coordinate, estimated
+  distance and single route/mode/cost. Flight descent, final movement and door
+  use explicitly report staying in vehicle. Existing advisory probes, bounded
+  progress/stall recovery, 15-minute travel and three-minute approach/entry
+  limits remain; unresolved door/proximity entry waits 45 seconds.
+- Source/diff inspection only. No compilation, restore, automated local tests
+  or in-game run. User pulls main, compiles and validates in game. Dungeon
+  exploration, combat, interior doors/lockpick/loot and accepted tracking are
+  unchanged. Updated README and conversation history along with this memory.
