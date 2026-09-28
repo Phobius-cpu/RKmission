@@ -4,9 +4,10 @@ AO# plugin for solo Rubi-Ka missions in Anarchy Online. It combines the original
 Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
 mission travel, room exploration, combat targeting, door handling, and looting.
 
-**Status (2026-09-28):** the user reported a regression to short flight hops.
-The committed flight paths and near-entrance height sequence are source-only
-and await the user's build and in-game validation. Dungeon
+**Status (2026-09-28):** the user reports improved committed flight movement,
+but a mission building still blocks the final approach. The latest repair adds
+connected obstacle detours and clear-side entrance alignment; it awaits the
+user's build and in-game validation. Dungeon
 exploration, combat, room doors, lockpicking, and loot behavior are preserved; one hook refreshes
 the live mission binding.
 
@@ -96,14 +97,18 @@ retrying an unfinished accepted mission.
   from the actual new position. There is no three-recovery limit.
 - Flying travel estimates an elevated route to a point 1.5 m outside the entrance,
   anchored to the captured origin. Only the selected mission is planned. The bot
-  compares complete sequences: direct, climb/lateral/cruise/lower/approach, or
-  move outside a roof, descend, then return at entrance height. Lateral offsets
-  are 8/16/28 m, with raised levels bounded by the initial cruise/refined floor
-  ceiling +40 m. Every leg is scored with surface and scene line-of-sight probes,
-  including clearance offsets. Known surface hits carry much more weight than
-  uncertain scene line-of-sight. Clear complete paths are preferred; an estimated
-  path remains attemptable when client geometry cannot establish a clear route.
-  These local samples do not certify a globally reachable path.
+  first tries a direct surface-clear path. For obstructions, a bounded connected
+  search links 4 m cells at current/target height and raised levels, up to the
+  initial cruise/refined floor ceiling +40 m. It can follow several building
+  faces, go around a tree, seek a cave opening, or climb over an object and return
+  at entrance height. Clear stretches are combined into longer legs before the
+  entire route is committed. Search margins expand from 32 to 80 m after retries;
+  each attempt allows at most 450 expanded cells and 6,000 surface probes.
+  Body-offset hits rank clearance; missing geometry remains provisional.
+  A known centre hit or observed failed direction excludes that segment, without
+  rejecting the selected mission. If no complete clear route is found, hold and
+  retry under the existing progress deadline instead of recommitting the same
+  physically blocked direct estimate. Local searches cannot certify global access.
 - The full waypoint list is committed and followed in order. New plans require
   changed destinations, eight seconds without waypoint progress, or sustained
   nearby surface obstruction; retries are separated by at least three seconds.
@@ -121,7 +126,10 @@ retrying an unfinished accepted mission.
   within 2 m horizontally. Only then proceed to door/proximity entry. Height is
   rechecked before each use; drift or a new live door height returns to alignment.
   If the direct descent is blocked, a complete outward/down/return path can reach
-  the same alignment target. The vehicle stays equipped throughout.
+  the alignment target. If its original side is blocked by the mission building,
+  sample 16 points 1.5 m around this same entrance at the selected entry height
+  and keep the reachable endpoint. The floor, mission and live door identity
+  remain fixed; the vehicle stays equipped throughout.
 - Height sampling uses 17 nearby columns and up to four surface layers, requiring
   three independent supporting columns and centre/inner support. It refreshes
   every two seconds during alignment/approach with a 0.5 m tolerance. Live door
@@ -223,6 +231,9 @@ deployed plugin folders.
   `Entrance height refined` for floor/source changes,
   `Flight path committed` for the entire waypoint sequence and replan reason,
   `Flight committed path leg` for progress through that sequence, and
+  `Flight blocked leg recorded` / `Flight obstacle search waiting` for observed
+  obstruction and bounded search retries. `Entrance alignment side changed`
+  identifies a reachable approach around the same entrance. Watch
   `Entrance height selected within 2 m` / `Entrance height aligned` for the
   height-before-entry sequence. Flight progress includes the vertical gap.
   Idle selection checks retry every five seconds; mode warnings are suppressed

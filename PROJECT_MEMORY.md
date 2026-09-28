@@ -689,3 +689,53 @@ This correction supersedes short flight bypass sampling and descent at 16 m.
   floor/source within 2 m, aligned entry height, progress and hard failure.
   Updated README/CONVERSATION_LOG. Source/API/diff inspection only; no compilation,
   package restore, local tests or in-game run. User pulls main, compiles and tests.
+
+## Connected Detours Around the Entrance Building (2026-09-28)
+
+This replaces the fixed flight-path templates above while preserving committed
+movement and the within-2-metre height-before-entry sequence.
+
+- User's 08:53 logs show improved movement but repeated plans 5/6 of the same
+  blocked one-leg estimate at EntranceHeight. Character is about 6 m from the
+  target with only 0.3 m vertical gap; the mission building blocks the path.
+  User requests a way around the building/tree/cave.
+- Inspected main 20dac70. Fixed rectangles cannot follow connected corners around
+  a building; lower-target ring paths were not sampled at nearly equal height.
+  Scoring all paths with hits allowed the blocked direct leg to win repeatedly.
+  Recent target points did not record which movement direction actually failed.
+- Flight planning now uses a bounded A* search linking eight horizontal neighbours
+  on a 4 m grid and vertical columns at current, target, raised +12/+24 m and
+  the fixed ceiling. The ceiling remains max(initial cruise, refined floor+12)+40.
+  Search includes same-height routes, multiple building faces, outside descent
+  columns and paths toward an opening. It expands at most 450 cells and performs
+  at most 6,000 surface probes per attempt; margins grow 32/48/64/80 m on retries.
+  Centre surface hits exclude edges, while body offsets rank clearance. Missing
+  geometry/ambiguous native LOS does not invalidate a finite mission estimate.
+- Connect cells to the exact final target, or during EntranceHeight to one of
+  16 points at 1.5 m around this same entrance at floor+1 m. This can replace a
+  blocked original-side anchor with a reachable side while preserving selected
+  floor, accepted mission coordinates and unique live door identity. No new
+  mission is selected and no dismount is required. Height alignment also requires
+  a clear segment to the chosen anchor, so passing within 2 m behind its wall
+  cannot prematurely discard the committed detour.
+- Reconstruct and simplify the complete route using clear body-aware shortcuts;
+  follow the existing waypoint sequence and moving-turn behavior. Grid cells are
+  planning samples, not separately replanned micro-hops. Observed eight-second
+  stalls/sustained obstruction record up to 16 short failed directions, preventing
+  reuse even when a scene object is absent from surface ray data. This observation
+  memory survives phase changes and clears on reset/new mission.
+- A known blocked centre/failed leg can no longer return as a one-leg estimate.
+  If no connected route is found within bounds, halt and retry after three seconds
+  with an expanded margin. Ray-clear body-hint estimates remain attemptable.
+  Replans, holds and changing entrance side retain the 90-second final progress
+  clock. Existing 15-minute travel, three-minute entry and bounded door use remain.
+- Rechecked AOSharp reference Playfield.Raycast (outdoor tilemap/dungeon surface;
+  missing surface returns no hit), native LineOfSight (false may be unavailable),
+  and Vector3 division/normalization APIs. No new dependency or SDK API is needed.
+- Logs add connected route/cell/blocked-edge/margin information, observed blocked
+  legs, waiting for search retry and changes to the entrance alignment side.
+  Changed only local flight planner/execution and README/CONVERSATION_LOG/memory.
+  Ground fallback, accepted tracking, nearest-from-origin selection and dungeon
+  exploration/combat/interior doors/lockpick/loot are preserved. Source/API/diff
+  inspection only; no local compilation, restore, tests or in-game run. User pulls
+  main, compiles and checks this obstructed building approach in game.

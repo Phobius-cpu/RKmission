@@ -531,3 +531,32 @@ logs. Preserved nearest-from-origin selection, accepted tracking, ground fallbac
 and working dungeon exploration/combat/interior door/lockpick/loot. Source/API/diff
 review only; no local compilation, restore, tests or in-game run. User pulls main,
 compiles and validates coherent flight travel and the near-entrance height sequence.
+
+### User entrance-building obstruction follow-up (2026-09-28)
+
+The user reports much better pathing but supplies 08:53 logs where flight plans
+5/6 repeat the same one-leg estimate with eight advisory hints. EntranceHeight
+is about 6 m from the goal, with just 0.3 m vertical gap. The actual mission
+building is in the way. They request a route around the building/tree/cave.
+
+### Assistant connected obstacle-route repair
+
+Inspected main 20dac70 and AOSharp reference geometry/vector APIs. The planner
+only compared fixed rectangles and lower-target ring templates, allowing a
+known blocked direct leg to win again. Replaced templates with bounded connected
+flight search at current, target and raised heights. It can combine several
+corners around an object, then simplifies and commits the entire waypoint list
+to retain the improved movement rather than reverting to short-hop replanning.
+
+Remember observed failed movement directions, including objects missing from
+surface data, and exclude known blocked segments. Keep the chosen mission viable;
+if no complete route is found within the search bounds, hold/retry with a wider
+margin under the original progress deadline. For final height alignment, allow
+a clear point within 1.5 m of the same entrance at the already selected height,
+so a blocked original-side point does not force travel through the building.
+
+Preserved the within-2-metre height alignment, vehicle entry, unique door/exact
+dungeon verification, ground fallback, tracking and working dungeon behavior.
+Updated README.md and PROJECT_MEMORY.md and inspected the source/diff. No local
+compilation, package restore, tests or in-game run; the user pulls main, compiles
+and validates the building/tree/cave detour in game.

@@ -13,12 +13,13 @@ namespace RKmission
     {
         private enum Phase { Idle, GroundTravel, FlightCruise, EntranceHeight, EntranceApproach, EnterDoor }
         private readonly Action<string> _say;
-        private readonly List<Vector3> _recentGround = new List<Vector3>(), _recentFlight = new List<Vector3>();
+        private readonly List<Vector3> _recentGround = new List<Vector3>();
         private LocalRoute _route;
         private Phase _phase;
         private bool _ownsMovement, _forceDirect, _directActive, _approachFromDoor, _entryProbeLogged;
         private bool _flightHolding, _entranceHeightReady;
         private readonly List<Vector3> _flightPath = new List<Vector3>();
+        private readonly List<LocalRoutePlanner.FlightBlockedLeg> _blockedFlightLegs = new List<LocalRoutePlanner.FlightBlockedLeg>();
         private Vector3 _lastPosition, _directStep, _groundTarget, _flightGoal, _loggedTarget, _heightAnchor;
         private float _bestStepDistance, _bestGroundDistance, _bestFlightDistance, _bestFlightStepDistance;
         private float _entryHeight;
@@ -27,6 +28,7 @@ namespace RKmission
         private DateTime _nextHeightCheck, _nextFlightProbe, _lastFlightSteer, _nextFlightPlan, _flightBlockedAt;
         private int _groundRecoveries, _flightPlans, _preferredSide, _doorAttempts;
         private int _flightPathIndex;
+        private int _flightSearchRetries;
         private string _movementKind, _lastEvaluation;
         private Identity _door = Identity.None;
         public TravelMode Mode { get; set; } = TravelMode.Auto;
@@ -69,7 +71,8 @@ namespace RKmission
             _entryStarted = DateTime.MinValue;
             _travelStarted = DateTime.UtcNow;
             _forceDirect = !_route.GroundUsesMesh;
-            _recentGround.Clear(); _recentFlight.Clear();
+            _recentGround.Clear();
+            _blockedFlightLegs.Clear(); _flightSearchRetries = 0;
             _approachFromDoor = false;
             _entranceHeightReady = false;
             Begin(flying ? Phase.FlightCruise : Phase.GroundTravel);
@@ -86,7 +89,8 @@ namespace RKmission
             Halt(); _route = null; _phase = Phase.Idle; _door = Identity.None;
             _lastEvaluation = null; _directActive = _flightHolding = _entranceHeightReady = false;
             _flightPath.Clear();
-            _recentGround.Clear(); _recentFlight.Clear();
+            _recentGround.Clear();
+            _blockedFlightLegs.Clear(); _flightSearchRetries = 0;
         }
 
         private void Halt()
@@ -187,7 +191,8 @@ namespace RKmission
             _heightAnchor.Y = _entryHeight;
             Vector3 position = DynelManager.LocalPlayer.Position;
             if (LocalRoutePlanner.HorizontalDistance(position, _route.EntrancePoint) <= 2 &&
-                Math.Abs(position.Y - _entryHeight) <= 0.75f)
+                Math.Abs(position.Y - _entryHeight) <= 0.75f &&
+                LocalRoutePlanner.ClearSegment(LocalRoutePlanner.Toward(position, _heightAnchor, 0.3f), _heightAnchor))
             {
                 _entranceHeightReady = true;
                 Begin(Phase.EntranceApproach);
@@ -357,7 +362,14 @@ namespace RKmission
             float radius = Math.Max(0.6f, Math.Min(1.2f, bodyRadius + 0.25f));
             float velocity = DynelManager.LocalPlayer.Velocity;
             if (float.IsNaN(velocity) || float.IsInfinity(velocity)) velocity = 0;
-            if (_flightPath.Count == 0) CommitFlightPath(position, destination, radius, "initial/changed destination");
+            if (_flightPath.Count == 0)
+            {
+                if (now >= _nextFlightPlan) CommitFlightPath(position, ref destination, radius, "initial/changed destination or expanded search retry");
+                // A blocked edge is not a usable one-leg estimate. Keep the selected
+                // mission, stop and retry the search under the original deadline.
+                if (_flightPath.Count == 0) { Halt(); return true; }
+                remaining = Vector3.Distance(position, destination);
+            }
             float arrival = Math.Max(1.2f, Math.Min(2.5f, velocity * 0.12f));
             while (_flightPathIndex < _flightPath.Count - 1 &&
                 Vector3.Distance(position, _flightPath[_flightPathIndex]) <= arrival)
@@ -368,7 +380,7 @@ namespace RKmission
                 // Do not cut a planned corner early through a roof/wall. Continue
                 // toward this waypoint until the next leg is clear from the real position.
                 if (!LocalRoutePlanner.ClearSegment(LocalRoutePlanner.Toward(position, nextEnd, 0.3f), nextEnd)) break;
-                Remember(_recentFlight, position); _flightPathIndex++;
+                _flightPathIndex++;
                 _bestFlightStepDistance = float.PositiveInfinity; _flightStepProgress = now;
                 _nextFlightProbe = DateTime.MinValue;
             }
@@ -394,11 +406,16 @@ namespace RKmission
             bool obstructed = _flightHolding && now - _flightBlockedAt >= TimeSpan.FromSeconds(1);
             if ((stalled || obstructed) && now >= _nextFlightPlan)
             {
-                Remember(_recentFlight, target);
-                CommitFlightPath(position, destination, radius, stalled ? "8 seconds without waypoint progress" : "sustained nearby surface obstruction");
+                RememberBlockedFlightLeg(position, target);
+                CommitFlightPath(position, ref destination, radius, stalled ? "8 seconds without waypoint progress" : "sustained nearby surface obstruction");
+                if (_flightPath.Count == 0) { Halt(); return true; }
+                remaining = Vector3.Distance(position, destination);
                 target = _flightPath[0];
                 stepDistance = Vector3.Distance(position, target);
-                Vector3 end = LocalRoutePlanner.Toward(position, target, Math.Min(2, stepDistance));
+                float probeLength = Math.Min(2, stepDistance);
+                if (_phase == Phase.EntranceApproach && _flightPath.Count == 1 && stepDistance <= probeLength + 1)
+                    probeLength = Math.Max(0, probeLength - 1);
+                Vector3 end = LocalRoutePlanner.Toward(position, target, probeLength);
                 _flightHolding = !LocalRoutePlanner.ClearSegment(LocalRoutePlanner.Toward(position, end, 0.3f), end);
                 _flightBlockedAt = _flightHolding ? now : DateTime.MinValue;
             }
@@ -429,15 +446,42 @@ namespace RKmission
             return true;
         }
 
-        private void CommitFlightPath(Vector3 position, Vector3 destination, float radius, string trigger)
+        private void RememberBlockedFlightLeg(Vector3 position, Vector3 target)
+        {
+            if (Vector3.Distance(position, target) < 0.75f) return;
+            Vector3 end = LocalRoutePlanner.Toward(position, target, 4);
+            if (_blockedFlightLegs.Any(x => Vector3.Distance(x.From, position) < 1 && Vector3.Distance(x.To, end) < 1)) return;
+            _blockedFlightLegs.Add(new LocalRoutePlanner.FlightBlockedLeg { From = position, To = end });
+            if (_blockedFlightLegs.Count > 16) _blockedFlightLegs.RemoveAt(0);
+            _say($"Flight blocked leg recorded: {position} -> {end}; searching around/above the obstruction, retaining this entrance.");
+        }
+
+        private void CommitFlightPath(Vector3 position, ref Vector3 destination, float radius, string trigger)
         {
             float ceiling = Math.Max(_route.CruiseEnd.Y, _route.EntrancePoint.Y + 12) + 40;
-            List<Vector3> path = LocalRoutePlanner.PlanFlightPath(position, destination, _route.Origin, ceiling, radius,
-                _recentFlight, out string reason);
+            float extent = Math.Min(80, 32 + _flightSearchRetries * 16);
+            Vector3? entranceCentre = _phase == Phase.EntranceHeight ? _route.EntrancePoint + new Vector3(0, 1, 0) : (Vector3?)null;
+            List<Vector3> path = LocalRoutePlanner.PlanFlightPath(position, destination, ceiling, radius,
+                _blockedFlightLegs, extent, entranceCentre, _phase == Phase.EntranceApproach, out string reason);
             _flightPath.Clear(); _flightPath.AddRange(path); _flightPathIndex = 0;
             _bestFlightStepDistance = float.PositiveInfinity; _flightStepProgress = DateTime.UtcNow;
             _nextFlightPlan = DateTime.UtcNow.AddSeconds(3); _nextFlightProbe = DateTime.MinValue;
             _flightHolding = false; _flightBlockedAt = DateTime.MinValue;
+            if (path.Count == 0)
+            {
+                _flightSearchRetries++;
+                _say($"Flight obstacle search waiting: {trigger}; {reason}; final target={destination}; progress deadline retained.");
+                return;
+            }
+            if (Vector3.Distance(path[path.Count - 1], destination) > 0.1f && _phase == Phase.EntranceHeight)
+            {
+                _heightAnchor = destination = path[path.Count - 1];
+                _flightGoal = destination;
+                _bestFlightDistance = Vector3.Distance(position, destination);
+                _say($"Entrance alignment side changed: target={destination}; same entrance={_route.EntrancePoint}, selected height retained.");
+            }
+            // Expand following failed execution too, without resetting observed progress.
+            _flightSearchRetries++;
             _say($"Flight path committed {++_flightPlans}: {trigger}; {reason}; " +
                 $"waypoints={string.Join(" -> ", path)}; final target={destination}; progress deadline retained.");
         }

@@ -234,111 +234,193 @@ namespace RKmission
             return distance <= length || distance < 0.1f ? destination : origin + (destination - origin) * (length / distance);
         }
 
-        // Physical surface hits outweigh uncertain scene LOS. If LOS is inconclusive
-        // everywhere, a ray-clear multi-leg detour still beats a known blocked direct leg.
-        private static float FlightSegmentPenalty(Vector3 origin, Vector3 destination, float radius, out int hints)
+        private sealed class FlightNode
         {
-            hints = 0;
-            float distance = Vector3.Distance(origin, destination);
-            if (distance <= 0.3f) return 0;
-            Vector3 start = Toward(origin, destination, 0.3f);
-            float horizontal = HorizontalDistance(origin, destination);
-            Vector3 side = horizontal < 0.1f ? new Vector3(radius, 0, 0) :
-                new Vector3(-(destination.Z - origin.Z) * radius / horizontal, 0,
-                    (destination.X - origin.X) * radius / horizontal);
-            // Player position can be close to the floor during vehicle entry. Do not
-            // start a lower offset inside terrain and falsely forbid every climb.
-            Vector3[] offsets = { Vector3.Zero, side, side * -1, Vector3.Up * radius, Vector3.Up * (radius * 2) };
-            float penalty = 0;
-            for (int i = 0; i < offsets.Length; i++)
-            {
-                Vector3 offset = offsets[i];
-                if (!ClearSegment(start + offset, destination + offset))
-                { penalty += i == 0 ? 5000 : 1000; hints++; }
-                if (!Playfield.LineOfSight(start + offset, destination + offset, 1, false))
-                { penalty += 50; hints++; }
-            }
-            return penalty;
+            public int X, Z, Level, Parent;
+            public Vector3 Point;
+            public float Cost;
+            public bool Closed;
         }
 
-        // Compare complete waypoint sequences for this one destination. A clear path
-        // is preferred; incomplete client geometry retains an estimated attempt rather
-        // than vetoing the mission. Commit the whole sequence during execution.
-        public static List<Vector3> PlanFlightPath(Vector3 origin, Vector3 destination, Vector3 missionOrigin,
-            float ceiling, float radius, IList<Vector3> recent, out string reason)
+        // Observed failed movement blocks a short direction, not the mission or its
+        // entrance. This also handles scene objects absent from the surface ray data.
+        public struct FlightBlockedLeg
         {
-            var bestPath = new List<Vector3> { destination };
-            float bestScore = float.PositiveInfinity;
-            int bestHits = 0;
-            Action<Vector3[]> consider = points =>
-            {
-                var path = new List<Vector3>();
-                Vector3 previous = origin;
-                float cost = 0;
-                int hits = 0;
-                foreach (Vector3 point in points)
-                {
-                    if (!AcceptedMissions.Finite(point)) return;
-                    float length = Vector3.Distance(previous, point);
-                    if (length < 0.05f || (length < 0.5f && Vector3.Distance(point, destination) > 0.05f)) continue;
-                    cost += length;
-                    cost += FlightSegmentPenalty(previous, point, radius, out int legHints);
-                    hits += legHints;
-                    foreach (Vector3 visited in recent)
-                        if (Vector3.Distance(point, visited) < 3) cost += 12;
-                    path.Add(point);
-                    previous = point;
-                }
-                if (path.Count == 0) path.Add(destination);
-                // Probe penalties rank complete attempts; they never veto execution.
-                float score = cost;
-                if (score >= bestScore) return;
-                bestScore = score; bestPath = path; bestHits = hits;
-            };
-            consider(new[] { destination });
-            if (bestHits == 0)
-            { reason = "direct complete flight path; local probes clear"; return bestPath; }
+            public Vector3 From, To;
+        }
 
-            float horizontal = HorizontalDistance(origin, destination);
-            Vector3 bearing = destination - origin;
-            if (horizontal < 0.1f)
+        private static bool RepeatsBlockedLeg(Vector3 from, Vector3 to, float radius, IList<FlightBlockedLeg> blocked)
+        {
+            Vector3 delta = to - from;
+            float length = Vector3.Distance(from, to);
+            if (length < 0.1f) return false;
+            foreach (FlightBlockedLeg leg in blocked)
             {
-                bearing = destination - missionOrigin;
-                horizontal = HorizontalDistance(destination, missionOrigin);
+                if (Vector3.Distance(leg.From, leg.To) < 0.1f) continue;
+                Vector3 direction = (leg.To - leg.From).Normalize();
+                if (Vector3.Dot(delta / length, direction) < 0.8f) continue;
+                Vector3 witness = Toward(leg.From, leg.To, 2);
+                float along = Vector3.Dot(witness - from, delta) / (length * length);
+                if (along < 0 || along > 1) continue;
+                if (Vector3.Distance(witness, from + delta * along) < Math.Max(0.7f, radius)) return true;
             }
-            Vector3 side = horizontal < 0.1f ? new Vector3(1, 0, 0) :
-                new Vector3(-bearing.Z / horizontal, 0, bearing.X / horizontal);
-            float baseHeight = Math.Max(origin.Y, destination.Y);
-            foreach (float rise in new float[] { 0, 12, 24, 40 })
+            return false;
+        }
+
+        // Only confirmed surface hits/observed failed legs exclude a search edge.
+        // Offset probes rank body clearance; missing native LOS is not a rejection.
+        // Limit all probes, including shortcutting, per complete planning attempt.
+        private static float FlightEdge(Vector3 from, Vector3 to, float radius,
+            IList<FlightBlockedLeg> blocked, bool portal, ref int probes, out int hints)
+        {
+            hints = 0;
+            float length = Vector3.Distance(from, to);
+            if (length < 0.1f) return 0;
+            if (RepeatsBlockedLeg(from, to, radius, blocked) || probes >= 6000) return -1;
+            Vector3 end = portal ? Toward(from, to, Math.Max(0, length - 1)) : to;
+            Vector3 start = Toward(from, end, 0.3f);
+            probes++;
+            if (!ClearSegment(start, end)) return -1;
+            float horizontal = HorizontalDistance(from, to);
+            Vector3 side = horizontal < 0.1f ? new Vector3(radius, 0, 0) :
+                new Vector3(-(to.Z - from.Z) * radius / horizontal, 0, (to.X - from.X) * radius / horizontal);
+            foreach (Vector3 offset in new[] { side, side * -1, Vector3.Up * radius })
             {
-                float height = Math.Min(ceiling, baseHeight + rise);
-                foreach (float width in new float[] { 0, -8, 8, -16, 16, -28, 28 })
+                if (probes >= 6000) { hints++; continue; }
+                probes++;
+                if (!ClearSegment(start + offset, end + offset)) hints++;
+            }
+            return length + hints * 4;
+        }
+
+        // Bounded A* links local grid cells at entrance/current/raised heights.
+        // Unlike fixed rectangles, connected arcs can turn around several building
+        // faces or reach a cave opening. Commit/simplify the whole path, not each cell.
+        public static List<Vector3> PlanFlightPath(Vector3 origin, Vector3 destination,
+            float ceiling, float radius, IList<FlightBlockedLeg> blocked, float extent,
+            Vector3? entranceCentre, bool portal, out string reason)
+        {
+            var goals = new List<Vector3> { destination };
+            if (entranceCentre.HasValue)
+            {
+                Vector3 centre = entranceCentre.Value;
+                for (int i = 0; i < 16; i++)
                 {
-                    Vector3 climb = origin, near = origin + side * width, far = destination + side * width;
-                    climb.Y = near.Y = far.Y = height;
-                    Vector3 lower = far; lower.Y = destination.Y;
-                    consider(new[] { climb, near, far, lower, destination });
+                    double angle = i * Math.PI / 8;
+                    goals.Add(centre + new Vector3((float)Math.Cos(angle) * 1.5f, 0,
+                        (float)Math.Sin(angle) * 1.5f));
                 }
             }
-            // For lower entrances, route out from over the roof, down outside it,
-            // then back at entrance height. This is a complete path, not a short hop.
-            if (origin.Y > destination.Y + 1)
+            int probes = 0, directHints = 0;
+            float direct = FlightEdge(origin, destination, radius, blocked, portal, ref probes, out directHints);
+            if (direct >= 0 && directHints == 0)
+            { reason = "direct complete flight path; surface probes clear"; return new List<Vector3> { destination }; }
+
+            var heights = new List<float> { origin.Y };
+            foreach (float height in new[] { destination.Y, Math.Min(ceiling, Math.Max(origin.Y, destination.Y) + 12),
+                Math.Min(ceiling, Math.Max(origin.Y, destination.Y) + 24), ceiling })
+                if (!heights.Exists(h => Math.Abs(h - height) < 0.1f)) heights.Add(height);
+            const float spacing = 4;
+            float minX = Math.Min(origin.X, destination.X) - extent, maxX = Math.Max(origin.X, destination.X) + extent;
+            float minZ = Math.Min(origin.Z, destination.Z) - extent, maxZ = Math.Max(origin.Z, destination.Z) + extent;
+            var nodes = new List<FlightNode>
+            { new FlightNode { Point = origin, Parent = -1, Cost = 0 } };
+            var indices = new Dictionary<Tuple<int, int, int>, int> { { Tuple.Create(0, 0, 0), 0 } };
+            int expanded = 0, surfaceBlocks = 0, found = -1;
+            float foundCost = float.PositiveInfinity;
+            Vector3 foundGoal = destination;
+            Func<Vector3, float> heuristic = point =>
             {
-                double heading = Math.Atan2(origin.Z - destination.Z, origin.X - destination.X);
-                foreach (float distance in new float[] { 8, 16, 28 })
-                    for (int i = 0; i < 8; i++)
-                    {
-                        double angle = heading + i * Math.PI / 4;
-                        Vector3 top = destination + new Vector3((float)Math.Cos(angle) * distance, 0,
-                            (float)Math.Sin(angle) * distance);
-                        top.Y = origin.Y;
-                        Vector3 bottom = top; bottom.Y = destination.Y;
-                        consider(new[] { top, bottom, destination });
-                    }
+                float best = float.PositiveInfinity;
+                foreach (Vector3 goal in goals) best = Math.Min(best, Vector3.Distance(point, goal));
+                return best;
+            };
+            while (expanded < 450 && probes < 6000)
+            {
+                int current = -1;
+                float priority = float.PositiveInfinity;
+                for (int i = 0; i < nodes.Count; i++)
+                {
+                    if (nodes[i].Closed) continue;
+                    float score = nodes[i].Cost + heuristic(nodes[i].Point);
+                    if (score < priority) { priority = score; current = i; }
+                }
+                if (current < 0) break;
+                if (found >= 0 && priority >= foundCost) break;
+                FlightNode node = nodes[current];
+                node.Closed = true; expanded++;
+                // Try actual destinations from this cell. Alternate endpoints are
+                // confined to 1.5 m around this same entrance at selected entry height.
+                foreach (Vector3 goal in goals)
+                {
+                    if (Vector3.Distance(node.Point, goal) > 12) continue;
+                    float cost = FlightEdge(node.Point, goal, radius, blocked, portal, ref probes, out _);
+                    if (cost < 0) { surfaceBlocks++; continue; }
+                    cost += node.Cost + Vector3.Distance(goal, destination) * 0.25f;
+                    if (cost < foundCost) { foundCost = cost; foundGoal = goal; found = current; }
+                }
+                for (int level = 0; level < heights.Count; level++)
+                    for (int dx = -1; dx <= 1; dx++)
+                        for (int dz = -1; dz <= 1; dz++)
+                        {
+                            // Eight horizontal neighbours and vertical columns.
+                            if (level == node.Level && dx == 0 && dz == 0) continue;
+                            if (level != node.Level && (dx != 0 || dz != 0)) continue;
+                            int x = node.X + dx, z = node.Z + dz;
+                            Vector3 point = new Vector3(origin.X + x * spacing, heights[level], origin.Z + z * spacing);
+                            if (point.X < minX || point.X > maxX || point.Z < minZ || point.Z > maxZ) continue;
+                            var key = Tuple.Create(x, z, level);
+                            if (!indices.TryGetValue(key, out int next))
+                            {
+                                next = nodes.Count; indices.Add(key, next);
+                                nodes.Add(new FlightNode { X = x, Z = z, Level = level, Point = point,
+                                    Parent = -1, Cost = float.PositiveInfinity });
+                            }
+                            if (nodes[next].Closed) continue;
+                            float cost = FlightEdge(node.Point, point, radius, blocked, false, ref probes, out _);
+                            if (cost < 0) surfaceBlocks++;
+                            if (cost < 0 || node.Cost + cost >= nodes[next].Cost) continue;
+                            nodes[next].Cost = node.Cost + cost; nodes[next].Parent = current;
+                        }
             }
-            reason = bestHits == 0 ? $"complete sampled flight path; {bestPath.Count} legs, local probes clear" :
-                $"complete flight estimate; {bestPath.Count} legs, {bestHits} advisory probe hints";
-            return bestPath;
+            if (found < 0)
+            {
+                // Unknown/body-offset data still permits an estimate; a known blocked
+                // centre leg never becomes the same one-leg "estimate" repeatedly.
+                if (direct >= 0)
+                {
+                    reason = $"direct flight estimate; {directHints} body-clearance hints; bounded contour search inconclusive";
+                    return new List<Vector3> { destination };
+                }
+                reason = $"no connected clear flight path in {extent:F0} m search margin; {expanded} cells, " +
+                    $"{surfaceBlocks} blocked edges, {blocked.Count} observed failed legs; holding for expanded retry";
+                return new List<Vector3>();
+            }
+            var raw = new List<Vector3> { foundGoal };
+            for (int i = found; i > 0; i = nodes[i].Parent) raw.Add(nodes[i].Point);
+            raw.Reverse();
+            // Collapse clear straight portions so a long arc is a coherent set of
+            // corners, rather than visible 4 m grid hops. Keep proven adjacent edges
+            // if the budget cannot certify a further shortcut.
+            var path = new List<Vector3>();
+            Vector3 previous = origin;
+            for (int i = 0; i < raw.Count;)
+            {
+                int chosen = i;
+                for (int j = raw.Count - 1; j > i && probes < 6000; j--)
+                {
+                    float cost = FlightEdge(previous, raw[j], radius, blocked,
+                        portal && j == raw.Count - 1, ref probes, out int hints);
+                    if (cost >= 0 && hints == 0) { chosen = j; break; }
+                }
+                if (Vector3.Distance(previous, raw[chosen]) > 0.05f) path.Add(raw[chosen]);
+                previous = raw[chosen]; i = chosen + 1;
+            }
+            if (path.Count == 0) path.Add(foundGoal);
+            reason = $"connected obstacle route; {path.Count} legs, {expanded} cells, {surfaceBlocks} blocked edges; " +
+                $"search margin={extent:F0} m, endpoint={foundGoal}" +
+                (Vector3.Distance(foundGoal, destination) > 0.1f ? "; clear side of the same entrance" : "");
+            return path;
         }
 
         public static bool ClearSegment(Vector3 start, Vector3 end) =>
