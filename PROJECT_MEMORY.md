@@ -24,7 +24,8 @@ implementations below; keep that chronology as evidence of earlier outcomes.
    complete optional Run mesh cost or horizontal fallback; horizontal Fly estimate.
    Upload the exact live accepted mission via native `Mission.UploadToMap`.
 3. One `LocalMissionTravel` state machine owns coarse travel, radial exterior
-   probing, elevation alignment, final normal approach, interaction/crossing and
+   probing/OrbitBypass, optional bounded Fly VerticalOverpass, elevation alignment,
+   final normal approach, interaction/crossing and
    transition wait. Shared `LocalMovement` handles observed Run/Fly execution.
    Outdoor mesh and synthetic flight clearance never gate finite direct travel.
 4. Quest coordinates are anchors, including nonzero/stale Y. Within 24 m by
@@ -34,14 +35,20 @@ implementations below; keep that chronology as evidence of earlier outcomes.
    rings exist to walk/fly around geometry, not enlarge door ownership claims.
 5. Rotation-derived normals are the strongest live signal, with both exterior
    signs validated. Without a Door, infer sides from radial observed progress.
-   Neighboring actual stalls at similar radius prioritize the opposite arc.
-   Stable target minima survive retries; full sector/radius coverage precedes
-   no-progress failure. Defaults: 8 s leg stalls, 90 s no-progress, 15 min total.
+   Same/neighbor-bearing stalls at similar position/radius trigger perimeter
+   recovery, not merely opposite-sector ranking. `EntranceOrbit` replans short
+   tangential legs from actual position, widens radial clearance, compares measured
+   CW/CCW progress, preserves the other direction and verifies actual side change.
+   Fixed target minima/angular coverage survive retries. Only reached exteriors
+   count as coverage; exhausted bypass may stop with an unresolved-route reason
+   after no progress. Defaults: 8 s leg stalls, 90 s no-progress, 15 min total.
 6. Persist runtime settings/diagnostics under deployed `RKMissionData`. Stable
    playfield + 2 m quantized X/Z anchor keys contain optional mission IDs per
    attempt. Keep 256 entrances/96 records each by default, including failures,
    interruptions and final transition results. Learn a successful exterior vector
-   only after exact verified mission dungeon entry; revalidate it on later visits.
+   only after exact verified mission dungeon entry; also learn bypass direction,
+   ring radius, traveled angular span and successful sector. Keep requested sector
+   separate from wall-bearing sector and retain failures. Revalidate on later visits.
 7. The existing stable exact mission/dungeon/room check gates `MissionDungeon`.
    Dungeon exploration, room navigation, combat, door/lockpick, loot and objective
    code are untouched. The only coordinator integration is retaining managed
@@ -1301,3 +1308,49 @@ onto the new architecture.
   No local compilation, package restore, tests or in-game run. User pulls main,
   compiles and supplies in-game directional logs and learning records; runtime
   correctness/reachability and undocumented quest-door stats remain unverified.
+
+## Perimeter-bypass regression correction (2026-09-28)
+
+- Main `c43c94e` correctly changed sector preference after a building face was
+  inferred, but its committed fixed-radius arc still traversed blocked geometry.
+  **Changing target sector without perimeter routing caused repeated wall-running.**
+- Supplied 17:02-17:03 Fly log: mission 1442298255, PF665, anchor
+  X=629.78/Z=1414.37, no live Door. FinalApproach from sectors 11 and 10 stalled
+  near X=628.74/Z=1406.25 and X=627.64/Z=1406.29, radii 8.19/8.35 m.
+  Opposite sector 3 was requested, but intermediate points
+  (622.82,1404.59), (619.79,1407.72), (618.08,1411.71) scraped the west wall.
+  Its actual stall was wall-bearing sector 9 at radius 10.30 m; requested sector 3
+  never arrived. Later wall stalls reached radius 13.86 m, beyond the 12 m ring.
+  Full original evidence is preserved under docs/navigation-evidence.
+- Replaced the old precomputed arc with `EntranceOrbit`, a managed planner under
+  the single travel/movement owner. Explicit OrbitBypass keeps a ring at observed
+  wall radius +4 m, bounded by MaxProbeRadius, with approximately +/-1 m radial
+  band, <=15-degree clearance-compensated tangential legs and outward correction.
+  Widen by 3 m on stalls. Same/neighbor-bearing repeated stalls detect a face;
+  stalled exterior routes also use this recovery. No parallel side-step engine.
+- Probe both neighboring directions for up to 3 seconds when rays are equally
+  clear/uncertain; rank observed angular/radial progress. Prefer remembered/shorter
+  direction on ties; retain the opposite direction for fallback. Side arrival
+  requires current target bearing, ring clearance, meaningful net bearing change
+  (30 degrees minus arrival tolerance) and successful angular movement. Keep
+  unwrapped travel span and net side change distinct. Retain wider-ring arrival
+  X/Z during elevation alignment; only then resume the inferred/live final approach.
+- Fly overpass is an optional fallback after side/ring recovery stalls: ascend
+  at current X/Z to advisory sampled roof height in bounded 8 m steps (24 m max
+  above bypass start), continue around the exterior and descend. Rays never reject
+  the route. Blocked vertical movement is recorded; descent still needs actual
+  exterior bearing/radius verification. In-game feasibility remains unverified.
+- Coverage only records reached exterior candidates. Failed candidate routes
+  retain requested sector and separate actual wall bearing/radius. Preserve
+  angular coverage across retries, and stop exhausted perimeter recovery after
+  elapsed no progress with an unresolved-route reason rather than claiming every
+  side was reached. Total travel bound remains unchanged.
+- Version-1 JSON remains readable. Store wall-bearing sectors, requested/reached
+  side, CW/CCW, ring radius, span, overpass result and successful approach sector/
+  vector. Only exact verified dungeon entry learns a successful bypass; compatible
+  later runs prefer it and still validate current movement. Existing failed
+  histories supply actual wall positions without reassigning requested sectors.
+- Updated README and CONVERSATION_LOG. Source/API/diff review only: no compilation,
+  package restore, tests or in-game execution. Accepted/current-playfield selection,
+  native map upload, narrow live-door association, exact dungeon handoff and all
+  dungeon exploration/combat/interior-door/loot implementations remain unchanged.

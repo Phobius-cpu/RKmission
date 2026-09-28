@@ -5,8 +5,10 @@ Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
 local mission travel, room exploration, combat, door handling and looting.
 
 **Status (2026-09-28):** outdoor travel/entrance navigation has been consolidated
-into one state machine with Run/Fly movement, full directional probing and
-persistent entrance diagnostics. Dungeon exploration, room navigation, combat,
+into one state machine with Run/Fly movement, full directional probing, observed
+perimeter bypass and persistent entrance diagnostics. Repeated building-face
+stalls now widen the ring and compare CW/CCW movement before another final approach.
+Dungeon exploration, room navigation, combat,
 interior doors/lockpicking, loot and objectives are unchanged. The coordinator
 only adds diagnostics at the existing verified dungeon handoff. No local build,
 package restore, tests or game run were performed; the user compiles and validates.
@@ -67,7 +69,8 @@ and allows retry. Removed/expired/deleted missions are never proof of reward.
 
 `LocalMissionTravel` owns one sequence:
 
-**CoarseTravel -> ProbeExterior -> AlignElevation -> FinalApproach -> Interact
+**CoarseTravel -> ProbeExterior / OrbitBypass (optional VerticalOverpass)
+-> AlignElevation -> FinalApproach -> Interact
 (if a valid Door exists) -> CrossThreshold -> AwaitTransition -> verified
 MissionDungeon handoff.**
 
@@ -75,6 +78,7 @@ MissionDungeon handoff.**
 `LocalRoutePlanner` contains estimates, optional complete mesh costs and local
 floor/advisory ray queries. `EntranceAcquisition` owns mission-door association,
 radial candidates and sector scores; it does not run a second movement controller.
+`EntranceOrbit` plans one short perimeter leg from the observed position at a time.
 `EntranceLearning` stores managed runtime records with no native object pointers.
 
 ### Coarse travel and recovery
@@ -130,10 +134,40 @@ at similar anchor distances suggest a building face/corner and prioritize the
 opposite arc. A blocked side is recorded as a blocked side, not an unreachable
 mission. The actual player side and requested candidate sector are logged separately.
 
-A committed orbit escapes outward/tangentially and follows short ring segments
-instead of cutting across the anchor/building. A later retry can go around the
-other way or use another radius. Fly holds current altitude around the ring,
-aligns at the chosen exterior point, then closes along the normal. Supported local
+**Changing target sector without perimeter routing caused repeated wall-running.**
+The attached 17:02-17:03 PF665 log showed a fixed 12 m arc scraping the same south/
+west walls even after selecting opposite sector 3. Changing the label did not
+mean that side was reached. The preserved log is in
+[`docs/navigation-evidence/2026-09-28-pf665-wall-running.txt`](docs/navigation-evidence/2026-09-28-pf665-wall-running.txt).
+
+Repeated same/neighbor-bearing stalls at similar position/radius activate explicit
+`OrbitBypass`; an exterior-route stall also activates recovery. After a current-run
+wall stall, candidates require at least 30 degrees of bearing separation. A previously
+verified side already nearby can be revalidated first before a new wall is observed. First
+push outward toward a ring at least 4 m beyond the observed wall radius, bounded
+by `MaxProbeRadius`. Maintain a ring band of approximately radius +/-1 m. Widen it
+by 3 m after a stall, up to the outer bound; correct inward drift before continuing.
+Each <=15-degree tangential leg is generated from the actual position, with
+clearance compensation for chord sag. There is no precomputed arc to blindly advance.
+
+Corridor rays rank CW/CCW hints. When equally clear or uncertain, observe both
+directions for up to 3 s each and choose the better angular/radial progress;
+ties prefer the remembered direction or shorter arc. Preserve the opposite as
+fallback. Actual arrival requires the requested bearing within movement tolerance,
+radial clearance, meaningful net bearing change (30 degrees minus arrival tolerance)
+and at least two successful angular movement legs. Unwrapped angular travel is
+logged separately from net side change. Requested sectors that were never reached
+are route failures, not completed exterior coverage. Angular coverage and fixed
+candidate minima survive retries so repeated arcs cannot refresh overall progress.
+
+Fly normally holds current height. After ring widening and the other direction
+stall, a bounded `VerticalOverpass` may ascend at current X/Z, orbit above the
+obstacle and descend at the newly reached exterior bearing. Roof rays suggest a
+height in 8 m increments, at most 24 m above the bypass start; observed AO movement
+determines success. Clearance hints remain advisory. A blocked height leg records
+failure; successful descent still requires exterior bearing/radius verification.
+Keep the actual reached wider-ring X/Z for elevation alignment, then close toward
+the inferred/live threshold from that side. Supported local
 floor samples/current player elevation supply provisional heights; live Door
 origin takes priority, with flight clearance added only when that origin is
 confirmed at floor height. Floor/player alternatives are validated on later passes.
@@ -154,6 +188,9 @@ total travel bound. New live geometry gets an observed attempt before a no-progr
 failure. Stable candidate minima survive retries; changing a waypoint or walking
 the same orbit cannot reset the overall clock. Exact dungeon verification alone
 allows success and the working dungeon handoff.
+If perimeter recovery is exhausted without reaching candidates, the no-progress
+deadline can stop the local run with an unresolved-route reason; it does not claim
+full sector coverage or prove that the mission itself is unreachable.
 
 ### Persistent learning and settings
 
@@ -164,11 +201,19 @@ Records retain time, Run/Fly mode, angle/vector, sector/radius, origin/anchor,
 candidate/final point, elevation source, live Door identity/position/quaternion/
 forward/association, observed distance improvement/stall, final result and reason.
 Coarse run failures and interrupted/failed transitions are recorded too.
+Records also retain requested `Sector`, separate `WallBearingSector`/angle/radius,
+actual exterior arrival, CW/CCW direction (-1/+1), exterior ring radius, angular
+span traveled, bypass-side confirmation and vertical-overpass result. Each anchor
+keeps failed wall-bearing sectors and the verified successful approach sector/vector,
+bypass direction, ring and span. Existing version-1 history remains readable;
+old wall bearings are recovered from recorded stall positions, not sector labels.
 
 Only **exact verified entry** updates the last successful exterior vector. On a
 later visit in the same movement mode, try it first when live door geometry is
 compatible. It must traverse current geometry and pass all association/range/
-handoff checks again; failure falls back to the full search. Prior failures add
+handoff checks again; remembered orbit direction/radius get first preference and
+yield to current corridor/movement evidence. Failure falls back to the full search.
+Prior failures add
 small preference penalties, never permanent blacklists. Defaults retain 256
 entrances and 96 records each, with one bounded `.bak` and atomic replacement.
 Unreadable/unsupported history is preserved and persistence is disabled for that

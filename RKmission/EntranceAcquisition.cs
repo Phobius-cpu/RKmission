@@ -37,8 +37,10 @@ namespace RKmission
         private readonly Dictionary<string, int> _visits = new Dictionary<string, int>();
         private readonly int[] _sectorVisits;
         private readonly float[] _sectorScores, _blockedRadii;
+        private readonly Vector3[] _blockedPositions;
         private readonly HashSet<int> _covered = new HashSet<int>();
         private readonly HashSet<string> _coveredRings = new HashSet<string>();
+        private readonly HashSet<string> _orbitCoverage = new HashSet<string>();
         private readonly Action<string> _say;
         private readonly AcceptedMission _mission;
         private readonly List<AcceptedMission> _accepted;
@@ -51,6 +53,11 @@ namespace RKmission
         private Vector3 _fallbackThreshold;
         private DateTime _nextScan, _nextLog;
         private int _mode = -1, _oppositeSector = -1;
+        private float _wallRadius, _lastRingRadius, _lastAngularSpan;
+        private int _lastBypassDirection;
+        private bool _sessionWallObserved;
+        public bool BypassRequired { get; private set; }
+        public bool BypassExhausted { get; private set; }
         public Attempt Active { get; private set; }
         public DateTime LastProgress { get; private set; }
         public bool FullSpaceCovered => _coveredRings.Count >= _settings.Sectors *
@@ -64,6 +71,12 @@ namespace RKmission
             _settings = settings; _learning = learning; _say = say; _memory = learning.For(mission.PlayfieldId, anchor);
             _sectorVisits = new int[settings.Sectors]; _sectorScores = new float[settings.Sectors];
             _blockedRadii = Enumerable.Repeat(float.NaN, settings.Sectors).ToArray(); LastProgress = DateTime.UtcNow;
+            _blockedPositions = new Vector3[settings.Sectors];
+            // Version-1 records are still readable. Recover actual wall bearings
+            // from their positions, never reinterpret their requested sectors.
+            foreach (EntranceAttemptRecord record in _memory.Attempts.Where(x => x != null && x.Result == "blocked" &&
+                x.LastPosition?.Valid == true && x.Stage != "CoarseTravel"))
+                RememberWall(record.LastPosition.Vector, null, false);
             _say($"Entrance search: mission={_missionId}, playfield={mission.PlayfieldId}, anchor=({LocalRoutePlanner.Coordinates(anchor)}), " +
                 $"door association radius={SearchRadius} m, movement search radius={settings.MaxProbeRadius} m, sectors={settings.Sectors}, " +
                 $"learning key={_memory.Key}; quest altitude is not an entry target.");
@@ -170,6 +183,9 @@ namespace RKmission
         {
             if (Active != null) return Active;
             var eligible = _plans.Where(x => x.DoorId == Identity.None || (_candidates.TryGetValue(x.DoorId, out Candidate door) && door.Visible && Vector3.Distance(x.DoorOrigin, door.Position) <= 0.5f));
+            if (BypassRequired)
+                eligible = eligible.Where(x => Math.Abs(AngleDelta(LocalRoutePlanner.Angle(x.Normal) -
+                    LocalRoutePlanner.Angle(player - _anchor))) >= Math.PI / 6 || (x.KnownGood && !_sessionWallObserved));
             // Coverage balances all sectors; each blocked face yields to an unexplored arc.
             // A finite list never exhausts into an idle wait. Minima/deadlines survive retries.
             Attempt next = eligible.OrderBy(x => x.KnownGood && Visits(x.Key) == 0 ? -1 : _sectorVisits[x.Sector])
@@ -195,7 +211,7 @@ namespace RKmission
             if (selectedDoor != null && !selectedDoor.QuestLinked && !_fallbackBound) { _fallbackBound = true; _fallbackThreshold = selectedDoor.Position; }
             next.Threshold = threshold; next.HeightSource = elevation;
             next.Record = new EntranceAttemptRecord { StartedUtc = DateTime.UtcNow, Playfield = _mission.PlayfieldId, MissionId = _missionId,
-                Sector = next.Sector, Mode = flying ? "Fly" : "Run", Stage = "ProbeExterior", Source = next.Source, ElevationSource = elevation,
+                Sector = next.Sector, SectorCount = _settings.Sectors, Mode = flying ? "Fly" : "Run", Stage = "ProbeExterior", Source = next.Source, ElevationSource = elevation,
                 AngleDegrees = (float)(PositiveAngle(LocalRoutePlanner.Angle(next.Normal)) * 180 / Math.PI), Radius = next.Radius,
                 Anchor = NavigationPoint.From(_anchor), Origin = NavigationPoint.From(player), ExteriorVector = NavigationPoint.From(next.Normal),
                 CandidatePoint = NavigationPoint.From(next.Exterior), ApproachPoint = NavigationPoint.From(threshold + next.Normal * 1.5f),
@@ -203,6 +219,9 @@ namespace RKmission
                 DoorPosition = selectedDoor == null ? null : NavigationPoint.From(selectedDoor.Position),
                 DoorForward = selectedDoor?.Oriented == true ? NavigationPoint.From(selectedDoor.Forward) : null,
                 DoorRotation = selectedDoor == null ? null : NavigationRotation.From(selectedDoor.Rotation), Result = "in progress" };
+            next.Record.BypassDirection = _lastBypassDirection;
+            next.Record.ExteriorRingRadius = _lastRingRadius;
+            next.Record.AngularSpanDegrees = _lastAngularSpan;
             Active = next; _learning.Record(_memory, next.Record);
             _say($"Entrance candidate: mission={_missionId}, sector={next.Sector}/{_settings.Sectors}, angle={next.Record.AngleDegrees:F1} deg, radius={next.Radius:F1} m, " +
                 $"pass={next.Pass + 1}, source={next.Source}, point=({LocalRoutePlanner.Coordinates(next.Exterior)}), elevation source={elevation}, " +
@@ -214,32 +233,40 @@ namespace RKmission
             float rank = attempt.Score + _sectorScores[attempt.Sector] + LocalRoutePlanner.HorizontalDistance(player, _anchor + attempt.Normal * attempt.Radius) * 0.2f;
             if (_oppositeSector >= 0)
             { int gap = Math.Abs(attempt.Sector - _oppositeSector); rank += Math.Min(gap, _settings.Sectors - gap) * 4; }
-            double degrees = PositiveAngle(LocalRoutePlanner.Angle(attempt.Normal)) * 180 / Math.PI;
-            return rank + Math.Min(8, _memory.Attempts.Count(x => x != null && x.Mode == (_mode == 1 ? "Fly" : "Run") && x.Result == "blocked" &&
-                Math.Min(Math.Abs(x.AngleDegrees - degrees), 360 - Math.Abs(x.AngleDegrees - degrees)) <= 180.0 / _settings.Sectors) * 0.5f);
+            // A candidate that never arrived is not a blocked entrance side.
+            // Rank historical obstruction evidence by actual wall bearing only.
+            return rank + (_memory.WallSectorCount == _settings.Sectors &&
+                _memory.FailedWallBearingSectors?.Contains(attempt.Sector) == true ? 4 : 0);
         }
-        public List<Vector3> Orbit(Attempt attempt, Vector3 player, bool flying)
+        public EntranceOrbit Orbit(Attempt attempt, Vector3 player, bool flying)
         {
-            double start = LocalRoutePlanner.Angle(player - _anchor);
-            // A failed radial escape must not be repeated before every other sector.
-            // Try an outward/tangential escape from the actually blocked player side.
-            if (!float.IsNaN(_blockedRadii[Sector(start)])) start += (attempt.Sector % 2 == 0 ? 1 : -1) * Math.PI / 8;
-            double difference = LocalRoutePlanner.Angle(attempt.Normal) - start;
-            while (difference > Math.PI) difference -= Math.PI * 2;
-            while (difference < -Math.PI) difference += Math.PI * 2;
-            if (attempt.Pass % 2 == 1 && Math.Abs(difference) > 0.1) difference += difference > 0 ? -Math.PI * 2 : Math.PI * 2;
-            var path = new List<Vector3>();
-            Vector3 initial = _anchor + LocalRoutePlanner.Direction(start) * attempt.Radius; initial.Y = player.Y;
-            if (!flying) initial = LocalRoutePlanner.LocalElevation(initial, player, false, _settings, out _);
-            path.Add(initial); // Escape radially before following the ring; never cut through the anchor.
-            int legs = Math.Max(1, (int)Math.Ceiling(Math.Abs(difference) / (Math.PI / 8)));
-            for (int i = 1; i <= legs; i++)
-            {
-                Vector3 point = _anchor + LocalRoutePlanner.Direction(start + difference * i / legs) * attempt.Radius; point.Y = player.Y;
-                if (!flying) point = LocalRoutePlanner.LocalElevation(point, player, false, _settings, out _);
-                path.Add(point);
-            }
-            return path;
+            bool compatible = _memory.LastSuccessMode == (flying ? "Fly" : "Run");
+            int preferred = _lastBypassDirection != 0 ? _lastBypassDirection : compatible ? _memory.LastBypassDirection : 0;
+            float rememberedRadius = Math.Max(_lastRingRadius, compatible ? _memory.LastExteriorRingRadius : 0);
+            bool requireChange = BypassRequired && !(attempt.KnownGood && !_sessionWallObserved &&
+                Math.Abs(AngleDelta(LocalRoutePlanner.Angle(attempt.Normal) - LocalRoutePlanner.Angle(player - _anchor))) < Math.PI / 6);
+            _say($"Perimeter route requested: sector={attempt.Sector}, target bearing={attempt.Record.AngleDegrees:F1} deg; side not yet reached.");
+            return new EntranceOrbit(_anchor, attempt.Exterior, player, flying, requireChange, _wallRadius,
+                rememberedRadius, preferred, _settings, _say);
+        }
+        public void ObserveOrbit(EntranceOrbit orbit, Vector3 player)
+        {
+            orbit.Observe(player);
+            // Retain angular coverage across candidate/phase retries. Repeating
+            // the same arc cannot keep renewing the overall progress deadline.
+            if (orbit.MadeNewProgress && _orbitCoverage.Add($"{_mode}:{Sector(LocalRoutePlanner.Angle(player - _anchor))}:{(int)(orbit.Radius / 3)}"))
+                LastProgress = DateTime.UtcNow;
+            if (Active == null) return;
+            Active.Record.BypassDirection = orbit.Direction;
+            Active.Record.ExteriorRingRadius = orbit.Radius;
+            Active.Record.AngularSpanDegrees = orbit.AngularSpanDegrees;
+            Active.Record.OverpassResult = orbit.OverpassResult;
+        }
+        public void OrbitBlocked(Vector3 player, bool exhausted)
+        {
+            BypassRequired = true; BypassExhausted |= exhausted;
+            RememberWall(player, Active?.Record, true);
+            if (Active != null) _learning.Record(_memory, Active.Record);
         }
         public List<Vector3> FinalPoints(Attempt attempt)
         {
@@ -259,11 +286,12 @@ namespace RKmission
             // Compare fixed candidate goals across retries, not a fresh clock for each
             // orbit waypoint. Repeating a loop cannot manufacture overall progress.
             string key = $"{Active.Key}:{Active.AlternateHeight}:{Active.Lateral}:{stage}";
-            Vector3 goal = stage == "ProbeExterior" || stage == "AlignElevation" ? Active.Exterior : Active.Threshold;
-            float distance = stage == "ProbeExterior" ? LocalRoutePlanner.HorizontalDistance(player, goal) : LocalMovement.Distance(player, goal, flying);
+            bool perimeter = stage == "ProbeExterior" || stage == "OrbitBypass" || stage == "VerticalOverpass";
+            Vector3 goal = perimeter || stage == "AlignElevation" ? Active.Exterior : Active.Threshold;
+            float distance = perimeter ? LocalRoutePlanner.HorizontalDistance(player, goal) : LocalMovement.Distance(player, goal, flying);
             if (!_minima.TryGetValue(key, out float previous))
             {
-                _minima[key] = previous = stage == "ProbeExterior" ? LocalRoutePlanner.HorizontalDistance(Active.Record.Origin.Vector, goal) :
+                _minima[key] = previous = perimeter ? LocalRoutePlanner.HorizontalDistance(Active.Record.Origin.Vector, goal) :
                     LocalMovement.Distance(Active.Record.Origin.Vector, goal, flying);
             }
             if (distance + 0.5f < previous) { _minima[key] = distance; LastProgress = DateTime.UtcNow; }
@@ -275,32 +303,56 @@ namespace RKmission
         {
             if (Active == null) return;
             Attempt attempt = Active; attempt.Record.LastPosition = NavigationPoint.From(player); attempt.Record.FinishedUtc = DateTime.UtcNow;
-            Cover(attempt);
             attempt.Record.Result = blocked ? "blocked" : "incomplete"; attempt.Record.Reason = reason;
             if (blocked)
             {
-                int blockedSector = Sector(LocalRoutePlanner.Angle(player - _anchor));
-                _sectorScores[blockedSector] += 8; _blockedRadii[blockedSector] = LocalRoutePlanner.HorizontalDistance(player, _anchor);
-                _say($"Blocked sector={blockedSector}, requested sector={attempt.Sector}, actual stall radius={_blockedRadii[blockedSector]:F2} m.");
-                foreach (int neighbor in new[] { (blockedSector + 1) % _settings.Sectors, (blockedSector + _settings.Sectors - 1) % _settings.Sectors })
-                    if (!float.IsNaN(_blockedRadii[neighbor]) && Math.Abs(_blockedRadii[neighbor] - _blockedRadii[blockedSector]) <= 3)
-                    {
-                        _oppositeSector = (blockedSector + _settings.Sectors / 2) % _settings.Sectors;
-                        _say($"Inferred likely building face/corner: blocked sectors={neighbor},{blockedSector}, stall radius={_blockedRadii[blockedSector]:F2} m; " +
-                            $"prioritize opposite arc near sector={_oppositeSector}; entrance remains a candidate.");
-                    }
+                RememberWall(player, attempt.Record, true);
+                if (!attempt.Record.ExteriorReached) BypassRequired = true;
             }
             _learning.Record(_memory, attempt.Record);
             _say($"Entrance attempt result: mission={_missionId}, sector={attempt.Sector}, door={attempt.DoorId}, progress delta={attempt.Record.ProgressMetres:F2} m, " +
+                $"exterior reached={attempt.Record.ExteriorReached}, wall-bearing sector={attempt.Record.WallBearingSector}, " +
                 $"result={attempt.Record.Result}, reason={reason}; retained for later retries."); Active = null;
         }
-        public void ExteriorReached()
+        private void RememberWall(Vector3 player, EntranceAttemptRecord record, bool log)
+        {
+            if (log) _sessionWallObserved = true;
+            int wall = Sector(LocalRoutePlanner.Angle(player - _anchor));
+            float radius = LocalRoutePlanner.HorizontalDistance(player, _anchor);
+            if (radius > _settings.MaxProbeRadius + 4 || radius < 1) return;
+            foreach (int neighbor in new[] { wall, (wall + 1) % _settings.Sectors, (wall + _settings.Sectors - 1) % _settings.Sectors })
+                if (!float.IsNaN(_blockedRadii[neighbor]) && Math.Abs(_blockedRadii[neighbor] - radius) <= 3 &&
+                    LocalRoutePlanner.HorizontalDistance(_blockedPositions[neighbor], player) <= 6)
+                {
+                    BypassRequired = true; _oppositeSector = (wall + _settings.Sectors / 2) % _settings.Sectors;
+                    if (log) _say($"Inferred likely building face/corner: wall-bearing sectors={neighbor},{wall}, radius={radius:F2} m; " +
+                        $"opposite candidate sector={_oppositeSector} requires OrbitBypass and observed angular change.");
+                }
+            _sectorScores[wall] += 8; _blockedRadii[wall] = radius; _blockedPositions[wall] = player;
+            _wallRadius = Math.Max(_wallRadius, radius);
+            if (record != null)
+            {
+                record.WallBearingSector = wall; record.WallRadius = radius;
+                record.WallBearingDegrees = (float)(PositiveAngle(LocalRoutePlanner.Angle(player - _anchor)) * 180 / Math.PI);
+                if (log) _say($"Blocked route: requested sector={record.Sector}, actual wall-bearing sector={wall}, " +
+                    $"stall radius={radius:F2} m, requested exterior reached={record.ExteriorReached}; attribution kept separate.");
+            }
+        }
+        public void ExteriorReached(Vector3 player, EntranceOrbit orbit)
         {
             if (Active == null) return;
+            ObserveOrbit(orbit, player);
+            Active.Record.ExteriorReached = true; Active.Record.BypassSideReached = BypassRequired;
+            // Keep the reached ring X/Z for elevation alignment. Do not collapse
+            // back to the original small candidate radius after a successful bypass.
+            Active.Exterior.X = player.X; Active.Exterior.Z = player.Z;
+            Active.Record.CandidatePoint = NavigationPoint.From(Active.Exterior);
+            _lastBypassDirection = orbit.Direction; _lastRingRadius = orbit.Radius; _lastAngularSpan = orbit.AngularSpanDegrees;
+            BypassExhausted = false;
             Cover(Active);
             _sectorScores[Active.Sector] = Math.Max(-12, _sectorScores[Active.Sector] - 4);
-            _say($"Chosen exterior side: mission={_missionId}, sector={Active.Sector}, source={Active.Source}, outward vector=({LocalRoutePlanner.Coordinates(Active.Normal)}); " +
-                "exterior reached, entrance access still being validated.");
+            _say($"Verified exterior arrival: mission={_missionId}, requested sector={Active.Sector}, actual bearing=" +
+                $"{PositiveAngle(LocalRoutePlanner.Angle(player - _anchor)) * 180 / Math.PI:F1} deg, source={Active.Source}; FinalApproach still requires entry validation.");
         }
         public void CompleteHandoff(bool success, string reason)
         {
@@ -326,6 +378,8 @@ namespace RKmission
         private void Cover(Attempt attempt)
         { _covered.Add(attempt.Sector); _coveredRings.Add($"{attempt.Sector}:{attempt.Radius}"); }
         private static double PositiveAngle(double angle) => angle < 0 ? angle + Math.PI * 2 : angle;
+        private static double AngleDelta(double angle)
+        { while (angle > Math.PI) angle -= Math.PI * 2; while (angle < -Math.PI) angle += Math.PI * 2; return angle; }
         private int Sector(double angle) => (int)Math.Round(PositiveAngle(angle) * _settings.Sectors / (Math.PI * 2)) % _settings.Sectors;
         private bool Associated(Door door, out string association, out bool questLinked)
         {

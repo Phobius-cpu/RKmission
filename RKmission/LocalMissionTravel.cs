@@ -10,7 +10,7 @@ namespace RKmission
 
     internal sealed class LocalMissionTravel
     {
-        private enum Phase { Idle, CoarseTravel, ProbeExterior, AlignElevation, FinalApproach, Interact, CrossThreshold, AwaitTransition }
+        private enum Phase { Idle, CoarseTravel, ProbeExterior, OrbitBypass, VerticalOverpass, AlignElevation, FinalApproach, Interact, CrossThreshold, AwaitTransition }
         private readonly Action<string> _say;
         private readonly OutdoorNavigationSettings _settings;
         private readonly EntranceLearning _learning;
@@ -21,6 +21,7 @@ namespace RKmission
         private EntranceMemory _runMemory;
         private EntranceAttemptRecord _runRecord;
         private EntranceAcquisition _entrance;
+        private EntranceOrbit _orbit;
         private Phase _phase;
         private bool _flying, _legActive, _pendingZoning;
         private int _pathIndex, _recoveries, _uses;
@@ -85,7 +86,7 @@ namespace RKmission
                 else _entrance.Finish(reason, _entrance.Active.Record.LastPosition?.Vector ?? _route.Origin, false);
             }
             FinishRun("interrupted", reason);
-            _movement.Reset(); _route = null; _entrance = null; _path.Clear(); _accepted.Clear();
+            _movement.Reset(); _route = null; _entrance = null; _orbit = null; _path.Clear(); _accepted.Clear();
             _phase = Phase.Idle; _legActive = _pendingZoning = false; _lastEvaluation = null;
         }
 
@@ -139,14 +140,20 @@ namespace RKmission
                 (now - _entrance.LastProgress).TotalSeconds >= _settings.NoProgressSeconds)
                 return Fail($"full directional candidate space explored ({_entrance.CoveredSectors}/{_settings.Sectors} sectors), " +
                     $"no new observed target-distance improvement for {_settings.NoProgressSeconds} seconds; no verified transition");
+            if (_entrance.Active == null && _entrance.BypassExhausted &&
+                (now - _entrance.LastProgress).TotalSeconds >= _settings.NoProgressSeconds)
+                return Fail($"perimeter recovery made no new angular/target progress for {_settings.NoProgressSeconds} seconds; " +
+                    "candidate sides not reached, entrance access unresolved");
             EntranceAcquisition.Attempt attempt = _entrance.Active;
             if (attempt == null)
             {
                 attempt = _entrance.Select(player, flying);
                 if (attempt == null) return true;
                 _uses = 0; _lastUse = DateTime.MinValue;
-                SetPath(Phase.ProbeExterior, _entrance.Orbit(attempt, player, flying));
+                _orbit = _entrance.Orbit(attempt, player, flying);
+                SetPhase(_entrance.BypassRequired ? Phase.OrbitBypass : Phase.ProbeExterior);
             }
+            if (_orbit != null) return TickOrbit(player, now);
             if (_phase == Phase.Interact) return Interact(player, now);
             if (_phase == Phase.AwaitTransition)
             {
@@ -172,10 +179,6 @@ namespace RKmission
             }
             switch (_phase)
             {
-                case Phase.ProbeExterior:
-                    _entrance.ExteriorReached();
-                    SetPath(Phase.AlignElevation, new[] { attempt.Exterior });
-                    break;
                 case Phase.AlignElevation:
                     SetPath(Phase.FinalApproach, _entrance.FinalPoints(attempt));
                     break;
@@ -184,6 +187,42 @@ namespace RKmission
                     else BeginCrossing(player, "no live mission Door; inferred normal/proximity threshold crossing");
                     break;
                 case Phase.CrossThreshold: SetPhase(Phase.AwaitTransition); break;
+            }
+            return true;
+        }
+
+        private bool TickOrbit(Vector3 player, DateTime now)
+        {
+            if (_legActive)
+            {
+                MovementResult result = _movement.Tick();
+                _entrance.Observe(player, _movement.Target, _phase.ToString(), _flying,
+                    _movement.StartDistance, _movement.BestDistance, _movement.StallSeconds);
+                _entrance.ObserveOrbit(_orbit, player); LogProgress(player, now);
+                if (result == MovementResult.Moving && !_orbit.ProbeExpired) return true;
+                _movement.Halt(); _legActive = false;
+                _orbit.LegEnded(player, result == MovementResult.Stalled);
+                _entrance.ObserveOrbit(_orbit, player);
+                if (result == MovementResult.Stalled) _entrance.OrbitBlocked(player, _orbit.Failed);
+            }
+            if (_orbit.Failed)
+            {
+                _entrance.OrbitBlocked(player, true);
+                Retry("perimeter bypass exhausted before requested exterior was reached", player, true); return true;
+            }
+            if (_orbit.Next(player, out Vector3 target))
+            {
+                Phase phase = _orbit.VerticalOverpass ? Phase.VerticalOverpass :
+                    _entrance.BypassRequired ? Phase.OrbitBypass : Phase.ProbeExterior;
+                SetPhase(phase); _movement.Begin(target, _flying, true); _legActive = true;
+                _say($"Outdoor perimeter target: phase={phase}, requested sector={_entrance.Active.Sector}, " +
+                    $"target=({LocalRoutePlanner.Coordinates(target)}); requested side remains unconfirmed.");
+                return true;
+            }
+            if (_orbit.Finished)
+            {
+                _entrance.ExteriorReached(player, _orbit); _orbit = null;
+                SetPath(Phase.AlignElevation, new[] { _entrance.Active.Exterior });
             }
             return true;
         }
@@ -264,7 +303,7 @@ namespace RKmission
         private void SetPath(Phase phase, IEnumerable<Vector3> points)
         { SetPhase(phase); _path.AddRange(points.Where(AcceptedMissions.Finite)); }
         private void Retry(string reason, Vector3 player, bool blocked)
-        { _movement.Halt(); _legActive = false; _entrance.Finish(reason, player, blocked); SetPhase(Phase.ProbeExterior); }
+        { _movement.Halt(); _legActive = false; _orbit = null; _entrance.Finish(reason, player, blocked); SetPhase(Phase.ProbeExterior); }
 
         private void LogProgress(Vector3 player, DateTime now)
         {

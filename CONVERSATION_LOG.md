@@ -874,3 +874,58 @@ this comparison; earlier revision history remains intact. Source/API/diff review
 only, with no compilation, package restore, automated tests or in-game run. The
 user pulls main, compiles and validates in AO#, then supplies logs and the local
 learning file for follow-up fixes.
+
+### User perimeter-bypass regression report (2026-09-28)
+
+Continue Organize RKMission conversations on Phobius-cpu/RKmission main. Use the
+attached in-game log; preserve dungeon exploration/combat/door/loot and accepted
+current-playfield selection. Do not compile/test locally; user pulls, compiles
+and tests in-game. Commit the coherent correction to main and update all three docs.
+
+Mission 1442298255, PF665, anchor X=629.78/Z=1414.37: sectors 11 and 10 reached
+their exteriors but FinalApproach stalled near the south wall at Z=1406.25/1406.29,
+while targets were near Z=1411.60/1412.25. Opposite arc sector 3 was correctly
+prioritized. Its route still used points (622.82,1404.59), (619.79,1407.72),
+(618.08,1411.71), scraping south/west geometry. Actual sector-9 wall stalls were
+logged as blocked routes to sectors 3/4, though those candidates never arrived.
+Later sector-2 routing stalled at radius 13.86 m, outside the fixed 12 m ring.
+
+Required explicit obstacle orbit, safe radial band, measured CW/CCW probing and
+fallback, observed angular progress before opposite-side confirmation, bounded
+optional Fly vertical overpass, distinct requested/wall attribution, persistent
+successful direction/radius/span/approach plus failures, and clear phase logs.
+The concrete lesson: changing target sector without perimeter routing caused
+repeated wall-running.
+
+### Assistant observed perimeter recovery correction
+
+Read the original attachment and main c43c94e. Preserved the full log in
+docs/navigation-evidence/2026-09-28-pf665-wall-running.txt. Removed the precomputed
+fixed-radius/parity-chosen arc. `EntranceOrbit` generates one <=15-degree leg
+from actual position, compensates inward chord sag, first moves outward, maintains
+a bounded radial band and widens the ring after real stalls. Repeated wall-bearing
+stalls or exterior-route failure invoke OrbitBypass. Candidate changes require
+actual bearing separation; labels never substitute for angular movement.
+
+Advisory corridor rays rank neighbors; equally clear/uncertain rays trigger brief
+observed probes in both directions. Choose measured progress, preserve the other
+as fallback, and prefer prior verified direction on ties. Arrival requires target
+bearing/radius plus meaningful net change and stable angular movement. Keep wider
+arrival X/Z instead of moving back inward to the old ring for height alignment.
+Then resume the existing final inferred/live threshold logic. Optional Fly
+VerticalOverpass ascends at current X/Z, uses bounded advisory height samples,
+orbits to the new bearing and descends; observed collision/stalls decide results.
+
+Persist separate requested sector, wall-bearing sector/angle/radius, actual exterior
+arrival, bypass direction, ring radius, angular span, overpass outcome and verified
+successful approach. Version-1 history remains compatible and bounded. Repeated
+arcs retain coverage/minima instead of resetting overall progress; failed routes
+do not claim completed exterior coverage. Exhausted recovery can stop as unresolved
+after the no-progress interval, with the existing overall travel bound retained.
+
+Added phase/bearing/radius/direction/probe/progress/outward/overpass/new-side logs;
+removed chosen-side wording before actual arrival. Updated README and PROJECT_MEMORY.
+Only source/API/diff inspection was performed. No local compilation, package
+restore, automated tests or in-game run. Accepted mission selection, current
+playfield filtering, narrow Door association, exact MissionDungeon handoff and
+existing dungeon/exploration/combat/interior-door/loot code were preserved.

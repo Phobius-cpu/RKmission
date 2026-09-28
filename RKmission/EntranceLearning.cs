@@ -33,6 +33,12 @@ namespace RKmission
         public float AngleDegrees, Radius, StartDistance, BestDistance, ProgressMetres, StallSeconds;
         public NavigationPoint Anchor, Origin, ExteriorVector, CandidatePoint, ApproachPoint, LastTarget, LastPosition, DoorPosition, DoorForward;
         public NavigationRotation DoorRotation;
+        // Sector always remains the requested candidate. WallBearingSector is
+        // observed geometry, including routes that never reached that candidate.
+        public int WallBearingSector = -1, SectorCount, BypassDirection;
+        public float WallBearingDegrees, WallRadius, ExteriorRingRadius, AngularSpanDegrees;
+        public bool ExteriorReached, BypassSideReached;
+        public string OverpassResult;
     }
 
     internal sealed class EntranceMemory
@@ -43,6 +49,9 @@ namespace RKmission
         public DateTime UpdatedUtc, LastSuccessUtc;
         public NavigationPoint LastSuccessVector, LastSuccessDoorPosition, LastSuccessDoorForward;
         public string LastSuccessMode;
+        public int LastSuccessSector = -1, LastBypassDirection, WallSectorCount;
+        public float LastExteriorRingRadius, LastBypassAngularSpanDegrees;
+        public List<int> FailedWallBearingSectors = new List<int>();
         public List<EntranceAttemptRecord> Attempts = new List<EntranceAttemptRecord>();
     }
 
@@ -103,6 +112,14 @@ namespace RKmission
             if (attempt == null) return;
             if (!memory.Attempts.Contains(attempt)) memory.Attempts.Add(attempt);
             memory.UpdatedUtc = DateTime.UtcNow;
+            if (memory.FailedWallBearingSectors == null) memory.FailedWallBearingSectors = new List<int>();
+            if (attempt.WallBearingSector >= 0 && attempt.SectorCount > 0)
+            {
+                if (memory.WallSectorCount != attempt.SectorCount)
+                { memory.FailedWallBearingSectors.Clear(); memory.WallSectorCount = attempt.SectorCount; }
+                if (!memory.FailedWallBearingSectors.Contains(attempt.WallBearingSector))
+                    memory.FailedWallBearingSectors.Add(attempt.WallBearingSector);
+            }
             if (verifiedSuccess && attempt.ExteriorVector?.Valid == true &&
                 LocalRoutePlanner.HorizontalDistance(attempt.ExteriorVector.Vector, Vector3.Zero) > 0.1f)
             {
@@ -111,6 +128,10 @@ namespace RKmission
                 memory.LastSuccessMode = attempt.Mode;
                 memory.LastSuccessDoorPosition = attempt.DoorPosition;
                 memory.LastSuccessDoorForward = attempt.DoorForward;
+                memory.LastSuccessSector = attempt.Sector;
+                memory.LastBypassDirection = attempt.BypassDirection;
+                memory.LastExteriorRingRadius = attempt.ExteriorRingRadius;
+                memory.LastBypassAngularSpanDegrees = attempt.AngularSpanDegrees;
             }
             Trim(); Save();
         }

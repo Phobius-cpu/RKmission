@@ -177,6 +177,24 @@ namespace RKmission
             catch { return true; } // Unavailable geometry is inconclusive, never a launch gate.
         }
 
+        public static float AdvisoryOverpassHeight(Vector3 anchor, Vector3 player, Vector3 exterior, float baseHeight)
+        {
+            float desired = Math.Max(baseHeight + 8, player.Y + 4);
+            // Roof/terrain hits suggest a height, never certify or reject flight.
+            // Even an unknown/taller obstacle gets a bounded observed attempt.
+            foreach (Vector3 point in new[] { player, anchor, exterior, (player + anchor) * 0.5f })
+            {
+                Vector3 top = point, bottom = point; top.Y = baseHeight + 24; bottom.Y = baseHeight - 2;
+                try
+                {
+                    if (Playfield.Raycast(top, bottom, out Vector3 hit, out _) && AcceptedMissions.Finite(hit))
+                        desired = Math.Max(desired, hit.Y + 3);
+                }
+                catch { } // Missing geometry retains the modest climb fallback.
+            }
+            return Math.Min(baseHeight + 24, desired);
+        }
+
         private static SVector ToSharp(Vector3 point) => new SVector(point.X, point.Y, point.Z);
         private static Vector3 ToAO(SVector point) => new Vector3(point.X, point.Y, point.Z);
     }
