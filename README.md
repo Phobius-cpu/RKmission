@@ -4,10 +4,11 @@ AO# plugin for solo Rubi-Ka missions in Anarchy Online. It combines the original
 Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
 mission travel, room exploration, combat targeting, door handling, and looting.
 
-**Status (2026-09-28):** cruise now reaches the reported entrance, but descent
-stalled about 24 m above its selected height. The latest repair plans sideways
-movement to a clear descent column before lowering and returning; it awaits the
-user's build and in-game validation. Dungeon
+**Status (2026-09-28):** the user reports previous mission paths work, but one
+entrance stops lowering at Y=19.9 toward an estimated Y=16.2. The latest repair
+remembers the area of an observed blocked descent, seeks a farther outside drop,
+and tightens descent waypoint arrival; it awaits the user's build and in-game
+validation. Dungeon
 exploration, combat, room doors, lockpicking, and loot behavior are preserved; one hook refreshes
 the live mission binding.
 
@@ -128,8 +129,10 @@ retrying an unfinished accepted mission.
   arrival advances the existing path without stopping, after checking the next
   segment from the actual position to avoid cutting a corner. Moderate heading changes
   are smoothed, and sharp/corner-conflicting turns face the next leg directly.
-  The former rotate-in-place gate is removed. Intermediate arrival uses 1.2-2.5 m
-  according to speed; final height and entrance checks have tighter limits.
+  The former rotate-in-place gate is removed. Intermediate cruise arrival uses
+  1.2-2.5 m according to speed. During entrance height alignment, reach an outside
+  waypoint within 0.75 m before lowering; finish a lowering leg within 0.75 m
+  vertically before returning sideways. Final height and entrance checks remain tighter.
 - Flight follows `FlightCruise -> EntranceHeight -> EntranceApproach -> EnterDoor`.
   At no more than 2 m horizontally from the chosen entrance, resolve a unique
   live door's exact height or refresh the nearby surface consensus. Align to
@@ -150,6 +153,18 @@ retrying an unfinished accepted mission.
   sample 16 points 1.5 m around this same entrance at the selected entry height
   and keep the reachable endpoint. The floor, mission and live door identity
   remain fixed; the vehicle stays equipped throughout.
+- An actual eight-second movement stall on a nearly vertical entrance descent
+  learns an obstruction area around the stopping point, even if terrain rays
+  report a clear drop. Start with a 4 m radius; another stalled descent inside
+  that area at a similar height expands it by 4 m, up to 16 m. Avoid crossing
+  the learned plane just below the stopped vehicle; sideways escape above it
+  and a return underneath remain candidates. Both planning and execution respect
+  this memory, including early waypoint transitions and smoothed turns. A probe
+  pause alone cannot learn or enlarge the area. Memory belongs to this selected
+  mission and clears on reset/new selection. Logs show held versus requested
+  height, area radius and retained entrance height. The stopping altitude is an
+  obstruction observation, not proof of the door's height; live door data still
+  takes priority over the terrain estimate, and recovery retains the progress limits.
 - Height sampling uses 17 nearby columns and up to four surface layers, requiring
   three independent supporting columns and centre/inner support. It refreshes
   every two seconds within 24 m during cruise/alignment/approach with a 0.5 m tolerance.

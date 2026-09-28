@@ -244,11 +244,14 @@ namespace RKmission
 
         private const int FlightProbeLimit = 6000, FlightSearchProbeLimit = 4000;
 
-        // Observed failed movement blocks a short direction, not the mission or its
-        // entrance. This also handles scene objects absent from the surface ray data.
+        // Observed failed movement remembers a short direction or descent area,
+        // not an unreachable mission. Scene objects may be absent from surface rays.
         public struct FlightBlockedLeg
         {
             public Vector3 From, To;
+            // Only an actual stalled, nearly vertical descent sets this footprint.
+            // A surface-only ray can miss the roof/platform that stops the vehicle.
+            public float DescentRadius;
         }
 
         private static bool RepeatsBlockedLeg(Vector3 from, Vector3 to, float radius, IList<FlightBlockedLeg> blocked)
@@ -258,6 +261,17 @@ namespace RKmission
             if (length < 0.1f) return false;
             foreach (FlightBlockedLeg leg in blocked)
             {
+                if (leg.DescentRadius > 0 && Math.Abs(delta.Y) > 0.1f)
+                {
+                    // Remember a crossing plane, not a solid column down to the
+                    // terrain estimate: flight below a roof can still reach the door.
+                    // Horizontal escape at the observed stopping height stays usable.
+                    float plane = leg.From.Y - 0.5f;
+                    float crossing = (plane - from.Y) / delta.Y;
+                    if (crossing >= 0 && crossing <= 1 &&
+                        HorizontalDistance(from + delta * crossing, leg.From) <= leg.DescentRadius + radius)
+                        return true;
+                }
                 if (Vector3.Distance(leg.From, leg.To) < 0.1f) continue;
                 Vector3 direction = (leg.To - leg.From).Normalize();
                 if (Vector3.Dot(delta / length, direction) < 0.8f) continue;
@@ -268,6 +282,11 @@ namespace RKmission
             }
             return false;
         }
+
+        // Execution and corner cutting must respect observed geometry too; a new
+        // clear terrain ray cannot erase a failed scene-object descent.
+        public static bool FlightSegmentClear(Vector3 from, Vector3 to, float radius, IList<FlightBlockedLeg> blocked)
+            => !RepeatsBlockedLeg(from, to, radius, blocked) && ClearSegment(from, to);
 
         // Only confirmed surface hits/observed failed legs exclude a search edge.
         // Offset probes rank body clearance; missing native LOS is not a rejection.

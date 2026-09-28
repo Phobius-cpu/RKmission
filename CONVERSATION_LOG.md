@@ -615,3 +615,32 @@ surface height. Existing vehicle entry, final height gate, floor/door identity,
 timeouts, ground fallback and dungeon systems remain. Updated README.md and
 PROJECT_MEMORY.md. Source/API/diff review only; no local compilation, restore,
 tests or in-game run. User pulls main, compiles and checks this descent in game.
+
+### User repeated descent stop beside one entrance (2026-09-28)
+
+The user supplied 10:27 logs and said all previous mission paths were okay.
+One entrance stalls at Y=19.901 while lowering toward Y=16.2. A failed drop
+is recorded, but the next committed path lowers only about 1.6 m away and stops
+at the same altitude again. The selected terrain floor remains Y=15.2.
+
+### Assistant observed descent-area recovery
+
+Inspected main 2172f9f and the AOSharp surface-ray API. The failed direction's
+small witness does not exclude neighbouring drops onto the same object, and
+execution can cut outside-descent corners using the cruise arrival tolerance.
+An actual stalled descent now learns a bounded obstruction footprint; repeated
+nearby stalls enlarge it so the committed path seeks a farther outside drop.
+Remember the crossing plane rather than blocking all space below it, allowing
+an outside descent followed by a return under the obstruction. Keep the selected
+entrance height until live door data refines it; a stopped vehicle may be above
+a roof/platform and cannot establish the door height.
+
+Planning, shortcutting and execution all respect observed obstruction memory.
+During final height alignment, reach the outside column more precisely before
+lowering and finish lowering before returning. Successful cruise behavior,
+nearest mission selection, vehicle entry, height/door/handoff gates, progress
+limits, ground fallback and working dungeon systems remain. New logs show
+observed area size, stopping/requested heights and retained entrance height.
+Updated README.md and PROJECT_MEMORY.md. Source/API/diff review only; no local
+compilation, restore, tests or in-game run. User pulls main, compiles and checks
+the farther descent/return at this entrance in game.

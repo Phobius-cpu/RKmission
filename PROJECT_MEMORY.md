@@ -830,3 +830,46 @@ connected obstacle search or the near-entrance height sequence.
 - Updated README/CONVERSATION_LOG and inspected source/diff only. No local build,
   package restore, tests or in-game run. User pulls main, compiles and validates
   outside descent and return to the reported Broken Shores entrance in game.
+
+## Observed Descent Footprint and Precise Outside Alignment (2026-09-28)
+
+- User's 10:27 logs: all previous mission paths were okay. This entrance lowers
+  to Y=19.901 but cannot reach selected entry Y=16.2 (terrain floor 15.2).
+  After recording the failed vertical leg at (750.8332, 19.901, 1458.063),
+  the planner chooses another drop at (749.2946, 19.901, 1458.335), only about
+  1.6 m away. Both stop at the same altitude despite reported clear drops.
+- Inspected main 2172f9f. Failed-leg memory covers only a small directional
+  witness about 2 m along the failed segment. Neighbouring vertical columns
+  remain eligible. Execution checks only surface rays when advancing/steering,
+  and its speed-based arrival radius can start a descent up to 2.5 m short of
+  the selected outside column or begin the return before fully lowering.
+- Rechecked AOSharp reference Playfield.Raycast: outdoor queries use
+  TilemapSurface.GetLineIntersection. A clear surface ray is not evidence that
+  actual vehicle movement can cross scene-object geometry. Reuse existing
+  position/movement APIs; no new SDK dependency or native collision API.
+- Only an eight-second stalled, actively commanded, nearly vertical descent
+  during EntranceHeight within 24 m of the selected entrance learns a broader
+  footprint. A paused geometry probe cannot create/expand one. Initial radius
+  is 4 m; another observed stall inside it within 1 m of the same stopping
+  altitude expands by 4 m, bounded at 16 m. Memory retains the existing 16-entry
+  cap and clears on reset/selection. Other failed movement keeps its short-leg
+  memory. Successful cruise and the route selection/search algorithm are unchanged.
+- The learned geometry is a crossing plane 0.5 m below the stopped position,
+  with vehicle radius added to its horizontal footprint. Avoid crossing it from
+  either side inside the area; allow sideways escape at the stopping altitude
+  and travel below it after an outside descent. Do not block the entire column
+  down to the estimated entrance floor or infer a new door height from the stall.
+- The existing planner/shortcut checks use that memory. Execution now checks
+  it too on prefix arrival, corner transitions, nearby probes and smoothed turns.
+  EntranceHeight staging arrival tightens to 0.75 m before a following descent;
+  a lowering leg must finish within 0.75 m vertically before advancing to the
+  return or completing a prefix. Cruise waypoint tolerance remains unchanged.
+- Logs distinguish an observed descent area, held/requested height, radius
+  growth and retained selected entry height; committed paths include the number
+  of remembered descent areas. Live door height remains authoritative, and
+  within-2-metre height alignment, vehicle entry, unique door identity, exact
+  dungeon handoff, 90-second progress and three-minute entry bounds remain.
+  Ground fallback and dungeon exploration/combat/interior doors/lockpick/loot
+  code are untouched. Updated README/CONVERSATION_LOG. Source/API/diff inspection
+  only; no local compilation, restore, tests or in-game run. User pulls main,
+  compiles and validates a farther outside drop/return at this entrance in game.

@@ -377,8 +377,9 @@ namespace RKmission
             }
             float arrival = Math.Max(1.2f, Math.Min(2.5f, velocity * 0.12f));
             if (!_flightPathComplete && _flightPathIndex == _flightPath.Count - 1 &&
-                Vector3.Distance(position, _flightPath[_flightPathIndex]) <= arrival &&
-                LocalRoutePlanner.ClearSegment(LocalRoutePlanner.Toward(position, _flightPath[_flightPathIndex], 0.3f), _flightPath[_flightPathIndex]))
+                FlightWaypointReached(position, _flightPathIndex, arrival) &&
+                LocalRoutePlanner.FlightSegmentClear(LocalRoutePlanner.Toward(position, _flightPath[_flightPathIndex], 0.3f),
+                    _flightPath[_flightPathIndex], radius, _blockedFlightLegs))
             {
                 // Successful prefix arrival is a continuation, not an obstruction
                 // or permission to treat its endpoint as the actual mission entrance.
@@ -388,14 +389,15 @@ namespace RKmission
                 remaining = Vector3.Distance(position, destination);
             }
             while (_flightPathIndex < _flightPath.Count - 1 &&
-                Vector3.Distance(position, _flightPath[_flightPathIndex]) <= arrival)
+                FlightWaypointReached(position, _flightPathIndex, arrival))
             {
                 Vector3 next = _flightPath[_flightPathIndex + 1];
                 Vector3 nextEnd = _flightPathComplete && _phase == Phase.EntranceApproach && _flightPathIndex + 1 == _flightPath.Count - 1
                     ? LocalRoutePlanner.Toward(position, next, Math.Max(0, Vector3.Distance(position, next) - 1)) : next;
                 // Do not cut a planned corner early through a roof/wall. Continue
                 // toward this waypoint until the next leg is clear from the real position.
-                if (!LocalRoutePlanner.ClearSegment(LocalRoutePlanner.Toward(position, nextEnd, 0.3f), nextEnd)) break;
+                if (!LocalRoutePlanner.FlightSegmentClear(LocalRoutePlanner.Toward(position, nextEnd, 0.3f),
+                    nextEnd, radius, _blockedFlightLegs)) break;
                 _flightPathIndex++;
                 _bestFlightStepDistance = float.PositiveInfinity; _flightStepProgress = now;
                 _nextFlightProbe = DateTime.MinValue;
@@ -415,14 +417,15 @@ namespace RKmission
                 Vector3 start = LocalRoutePlanner.Toward(position, end, 0.3f);
                 // A nearby surface hit can pause movement. Body-offset hints rank
                 // routes; search budget exhaustion alone cannot stop usable travel.
-                _flightHolding = probeLength > 0.5f && !LocalRoutePlanner.ClearSegment(start, end);
+                _flightHolding = probeLength > 0.5f &&
+                    !LocalRoutePlanner.FlightSegmentClear(start, end, radius, _blockedFlightLegs);
                 if (!_flightHolding) _flightBlockedAt = DateTime.MinValue;
                 else if (_flightBlockedAt == DateTime.MinValue) _flightBlockedAt = now;
             }
             bool obstructed = _flightHolding && now - _flightBlockedAt >= TimeSpan.FromSeconds(1);
             if ((stalled || obstructed) && now >= _nextFlightPlan)
             {
-                RememberBlockedFlightLeg(position, target);
+                RememberBlockedFlightLeg(position, target, stalled, radius);
                 CommitFlightPath(position, ref destination, radius, stalled ? "8 seconds without waypoint progress" : "sustained nearby surface obstruction");
                 if (_flightPath.Count == 0) { Halt(); return true; }
                 remaining = Vector3.Distance(position, destination);
@@ -432,7 +435,8 @@ namespace RKmission
                 if (_flightPathComplete && _phase == Phase.EntranceApproach && _flightPath.Count == 1 && stepDistance <= probeLength + 1)
                     probeLength = Math.Max(0, probeLength - 1);
                 Vector3 end = LocalRoutePlanner.Toward(position, target, probeLength);
-                _flightHolding = !LocalRoutePlanner.ClearSegment(LocalRoutePlanner.Toward(position, end, 0.3f), end);
+                _flightHolding = !LocalRoutePlanner.FlightSegmentClear(LocalRoutePlanner.Toward(position, end, 0.3f),
+                    end, radius, _blockedFlightLegs);
                 _flightBlockedAt = _flightHolding ? now : DateTime.MinValue;
             }
             if (_flightHolding) { Halt(); return true; }
@@ -456,8 +460,8 @@ namespace RKmission
             // Moving turns stay continuous; face the committed leg directly if a
             // smoothed heading would cut a corner into known geometry.
             float turnProbe = Math.Min(stepDistance, 2);
-            if (angle > Math.PI / 180 && !LocalRoutePlanner.ClearSegment(position + steering * 0.3f,
-                position + steering * turnProbe)) steering = wanted;
+            if (angle > Math.PI / 180 && !LocalRoutePlanner.FlightSegmentClear(position + steering * 0.3f,
+                position + steering * turnProbe, radius, _blockedFlightLegs)) steering = wanted;
             Vector3 up = Math.Abs(steering.X) + Math.Abs(steering.Z) < 0.05f ? new Vector3(0, 0, 1) : Vector3.Up;
             DynelManager.LocalPlayer.Rotation = Quaternion.LookRotation(steering, up);
             SMovementController.SetMovement(MovementAction.ForwardStart);
@@ -466,10 +470,55 @@ namespace RKmission
             return true;
         }
 
-        private void RememberBlockedFlightLeg(Vector3 position, Vector3 target)
+        private bool FlightWaypointReached(Vector3 position, int index, float arrival)
+        {
+            Vector3 point = _flightPath[index];
+            if (_phase == Phase.EntranceHeight)
+            {
+                // Reach the chosen outside column before turning downward. The
+                // cruise arrival radius would otherwise cut up to 2.5 m back over
+                // the roof. Finish lowering before the sideways return, too.
+                if (index + 1 < _flightPath.Count && _flightPath[index + 1].Y < point.Y - 1.5f)
+                    arrival = Math.Min(arrival, 0.75f);
+                if (index > 0 && point.Y < _flightPath[index - 1].Y - 1.5f && Math.Abs(position.Y - point.Y) > 0.75f)
+                    return false;
+            }
+            return Vector3.Distance(position, point) <= arrival;
+        }
+
+        private void RememberBlockedFlightLeg(Vector3 position, Vector3 target, bool stalled, float radius)
         {
             if (Vector3.Distance(position, target) < 0.75f) return;
             Vector3 end = LocalRoutePlanner.Toward(position, target, 4);
+            bool descent = stalled && _ownsMovement && !_flightHolding && _phase == Phase.EntranceHeight &&
+                position.Y - target.Y > 1.5f &&
+                LocalRoutePlanner.HorizontalDistance(position, target) <= 1.5f &&
+                LocalRoutePlanner.HorizontalDistance(position, _route.EntrancePoint) <= 24;
+            if (descent)
+            {
+                float footprint = Math.Max(4, radius * 3);
+                int nearby = _blockedFlightLegs.FindIndex(x => x.DescentRadius > 0 &&
+                    Math.Abs(x.From.Y - position.Y) <= 1 &&
+                    LocalRoutePlanner.HorizontalDistance(x.From, position) <= x.DescentRadius);
+                if (nearby >= 0)
+                {
+                    var obstruction = _blockedFlightLegs[nearby];
+                    obstruction.DescentRadius = Math.Min(16, Math.Max(obstruction.DescentRadius + 4,
+                        LocalRoutePlanner.HorizontalDistance(obstruction.From, position) + footprint));
+                    _blockedFlightLegs[nearby] = obstruction;
+                    _say($"Observed descent obstruction expanded: centre={obstruction.From}, " +
+                        $"avoid crossing within {obstruction.DescentRadius:F1} m; held height={position.Y:F2}, " +
+                        $"selected entry height={_route.EntrancePoint.Y + 1:F2} retained; seek a farther outside descent.");
+                    return;
+                }
+                _blockedFlightLegs.Add(new LocalRoutePlanner.FlightBlockedLeg
+                    { From = position, To = end, DescentRadius = footprint });
+                if (_blockedFlightLegs.Count > 16) _blockedFlightLegs.RemoveAt(0);
+                _say($"Observed descent obstruction recorded: centre={position}, avoid crossing within {footprint:F1} m; " +
+                    $"requested height={target.Y:F2}, selected entry height={_route.EntrancePoint.Y + 1:F2} retained. " +
+                    "A stopped descent is not a door-height measurement; seek an outside drop and return below the obstruction.");
+                return;
+            }
             if (_blockedFlightLegs.Any(x => Vector3.Distance(x.From, position) < 1 && Vector3.Distance(x.To, end) < 1)) return;
             _blockedFlightLegs.Add(new LocalRoutePlanner.FlightBlockedLeg { From = position, To = end });
             if (_blockedFlightLegs.Count > 16) _blockedFlightLegs.RemoveAt(0);
@@ -503,7 +552,8 @@ namespace RKmission
             // Expand following failed execution too, without resetting observed progress.
             _flightSearchRetries++;
             _say($"Flight path committed {++_flightPlans}: {trigger}; {reason}; " +
-                $"waypoints={string.Join(" -> ", path)}; final target={destination}; complete={_flightPathComplete}; progress deadline retained.");
+                $"waypoints={string.Join(" -> ", path)}; final target={destination}; complete={_flightPathComplete}; " +
+                $"observed descent areas={_blockedFlightLegs.Count(x => x.DescentRadius > 0)}; progress deadline retained.");
         }
 
         private static Vector3 SmoothFlightDirection(Vector3 current, Vector3 wanted, double angle, double maxTurn)
