@@ -2,199 +2,227 @@
 
 AO# plugin for solo Rubi-Ka missions in Anarchy Online. It combines the original
 Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
-mission travel, room exploration, combat targeting, door handling, and looting.
+local mission travel, room exploration, combat, door handling and looting.
 
-**Status (2026-09-28):** mission entrance acquisition is constrained to the
-selected accepted mission and a fixed 6 m anchor radius. Ordinary shops/buildings,
-conflicting quest context and ambiguous location matches are rejected. The
-closest accepted mission is selected by the current movement mode's route
-estimate and uploaded through AOSharp's native mission map/minimap interface.
-Live entrance/local geometry supplies final height and alternate approaches.
-Entry still requires exact mission/dungeon verification.
-The user's build and in-game validation are pending; no local compilation or
-tests were run. Dungeon exploration, combat, interior doors, lockpicking and loot
-are unchanged by this entrance fix.
+**Status (2026-09-28):** outdoor travel/entrance navigation has been consolidated
+into one state machine with Run/Fly movement, full directional probing and
+persistent entrance diagnostics. Dungeon exploration, room navigation, combat,
+interior doors/lockpicking, loot and objectives are unchanged. The coordinator
+only adds diagnostics at the existing verified dungeon handoff. No local build,
+package restore, tests or game run were performed; the user compiles and validates.
 
 ## Setup
 
-- Use the classic client: the embedded Manager.Loot rejects the new engine.
+- Use the classic client; embedded Manager.Loot rejects the new engine.
 - Compile `RKmission/RKmission.csproj` yourself. It targets .NET Framework 4.8
-  and references AOSharpSDK, AOSharpSDK.SharpNav, and Newtonsoft.Json.
-- Deploy the compiled output and dependencies through your AO# setup. Preserve
-  the `Plugins/MaliMissionRoller2`, `Plugins/MalisDungeonMap2`, and
-  `Plugins/ManagerLoot` folders beside `RKmission.dll`. The project copies
-  their required JSON, UI, texture, and sound assets.
-- Outdoor navmeshes are **optional**. If available, place them at
-  `NavMeshes/<playfield id>.nav` beside the deployed plugin for full ground
-  pathfinding. Without a usable mesh, AO# direct waypoints attempt bounded local
-  ground approaches. Flight and descent do not require a ground mesh.
-  Dungeon navmeshes are generated on verified entry.
-- Keep a **Lock Pick** in normal inventory, enough lockpicking skill, and
-  free inventory or configured backpack space.
-- Open `/ManagerLoot` to choose loot rules. Review its reverse and delete
-  settings; enabling Delete can remove items left in containers.
+  with the existing AOSharpSDK, AOSharpSDK.SharpNav and Newtonsoft.Json packages.
+- Deploy the output/dependencies through AO#. Keep the embedded plugin folders
+  beside `RKmission.dll`; the project copies their required UI/assets.
+- Outdoor `NavMeshes/<playfield id>.nav` files are optional. Complete meshes can
+  improve Run estimates and coarse travel. Direct local movement works without
+  a mesh; Fly never requires a mesh or a synthetic clearance certificate.
+- Keep a Lock Pick, sufficient skill, inventory/backpack space and configured
+  `/ManagerLoot` rules. Its Delete option can delete unselected items.
+- Keep `RKMissionData` beside the deployed plugin across updates. The plugin
+  creates settings/history there on load/use. A persistence error is logged;
+  navigation continues with session observations. Runtime data is Git-ignored.
 
 ## Quick start
 
-1. Roll and accept any number of Rubi-Ka missions yourself. Use Mali's original
-   roller window, the game UI, or your preferred method. RKMission does not
-   request offers, choose rewards/types, or accept missions automatically.
-2. Check `/rkm missions`, configure `/ManagerLoot`, and use `/rkm start` to
-   arm local takeover. There is no target-zone filter or RKMission roll limit.
-3. Travel between playfields yourself by any means. When your current outdoor
-   playfield contains accepted missions, RKMission captures your position as
-   the origin and compares route costs to accepted mission anchors in the active
-   movement mode (mission ID breaks ties). Ground uses complete mesh distance
-   when available, otherwise direct horizontal distance; flight uses horizontal
-   distance while entrance height is unresolved. Only the winner receives final
-   terrain/flight planning. RKMission uploads that exact accepted mission through
-   `Mission.UploadToMap`, updating the game's map/minimap destination on selection.
-   Estimates do not guarantee full reachability.
-4. Default `/rkm travel auto` reads AO# `MovementState.Fly`. Use
-   `/rkm travel ground` or `/rkm travel flying` to override route selection for
-   this plugin session. These commands do not equip or remove a vehicle.
-5. On foot, use a complete mesh path when available, otherwise sampled local
-   waypoints/arcs. Flight follows committed world-space waypoints. Within 12 m
-   of the marker, both modes consider only mission-constrained doors within 6 m
-   of that anchor. They rank valid approach sides, using live origin and local threshold
-   height alternatives instead of demanding the marker's exact X/Y/Z.
-   Flight aligns to a selected side/height before closing on the threshold;
-   ground follows terrain and checks the live door's actual interaction range.
-   **Stay in your flying vehicle**: the bot does not change equipment. Manual
-   landing near the anchor continues the same mission through ground acquisition.
-6. Door use refreshes the live identity and checks actual distance and the short
-   interaction corridor. No transition after use triggers a short threshold
-   crossing, then alternate sides of a valid entrance. Without a valid live door,
-   bounded radial waypoints search within the same 6 m radius. Rejected shops
-   and farther unlinked doors never become recovery targets. Arrival or a use command alone never
-   proves entry. AO# must associate the dungeon with the exact selected mission
-   for a stable second before the existing `MissionDungeon` logic starts.
-7. Check the game's objective/reward. Use `/rkm complete` (or
-   `/rkm complete <bound mission id>`) to record confirmed completion, then
-   **exit the dungeon yourself**. While still armed, the bot chooses the next
-   nearest accepted mission from your new origin in that same outdoor playfield.
-   If none remains, it disarms; travel to another playfield yourself and use `/rkm start` again.
+1. Roll/select/accept any number of missions yourself in Mali's window or the
+   game UI. RKMission never auto-rolls, auto-accepts or deletes quests.
+2. Inspect `/rkm missions`, configure loot and use `/rkm start` to arm takeover.
+   Handle all inter-playfield transport yourself.
+3. In an outdoor playfield with accepted Rubi-Ka missions, RKMission captures
+   your current origin, ranks only those local missions in the active movement
+   mode and selects the lowest estimate (mission ID breaks ties). Run uses a
+   complete optional mesh cost or direct horizontal estimate; Fly uses direct
+   horizontal distance while final elevation remains unresolved.
+4. It uploads that exact live accepted mission using `Mission.UploadToMap`,
+   the API already used by Mali's mission map button. Selection/anchor changes
+   and outdoor zoning trigger a refresh. Logs report command delivery; the
+   API exposes no destination readback/acknowledgement.
+5. `/rkm travel auto` follows actual `MovementState.Fly`. Overrides are
+   `/rkm travel ground` (Run) and `/rkm travel flying` (Fly). Stay in the vehicle
+   for flying entry. Commands never equip/dismount or write player position,
+   speed, altitude or movement state. Manual landing in auto mode retains the
+   selected mission and entrance history/deadline.
+6. Coarse travel approaches the anchor vicinity, then radial acquisition moves
+   around the structure, validates an exterior side, aligns elevation, approaches
+   along its normal, uses an associated live Door if present and tries a short
+   threshold crossing. Without a Door, it probes the inferred side/proximity
+   threshold. Neither arrival nor Use proves entry: AO# must identify the exact
+   selected mission dungeon with a stable room for one second before
+   `MissionDungeon` starts.
+7. Check the objective/reward, use `/rkm complete [bound mission id]`, and exit
+   the dungeon yourself. While armed, RKMission selects another accepted mission
+   in that same playfield from the new origin. If none remains, it stops local
+   automation; travel elsewhere yourself and use `/rkm start` again.
 
-Starting inside a mission uses AO#'s exact current-dungeon mission lookup;
-it never guesses from mission-list order. Stop with `/rkm stop` whenever you
-want manual control. Stop/start abandons the active run binding and permits
-retrying an unfinished accepted mission.
+Starting inside a mission retains AO#'s exact dungeon-to-mission lookup.
+`/rkm stop` gives back control; stop/start abandons an unfinished run binding
+and allows retry. Removed/expired/deleted missions are never proof of reward.
 
-## Travel and completion boundary
+## Outdoor navigation architecture
 
-- Acceptance/removal is polled from `Mission.List` about once a second. Only
-  resolved outdoor Rubi-Ka destinations are travel eligible. Removal can mean
-  reward, deletion or expiration; it is not proof of completion. Identity,
-  objectives, dungeon binding and completion evidence remain attached to the
-  selected accepted mission.
-- Nearest selection compares active-mode route estimates from one captured
-  origin, logging every eligible mission's anchor/cost/source. Complete ground
-  paths and direct fallback estimates may be compared; the latter are explicitly
-  estimates. Only the selected mission receives final terrain/flight planning.
-  Identity and anchor remain fixed during travel; acceptance/playfield/anchor
-  changes invalidate travel and trigger a new selection from the current origin.
-  Map upload uses only that exact live accepted mission, never an offered mission
-  or generic waypoint. Upload is repeated on mission/anchor changes and outdoor
-  reselection after zoning. The API has no marker readback/acknowledgement.
-  Completion confirmations and travel settings are session state; no quest is deleted.
-- Ground uses complete navmesh paths, then local direct waypoints if the mesh
-  is absent/disconnected. Fallback samples multiple headings/radii and remembers
-  visited/failed points. Flight retains the connected obstacle/descent planner,
-  committed waypoint execution, braking and observed blocked-leg/descent memory.
-  Surface probes rank approach alternatives; synthetic hits do not discard the
-  mission. Inconclusive final searches can attempt bounded advisory paths that
-  still exclude observed failed movement. No direct player position, altitude,
-  speed or movement-state writes are introduced.
-  Coarse flight holds departure height until acquisition (obstacles can require
-  climbs); stale quest Y cannot command an early climb/descent. Direct ground
-  forward steps use horizontal distance before sampling local terrain, so stale
-  Y cannot shrink a normal step to a negligible horizontal movement.
+`LocalMissionTravel` owns one sequence:
 
-### Mission anchors, door association and map destination
+**CoarseTravel -> ProbeExterior -> AlignElevation -> FinalApproach -> Interact
+(if a valid Door exists) -> CrossThreshold -> AwaitTransition -> verified
+MissionDungeon handoff.**
 
-`AcceptedMissions.Refresh` copies `Mission.Location.Pos` from AOSharp's
-`GetQuestWorldPos`. Treat that accepted mission coordinate as the search anchor;
-AOSharp Vector3 uses X/Y/Z with **Y altitude**, while AO displays X/Z/height(Y).
-Quest elevation remains provisional until live entrance/local geometry resolves it.
+`LocalMovement` executes Run/Fly legs with observed distance/stall tracking.
+`LocalRoutePlanner` contains estimates, optional complete mesh costs and local
+floor/advisory ray queries. `EntranceAcquisition` owns mission-door association,
+radial candidates and sector scores; it does not run a second movement controller.
+`EntranceLearning` stores managed runtime records with no native object pointers.
 
-The previous `aa1e0af` acquisition scanned all doors within 40 m, ranked proximity
-and tried alternate buildings. This could send the player into a nearby shop;
-post-zoning verification was too late to prevent an unrelated interaction.
+### Coarse travel and recovery
 
-Inspected RKMission main `aa1e0af`, the embedded Mali `MissionView.PingClick`, and
-[AOSharp Mission](https://github.com/anarchydevs/aosp.knows-aosharp-mods/blob/master/AOSharp.Core/Mission.cs),
+Quest `Mission.Location.Pos` is a search anchor, not guaranteed doorway geometry.
+AOSharp Vector3 uses **Y altitude**, with X/Z on the outdoor plane. Nonzero quest
+Y is no more authoritative than zero/stale Y. Fly starts with direct world-space
+legs at current height. Actual stalls permit lateral/raised alternatives. Run
+uses optional complete mesh movement or progressive direct local legs, then
+full local heading/radius recovery after actual stalls. Rays affect scores and
+logs, not launch permission. There is no three-side-step failure limit.
+
+A leg defaults to eight seconds without observed improvement before yielding.
+Coarse travel fails only after 90 seconds without a new net horizontal minimum,
+or the 15-minute total travel bound. Detours and mode/phase changes cannot reset
+those clocks. These are local estimates, not guaranteed global routes.
+
+### Door association stays narrow
+
+Acquisition begins within `MaxProbeRadius + 4` metres (24 m by default).
+**Live door association is fixed at 6 m horizontally from the selected accepted
+anchor**, even while movement explores larger rings. Scans every two seconds
+consider only valid local `IdentityType.Door` objects. Before Use, refresh the
+live accepted mission/location, door identity, context, competing candidates,
+actual <=2 m horizontal / <=3.5 m 3D range, and short corridor ending before the
+face. Use retries remain two per side, four seconds apart.
+
+The existing gate rejects conflicting `QuestInstance`, shop/store/building/
+apartment/bar/bank/transport names, unreadable context, unlinked nonzero
+`BuildingType`/`BuildingInstance`, competing accepted anchors and ambiguous
+neutral thresholds. Matching quest-instance stats are an optional hint; AOSharp
+reference sources do not document a complete outdoor ownership mapping. Prefer
+those hints. Otherwise bind only the closest unambiguous neutral threshold;
+failed entry/disappearance cannot promote a farther unrelated building.
+
+Finite, nondegenerate live Door rotation gives the strongest orientation signal.
+Both normal signs are tested because rotation alone cannot prove which side is
+exterior. Invalid rotation falls back to radial/observed movement. A newly loaded
+associated Door replaces an inferred target; identity/position/rotation changes
+invalidate old geometry while retaining observations and the overall deadline.
+
+A statless unrelated door inside 6 m cannot be conclusively identified outdoors.
+The conservative checks can also refuse genuine unlinked building doors or doors
+outside 6 m. Diagnose the association log rather than widening door search.
+
+### Full directional search and final approach
+
+Default search uses **16 sectors** (22.5 degrees), including cardinal and
+intercardinal directions, at **12, 20 and 6 m** movement radii. These points are
+local movement probes around the selected anchor; other doors/buildings never
+become destinations. Sector coverage balances retries. Neighboring actual stalls
+at similar anchor distances suggest a building face/corner and prioritize the
+opposite arc. A blocked side is recorded as a blocked side, not an unreachable
+mission. The actual player side and requested candidate sector are logged separately.
+
+A committed orbit escapes outward/tangentially and follows short ring segments
+instead of cutting across the anchor/building. A later retry can go around the
+other way or use another radius. Fly holds current altitude around the ring,
+aligns at the chosen exterior point, then closes along the normal. Supported local
+floor samples/current player elevation supply provisional heights; live Door
+origin takes priority, with flight clearance added only when that origin is
+confirmed at floor height. Floor/player alternatives are validated on later passes.
+The historical PF665 measured point remains in the project history; it is no
+longer a hardcoded substitute for current geometry.
+
+Final targets lie about 3/1.5/0.4 m outside the threshold, with lateral alternatives
+on later passes. Inferred final points/crossings stay within the 6 m anchor boundary;
+live-door staging can lie on the wider movement ring, while the Door itself must
+still pass the fixed association gate. A short 0.8 m inward crossing follows missing
+Door/proximity entry or uses without zoning. No transition after a brief wait
+returns to directional probing. Labels explicitly distinguish inferred sides,
+remembered vectors and live door normals.
+
+Acquisition continues across candidate radii/directions. It stops after complete
+sector/radius coverage and the configured elapsed no-progress interval, or the
+total travel bound. New live geometry gets an observed attempt before a no-progress
+failure. Stable candidate minima survive retries; changing a waypoint or walking
+the same orbit cannot reset the overall clock. Exact dungeon verification alone
+allows success and the working dungeon handoff.
+
+### Persistent learning and settings
+
+`RKMissionData/entrance-learning.json` is keyed by playfield and X/Z anchor
+quantized to 2 m; mission identity is metadata on every attempt. Altitude is not
+part of the key. Near quantization-boundary matches remain tightly bounded.
+Records retain time, Run/Fly mode, angle/vector, sector/radius, origin/anchor,
+candidate/final point, elevation source, live Door identity/position/quaternion/
+forward/association, observed distance improvement/stall, final result and reason.
+Coarse run failures and interrupted/failed transitions are recorded too.
+
+Only **exact verified entry** updates the last successful exterior vector. On a
+later visit in the same movement mode, try it first when live door geometry is
+compatible. It must traverse current geometry and pass all association/range/
+handoff checks again; failure falls back to the full search. Prior failures add
+small preference penalties, never permanent blacklists. Defaults retain 256
+entrances and 96 records each, with one bounded `.bak` and atomic replacement.
+Unreadable/unsupported history is preserved and persistence is disabled for that
+session instead of overwriting it. Keep the data file for future in-game diagnosis.
+
+`RKMissionData/navigation-settings.json` is created with these defaults. Edit while
+the plugin is unloaded, then reload it; no new chat commands were added.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `Sectors` | 16 | 8-32, rounded to a multiple of 8. |
+| `ProbeRadius` | 12 | Preferred exterior movement ring, 8-20 m. |
+| `MaxProbeRadius` | 20 | Outer movement ring, preferred radius to 28 m; never changes door association. |
+| `LegStallSeconds` | 8 | Observed leg no-progress, 6-20 seconds. |
+| `NoProgressSeconds` | 90 | Net/candidate no-progress deadline, 60-300 seconds. |
+| `TravelLimitMinutes` | 15 | Overall bound, 5-30 minutes. |
+| `FlightFloorClearance` | 1.5 | Floor-based Fly clearance, 0.5-3 m. |
+| `MaxEntrances` | 256 | Retained entrances, 16-512. |
+| `AttemptsPerEntrance` | 96 | Retained diagnostic records each, 16-192. |
+
+### Historical evidence and removed layers
+
+The chronology remains intact in PROJECT_MEMORY/CONVERSATION_LOG and Git history.
+The cleanup was compared with main `f299006` and the earlier outdoor commits:
+
+- `6e86c52` required an outdoor mesh; `cd74489` retained hard flight clearance
+  and three ground recoveries. Finite local missions consequently never moved
+  or failed too early. Mesh/flight feasibility is now advisory.
+- Connected flight/descent searches accumulated launch prefixes, outside drop
+  planners, footprint gates, fixed coordinates/heights and alternate arrival
+  checks (`20dac70` through `bb47f40`). Successful direct flight/precise steering
+  and supported-floor ideas are retained; overlapping search engines, ray-held
+  flight, prefix plumbing and contradictory gates are removed.
+- `4a822e1` treated measured/nonzero anchors too strongly as exact doorways.
+  Hardcoded coordinates and stale quest-altitude authority are removed.
+- `aa1e0af` scanned doors up to 40 m and could choose shops. `f299006` corrected
+  association/map upload; its narrow context checks remain, while its small,
+  sequential waypoint/approach exhaustion is replaced with directional coverage.
+- Mission **1442298255**, anchor near X=630.91/Z=1416.02: the 16:00 logs show
+  south/negative-Z then west approaches, `door=(None:0000)`, and the misleading
+  `travel to selected live-door approach side`. The user identified east/+X as
+  accessible. This is directional evidence, not a recovered Door rotation or
+  verified-entry record; no synthetic success has been inserted into learning.
+  The new grid explicitly includes east and prioritizes the opposite arc after
+  observed neighboring stalls.
+
+The native mission-map API is confirmed in embedded
+`Plugins/MaliMissionRoller2/Views/MissionView.cs` and
+[AOSharp Mission source](https://github.com/anarchydevs/aosp.knows-aosharp-mods/blob/master/AOSharp.Core/Mission.cs).
 [Door](https://github.com/anarchydevs/aosp.knows-aosharp-mods/blob/master/AOSharp.Core/Dynel/Door.cs),
-[Dynel](https://github.com/anarchydevs/aosp.knows-aosharp-mods/blob/master/AOSharp.Core/Dynel/Dynel.cs),
-[Stat](https://github.com/anarchydevs/aosp.knows-aosharp-mods/blob/master/AOSharp.Common/GameData/Stat.cs)
-and Playfield/DynelManager reference sources. `Mission.UploadToMap` forwards the
-exact mission identity to the native GUI upload interface, already used by Mali's
-mission map button. RKMission refreshes that accepted mission and location before
-calling it. No replacement map renderer or waypoint system is introduced.
-
-`Playfield.Doors` exposes live `IdentityType.Door` objects. Outdoor room links
-cannot establish ownership. `Dynel.GetStat` exposes `QuestInstance`, `BuildingType`
-and `BuildingInstance`, but the reference does not document a complete outdoor
-quest-door mapping or building type codes. A positive matching quest-instance stat
-is an optional identity hint within the same bounded anchor radius; it is not a
-newly proven SDK ownership guarantee. Mission source/objective identities are not
-assumed to be entrance identities. Ordinary context and conflicting stats still
-reject a door, even if its name includes 'mission'. Final ownership is verified
-by the existing exact current-dungeon mission lookup after zoning.
-
-### Constrained entrance acquisition
-
-- Begin acquisition within 12 m of the selected accepted mission's captured
-  anchor. Scan every two seconds; candidate doors must be valid, finite, in the
-  selected outdoor playfield and within **6 m horizontally** of that anchor.
-  This radius never expands after missing doors or failed interactions.
-- Reject positive `QuestInstance` values different from the selected mission ID.
-  Reject names indicating ordinary shops, stores, buildings, apartments, bars,
-  clubs, banks, headquarters or transport entrances. Without a matching quest
-  hint, reject nonzero building type/instance context rather than guess undocumented
-  codes. Unreadable context is rejected. Open/locked flags and corridor probes only
-  rank approaches after this association gate.
-- Without a quest hint, a door must match the selected anchor more closely than
-  any distinct accepted mission anchor; ambiguous ownership is rejected. Refresh
-  the accepted mission context during travel, including newly accepted missions.
-  Prefer matching quest hints when available. Otherwise allow only the closest
-  neutral door threshold; similar-offset doors more than 0.5 m apart with offsets
-  within 1 m are ambiguous and held. A farther unlinked door never becomes the
-  next destination just because the first door's use failed or it disappeared.
-  Bind the fallback threshold once selected; a refreshed identity must remain
-  within 0.5 m of that threshold. Coincident mission
-  anchors can share a threshold; exact dungeon verification still decides ownership.
-- Generate eight approach sides at 1.5 m and four at 3 m from valid entrances,
-  keeping only targets within the same 6 m anchor boundary. Use live rotation or
-  a player-facing fallback. Try live origin height, supported local threshold
-  floor (with 1.5 m flight clearance) and nearby grounded-player height. Ground
-  follows terrain; flight stages horizontally and aligns to the selected height.
-  The prior PF665 measured point is only a bounded coarse/search hint for accepted
-  anchors within 2 m of it, never an ownership link or a wider candidate radius.
-- Refresh live identity, mission/context/radius and actual <=2 m horizontal and
-  <=3.5 m 3D use range. Immediately before every `Use`, force the full candidate
-  scan, including newly loaded competing doors, and refresh the live accepted
-  mission identity. Check the short corridor ending 0.6 m before the door face.
-  A disappearing/moved/rejected door yields to another valid approach, with no
-  native object retained across ticks.
-- Send at most two uses per approach four seconds apart. Without zoning, try a
-  short 0.8 m threshold crossing only if its target remains within the boundary,
-  then another valid side. If no valid door remains, search the anchor and eight
-  headings at 2/4/6 m; measured-hint offsets are clipped to the original anchor
-  boundary. Search waypoints never interact with rejected doors. Arrival and
-  command delivery are not successful entry.
-- Preserve the existing eight-second search and eighteen-second approach stall
-  handling, finite-attempt exhaustion plus 90-second no-progress bound, and
-  15-minute total travel cap. Mode/side changes do not reset overall progress.
-  Existing obstacle planners can detour around geometry; they do not add doors
-  or enlarge the entrance search. Dungeon exploration, combat, interior door
-  handling, lockpicking and loot remain unchanged.
-
-A location-only fallback cannot prove ownership of an unlabelled, statless door.
-The small radius, context checks and ambiguity rejection intentionally prefer
-holding/failing over visiting other buildings. Genuine entrances beyond 6 m or
-with unlinked building context may be refused; inspect rejection logs for an
-explicit association rather than increasing the search radius. The user must
-validate stat values, map/minimap display and entrance behavior in game.
+[Quaternion](https://github.com/anarchydevs/aosp.knows-aosharp-mods/blob/master/AOSharp.Common/GameData/Quaternion.cs)
+and [Playfield](https://github.com/anarchydevs/aosp.knows-aosharp-mods/blob/master/AOSharp.Core/Playfield/Playfield.cs)
+reference sources explain rotation and surface-ray APIs. Surface/rotation evidence
+cannot certify all client scene geometry; observed movement and in-game logs decide.
 
 ## Commands
 
@@ -246,85 +274,38 @@ independently enabled after a run if you enabled it yourself. `/lm` toggles that
 
 ## Settings and troubleshooting
 
-Manager.Loot keeps character lists under
-`%LOCALAPPDATA%\AOSharp\ManagerLoot\<character>` and shared lists under
-`%LOCALAPPDATA%\AOSharp\ManagerLoot\Shared`. These personal runtime settings
-are separate from the source backup. Roller/map settings remain in their
-deployed plugin folders.
+Manager.Loot keeps character lists under `%LOCALAPPDATA%\AOSharp\ManagerLoot\<character>`
+and shared lists under `%LOCALAPPDATA%\AOSharp\ManagerLoot\Shared`. Roller/map
+settings remain in their deployed plugin folders.
 
-- **No rolling:** RKMission no longer initiates rolling. Use Mali's original
-  window or the game UI to roll/accept missions yourself.
-- **Waiting for local missions:** inspect `/rkm missions`, acceptance and
-  resolved destination; travel to the matching outdoor playfield. `/rkm start`
-  is required again after the local chain finishes.
-- **Route diagnosis:** `Nearest entrance selected` logs the captured origin,
-  chosen mission/anchor, estimated distance, active route/mode, route cost,
-  movement state and mesh availability. `Mission route estimate` reports every
-  eligible mission's cost/source in the same movement mode. `Map/minimap marker
-  update` reports the exact selected mission upload command. Finite estimates remain attemptable even when
-  clearance probes hit. Watch `Active movement` for the actual waypoint,
-  `progress` for final-target distance,
-  `Entrance door accepted` / `Entrance door rejected` for live position, anchor
-  offset, quest/building context and rejection reason; `Entrance selected` shows
-  the accepted identity, selected side and height source,
-  `Flight path committed` for the entire waypoint sequence and replan reason,
-  `complete=True/False` for complete routes versus validated sections,
-  `Flight committed path leg` / `Flight committed prefix leg` for progress through that sequence, and
-  `Flight blocked leg recorded` / `Flight obstacle search waiting` for observed
-  obstruction and bounded search retries. `advisory=True` / `Flight committed attempt leg`
-  identifies an attempted estimate when surface search is inconclusive. Watch
-  `outside descent prefix` / `outside descent and entrance return`,
-  `outside alignment for descent` and `descending to approach height` for roof avoidance.
-  The descent search reports clear columns/drops and the direct-drop surface Y.
-  Watch `Entrance scan`, `Entrance aligned`, `Entrance interaction`,
-  `Entrance alternate attempt` and `Entrance search waypoint` for acquisition.
-  Interaction logs distinguish sent commands from absent zoning and threshold
-  crossing; `Entrance interaction result` distinguishes exact verified entry,
-  mismatched/unidentified dungeons and failed travel. Alternate logs explain
-  valid candidate/side changes. Flight progress
-  includes the vertical gap and velocity. Movement labels use the committed
-  leg's starting altitude so slight corrections cannot alternate/log every tick.
-  Idle selection checks retry every five seconds; mode warnings are suppressed
-  when unchanged. During movement, the selected mission remains fixed.
-- **Fallback stopped:** `Local travel HARD FAILURE` identifies an actual
-  timeout/no-progress, invalid coordinates/state, or entrance failure. Three
-  obstruction probes no longer stop a run. Move around the obstacle or closer
-  to the entrance, then `/rkm start`. An optional outdoor mesh improves difficult ground routes.
-  Do not assume a direct estimate guarantees passage through every obstacle.
-- **Vehicle entry:** flight routes continue to the entrance with the vehicle
-  equipped. No dismount prompt/wait exists. Mode selection does not change
-  equipment. Explicit ground mode requires actual ground movement.
-- **Entrance/handoff failure:** read the coordinate, door identity, route cost,
-  context rejection and entry logs. The 6 m fallback is intentionally conservative;
-  a shop, unlinked building, competing mission anchor or ambiguous door does not
-  become a recovery target. Location-only ownership is unconfirmed; unmatched or
-  unidentified dungeons still stop/hold the handoff.
-- **Clearance without confirmed completion:** check the objective/reward in
-  game and use `/rkm complete` for that bound mission. Deleted/expired missions
-  are not automatically marked complete; stop/start to abandon that binding.
-- **Map missing:** the original map recommends the launcher's
-  `Direct 3D T&L HAL` graphics setting.
-- **Door failure:** check the transition log, Lock Pick, and skill. Temporary
-  route blocks may expire and allow another attempt.
-- **Skipped loot/items left behind:** check skip logs, rules, and free space.
-  An empty rule list can still open containers; transfers follow loot settings.
-- **Stopped run:** read the reason in chat, including death, unreachable
-  enemies, failed routes/missing geometry, missing objective items or objectives,
-  and AO# exceptions.
-
-The user owns rolling, selection, inter-playfield transport, vehicle equipment,
-reward confirmation, and dungeon exit. RKMission owns local route selection,
-travel/door entry, verified dungeon handoff, and same-playfield continuation.
-The working dungeon systems continue to own exploration, combat and loot.
+- **Waiting for local missions:** inspect acceptance/destinations with
+  `/rkm missions`; reach the matching outdoor playfield and arm with `/rkm start`.
+- **Route diagnosis:** capture `Mission route estimate`, `Selected accepted mission`
+  and `Map/minimap marker update`, followed by `Entrance search`, live association
+  acceptance/rejection, candidate angle/radius/elevation, `Movement leg`,
+  `Outdoor progress`, blocked sector/likely face, chosen side, interaction/crossing
+  and exact handoff/HARD FAILURE. Include the persistent learning record and whether
+  Run/Fly was active. Progress logs are every five seconds; scans summarize every ten.
+- **Shop/wrong building:** association rejects unrelated contexts and ambiguous
+  neutral thresholds. Wider movement rings do not authorize other live doors.
+  The selected mission dungeon must still be verified after zoning.
+- **Fallback stopped:** inspect the elapsed no-progress/total bound or invalid
+  state reason. Three probes never fail a mission. Move to a clearer local origin
+  and `/rkm start`; prior attempt diagnostics remain available.
+- **Persistence failed:** read the logged file/path error; give the deployed data
+  folder normal write access before reloading. Malformed history is preserved.
+- **Rooms cleared but reward unconfirmed:** check the game objective/reward,
+  `/rkm complete`, then exit yourself. Removal/expiration is not completion.
+- **Dungeon map missing:** Mali recommends `Direct 3D T&L HAL` in the launcher.
+- **Interior door/loot issues:** check existing transition/skip logs, Lock Pick,
+  skill, loot rules and free space. These systems were not rewritten.
+- **AO# error/death:** the coordinator stops and reports the reason.
 
 ## History and local backup
 
-`PROJECT_MEMORY.md` stores durable project context and `CONVERSATION_LOG.md`
-stores user-visible conversation summaries. GitHub `main` is the source of truth.
-The prior source backup (created before this travel revision) is at:
-
-    C:\Users\Sumiko\OneDrive\Desktop\RK Mission Proj
-
-That backup is not refreshed by this revision; pull GitHub `main` for the new
-source and usage notes. The user compiles and tests in AO#; no local compilation
-or tests were run for this update.
+GitHub `main` is the source of truth. PROJECT_MEMORY.md stores durable context;
+CONVERSATION_LOG.md stores user-visible history and keeps earlier successful and
+failed navigation revisions. The earlier Desktop/OneDrive source backup is not
+refreshed by this request. Pull main, compile yourself, and validate both Run/Fly
+entrances, native map upload, association safety, full-direction recovery,
+persisted retries and the unchanged dungeon handoff in AO#.

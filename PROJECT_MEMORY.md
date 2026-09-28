@@ -14,46 +14,45 @@ This file is a durable project-context summary for future RKMission development 
 
 ## Intended Bot Workflow
 
-The current responsibility boundary supersedes earlier automatic rolling plans:
+This current responsibility boundary supersedes the historical rolling/travel
+implementations below; keep that chronology as evidence of earlier outcomes.
 
-1. The user rolls/selects/accepts any number of Rubi-Ka missions and travels
-   between outdoor playfields by any means.
-2. `/rkm start` arms local takeover. RKMission tracks all resolved accepted
-   Rubi-Ka destinations, independent of Mali roller filter settings.
-3. On reaching a playfield with accepted missions, capture one player origin,
-   compare current-mode route costs (complete ground mesh cost where available,
-   otherwise horizontal estimate; flight horizontal estimate), choose nearest
-   with mission ID breaking ties, and plan only its final terrain/flight geometry.
-   Upload that exact live accepted mission via `Mission.UploadToMap` to set the
-   native map/minimap destination. Keep its identity/anchor fixed during movement;
-   changed acceptance/playfield/anchor triggers reselection and marker publication.
-4. Ground uses complete navmesh paths when available, otherwise bounded AO#
-   direct local waypoints. Flying commits a complete waypoint sequence to
-   toward the chosen quest anchor, then shares live entrance acquisition with
-   ground within 12 m. Consider mission-constrained doors within 6 m of the anchor,
-   reject unrelated shop/building/quest and ambiguous context, rank valid sides/heights,
-   align the selected approach and interact in the flying vehicle. AO# flight state
-   selects automatically; `/rkm travel auto|ground|flying` overrides by session.
-5. Flight has no dismount prompt/wait or forced ground approach. Both modes
-   converge on shared live-door acquisition, alternate approaches and exact
-   mission/dungeon verification. Quest X/Y/Z are provisional outdoor anchors;
-   derive final coordinates/height from live doors/local threshold geometry.
-   No valid live candidate triggers a radial anchor search limited to the same
-   6 m boundary (2/4/6 m waypoints); failed uses never widen the candidate search.
-   Prefer complete
-   clear flight paths around/over objects; retain estimates when geometry is
-   inconclusive. Follow the full waypoint list, then gate entry on near-entrance
-   height alignment. Avoid speculative-probe hopping and frequent turn stops.
-6. Existing `MissionDungeon` owns room exploration/navigation, combat, doors,
-   lockpicking, and Manager.Loot. Preserve these working systems.
-7. Preserve identity/action/target/completion metadata per accepted mission.
-   Room clearance and removal are not quest completion. The user checks the
-   in-game objective/reward and records it with `/rkm complete [bound id]`.
-8. The user exits the dungeon. While armed, choose the nearest accepted mission
-   from the new origin in that same playfield. If none remains, disarm and leave transport
-   to the next playfield to the user; `/rkm start` re-arms there.
+1. The user rolls/selects/accepts any number of missions and handles every
+   inter-playfield transfer, vehicle equipment, reward confirmation and exit.
+2. `/rkm start` arms takeover only for accepted Rubi-Ka missions in the current
+   outdoor playfield. Rank active-mode estimates from a captured current origin:
+   complete optional Run mesh cost or horizontal fallback; horizontal Fly estimate.
+   Upload the exact live accepted mission via native `Mission.UploadToMap`.
+3. One `LocalMissionTravel` state machine owns coarse travel, radial exterior
+   probing, elevation alignment, final normal approach, interaction/crossing and
+   transition wait. Shared `LocalMovement` handles observed Run/Fly execution.
+   Outdoor mesh and synthetic flight clearance never gate finite direct travel.
+4. Quest coordinates are anchors, including nonzero/stale Y. Within 24 m by
+   default, search 16 angular sectors at 12/20/6 m movement rings. Associate live
+   Doors only inside a fixed 6 m anchor radius with the existing quest/context/
+   ambiguity checks; never promote shops or remote buildings. Wider movement
+   rings exist to walk/fly around geometry, not enlarge door ownership claims.
+5. Rotation-derived normals are the strongest live signal, with both exterior
+   signs validated. Without a Door, infer sides from radial observed progress.
+   Neighboring actual stalls at similar radius prioritize the opposite arc.
+   Stable target minima survive retries; full sector/radius coverage precedes
+   no-progress failure. Defaults: 8 s leg stalls, 90 s no-progress, 15 min total.
+6. Persist runtime settings/diagnostics under deployed `RKMissionData`. Stable
+   playfield + 2 m quantized X/Z anchor keys contain optional mission IDs per
+   attempt. Keep 256 entrances/96 records each by default, including failures,
+   interruptions and final transition results. Learn a successful exterior vector
+   only after exact verified mission dungeon entry; revalidate it on later visits.
+7. The existing stable exact mission/dungeon/room check gates `MissionDungeon`.
+   Dungeon exploration, room navigation, combat, door/lockpick, loot and objective
+   code are untouched. The only coordinator integration is retaining managed
+   navigation evidence through zoning and recording that existing verification.
+8. Room clearance/removal is not reward. `/rkm complete [bound id]` records user
+   confirmation; after user exit, select another local accepted mission from the
+   new origin. Stop when none remains and leave further transport to the user.
 
-Automatic exit traversal and objective-solver rewrites are outside this pass.
+Settings reload on plugin load; existing `/rkm travel auto|ground|flying` commands
+remain. No new chat commands, objective solving or automatic dungeon exit.
+Do not compile, restore packages or test locally; the user owns in-game validation.
 
 ## Reference Source Archives Supplied
 
@@ -1206,3 +1205,99 @@ horizontal-only selection rules in the historical shared-acquisition section.
   MissionDungeon, DungeonLayout, combat, interior doors/lockpick, embedded Mali
   UI/map/roller, loot, dependency versions and vehicle equipment are unchanged.
   README and conversation log updated. User pulls main and validates in game.
+
+## Unified Local Outdoor Navigation and Persistent Directional Evidence (2026-09-28)
+
+This section and the Intended Bot Workflow supersede all earlier outdoor planners,
+small-side recovery, exact-marker elevation and arrival rules. Earlier sections
+remain unchanged as the successful/failed revision history; do not stack them back
+onto the new architecture.
+
+- Compared main `f299006` against the complete recorded outdoor chronology,
+  including mandatory mesh (`6e86c52`), hard flight/three ground recovery gates
+  (`cd74489`), soft feasibility (`8a511a3`), successful nearby flight/vehicle entry,
+  connected/prefix/outside-descent/footprint planners (`20dac70`-`bf05957`), precision
+  steering/alignment (`6d41771`/`bb47f40`), measured/anchor confusion (`4a822e1`),
+  the broad shop-door regression (`aa1e0af`) and mission-only association/map fix.
+- The new request supplied mission 1442298255's 16:00 south/negative-Z and west
+  approach evidence near X=630.91/Z=1416.02; east/+X was accessible per the user.
+  `door=(None:0000)` gives no rotation. The old live-door-side label was false.
+  These observations remain historical evidence, not invented verified successes.
+  The PF665 measured point X=553.2/Z=1475/Y=18.1 also stays in history; current
+  live geometry takes precedence and its hardcoded navigation override is removed.
+- Consolidated `LocalMissionTravel` into CoarseTravel, ProbeExterior, AlignElevation,
+  FinalApproach, Interact, CrossThreshold and AwaitTransition. `LocalMovement`
+  handles observed Run/Fly movement; `LocalRoutePlanner` retains only estimates,
+  optional complete mesh cost and local supported-floor/advisory-ray helpers.
+  Removed connected flight searches, prefixes, probe-held execution, synthetic
+  clearance launch gates, separate short ground recovery/flight execution layers,
+  duplicate arrival/range/height plumbing and misleading inferred-live-door logs.
+- Selection remains accepted/current-playfield only from the captured live origin.
+  Run compares optional complete mesh cost with direct horizontal fallback; Fly
+  estimates horizontal cost without demanding final height/clearance. Native
+  `Mission.UploadToMap` remains, with fresh identity/location checks and delivery
+  logs. No auto-rolling/acceptance, cross-playfield routing or equipment changes.
+- Fly uses direct world-space travel at current departure height, lateral/raised
+  alternatives after physical stalls, and precise vehicle steering/braking. Run
+  uses optional mesh or progressive direct movement, with full heading/radius
+  recovery based on elapsed stalls instead of a small lifetime attempt count.
+  Geometry scores/logs do not forbid finite travel. No player position, speed,
+  altitude or movement-state writes are added.
+- Acquisition starts within outer movement radius +4 (24 m default). A fixed
+  6 m mission-door association radius retains `f299006` quest/building/name,
+  competing-anchor and ambiguity checks, including the bound neutral threshold.
+  Larger movement rings never authorize farther doors or alternate buildings.
+  Actual live identity/location/range/context and competing candidates are
+  refreshed before Use. Keep <=2 m horizontal/<=3.5 m 3D use range and short
+  pre-face corridor; two uses, four seconds apart, then bounded inward crossing.
+- Probe 16 sectors (including cardinal/intercardinal) at preferred 12, outer 20
+  and inner 6 m rings. Balance coverage, score observed progress/stalls and route
+  around the anchor in committed ring segments. A blocked radial escape changes
+  outward/tangential escape, rather than repeating it before every other direction.
+  Try the other orbit direction/radius on later passes. Similar adjacent **actual
+  player-side** stalls infer a likely face/corner and favor the opposite arc;
+  requested candidate and actual blocked sector are separate diagnostics.
+- Finite nondegenerate live rotation supplies both normal signs as strongest
+  candidates; exterior sign still requires movement validation. Door geometry
+  changes invalidate old plans. No Door means explicit inferred anchor-side
+  labels. Newly acquired valid Door geometry replaces inferred thresholds.
+  Sample supported local floor/player elevation; never trust stale quest Y.
+  Live origin is primary, with flight clearance only when it matches a local floor.
+  Alternate floor/player levels and lateral offsets remain runtime hypotheses.
+- Stage about 3/1.5/0.4 m outside the live/inferred threshold, then short 0.8 m
+  inward crossing/proximity trigger and wait. Run/Fly share the same sequence.
+  Default leg stall is eight seconds; coarse net progress and stable candidate
+  minima are bounded by 90 seconds. Full sector/radius coverage precedes an
+  acquisition no-progress failure; fresh live geometry gets an attempt. Phase,
+  target, equipment and retry changes never reset these clocks. Total local
+  travel remains bounded at 15 minutes. Every failure logs a concrete reason.
+- New `OutdoorNavigationSettings` loads `RKMissionData/navigation-settings.json`
+  under deployed pluginDir. Defaults/ranges are documented in README; reload
+  the plugin after editing. No new chat commands. Association radius is fixed.
+- New `EntranceLearning` uses `RKMissionData/entrance-learning.json`: versioned
+  plain managed records keyed by playfield +2 m quantized X/Z, with tightly bounded
+  adjacent-cell matching. Optional mission IDs are per-attempt metadata, not the
+  sole key; stale altitude cannot split an entrance. Retain mode, direction/angle,
+  sector/radius, anchor/origin/candidate/final target, elevation source, Door
+  identity/position/quaternion/forward/context, observed improvement/stall,
+  use/crossing/zone evidence, timestamps and final results/reasons. Record coarse
+  run failures, interruption and failed/mismatched/unidentified transitions too.
+- Defaults cap 256 entrances and 96 diagnostic records each. Atomic replacement
+  keeps one `.bak`; unsupported/corrupt files are preserved and write errors fall
+  back to session observations with a log. Runtime files are ignored by Git.
+  Reuse a remembered successful vector only in compatible mode/live geometry,
+  validate it through current movement and association checks, then fall back to
+  full probing if blocked. Historical failures are soft preferences, not bans.
+- The coordinator now retains managed attempt evidence through TeleportStarted.
+  Only the existing exact selected mission dungeon lookup, one-second stable
+  dungeon and live room check records verified entry/last successful vector.
+  Arrival/Use/zoning alone is never success. `MissionDungeon`, `DungeonLayout`,
+  accepted tracking and all embedded exploration/combat/door/lockpick/loot/
+  objective implementations are unchanged. Same-playfield confirmed-completion
+  chaining and user-controlled dungeon exit remain unchanged.
+- Source/reference/diff inspection only. Rechecked embedded Mali map upload and
+  AOSharp Mission, Door, Quaternion and Playfield sources; outdoor raycasts use
+  TilemapSurface and are incomplete scene evidence. No new SDK APIs/dependencies.
+  No local compilation, package restore, tests or in-game run. User pulls main,
+  compiles and supplies in-game directional logs and learning records; runtime
+  correctness/reachability and undocumented quest-door stats remain unverified.

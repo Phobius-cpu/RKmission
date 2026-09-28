@@ -817,3 +817,60 @@ or >6 m entrances, and an unlabelled/statless unrelated door inside the radius
 cannot be conclusively identified outdoors. The user validates stats/map/behavior.
 Updated all three docs and preserved the working dungeon and embedded systems.
 Source/API/diff review only; no compilation, package restore, tests or game run.
+
+### User full-history outdoor navigation cleanup (2026-09-28)
+
+Continue Organize RKMission conversations against Phobius-cpu/RKmission main.
+Reconstruct local outdoor travel/entrance acquisition from the whole recorded
+history, simplify accumulated fixes instead of layering another patch, and keep
+all successful/failed entrance attempts for future diagnosis. User manually
+rolls/accepts and travels between playfields. Choose the best local accepted
+mission from current origin, update native map/minimap, support Run/Fly without
+mandatory mesh or synthetic flight gates, search only around the selected anchor,
+probe the full circle/structure at multiple radii, infer blocked faces/opposite
+arcs, prefer live door normals and learn successful approaches. Preserve the
+working dungeon systems, update all three documents, commit main, and do not
+compile or test locally.
+
+The specific mission 1442298255 log approached the south and then west of the
+anchor near X=630.91/Z=1416.02. The user says east/+X was accessible. Door identity
+was None, so no live orientation existed and the live-door-side label was false.
+
+### Assistant consolidated outdoor navigation and diagnostic history
+
+Compared main f299006 with the recorded navigation commits and histories before
+editing. Kept accepted tracking, active-mode/current-playfield selection, native
+Mission.UploadToMap, conservative 6 m live-door association and exact stable
+MissionDungeon verification. Replaced overlapping flight connected/prefix/
+outside-descent/footprint and ground/final-arrival plumbing with one local-travel
+state machine and one observed Run/Fly movement executor. Rays/optional meshes
+are advisory for travel; failure is elapsed no-progress or the total bound.
+
+Directional acquisition generates 16 sectors and 12/20/6 m movement rings around
+the selected anchor. Committed orbits move around the structure, then align local
+floor/live-door/player elevation and close along the candidate normal through
+multiple final points. A failed actual side is scored separately from the requested
+candidate; neighboring stalls at similar radius favor the opposite arc. Later
+attempts change radius/orbit direction/lateral/elevation alternatives. Geometry
+changes and newly loaded associated Doors update the target; generic remote/shop
+doors never become alternatives. No Door uses explicit inferred labels and a
+bounded proximity/threshold crossing. No synthetic verified successes were seeded
+from the user's directional report; the old PF665 measurement stays in history
+rather than overriding current geometry.
+
+Added runtime RKMissionData/navigation-settings.json and entrance-learning.json.
+History uses playfield + quantized X/Z anchors with mission IDs per record and
+retains both completed and interrupted/failed attempts, progress/stall, direction,
+points, mode, Door geometry/context and interaction/transition result. Bounds are
+256 entrances/96 diagnostic records each by default with one backup. Only the
+existing exact selected-dungeon verification learns a successful vector; it gets
+first preference on compatible later visits and is revalidated. Coordinator hooks
+retain managed evidence through zoning. Dungeon, room, combat, interior doors/
+lockpick, loot, objectives and embedded plugin implementations are untouched.
+
+Updated README with the current architecture/settings/diagnostics and removed
+obsolete operational instructions. Updated PROJECT_MEMORY's workflow and appended
+this comparison; earlier revision history remains intact. Source/API/diff review
+only, with no compilation, package restore, automated tests or in-game run. The
+user pulls main, compiles and validates in AO#, then supplies logs and the local
+learning file for follow-up fixes.

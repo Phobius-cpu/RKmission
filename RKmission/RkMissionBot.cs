@@ -35,7 +35,7 @@ namespace RKmission
             _loot = new ManagerLoot.ManagerLoot();
             _loot.RunEmbedded(System.IO.Path.Combine(pluginDir, "Plugins", "ManagerLoot"));
             _dungeon = new MissionDungeon(Say, _loot);
-            _travel = new LocalMissionTravel(Say);
+            _travel = new LocalMissionTravel(Say, pluginDir);
             SMovementController.Set();
             SMovementController.AutoLoadNavmeshes($"{pluginDir}\\NavMeshes", (id, dungeon) => !dungeon);
             Chat.RegisterCommand("rkm", Command);
@@ -136,7 +136,7 @@ namespace RKmission
         {
             _handoffDoor = _travel.ActiveDoor;
             _mapMission = Identity.None; // Re-upload on the next outdoor selection after zoning.
-            _travel.Reset();
+            _travel.SuspendForZoning(); // Keep managed attempt until exact dungeon verification.
             _observedDungeon = Identity.None;
             _handoffWaitStarted = DateTime.MinValue;
             _travelInvalidated = true;
@@ -184,6 +184,8 @@ namespace RKmission
                 if (_travelInvalidated)
                 {
                     _travelInvalidated = false;
+                    _travel.CompleteHandoff(false, "zoning ended outdoors; no selected mission dungeon entered");
+                    _travel.Reset("outdoor zoning invalidated local route");
                     if (!_verifiedRun) _selected = null;
                     _nextSelection = DateTime.MinValue;
                 }
@@ -307,6 +309,7 @@ namespace RKmission
                 if (DateTime.UtcNow - _handoffWaitStarted > TimeSpan.FromSeconds(20))
                 {
                     Say($"Entrance interaction result: mission={_selected?.Id.Instance}, door={_handoffDoor}, dungeon={Playfield.ModelIdentity}, result=unidentified dungeon after zoning.");
+                    _travel.CompleteHandoff(false, "AO# did not identify the selected mission dungeon within 20 seconds");
                     Stop(); Say("AO# did not identify an accepted mission for this dungeon within 20 seconds; handoff stopped."); return;
                 }
                 Wait("Waiting for AO# to associate this dungeon with an accepted mission. Exploration is held until the identity is verified."); return;
@@ -316,6 +319,7 @@ namespace RKmission
             {
                 Say($"Entrance interaction result: mission={_selected?.Id.Instance}, door={_handoffDoor}, actual mission={bound.Identity.Instance}, " +
                     $"dungeon={Playfield.ModelIdentity}, result=mission mismatch; handoff refused.");
+                _travel.CompleteHandoff(false, "zoned dungeon does not match selected accepted mission");
                 Stop(); Say("Dungeon does not match the selected accepted Rubi-Ka mission; handoff refused."); return;
             }
             if (_observedDungeon != Playfield.ModelIdentity)
@@ -336,6 +340,7 @@ namespace RKmission
             _selected.HandoffVerified = true;
             Say($"Entrance interaction result: mission={_selected.Id.Instance}, door={_handoffDoor}, " +
                 $"dungeon={Playfield.ModelIdentity}, result=exact selected mission verified after zoning.");
+            _travel.CompleteHandoff(true, "exact selected mission dungeon stable for one second with a live room");
             _travel.Reset();
             _waitingReason = null;
             _dungeon.Start(bound); // The working dungeon implementation receives this exact accepted mission.
