@@ -1143,3 +1143,25 @@ Update README and current entrance logs to remove obsolete vertical instructions
 Preserve 10 m height matching, 6 m close staging, 4.68 m final steps, wall recovery,
 mission selection and dungeon systems. No new in-game evidence supplied; source/diff
 inspection only, no local compilation, restore, tests or game execution.
+
+### User confirmed navigation and requested saved history plus a local backup
+
+After 965003e, user says navigation is good for now and requests that memories and
+conversations be saved on GitHub, with a local repository backup under
+C:\Users\Sumiko\OneDrive\Desktop\RK Mission Proj.
+
+### Assistant recorded the working checkpoint and prepared a complete backup
+
+Retain the current navigation: smooth 60 m cruise with shorter obstruction
+horizons, diagonal ascents/descents, the shared entrance-height plan after a 10 m
+trigger, confirmed approach side, approximately 6 m close staging, 4.68 m final
+steps and precise threshold entry. Preserve dungeon systems and earlier evidence.
+Record the user's feedback in PROJECT_MEMORY and README; it is not a new in-game
+verification log. Current and earlier conversation summaries remain in this file,
+with source revisions and attached navigation logs preserved in Git history.
+
+The requested destination already contains an older checkout. Save a separate
+RKmission-backup-2026-09-28 folder there after committing/pushing these records to
+main. Copy the complete repository, including .git, preserving the older files.
+Verify file contents and the saved Git revision. No compilation, package restore,
+tests or game execution requested or performed.

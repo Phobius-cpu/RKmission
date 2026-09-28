@@ -70,6 +70,12 @@ and allows retry. Removed/expired/deleted missions are never proof of reward.
 
 ## Outdoor navigation architecture
 
+Navigation checkpoint (2026-09-28): the user reports navigation is working well
+after diagonal-elevation commit `965003e`. Preserve this behavior for now. The
+saved decisions and conversation history are in `PROJECT_MEMORY.md` and
+`CONVERSATION_LOG.md`, with full supplied logs under `docs/navigation-evidence/`
+and implementation history in Git. Subsequent tuning should build on this checkpoint.
+
 `LocalMissionTravel` owns one sequence:
 
 **CoarseTravel (Run) / FlyClearance -> FlyToEntrance -> FlyMatchEntryHeight (Fly, 10 m trigger) -> ProbeExterior

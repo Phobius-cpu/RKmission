@@ -1623,3 +1623,29 @@ onto the new architecture.
   movement; retain historical attempts and earlier documentation in Git/history.
 - Source/diff inspection only; no local compile, restore, tests or game run.
   No new in-game log or successful result is invented. Commit and push to main.
+
+## User-confirmed navigation checkpoint and backup (2026-09-28)
+
+- After diagonal-elevation commit 965003e, user reports: "seems navigation is good
+  for now". Treat this as the current working navigation checkpoint and retain
+  its implementation until a new issue or requested change is supplied. This is
+  user feedback, not a fabricated new exact-entry log or learning record.
+- Working behavior: clear Fly cruise uses 60 m horizons and continues through
+  clear waypoints; obstructed long horizons narrow to 20 m before over/around
+  recovery. All elevation sections include horizontal movement. Near an entrance,
+  match the shared height after the actual 10 m trigger, confirm the exterior side,
+  align diagonally if needed, then stage at approximately 6 m. Final steps are
+  capped at 4.68 m and retain precise 3/1.5/0.4 m doorway staging and exact handoff.
+- Preserve accepted/current-playfield selection, safe perimeter recovery, separate
+  requested/observed wall-sector attribution, bounded entrance learning and all
+  dungeon exploration/combat/interior-door/loot behavior. Earlier failed attempts,
+  attached evidence, implementation history and conversation summaries remain in
+  this repository and Git history. No more navigation tuning requested now.
+- User requests saving memories/conversations on GitHub and a local repository
+  backup under `C:\Users\Sumiko\OneDrive\Desktop\RK Mission Proj`. That directory
+  already contains an older checkout. Create a separate dated folder
+  `RKmission-backup-2026-09-28` there, preserving the existing checkout. Include all
+  repository files and `.git` so commits, history and remotes are recoverable.
+- Update this file, CONVERSATION_LOG and README, commit/push main, then copy that
+  saved revision. Verify copied file contents and Git revision. Do not compile,
+  restore packages, run tests or launch the game for this checkpoint/backup task.
