@@ -22,10 +22,32 @@ namespace RKmission
 
     internal static class LocalRoutePlanner
     {
-        // Called once, after selecting the nearest entrance by a cheap distance estimate.
-        // Build only this mission's path and only for the selected movement mode.
-        public static LocalRoute Plan(AcceptedMission mission, Vector3 origin, bool flying)
+        // Compare accepted anchors in the active mode; defer terrain/flight planning
+        // until selection. Use complete ground mesh costs when available.
+        public static LocalRoute Estimate(AcceptedMission mission, Vector3 origin, bool flying)
         {
+            if (!AcceptedMissions.Finite(origin) || !AcceptedMissions.Finite(mission.Entrance)) return null;
+            float distance = HorizontalDistance(origin, mission.Entrance);
+            var route = new LocalRoute { Mission = mission, Origin = origin, Entrance = mission.Entrance,
+                EntrancePoint = mission.Entrance, EntranceDistance = distance, Cost = distance };
+            if (flying)
+                route.Reason = "horizontal flight estimate to mission anchor; final live height pending";
+            else
+            {
+                route.GroundUsesMesh = TryGroundCost(origin, mission.Entrance, out float ground);
+                route.Cost = route.GroundUsesMesh ? ground : distance;
+                route.Reason = route.GroundUsesMesh ? "complete ground navmesh path to mission anchor" :
+                    "direct ground estimate; outdoor mesh absent or endpoints disconnected";
+            }
+            return route;
+        }
+
+        // Resolve only the selected mission's coarse geometry. Preserve the cost
+        // used to rank its original quest anchor, independent of measured hints.
+        public static LocalRoute Plan(LocalRoute route, bool flying)
+        {
+            AcceptedMission mission = route.Mission;
+            Vector3 origin = route.Origin;
             if (!AcceptedMissions.Finite(origin) || !AcceptedMissions.Finite(mission.Entrance))
                 return null;
             bool measured = TryMeasuredEntrance(mission, out Vector3 entrance);
@@ -40,21 +62,11 @@ namespace RKmission
                 else if (heightVerified && HorizontalDistance(entrance, origin) <= 24)
                     floor = IsFloorCoordinate(entrance, origin.Y);
             }
-            var route = new LocalRoute
-            {
-                Mission = mission, Origin = origin, Entrance = mission.Entrance,
-                EntrancePoint = entrance,
-                EntranceIsFloor = floor,
-                EntranceDistance = HorizontalDistance(origin, mission.Entrance),
-                HeightSource = source
-            };
+            route.EntrancePoint = entrance;
+            route.EntranceIsFloor = floor;
+            route.HeightSource = source;
             if (!flying)
             {
-                route.GroundUsesMesh = TryGroundCost(origin, entrance, out float ground);
-                route.Cost = route.GroundUsesMesh ? ground : route.EntranceDistance;
-                route.Reason = route.GroundUsesMesh ? "complete navmesh path" :
-                    SMovementController.NavAgent?.HasPathfinder == true ? "mesh does not connect endpoints; direct estimate" :
-                    "no outdoor mesh; direct estimate";
                 return route;
             }
             // This is an estimate, not a clearance certificate. Never require a synthetic
@@ -64,8 +76,6 @@ namespace RKmission
             // Quest height, even nonzero, is only a coarse hint. Live acquisition
             // takes over before final descent; do not steer into an assumed doorway.
             route.CruiseEnd.Y = origin.Y;
-            route.Cost = Vector3.Distance(origin, route.CruiseEnd) + 1.5f;
-            route.Reason = "coarse flight toward quest anchor; acquire nearby live door and alternate approaches within 48 m";
             return route;
         }
 

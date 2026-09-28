@@ -20,6 +20,9 @@ namespace RKmission
         private bool _running, _dungeonStarted, _clearanceReported, _verifiedRun, _travelInvalidated;
         private Identity _observedDungeon = Identity.None;
         private Identity _activeDungeon = Identity.None;
+        private Identity _mapMission = Identity.None, _handoffDoor = Identity.None;
+        private int _mapPlayfield;
+        private Vector3 _mapAnchor;
         private DateTime _dungeonObservedAt, _nextTick, _nextSelection, _handoffWaitStarted;
         private string _waitingReason;
 
@@ -109,6 +112,7 @@ namespace RKmission
             _dungeonStarted = false;
             _clearanceReported = false;
             _selected = null;
+            _mapMission = _handoffDoor = Identity.None;
             _verifiedRun = false;
             _travelInvalidated = false;
             _handoffWaitStarted = DateTime.MinValue;
@@ -130,6 +134,8 @@ namespace RKmission
 
         private void ZoningStarted(object sender, EventArgs args)
         {
+            _handoffDoor = _travel.ActiveDoor;
+            _mapMission = Identity.None; // Re-upload on the next outdoor selection after zoning.
             _travel.Reset();
             _observedDungeon = Identity.None;
             _handoffWaitStarted = DateTime.MinValue;
@@ -207,8 +213,9 @@ namespace RKmission
                     }
                 }
                 if (_selected != null && (!_selected.Present ||
-                    _selected.PlayfieldId != Playfield.ModelIdentity.Instance))
+                    _selected.PlayfieldId != Playfield.ModelIdentity.Instance || !_travel.MatchesAnchor(_selected)))
                 {
+                    Say($"Mission destination invalidated: mission={_selected.Id.Instance}; acceptance/playfield/anchor changed; choose again from current origin.");
                     _selected = null;
                     _travel.Reset();
                     _nextSelection = DateTime.MinValue;
@@ -230,7 +237,13 @@ namespace RKmission
                     }
                     _waitingReason = null;
                 }
-                if (!_travel.Tick(_selected))
+                if (!PublishMissionDestination(_selected))
+                {
+                    _travel.Reset(); _selected = null; _mapMission = Identity.None;
+                    _nextSelection = DateTime.UtcNow.AddSeconds(5);
+                    return;
+                }
+                if (!_travel.Tick(_selected, _missions.Eligible(Playfield.ModelIdentity.Instance)))
                 {
                     Stop(); Say("Local travel stopped. Resolve the reported entrance/route problem, then /rkm start.");
                 }
@@ -239,6 +252,28 @@ namespace RKmission
             {
                 Stop(); Say("Stopped after an AO# error: " + ex);
             }
+        }
+
+        private bool PublishMissionDestination(AcceptedMission selected)
+        {
+            if (_mapMission == selected.Id && _mapPlayfield == selected.PlayfieldId &&
+                Vector3.Distance(_mapAnchor, selected.Entrance) <= 0.5f) return true;
+            // Reuse the embedded Mali MissionView's API, refreshing the accepted list
+            // immediately before upload. Offered missions/generic waypoints are excluded.
+            Mission live = Mission.List?.FirstOrDefault(x => x.Identity == selected.Id);
+            MissionLocation location = live?.Location;
+            if (location == null || location.Playfield.Instance != selected.PlayfieldId ||
+                !AcceptedMissions.Finite(location.Pos) || Vector3.Distance(location.Pos, selected.Entrance) > 0.5f)
+            {
+                Say($"Map/minimap marker update: mission={selected.Id.Instance}, result=deferred; accepted mission/location unavailable or changed.");
+                return false;
+            }
+            live.UploadToMap();
+            _mapMission = selected.Id; _mapPlayfield = selected.PlayfieldId; _mapAnchor = selected.Entrance;
+            Say($"Map/minimap marker update: mission={selected.Id.Instance}, playfield={selected.PlayfieldId}, " +
+                $"mission anchor=({LocalRoutePlanner.Coordinates(selected.Entrance)}), API=Mission.UploadToMap, " +
+                "result=selected mission upload command sent; native GUI has no marker acknowledgement.");
+            return true;
         }
 
         private void TickDungeon()
@@ -271,6 +306,7 @@ namespace RKmission
                 if (_handoffWaitStarted == DateTime.MinValue) _handoffWaitStarted = DateTime.UtcNow;
                 if (DateTime.UtcNow - _handoffWaitStarted > TimeSpan.FromSeconds(20))
                 {
+                    Say($"Entrance interaction result: mission={_selected?.Id.Instance}, door={_handoffDoor}, dungeon={Playfield.ModelIdentity}, result=unidentified dungeon after zoning.");
                     Stop(); Say("AO# did not identify an accepted mission for this dungeon within 20 seconds; handoff stopped."); return;
                 }
                 Wait("Waiting for AO# to associate this dungeon with an accepted mission. Exploration is held until the identity is verified."); return;
@@ -278,6 +314,8 @@ namespace RKmission
             AcceptedMission record = _missions.Find(bound.Identity);
             if (record == null || !record.IsRubiKaDestination || (_selected != null && _selected.Id != bound.Identity))
             {
+                Say($"Entrance interaction result: mission={_selected?.Id.Instance}, door={_handoffDoor}, actual mission={bound.Identity.Instance}, " +
+                    $"dungeon={Playfield.ModelIdentity}, result=mission mismatch; handoff refused.");
                 Stop(); Say("Dungeon does not match the selected accepted Rubi-Ka mission; handoff refused."); return;
             }
             if (_observedDungeon != Playfield.ModelIdentity)
@@ -296,6 +334,8 @@ namespace RKmission
             }
             _selected.State = MissionProgress.InProgress;
             _selected.HandoffVerified = true;
+            Say($"Entrance interaction result: mission={_selected.Id.Instance}, door={_handoffDoor}, " +
+                $"dungeon={Playfield.ModelIdentity}, result=exact selected mission verified after zoning.");
             _travel.Reset();
             _waitingReason = null;
             _dungeon.Start(bound); // The working dungeon implementation receives this exact accepted mission.

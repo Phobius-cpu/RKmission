@@ -21,21 +21,26 @@ The current responsibility boundary supersedes earlier automatic rolling plans:
 2. `/rkm start` arms local takeover. RKMission tracks all resolved accepted
    Rubi-Ka destinations, independent of Mali roller filter settings.
 3. On reaching a playfield with accepted missions, capture one player origin,
-   estimate horizontal entrance distances, choose nearest (mission ID breaks
-   ties), and build only that entrance's route in the active movement mode.
-   Keep the chosen identity/search anchor fixed during movement. Estimates are not
-   certified complete paths; other missions receive no route/probe planning.
+   compare current-mode route costs (complete ground mesh cost where available,
+   otherwise horizontal estimate; flight horizontal estimate), choose nearest
+   with mission ID breaking ties, and plan only its final terrain/flight geometry.
+   Upload that exact live accepted mission via `Mission.UploadToMap` to set the
+   native map/minimap destination. Keep its identity/anchor fixed during movement;
+   changed acceptance/playfield/anchor triggers reselection and marker publication.
 4. Ground uses complete navmesh paths when available, otherwise bounded AO#
    direct local waypoints. Flying commits a complete waypoint sequence to
    toward the chosen quest anchor, then shares live entrance acquisition with
-   ground within 48 m. Scan doors within 40 m, rank identities/sides/heights,
+   ground within 12 m. Consider mission-constrained doors within 6 m of the anchor,
+   reject unrelated shop/building/quest and ambiguous context, rank valid sides/heights,
    align the selected approach and interact in the flying vehicle. AO# flight state
    selects automatically; `/rkm travel auto|ground|flying` overrides by session.
 5. Flight has no dismount prompt/wait or forced ground approach. Both modes
    converge on shared live-door acquisition, alternate approaches and exact
    mission/dungeon verification. Quest X/Y/Z are provisional outdoor anchors;
    derive final coordinates/height from live doors/local threshold geometry.
-   No live candidate triggers a bounded radial anchor search. Prefer complete
+   No valid live candidate triggers a radial anchor search limited to the same
+   6 m boundary (2/4/6 m waypoints); failed uses never widen the candidate search.
+   Prefer complete
    clear flight paths around/over objects; retain estimates when geometry is
    inconclusive. Follow the full waypoint list, then gate entry on near-entrance
    height alignment. Avoid speculative-probe hopping and frequent turn stops.
@@ -1130,3 +1135,74 @@ This model supersedes earlier unique-door, exact nonzero quest-height, fixed
   and alternate reason. README contains the source comparison and boundaries.
   Source/API/diff inspection only; the user pulls main, compiles and validates
   working/failing entrance layouts, ground/flight, stale Y and object refresh in game.
+
+## Selected Accepted Mission Entrance Regression Fix (2026-09-28)
+
+This supersedes the earlier 40 m generic-door scan, broad radial search and
+horizontal-only selection rules in the historical shared-acquisition section.
+
+- User reports that dynamic acquisition sent them to a shop. They require only
+  entrances associated with accepted/uploaded missions, nearest active-mode
+  mission selection from the player's origin, native map/minimap publication,
+  bounded anchor acquisition/live height/alternate sides, detailed diagnostics,
+  preserved dungeon systems, documentation and coherent commits to main.
+  Do not compile or test locally; the user pulls, builds and validates in game.
+- Baseline main: aa1e0af. The regression admits every Door within 40 m, including
+  unrelated shops; name/proximity scores and post-zoning verification do not
+  prevent the wrong interaction. The embedded Mali MissionView.PingClick already
+  calls Mission.UploadToMap(identity); the AOSharp instance/static APIs forward
+  that exact identity to GUIUnk.UploadMissionToMap. Reuse this interface.
+- Selection compares only present unresolved-completion Rubi-Ka missions in the
+  current playfield. Capture one finite origin, estimate all anchors in the active
+  mode, use complete mesh distance where available for ground and horizontal direct
+  fallback otherwise; flight horizontal cost avoids stale quest height. Mission ID
+  breaks equal-cost ties. Only the winner gets terrain/final flight planning.
+  These are mixed certified/estimated costs, not a guarantee of reachability.
+- Before moving, refresh that exact live accepted mission/location and upload it.
+  Cache uploaded ID/playfield/anchor to avoid per-tick calls; publish a new selected
+  mission or changed anchor, and republish after outdoor zoning/reselection. No
+  offered quest, custom marker, native interop or replacement renderer is used.
+  Marker logging reports a sent native command; the API supplies no GUI readback.
+  Changed accepted anchor (>0.5 m), removal or playfield invalidates travel for
+  selection from the current player origin. Existing dungeon binding stays exact.
+- Acquisition starts within 12 m; every door, approach and search target must stay
+  within a fixed 6 m horizontal radius of the selected accepted anchor. No retry
+  expands this radius. Candidate policy checks live Door type/validity/position,
+  selected accepted status/playfield, optional QuestInstance and BuildingType/
+  BuildingInstance via Dynel.GetStat, names and other accepted mission anchors.
+  Reject positive conflicting quest IDs, ordinary shop/store/building/apartment/
+  bar/club/bank/headquarters/transport context and unreadable context. Without a
+  matching quest hint, nonzero building context is rejected conservatively.
+- Stat enum/GetStat APIs exist in the supplied AOSharp sources and embedded roller
+  enum. Their outdoor semantics are not fully documented: matching QuestInstance
+  is an optional identity hint, always within the bounded anchor; no undocumented
+  building codes or new pointer mappings are invented. Mission.Source/objective
+  identities and outdoor null room links cannot prove entrance ownership. The
+  radius/context fallback remains unconfirmed until exact dungeon verification.
+- Refresh other accepted anchors while travelling. An unlinked door closer to or
+  ambiguous with a distinct accepted anchor is rejected. Quest hints take priority;
+  otherwise allow only the closest neutral threshold. Similar offsets (within 1 m)
+  at distinct thresholds (>0.5 m apart) are held as ambiguous. Coincident anchors
+  may share a threshold. Bind a chosen fallback threshold; refreshed identities
+  must remain within 0.5 m there. Farther unlinked doors cannot follow a failed
+  interaction or disappearance.
+  A statless/unlabelled unrelated door inside the radius cannot be conclusively
+  distinguished by this API; genuine unlinked building or >6 m entrances may be
+  refused. Logs expose these limitations for user validation rather than widen.
+- Retain eight 1.5 m/four 3 m approach sides per height, clipped to the original
+  anchor radius; derive final height from live origin/local threshold/grounded
+  player alternatives. Moving door origins rebuild clipped geometry. Marker and
+  2/4/6 m search waypoints, PF665 measured hint and 0.8 m threshold crossing also
+  stay inside the original boundary. Existing obstacle detours may leave the
+  neighborhood for geometry but cannot introduce other candidate doors.
+- Recheck association and geometry on refreshed live objects and force a full
+  candidate scan/live accepted-identity check before every Use; include newly
+  loaded competing doors. Preserve actual range/corridor checks, two uses per
+  approach, finite retries, 90-second no-progress and 15-minute travel bounds.
+  Log selected ID/origin/route cost/anchor, marker command, accepted and rejected
+  door IDs/positions/context/reasons, final approach/height, sent use, absent
+  zoning and exact verified/mismatched/unidentified dungeon or travel failure.
+- Source/API/diff review only. No compilation, restore, tests or game execution.
+  MissionDungeon, DungeonLayout, combat, interior doors/lockpick, embedded Mali
+  UI/map/roller, loot, dependency versions and vehicle equipment are unchanged.
+  README and conversation log updated. User pulls main and validates in game.

@@ -767,3 +767,53 @@ is now a search hint rather than final authority over a live door.
 Updated all three documentation files with comparison, reference limitations,
 new diagnostics and retry boundaries. Reviewed source/API/diff only; no local
 compilation, restore, tests or game run. Runtime success remains for user validation.
+
+### User selected-mission entrance regression request (2026-09-28)
+
+Continuing Organize RKMission conversations, fix Phobius-cpu/RKmission because
+its dynamic door scan selects unrelated buildings/shops. Consider only entrances
+associated with currently accepted/uploaded missions through available mission
+identity/location/playfield data. If ownership is not explicitly exposed, use a
+small anchor radius and reject ordinary building/shop context. Select the closest
+accepted mission from the current origin using the active-mode route estimate,
+upload that exact mission to the native map/minimap and update when selection
+changes. Acquire only near its anchor, use live geometry for final height and
+try multiple local approaches without expanding into unrelated doors. Log origin,
+mission/route/anchor/map publication, candidate acceptance/rejections and final
+interaction. Preserve dungeon/exploration/combat/interior-door/loot systems;
+update README, project memory and this log, commit coherent changes to main.
+No local compile/tests; the user pulls, compiles and tests in game.
+
+### Assistant constrained entrance and native mission-map repair
+
+Inspected main aa1e0af and supplied AOSharp/embedded Mali reference sources.
+The 40 m all-door scan plus alternate-building recovery permits the regression.
+Reuse Mission.UploadToMap, already called by Mali's mission map button, with the
+exact fresh accepted identity/location before movement. Cache ID/playfield/anchor,
+republish for new selections/changed anchors and after outdoor zoning. Rank all
+local accepted anchors in the active movement mode using complete ground mesh
+cost when available, direct horizontal fallback otherwise, or horizontal flight
+estimate; log costs and break ties by ID. Plan final geometry only for the winner.
+
+Limit acquisition to doors and local search/approach targets within 6 m of the
+selected mission anchor, starting within 12 m. Inspect QuestInstance and building
+stats via the existing GetStat API; reject conflicting quests, ordinary shop/
+building/transport names, unlinked building context and unreadable context.
+Matching quest stats are optional hints within the radius, not a proven outdoor
+ownership API. Reject competing accepted anchors and similar-offset ambiguous
+unlinked doors; a failed use cannot promote a farther unlinked threshold.
+Bind the chosen fallback threshold across disappearance/mode changes; a refreshed
+door identity must stay within 0.5 m there instead of selecting another building.
+Update accepted anchor context during travel and force full candidate/accepted
+identity checks immediately before Use. Preserve live/local-floor height choices,
+alternate sides, actual range/corridor checks, bounded retries and exact dungeon
+handoff. Clip 2/4/6 m search points and short crossings to the original boundary.
+
+Log native marker command delivery and entrance acceptance/rejection reasons,
+selected door/offset/height/approach, sent use and final exact verified entry,
+mismatched/unidentified dungeon or travel failure. Location-only ownership still
+has API limitations; conservative rejection can refuse genuine unlinked building
+or >6 m entrances, and an unlabelled/statless unrelated door inside the radius
+cannot be conclusively identified outdoors. The user validates stats/map/behavior.
+Updated all three docs and preserved the working dungeon and embedded systems.
+Source/API/diff review only; no compilation, package restore, tests or game run.

@@ -4,10 +4,13 @@ AO# plugin for solo Rubi-Ka missions in Anarchy Online. It combines the original
 Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
 mission travel, room exploration, combat targeting, door handling, and looting.
 
-**Status (2026-09-28):** outdoor mission coordinates are search anchors. Ground
-and flight now share live door acquisition, alternate approach sides/heights,
-identity refresh, and bounded recovery across candidates. A nonzero quest height
-is also provisional. Entry still requires exact mission/dungeon verification.
+**Status (2026-09-28):** mission entrance acquisition is constrained to the
+selected accepted mission and a fixed 6 m anchor radius. Ordinary shops/buildings,
+conflicting quest context and ambiguous location matches are rejected. The
+closest accepted mission is selected by the current movement mode's route
+estimate and uploaded through AOSharp's native mission map/minimap interface.
+Live entrance/local geometry supplies final height and alternate approaches.
+Entry still requires exact mission/dungeon verification.
 The user's build and in-game validation are pending; no local compilation or
 tests were run. Dungeon exploration, combat, interior doors, lockpicking and loot
 are unchanged by this entrance fix.
@@ -40,17 +43,20 @@ are unchanged by this entrance fix.
    arm local takeover. There is no target-zone filter or RKMission roll limit.
 3. Travel between playfields yourself by any means. When your current outdoor
    playfield contains accepted missions, RKMission captures your position as
-   the origin, estimates horizontal distance to each entrance, and chooses the
-   nearest (mission ID breaks ties). It creates one route from that origin to
-   the chosen entrance, using the active movement mode. Other entrances receive
-   no path/terrain/flight planning. Estimates do not guarantee full reachability.
+   the origin and compares route costs to accepted mission anchors in the active
+   movement mode (mission ID breaks ties). Ground uses complete mesh distance
+   when available, otherwise direct horizontal distance; flight uses horizontal
+   distance while entrance height is unresolved. Only the winner receives final
+   terrain/flight planning. RKMission uploads that exact accepted mission through
+   `Mission.UploadToMap`, updating the game's map/minimap destination on selection.
+   Estimates do not guarantee full reachability.
 4. Default `/rkm travel auto` reads AO# `MovementState.Fly`. Use
    `/rkm travel ground` or `/rkm travel flying` to override route selection for
    this plugin session. These commands do not equip or remove a vehicle.
 5. On foot, use a complete mesh path when available, otherwise sampled local
-   waypoints/arcs. Flight follows committed world-space waypoints. Within 48 m
-   of the marker, both modes scan live doors within 40 m of that anchor. They
-   rank candidates and approach sides, using live origin and local threshold
+   waypoints/arcs. Flight follows committed world-space waypoints. Within 12 m
+   of the marker, both modes consider only mission-constrained doors within 6 m
+   of that anchor. They rank valid approach sides, using live origin and local threshold
    height alternatives instead of demanding the marker's exact X/Y/Z.
    Flight aligns to a selected side/height before closing on the threshold;
    ground follows terrain and checks the live door's actual interaction range.
@@ -58,8 +64,9 @@ are unchanged by this entrance fix.
    landing near the anchor continues the same mission through ground acquisition.
 6. Door use refreshes the live identity and checks actual distance and the short
    interaction corridor. No transition after use triggers a short threshold
-   crossing, then alternate sides/doors. Without live doors, bounded radial
-   waypoints search around the marker. Arrival or a use command alone never
+   crossing, then alternate sides of a valid entrance. Without a valid live door,
+   bounded radial waypoints search within the same 6 m radius. Rejected shops
+   and farther unlinked doors never become recovery targets. Arrival or a use command alone never
    proves entry. AO# must associate the dungeon with the exact selected mission
    for a stable second before the existing `MissionDungeon` logic starts.
 7. Check the game's objective/reward. Use `/rkm complete` (or
@@ -80,11 +87,16 @@ retrying an unfinished accepted mission.
   reward, deletion or expiration; it is not proof of completion. Identity,
   objectives, dungeon binding and completion evidence remain attached to the
   selected accepted mission.
-- Nearest selection compares horizontal distance from one captured origin.
-  Only that mission is planned. Its captured marker and mission identity stay
-  fixed during travel; live entrance targets can change without selecting a
-  different mission. Completion confirmations and travel settings are session
-  state; no quest is deleted.
+- Nearest selection compares active-mode route estimates from one captured
+  origin, logging every eligible mission's anchor/cost/source. Complete ground
+  paths and direct fallback estimates may be compared; the latter are explicitly
+  estimates. Only the selected mission receives final terrain/flight planning.
+  Identity and anchor remain fixed during travel; acceptance/playfield/anchor
+  changes invalidate travel and trigger a new selection from the current origin.
+  Map upload uses only that exact live accepted mission, never an offered mission
+  or generic waypoint. Upload is repeated on mission/anchor changes and outdoor
+  reselection after zoning. The API has no marker readback/acknowledgement.
+  Completion confirmations and travel settings are session state; no quest is deleted.
 - Ground uses complete navmesh paths, then local direct waypoints if the mesh
   is absent/disconnected. Fallback samples multiple headings/radii and remembers
   visited/failed points. Flight retains the connected obstacle/descent planner,
@@ -98,95 +110,91 @@ retrying an unfinished accepted mission.
   forward steps use horizontal distance before sampling local terrain, so stale
   Y cannot shrink a normal step to a negligible horizontal movement.
 
-### Marker versus physical entrance
+### Mission anchors, door association and map destination
 
 `AcceptedMissions.Refresh` copies `Mission.Location.Pos` from AOSharp's
-`GetQuestWorldPos`. The reference API exposes a quest world position, with no
-contract that it equals the physical door, threshold, building centre or plot
-centre, and no outdoor door-to-quest mapping. The available logs do not establish
-how often each layout supplies an approximate anchor or zero/stale elevation.
-We therefore treat every marker as an outdoor search anchor rather than claim a
-specific interpretation for all missions. AOSharp uses X/Y/Z with **Y altitude**;
-AO displays X/Z/height(Y). A reported Z=0 needs this distinction checked first.
+`GetQuestWorldPos`. Treat that accepted mission coordinate as the search anchor;
+AOSharp Vector3 uses X/Y/Z with **Y altitude**, while AO displays X/Z/height(Y).
+Quest elevation remains provisional until live entrance/local geometry resolves it.
 
-Source inspected: current RKMission main `4a822e1`, earlier entrance history and
+The previous `aa1e0af` acquisition scanned all doors within 40 m, ranked proximity
+and tried alternate buildings. This could send the player into a nearby shop;
+post-zoning verification was too late to prevent an unrelated interaction.
+
+Inspected RKMission main `aa1e0af`, the embedded Mali `MissionView.PingClick`, and
 [AOSharp Mission](https://github.com/anarchydevs/aosp.knows-aosharp-mods/blob/master/AOSharp.Core/Mission.cs),
-[DynelManager](https://github.com/anarchydevs/aosp.knows-aosharp-mods/blob/master/AOSharp.Core/Dynel/DynelManager.cs),
 [Door](https://github.com/anarchydevs/aosp.knows-aosharp-mods/blob/master/AOSharp.Core/Dynel/Door.cs),
-[Dynel](https://github.com/anarchydevs/aosp.knows-aosharp-mods/blob/master/AOSharp.Core/Dynel/Dynel.cs)
-and SimpleItem reference sources. `Playfield.Doors` already derives from live
-`AllDynels` with `IdentityType.Door`. Outdoor room links return null; they cannot
-prove a mission association. Names, open/locked flags and collision probes are
-ranking hints. Arbitrary scenery/items are not cast to Door. `Use()` sends a
-command without a success acknowledgement. Exact association is established by
-the existing current-dungeon mission lookup after zoning.
+[Dynel](https://github.com/anarchydevs/aosp.knows-aosharp-mods/blob/master/AOSharp.Core/Dynel/Dynel.cs),
+[Stat](https://github.com/anarchydevs/aosp.knows-aosharp-mods/blob/master/AOSharp.Common/GameData/Stat.cs)
+and Playfield/DynelManager reference sources. `Mission.UploadToMap` forwards the
+exact mission identity to the native GUI upload interface, already used by Mali's
+mission map button. RKMission refreshes that accepted mission and location before
+calling it. No replacement map renderer or waypoint system is introduced.
 
-| Earlier behavior | Why an entrance could work | Why another layout could fail |
-| --- | --- | --- |
-| Door scan within 2 m of a nonzero/measured marker, 6 m for unresolved height | Live door coincides closely with marker | Offset building/cave door excluded; measured point freezes lookup |
-| Nonzero quest height treated as exact | Quest height matches doorway | Stale elevation forces wrong alignment; zero height takes a different path |
-| One bound identity; near ties return no door | One visible door | Multiple doors never resolve; disappearance stops entry |
-| One 1.5 m side and mandatory 1-2 m annulus | Outside side is accessible | Door inside facade, roof, slope or offset origin blocks that point |
-| Marker range plus door range; one failed use sequence stops run | Both coordinate checks happen to agree | Player reaches real door but fails marker/height gate or needs trigger crossing |
+`Playfield.Doors` exposes live `IdentityType.Door` objects. Outdoor room links
+cannot establish ownership. `Dynel.GetStat` exposes `QuestInstance`, `BuildingType`
+and `BuildingInstance`, but the reference does not document a complete outdoor
+quest-door mapping or building type codes. A positive matching quest-instance stat
+is an optional identity hint within the same bounded anchor radius; it is not a
+newly proven SDK ownership guarantee. Mission source/objective identities are not
+assumed to be entrance identities. Ordinary context and conflicting stats still
+reject a door, even if its name includes 'mission'. Final ownership is verified
+by the existing exact current-dungeon mission lookup after zoning.
 
-Earlier 11:08 logs showed height searches exhausting roughly 4,040 probes with
-zero observed failed legs. The user later measured X=553.2, Z=1475.0, height=18.1
-in playfield 665. Those observations support a target/probe mismatch as a possible
-cause, not proof of every building's marker semantics or a universal correction.
-The measured point is retained only as a local coarse/search hint for markers
-within 2 m there; it cannot override the selected live door or all other missions.
+### Constrained entrance acquisition
 
-### Shared entrance acquisition
+- Begin acquisition within 12 m of the selected accepted mission's captured
+  anchor. Scan every two seconds; candidate doors must be valid, finite, in the
+  selected outdoor playfield and within **6 m horizontally** of that anchor.
+  This radius never expands after missing doors or failed interactions.
+- Reject positive `QuestInstance` values different from the selected mission ID.
+  Reject names indicating ordinary shops, stores, buildings, apartments, bars,
+  clubs, banks, headquarters or transport entrances. Without a matching quest
+  hint, reject nonzero building type/instance context rather than guess undocumented
+  codes. Unreadable context is rejected. Open/locked flags and corridor probes only
+  rank approaches after this association gate.
+- Without a quest hint, a door must match the selected anchor more closely than
+  any distinct accepted mission anchor; ambiguous ownership is rejected. Refresh
+  the accepted mission context during travel, including newly accepted missions.
+  Prefer matching quest hints when available. Otherwise allow only the closest
+  neutral door threshold; similar-offset doors more than 0.5 m apart with offsets
+  within 1 m are ambiguous and held. A farther unlinked door never becomes the
+  next destination just because the first door's use failed or it disappeared.
+  Bind the fallback threshold once selected; a refreshed identity must remain
+  within 0.5 m of that threshold. Coincident mission
+  anchors can share a threshold; exact dungeon verification still decides ownership.
+- Generate eight approach sides at 1.5 m and four at 3 m from valid entrances,
+  keeping only targets within the same 6 m anchor boundary. Use live rotation or
+  a player-facing fallback. Try live origin height, supported local threshold
+  floor (with 1.5 m flight clearance) and nearby grounded-player height. Ground
+  follows terrain; flight stages horizontally and aligns to the selected height.
+  The prior PF665 measured point is only a bounded coarse/search hint for accepted
+  anchors within 2 m of it, never an ownership link or a wider candidate radius.
+- Refresh live identity, mission/context/radius and actual <=2 m horizontal and
+  <=3.5 m 3D use range. Immediately before every `Use`, force the full candidate
+  scan, including newly loaded competing doors, and refresh the live accepted
+  mission identity. Check the short corridor ending 0.6 m before the door face.
+  A disappearing/moved/rejected door yields to another valid approach, with no
+  native object retained across ticks.
+- Send at most two uses per approach four seconds apart. Without zoning, try a
+  short 0.8 m threshold crossing only if its target remains within the boundary,
+  then another valid side. If no valid door remains, search the anchor and eight
+  headings at 2/4/6 m; measured-hint offsets are clipped to the original anchor
+  boundary. Search waypoints never interact with rejected doors. Arrival and
+  command delivery are not successful entry.
+- Preserve the existing eight-second search and eighteen-second approach stall
+  handling, finite-attempt exhaustion plus 90-second no-progress bound, and
+  15-minute total travel cap. Mode/side changes do not reset overall progress.
+  Existing obstacle planners can detour around geometry; they do not add doors
+  or enlarge the entrance search. Dungeon exploration, combat, interior door
+  handling, lockpicking and loot remain unchanged.
 
-- Start within 48 m horizontally of the captured anchor. Scan every two seconds
-  for finite live Door positions within a 40 m horizontal radius, independent
-  of quest elevation. Record identity, position, anchor offset, name/type,
-  open/locked flags, outdoor room-data unavailability and accessibility score.
-  Anchor distance dominates ranking; player distance, height difference and
-  corridor probes refine it. No close-tie ambiguity veto remains.
-- For each observed door, generate eight sides at 1.5 m and four at 3 m,
-  oriented by its live rotation, with player-facing fallback if rotation is
-  unusable. Rank travel and final corridor probes as hints. Try live origin
-  height, a supported local floor/threshold alternative (1.5 m clearance in
-  flight), and nearby grounded-player height when materially different. Terrain
-  estimates do not replace every live origin with the lowest floor. Mission Y,
-  including nonzero Y, never gates final acquisition.
-- Ground and flight share candidates, identity refresh, retries and interaction.
-  Flight reaches the selected horizontal side, aligns within 0.9 m of its
-  approach point, then closes on the live threshold. Clear direct travel allows
-  early lowering; obstructed travel retains clearance and the existing planner.
-  Ground commits arrival at the side before continuing inward, avoiding a loop
-  back to the staging point. Ground does not demand exact marker elevation.
-- Use requires <=2 m horizontally and <=3.5 m in 3D from a freshly resolved
-  live door. Check the short corridor before the door face, excluding its final
-  0.6 m so a closed door itself does not block use. Floor/model origin offsets
-  are handled through height alternatives; being on another floor is not arrival.
-- Send at most two uses per approach, four seconds apart. Log command delivery
-  and await actual zoning. After another four seconds without a transition, try
-  crossing 0.8 m past the threshold from that side; after eight seconds from
-  the last use without zoning, advance to another side/door. Disappearance,
-  changed live position, a managed use error, or 18 seconds without approach
-  progress also advances acquisition. Candidates alternate before repeatedly
-  retrying one building. Native Door pointers are never retained between ticks.
-- If no untried live candidate is available, visit the marker and eight headings
-  at 8/16/28/40 m, deriving provisional height from local floor/player data.
-  A waypoint with eight seconds of no progress yields to the next. A newly
-  loaded door preempts marker searching. Reaching a marker alone is not entry;
-  proximity-trigger zoning still goes through the exact dungeon verification.
-- Attempts and phases do not reset the acquisition progress clock. Only a new
-  observed distance minimum on a finite attempt updates it. Exhausting all
-  observed candidate approaches and radial waypoints plus 90 seconds without
-  progress stops acquisition. The existing 15-minute overall travel limit still
-  bounds the run. A single stalled door, missing door or failed use no longer
-  causes a hard failure. Manual flight/ground changes regenerate approach
-  geometry for the same mission without resetting the global progress clock.
-
-Candidate association remains provisional: AOSharp's outdoor API does not
-identify which nearby door belongs to a quest. The exact mission/dungeon gate
-is unchanged and refuses mismatched or unidentified dungeons. Large offsets
-beyond 40 m, unloaded/unexposed trigger objects, or inaccessible geometry may
-still require user intervention. Dungeon exploration/combat/interior doors,
-lockpicking and loot are unchanged.
+A location-only fallback cannot prove ownership of an unlabelled, statless door.
+The small radius, context checks and ambiguity rejection intentionally prefer
+holding/failing over visiting other buildings. Genuine entrances beyond 6 m or
+with unlinked building context may be refused; inspect rejection logs for an
+explicit association rather than increasing the search radius. The user must
+validate stat values, map/minimap display and entrance behavior in game.
 
 ## Commands
 
@@ -250,13 +258,15 @@ deployed plugin folders.
   resolved destination; travel to the matching outdoor playfield. `/rkm start`
   is required again after the local chain finishes.
 - **Route diagnosis:** `Nearest entrance selected` logs the captured origin,
-  chosen mission/entrance, estimated distance, single route/mode, path cost,
-  movement state and mesh availability. There are no competing ground/flight
-  plans for the mission list. Finite estimates remain attemptable even when
+  chosen mission/anchor, estimated distance, active route/mode, route cost,
+  movement state and mesh availability. `Mission route estimate` reports every
+  eligible mission's cost/source in the same movement mode. `Map/minimap marker
+  update` reports the exact selected mission upload command. Finite estimates remain attemptable even when
   clearance probes hit. Watch `Active movement` for the actual waypoint,
   `progress` for final-target distance,
-  `Entrance candidate` / `Entrance selected` for live position, anchor offset,
-  candidate properties, selected side and height source,
+  `Entrance door accepted` / `Entrance door rejected` for live position, anchor
+  offset, quest/building context and rejection reason; `Entrance selected` shows
+  the accepted identity, selected side and height source,
   `Flight path committed` for the entire waypoint sequence and replan reason,
   `complete=True/False` for complete routes versus validated sections,
   `Flight committed path leg` / `Flight committed prefix leg` for progress through that sequence, and
@@ -269,7 +279,9 @@ deployed plugin folders.
   Watch `Entrance scan`, `Entrance aligned`, `Entrance interaction`,
   `Entrance alternate attempt` and `Entrance search waypoint` for acquisition.
   Interaction logs distinguish sent commands from absent zoning and threshold
-  crossing; alternate logs explain candidate/side changes. Flight progress
+  crossing; `Entrance interaction result` distinguishes exact verified entry,
+  mismatched/unidentified dungeons and failed travel. Alternate logs explain
+  valid candidate/side changes. Flight progress
   includes the vertical gap and velocity. Movement labels use the committed
   leg's starting altitude so slight corrections cannot alternate/log every tick.
   Idle selection checks retry every five seconds; mode warnings are suppressed
@@ -283,8 +295,10 @@ deployed plugin folders.
   equipped. No dismount prompt/wait exists. Mode selection does not change
   equipment. Explicit ground mode requires actual ground movement.
 - **Entrance/handoff failure:** read the coordinate, door identity, route cost,
-  and entry logs. Candidate association is provisional; unmatched or unidentified
-  dungeons still stop/hold the handoff.
+  context rejection and entry logs. The 6 m fallback is intentionally conservative;
+  a shop, unlinked building, competing mission anchor or ambiguous door does not
+  become a recovery target. Location-only ownership is unconfirmed; unmatched or
+  unidentified dungeons still stop/hold the handoff.
 - **Clearance without confirmed completion:** check the objective/reward in
   game and use `/rkm complete` for that bound mission. Deleted/expired missions
   are not automatically marked complete; stop/start to abandon that binding.

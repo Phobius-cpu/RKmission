@@ -16,6 +16,7 @@ namespace RKmission
         private readonly List<Vector3> _recentGround = new List<Vector3>();
         private LocalRoute _route;
         private EntranceAcquisition _entrance;
+        private List<AcceptedMission> _acceptedContext;
         private Phase _phase;
         private bool _ownsMovement, _forceDirect, _directActive, _doorCrossLogged;
         private bool _flightHolding, _entranceHeightReady, _flightPathComplete, _flightPathAdvisory, _entrancePointSet;
@@ -34,6 +35,9 @@ namespace RKmission
         private Identity _door = Identity.None;
         public TravelMode Mode { get; set; } = TravelMode.Auto;
         public string Status => _phase.ToString();
+        public Identity ActiveDoor => _door;
+        public bool MatchesAnchor(AcceptedMission mission) => _route != null && _route.Mission.Id == mission.Id &&
+            Vector3.Distance(_route.Entrance, mission.Entrance) <= 0.5f;
         public bool IsFlightActive => IsFlying && (_phase == Phase.FlightCruise || _phase == Phase.EntrancePosition ||
             _phase == Phase.EntranceHeight || _phase == Phase.EntranceApproach);
         public int UpdateIntervalMilliseconds => !IsFlightActive ? 250 :
@@ -60,13 +64,18 @@ namespace RKmission
                 _lastEvaluation = "invalid origin";
                 return null;
             }
-            // Compare distances only, using one captured origin. Other missions receive no
-            // navmesh query, terrain probe or flight plan. Keep the chosen identity/point.
-            AcceptedMission nearest = missions.Where(x => AcceptedMissions.Finite(x.Entrance))
-                .OrderBy(x => LocalRoutePlanner.HorizontalDistance(origin, x.Entrance))
-                .ThenBy(x => x.Id.Instance).FirstOrDefault();
+            _acceptedContext = missions.Where(x => x.Present && x.IsRubiKaDestination &&
+                x.State != MissionProgress.CompletedByUser && x.PlayfieldId == Playfield.ModelIdentity.Instance &&
+                AcceptedMissions.Finite(x.Entrance)).ToList();
+            var estimates = _acceptedContext.Select(x => LocalRoutePlanner.Estimate(x, origin, flying))
+                .Where(x => x != null && !float.IsNaN(x.Cost) && !float.IsInfinity(x.Cost)).ToList();
+            foreach (LocalRoute estimate in estimates.OrderBy(x => x.Cost).ThenBy(x => x.Mission.Id.Instance))
+                _say($"Mission route estimate: mission={estimate.Mission.Id.Instance}, playfield={estimate.Mission.PlayfieldId}, " +
+                    $"origin=({LocalRoutePlanner.Coordinates(origin)}), anchor=({LocalRoutePlanner.Coordinates(estimate.Entrance)}), " +
+                    $"mode={(flying ? "flight" : "ground")}, route cost={estimate.Cost:F1} m, source={estimate.Reason}.");
+            LocalRoute nearest = estimates.OrderBy(x => x.Cost).ThenBy(x => x.Mission.Id.Instance).FirstOrDefault();
             if (nearest == null) return null;
-            _route = LocalRoutePlanner.Plan(nearest, origin, flying);
+            _route = LocalRoutePlanner.Plan(nearest, flying);
             if (_route == null) return null;
             _entrance = null;
             SMovementController.Halt();
@@ -82,7 +91,7 @@ namespace RKmission
             _say($"Nearest entrance selected: {_route.Mission.Id.Instance}, {_route.Mission.Name}; " +
                 $"origin=({LocalRoutePlanner.Coordinates(_route.Origin)}), " +
                 $"accepted marker=({LocalRoutePlanner.Coordinates(_route.Entrance)}), estimated distance={_route.EntranceDistance:F1} m. " +
-                $"Single {(flying ? "flying" : "ground")} route: {_route.Reason}, path cost={_route.Cost:F1} m; " +
+                $"Selected {(flying ? "flying" : "ground")} route: {_route.Reason}, route cost={_route.Cost:F1} m; " +
                 $"movement={DynelManager.LocalPlayer.MovementState}, outdoor mesh={SMovementController.NavAgent?.HasPathfinder == true}, " +
                 $"search hint=({_route.Mission.PlayfieldId}: {LocalRoutePlanner.Coordinates(_route.EntrancePoint)}), " +
                 $"source={_route.HeightSource}, terrain floor={_route.EntranceIsFloor}, " +
@@ -92,7 +101,7 @@ namespace RKmission
 
         public void Reset()
         {
-            Halt(); _route = null; _entrance = null; _phase = Phase.Idle; _door = Identity.None;
+            Halt(); _route = null; _entrance = null; _acceptedContext = null; _phase = Phase.Idle; _door = Identity.None;
             _lastEvaluation = null; _directActive = _flightHolding = _entranceHeightReady = false;
             _entrancePointSet = _flightPathAdvisory = false;
             _flightPath.Clear();
@@ -123,9 +132,13 @@ namespace RKmission
             _flightStepProgress = now;
         }
 
-        public bool Tick(AcceptedMission mission)
+        public bool Tick(AcceptedMission mission, IEnumerable<AcceptedMission> accepted)
         {
             if (_route == null || _route.Mission.Id != mission.Id) return false;
+            // Shared managed list also sees missions accepted/removed during this route.
+            _acceptedContext.Clear(); _acceptedContext.AddRange(accepted);
+            if (!mission.Present || mission.PlayfieldId != Playfield.ModelIdentity.Instance)
+                return Fail($"Selected mission {mission.Id.Instance} is no longer accepted in this playfield.");
             DateTime now = DateTime.UtcNow;
             if (now - _travelStarted > TimeSpan.FromMinutes(15))
                 return Fail($"Local travel exceeded 15 minutes for mission {mission.Id.Instance}.");
@@ -136,7 +149,7 @@ namespace RKmission
             if (_entrance != null) return AcquireEntrance(mission);
             if (LocalRoutePlanner.HorizontalDistance(position, _route.Entrance) <= EntranceAcquisition.AcquisitionRadius)
             {
-                _entrance = new EntranceAcquisition(mission, _route.Entrance, _route.Origin, _say);
+                _entrance = new EntranceAcquisition(mission, _acceptedContext, _route.Entrance, _route.Origin, _say);
                 Begin(Phase.EntranceApproach);
                 return AcquireEntrance(mission);
             }
@@ -582,7 +595,7 @@ namespace RKmission
                     if (_doorAttempts < 2 && now - _lastUse >= TimeSpan.FromSeconds(4))
                     {
                         // Resolve again immediately before sending, never use a cached native pointer.
-                        Door current = _entrance.RefreshDoor();
+                        Door current = _entrance.RefreshDoor(true);
                         if (current == null || !DoorWithinUseRange(position, current))
                         { RetryEntrance("door identity/range changed before interaction"); return true; }
                         try { current.Use(); }
@@ -603,7 +616,7 @@ namespace RKmission
                     if (!_doorCrossLogged)
                     {
                         _doorCrossLogged = true;
-                        _say($"Entrance interaction: door={attempt.DoorId}, result=no zoning observed after use; " +
+                        _say($"Entrance interaction: mission={mission.Id.Instance}, door={attempt.DoorId}, result=no zoning observed after use; " +
                             "trying a short physical threshold crossing before another candidate.");
                     }
                 }
@@ -655,8 +668,10 @@ namespace RKmission
         {
             if (!_doorCrossLogged) return attempt.Threshold;
             Vector3 direction = attempt.Threshold - attempt.Point; direction.Y = 0;
-            return Vector3.Distance(direction, Vector3.Zero) > 0.1f
+            Vector3 target = Vector3.Distance(direction, Vector3.Zero) > 0.1f
                 ? attempt.Threshold + direction.Normalize() * 0.8f : attempt.Threshold;
+            return LocalRoutePlanner.HorizontalDistance(target, _route.Entrance) <= EntranceAcquisition.SearchRadius
+                ? target : attempt.Threshold;
         }
 
         private static bool DoorWithinUseRange(Vector3 position, Door entrance) =>
@@ -673,6 +688,7 @@ namespace RKmission
         }
 
         private bool Fail(string reason)
-        { Halt(); _say($"Local travel HARD FAILURE: {reason}"); return false; }
+        { Halt(); _say($"Entrance interaction result: mission={_route?.Mission.Id.Instance}, door={_door}, result=travel failed; {reason}");
+            _say($"Local travel HARD FAILURE: {reason}"); return false; }
     }
 }
