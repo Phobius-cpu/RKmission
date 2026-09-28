@@ -17,6 +17,12 @@ namespace RKmission
         private Phase _phase;
         private bool _ownsMovement;
         private Vector3 _lastPosition;
+        private Vector3 _directStep, _groundTarget;
+        private bool _forceDirect, _directActive, _alternateStep;
+        private float _bestStepDistance, _bestFlightDistance;
+        private DateTime _stepProgress, _flightProgress, _travelStarted;
+        private int _groundRecoveries;
+        private string _movementKind, _lastEvaluation;
         private DateTime _phaseAt, _lastProgress, _nextMove, _lastUse, _entryStarted;
         private int _doorAttempts;
         private Identity _door = Identity.None;
@@ -35,12 +41,24 @@ namespace RKmission
             bool flying = Mode == TravelMode.Flying || (Mode == TravelMode.Auto && IsFlying);
             if ((flying && !IsFlying) || (!flying && IsFlying))
             {
-                _say(flying ? "Equip your flying vehicle before using flying travel." : "Land and dismount before using ground travel.");
+                string reason = flying ? "Equip your flying vehicle before using flying travel." : "Land and dismount before using ground travel.";
+                if (_lastEvaluation != reason) _say(reason);
+                _lastEvaluation = reason;
                 return null;
             }
             var routes = missions.Select(LocalRoutePlanner.Evaluate).ToList();
-            foreach (LocalRoute route in routes)
-                _say($"Mission {route.Mission.Id.Instance}: ground={CostText(route.GroundCost)}, flying={CostText(route.FlyingCost)}.");
+            string evaluation = string.Join(" | ", routes.Select(route =>
+                $"Mission {route.Mission.Id.Instance}: ground={CostText(route.GroundCost)} ({route.GroundReason}), " +
+                $"flying={CostText(route.FlyingCost)} ({route.FlyingReason})."));
+            if (_lastEvaluation != evaluation)
+            {
+                _say($"Local travel: playfield={Playfield.ModelIdentity.Instance}, position={DynelManager.LocalPlayer.Position}, " +
+                    $"movement={DynelManager.LocalPlayer.MovementState}, outdoor mesh={SMovementController.NavAgent?.HasPathfinder == true}.");
+                foreach (LocalRoute route in routes)
+                    _say($"Mission {route.Mission.Id.Instance}: ground={CostText(route.GroundCost)} ({route.GroundReason}), " +
+                        $"flying={CostText(route.FlyingCost)} ({route.FlyingReason}).");
+                _lastEvaluation = evaluation;
+            }
             _route = routes.Where(x => !float.IsInfinity(x.Cost(flying)))
                 .OrderBy(x => x.Cost(flying)).ThenBy(x => x.Mission.Id.Instance).FirstOrDefault();
             if (_route == null) return null;
@@ -50,8 +68,12 @@ namespace RKmission
             _door = Identity.None;
             _doorAttempts = 0;
             _entryStarted = DateTime.MinValue;
+            _travelStarted = DateTime.UtcNow;
+            _groundRecoveries = 0;
+            _forceDirect = !_route.GroundUsesMesh;
             Begin(flying ? Phase.FlightClimb : Phase.GroundTravel);
-            _say($"Selected {_route.Mission.Id.Instance}: {_route.Mission.Name}; {(flying ? "flying" : "ground")} route {_route.Cost(flying):F1} m.");
+            _say($"Selected {_route.Mission.Id.Instance}: {_route.Mission.Name}; entrance={_route.Mission.Entrance}; " +
+                $"{(flying ? _route.FlyingReason : _route.GroundReason)}, cost {_route.Cost(flying):F1} m.");
             return _route.Mission;
         }
 
@@ -63,6 +85,8 @@ namespace RKmission
             _route = null;
             _phase = Phase.Idle;
             _door = Identity.None;
+            _lastEvaluation = null;
+            _directActive = false;
         }
 
         private void Halt()
@@ -82,6 +106,10 @@ namespace RKmission
                 _entryStarted = _phaseAt;
             _lastPosition = DynelManager.LocalPlayer.Position;
             _nextMove = DateTime.MinValue;
+            _directActive = _alternateStep = false;
+            _movementKind = null;
+            _bestFlightDistance = float.PositiveInfinity;
+            _flightProgress = _phaseAt;
         }
 
         public bool Tick(AcceptedMission mission)
@@ -90,16 +118,22 @@ namespace RKmission
             if ((_phase == Phase.EntranceApproach || _phase == Phase.EnterDoor) &&
                 DateTime.UtcNow - _entryStarted > TimeSpan.FromSeconds(60))
                 return Fail("Entrance approach/entry exceeded 60 seconds; mission handoff stopped.");
+            if (DateTime.UtcNow - _travelStarted > TimeSpan.FromMinutes(15))
+                return Fail($"Local travel exceeded 15 minutes for mission {mission.Id.Instance}; stopped.");
             Vector3 position = DynelManager.LocalPlayer.Position;
             if (Vector3.Distance(position, _lastPosition) >= 1)
             {
                 _lastPosition = position;
                 _lastProgress = DateTime.UtcNow;
             }
+            bool groundPhase = _phase == Phase.GroundTravel || _phase == Phase.EntranceApproach;
             if (_phase != Phase.Dismount && _phase != Phase.EnterDoor &&
-                (DateTime.UtcNow - _lastProgress > TimeSpan.FromSeconds(20) ||
-                 DateTime.UtcNow - _phaseAt > TimeSpan.FromMinutes(_phase == Phase.EntranceApproach ? 1 : 15)))
-                return Fail($"{_phase} stalled/timed out for mission {mission.Id.Instance} at {position}.");
+                (!groundPhase || _ownsMovement) &&
+                DateTime.UtcNow - _lastProgress > TimeSpan.FromSeconds(20))
+            {
+                if (!groundPhase) return Fail($"{_phase} stalled for mission {mission.Id.Instance} at {position}.");
+                if (!RecoverGround("movement stalled for 20 seconds")) return false;
+            }
             switch (_phase)
             {
                 case Phase.GroundTravel:
@@ -112,6 +146,14 @@ namespace RKmission
                 case Phase.FlightCruise:
                     if (Vector3.Distance(position, _route.CruiseEnd) <= 3)
                     {
+                        // Distant terrain may not have been loaded during selection. Never descend
+                        // onto an unverified point; refresh the surface now that the character is nearby.
+                        Vector3 sample = _route.Landing;
+                        sample.Y = mission.Entrance.Y;
+                        if (!LocalRoutePlanner.TryLandingPoint(sample, out Vector3 landing, out bool verified) || !verified)
+                            return Fail($"No suitable terrain at flight approach {sample}; descent withheld. Move nearby and /rkm start.");
+                        _route.Landing = landing;
+                        _route.LandingVerified = true;
                         Begin(Phase.FlightLanding);
                         _say($"Final flight approach: descending to {_route.Landing} before mission {mission.Id.Instance}.");
                         return true;
@@ -128,8 +170,11 @@ namespace RKmission
                     return FlyMove(touchdown);
                 case Phase.Dismount:
                     Halt();
+                    if (DateTime.UtcNow - _phaseAt > TimeSpan.FromMinutes(2))
+                        return Fail("Dismount wait exceeded two minutes; /rkm start after landing/dismounting.");
                     if (!IsFlying && !DynelManager.LocalPlayer.IsFalling)
                     {
+                        _forceDirect = false; // Reconsider an optional mesh from the actual grounded position.
                         Begin(Phase.EntranceApproach);
                         _say("Ground movement confirmed; approaching the mission door.");
                     }
@@ -142,21 +187,116 @@ namespace RKmission
 
         private bool GroundMove(Vector3 destination)
         {
-            if (DateTime.UtcNow < _nextMove && SMovementController.IsNavigating()) return true;
-            if (!LocalRoutePlanner.TryGroundCost(DynelManager.LocalPlayer.Position, destination, out _))
-                return Fail("Ground route no longer reaches the entrance; missing/disconnected outdoor navmesh or destination.");
+            Vector3 position = DynelManager.LocalPlayer.Position;
+            if (_directActive && Vector3.Distance(destination, _groundTarget) > 1)
+            {
+                Halt();
+                _directActive = false; // A newly resolved live door replaces the accepted coordinate target.
+            }
+            if (_directActive)
+            {
+                float remaining = LocalRoutePlanner.HorizontalDistance(position, _directStep);
+                if (remaining + 0.5f < _bestStepDistance)
+                {
+                    _bestStepDistance = remaining;
+                    _stepProgress = DateTime.UtcNow;
+                }
+                if (remaining <= 0.7f)
+                {
+                    Halt();
+                    _directActive = false;
+                }
+                else if (DateTime.UtcNow - _stepProgress > TimeSpan.FromSeconds(12))
+                {
+                    if (!RecoverGround($"direct step made no progress for 12 seconds; remaining={remaining:F1} m")) return false;
+                }
+                else
+                {
+                    // Check the active short leg as geometry loads; do not keep pushing into a wall.
+                    if (!LocalRoutePlanner.ClearSegment(position + Vector3.Up, _directStep + Vector3.Up))
+                    {
+                        if (!RecoverGround("direct step became obstructed")) return false;
+                    }
+                    else if (DateTime.UtcNow < _nextMove && SMovementController.IsNavigating()) return true;
+                    else
+                    {
+                        _ownsMovement = true;
+                        if (!SMovementController.SetDestination(_directStep)) return Fail("AO# rejected the direct waypoint.");
+                        _nextMove = DateTime.UtcNow.AddSeconds(3);
+                        return true;
+                    }
+                }
+            }
+            if (!_forceDirect && LocalRoutePlanner.TryGroundCost(position, destination, out _))
+            {
+                if (DateTime.UtcNow < _nextMove && SMovementController.IsNavigating()) return true;
+                _ownsMovement = true;
+                // The SDK bool confirms submission, not that a path was actually queued.
+                if (SMovementController.SetNavDestination(destination) && SMovementController.IsNavigating())
+                {
+                    LogMovement("navmesh", destination);
+                    _nextMove = DateTime.UtcNow.AddSeconds(3);
+                    return true;
+                }
+                Halt();
+                _say($"AO# queued no ground mesh path to {destination}; attempting a direct local approach.");
+                _forceDirect = true;
+            }
+            if (!_forceDirect)
+                _say($"Ground mesh no longer connects to {destination}; attempting a direct local approach.");
+            _forceDirect = true;
+            if (!LocalRoutePlanner.TryDirectGroundStep(position, destination, _alternateStep,
+                _groundRecoveries, out Vector3 step, out bool detour))
+                return Fail($"No clear local ground step from {position} toward {destination}; outdoor mesh={SMovementController.NavAgent?.HasPathfinder == true}. Move around the obstacle and /rkm start.");
+            if (detour && !_alternateStep && !RecoverGround("straight local approach obstructed; trying a side step")) return false;
+            _alternateStep = false;
+            _directStep = step;
+            _groundTarget = destination;
+            _directActive = true;
+            _bestStepDistance = LocalRoutePlanner.HorizontalDistance(position, step);
+            _stepProgress = DateTime.UtcNow;
             _ownsMovement = true;
-            if (!SMovementController.SetNavDestination(destination)) return Fail("AO# rejected the ground destination.");
+            if (!SMovementController.SetDestination(step)) return Fail("AO# rejected the direct ground waypoint.");
+            LogMovement("direct local fallback", destination);
             _nextMove = DateTime.UtcNow.AddSeconds(3);
             return true;
+        }
+
+        private bool RecoverGround(string reason)
+        {
+            Halt();
+            _directActive = false;
+            _forceDirect = true;
+            if (++_groundRecoveries > 3)
+                return Fail($"Ground fallback exhausted three recovery attempts at {DynelManager.LocalPlayer.Position}: {reason}. Move to a clear approach and /rkm start.");
+            _alternateStep = true;
+            _lastProgress = DateTime.UtcNow;
+            _nextMove = DateTime.MinValue;
+            _say($"Ground recovery {_groundRecoveries}/3: {reason}; position={DynelManager.LocalPlayer.Position}.");
+            return true;
+        }
+
+        private void LogMovement(string kind, Vector3 destination)
+        {
+            if (_movementKind == kind) return;
+            _movementKind = kind;
+            _say($"Ground movement: {kind}; target={destination}; short-step checks and stall limits active.");
         }
 
         private bool FlyMove(Vector3 destination)
         {
             if (!IsFlying) return Fail("Flying movement state was lost. Land, then restart local travel.");
             Vector3 position = DynelManager.LocalPlayer.Position;
+            float remaining = Vector3.Distance(position, destination);
+            if (remaining + 0.5f < _bestFlightDistance)
+            {
+                _bestFlightDistance = remaining;
+                _flightProgress = DateTime.UtcNow;
+            }
+            if (DateTime.UtcNow - _flightProgress > TimeSpan.FromSeconds(20))
+                return Fail($"{_phase} made no progress toward {destination} for 20 seconds; remaining={remaining:F1} m, position={position}.");
             if (!LocalRoutePlanner.ClearSegment(position, destination))
-                return Fail("Flight corridor became obstructed. Move to a clear altitude/position, then restart.");
+                return Fail($"{_phase} corridor obstructed from {position} toward {destination}. Move to a clear altitude/position and /rkm start.");
             // SharpNav's ordinary waypoint arrival uses X/Z only. Direct flight must include Y
             // in both steering and arrival so vertical climb/descent cannot finish prematurely.
             Vector3 direction = destination - position;
@@ -207,15 +347,7 @@ namespace RKmission
                 _lastUse = DateTime.MinValue;
                 return true;
             }
-            // Navmesh handles the broad/final terrain route. Only the last unobstructed meters
-            // can use a direct step, avoiding the mesh arrival tolerance stopping short of a door.
-            if (distance <= 4 && LocalRoutePlanner.ClearSegment(position + new Vector3(0, 0.5f, 0),
-                entrance.Position + new Vector3(0, 0.5f, 0)))
-            {
-                _ownsMovement = true;
-                SMovementController.SetDestination(entrance.Position);
-                return true;
-            }
+            // The same bounded movement supports final approach with or without an outdoor mesh.
             return GroundMove(entrance.Position);
         }
 

@@ -225,7 +225,7 @@ namespace RKmission
                     _selected = _travel.SelectBest(local);
                     if (_selected == null)
                     {
-                        Wait("No usable local route. Supply this playfield's outdoor navmesh, check travel mode, or move to a reachable approach; route evaluation will retry.");
+                        Wait("No local route for the active movement state. Check the candidate reasons and /rkm travel mode; move to a clear approach if flight is obstructed. Outdoor navmeshes are optional; route evaluation will retry.");
                         return;
                     }
                     _waitingReason = null;

@@ -21,9 +21,11 @@ The current responsibility boundary supersedes earlier automatic rolling plans:
 2. `/rkm start` arms local takeover. RKMission tracks all resolved accepted
    Rubi-Ka destinations, independent of Mali roller filter settings.
 3. On reaching a playfield with accepted missions, evaluate every local
-   entrance by route cost for the active mode; select the cheapest reachable one.
-4. Ground uses terrain navmesh paths; flying uses climb/direct cruise/descent
-   plus a reachable landing point and final ground route. AO# flight state
+   entrance by route cost for the active mode; select the cheapest candidate.
+   Direct fallback costs are estimates, not certified complete paths.
+4. Ground uses complete navmesh paths when available, otherwise bounded AO#
+   direct local waypoints. Flying uses climb/direct cruise/descent to a terrain
+   approach independently of the mesh, then a precise ground approach. AO# flight state
    selects automatically; `/rkm travel auto|ground|flying` overrides by session.
 5. The user dismounts when prompted. Both modes converge on precise ground
    approach, a unique entrance door, and exact mission/dungeon verification.
@@ -344,6 +346,9 @@ Project-relevant memory and visible conversation summaries may be recorded here.
 
 ## Accepted-Mission Local Travel Revision (2026-09-28)
 
+The mesh requirements in this historical implementation are superseded by the
+local-travel fix below.
+
 - Replaced the RKMission front half's terminal/offer loop with `AcceptedMissions`.
   It polls accepted quests once per second, snapshots identity/name/outdoor
   playfield/entrance/dungeon identity/action types and objective target/item IDs,
@@ -387,3 +392,48 @@ Project-relevant memory and visible conversation summaries may be recorded here.
   package restore, automated tests, or in-game testing was performed. The user
   will pull main, compile, and validate takeover, route selection, flight landing,
   door/dungeon identity, and local continuation in game.
+
+## In-Zone Local Travel Navmesh Dependency Fix (2026-09-28)
+
+- User log: armed in the correct outdoor playfield with four accepted missions,
+  but every candidate reported `ground=unreachable, flying=unreachable`, followed
+  by a request to supply an outdoor mesh. Main `6e86c52` required
+  `NavAgent.HasPathfinder` for ground costs and every flight landing point, then
+  required a full mesh path for the landing-to-door leg. The common mesh gate
+  explains this failure pattern; the log alone does not prove whether the mesh
+  was absent or disconnected. Tight endpoint projection can also reject a mesh.
+- Inspected the supplied AOSharp/newbots references and installed pinned
+  AOSharpSDK.SharpNav 1.0.44 controller implementation. `SetDestination` queues
+  a direct waypoint without checking a pathfinder; `SetNavDestination` invokes
+  `SNavAgent` mesh path generation. Its bool confirms submission, not a queued
+  path. `BTBotBase/Behaviors/BaseBehaviors.cs` uses the same no-mesh direct
+  fallback. `Playfield.Raycast` uses the outdoor TilemapSurface interface.
+- Retain complete-mesh ground costs when possible. Missing/disconnected mesh
+  paths now receive direct world-distance estimates instead of discarding all
+  missions. Ground travel/final door approach uses AO# `SetDestination` for
+  up-to-12-m local steps, raycast surface/clearance checks, and limited side steps.
+  Failed mesh submission or stalled mesh movement switches to direct fallback.
+  These estimates/probes cannot guarantee a full path around large obstacles.
+- Flight no longer queries a mesh for landing or final-leg cost. Eight nearby
+  world-space approach points are sampled for terrain, rejecting steep faces
+  and height discrepancies over 8 m. Verified terrain takes priority; missing
+  distant hits allow a provisional flight approach, with a mandatory fresh
+  suitable surface hit before descent. Cruise/climb/descent geometry checks
+  remain, along with altitude-aware steering and the user's dismount step.
+- Direct steps require progress within 12 seconds; ground has at most three
+  obstruction/stall recoveries per mission. Flight has a 20-second target
+  progress watchdog. Total local travel is capped at 15 minutes and dismount
+  waits at two minutes; entrance/entry remains bounded at 60 seconds.
+- Candidate logs explain mesh availability, actual movement state, position,
+  costs and route reasons. Unchanged idle candidate logs are suppressed.
+  Recovery/failure logs identify position/target and permit explicit restart
+  after the user moves to a clearer approach. Removed misleading mandatory-mesh
+  setup/recovery guidance in README and the coordinator's wait message.
+- Changed only `LocalRoutePlanner`, `LocalMissionTravel`, the coordinator's
+  outdoor wait text, and these three documents. `MissionDungeon`, accepted
+  mission tracking, verified dungeon handoff, combat, room navigation, door,
+  lockpick, and embedded loot/map/roller code are unchanged.
+- Source/API review only. No compilation, package restore, tests, or in-game
+  run. The user will pull main, compile, and validate ground/flight takeover,
+  terrain landing, fallback stop behavior, and entry in game. The earlier
+  Desktop/OneDrive backup is not refreshed by this request.

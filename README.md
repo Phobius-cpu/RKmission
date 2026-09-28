@@ -5,9 +5,10 @@ Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
 mission travel, room exploration, combat targeting, door handling, and looting.
 
 **Status (2026-09-28):** the user reported working dungeon behavior before this
-travel revision. The new front half is source-only and awaits the user's build
-and in-game validation. Dungeon exploration, combat, room doors, lockpicking,
-and loot behavior are preserved; one hook refreshes the live mission binding.
+travel revision. The local-travel navmesh dependency fix is source-only and
+awaits the user's build and in-game validation. Dungeon exploration, combat,
+room doors, lockpicking, and loot behavior are preserved; one hook refreshes
+the live mission binding.
 
 ## Setup
 
@@ -18,10 +19,11 @@ and loot behavior are preserved; one hook refreshes the live mission binding.
   the `Plugins/MaliMissionRoller2`, `Plugins/MalisDungeonMap2`, and
   `Plugins/ManagerLoot` folders beside `RKmission.dll`. The project copies
   their required JSON, UI, texture, and sound assets.
-- Supply AO# outdoor navmeshes as `NavMeshes/<playfield id>.nav` beside the
-  deployed plugin. They are not included here. Both modes need an outdoor mesh:
-  ground uses it for the full route, flight uses it to choose a reachable landing
-  point and final ground leg. Dungeon navmeshes are generated on verified entry.
+- Outdoor navmeshes are **optional**. If available, place them at
+  `NavMeshes/<playfield id>.nav` beside the deployed plugin for full ground
+  pathfinding. Without a usable mesh, AO# direct waypoints attempt bounded local
+  ground approaches. Flight and landing do not require a ground mesh.
+  Dungeon navmeshes are generated on verified entry.
 - Keep a **Lock Pick** in normal inventory, enough lockpicking skill, and
   free inventory or configured backpack space.
 - Open `/ManagerLoot` to choose loot rules. Review its reverse and delete
@@ -36,13 +38,15 @@ and loot behavior are preserved; one hook refreshes the live mission binding.
    arm local takeover. There is no target-zone filter or RKMission roll limit.
 3. Travel between playfields yourself by any means. When your current outdoor
    playfield contains accepted missions, RKMission evaluates every local
-   entrance and takes the cheapest reachable route for the active movement mode.
+   entrance and ranks routes for the active movement mode. Direct ground costs
+   are estimates for an attempted approach, not proof of full-path reachability.
 4. Default `/rkm travel auto` reads AO# `MovementState.Fly`. Use
    `/rkm travel ground` or `/rkm travel flying` to override route selection for
    this plugin session. These commands do not equip or remove a vehicle.
-5. On foot, terrain navigation leads to the entrance. In a flying vehicle,
-   the bot climbs, flies a direct corridor, and descends at a reachable landing
-   point near the mission. **Dismount when prompted**; ground approach resumes
+5. On foot, use a complete mesh path if available, otherwise short direct
+   waypoints with local terrain/obstacle checks. In a flying vehicle, the bot
+   climbs, flies a direct corridor, and rechecks a terrain approach near the
+   mission before descending. **Dismount when prompted**; ground approach resumes
    automatically once flight/falling state clears.
 6. Both modes approach a unique nearby entrance door and attempt entry. AO#
    must associate the dungeon with the exact selected mission for a stable
@@ -68,14 +72,28 @@ retrying an unfinished accepted mission.
 - Each mission retains its identity, entrance, dungeon identity, action types,
   objective target/item identities, room-clearance state, and completion evidence.
   Removal is `RemovedUnconfirmed`; it can mean reward, deletion, or expiration.
-- Ground cost is the complete navmesh path length plus endpoint approach.
-  Partial/disconnected paths are rejected. Flying cost includes climb, direct
-  cruise, descent, and the final ground route. Both alternatives are calculated;
-  the current mode determines which cost ranks missions, with mission ID as
-  the tie-breaker. Mode changes before landing re-evaluate local candidates.
+- Ground cost uses complete navmesh path length plus endpoint approach when
+  available. A missing, partial, or disconnected mesh falls back to a direct
+  distance estimate, preserving that mission as an attemptable candidate.
+  AOSharpSDK.SharpNav 1.0.44 `SetDestination` queues a direct waypoint without
+  a pathfinder; `SetNavDestination` requires one. Ground execution uses steps
+  up to 12 m, local raycasts, and limited side-step recovery when needed.
+- Flying cost includes climb, world-space cruise, descent, and estimated final
+  approach distance. Eight points 12 m from the entrance are sampled without
+  mesh queries; suitable terrain hits take priority over provisional points.
+  Distant geometry may be unloaded: a provisional approach can be attempted,
+  but descent requires a fresh suitable terrain hit near arrival. Steep faces
+  and surfaces more than 8 m above/below entrance height are rejected.
+  Both alternatives are calculated; the active mode determines ranking, with
+  mission ID as tie-breaker. Mode changes before landing re-evaluate candidates.
 - Flight samples terrain clearance and checks climb/cruise/descent corridors
   against visible geometry. It stops on a newly blocked corridor or movement
-  stall. It is local travel, not a Rubi-Ka-wide transport planner.
+  stall. Direct ground steps have a 12-second progress watchdog and at most
+  three obstruction/stall recoveries per mission. Mesh movement stalls after
+  20 seconds trigger the direct fallback; flight also requires progress toward
+  its current target within 20 seconds. Local travel has a 15-minute total
+  limit, dismount waits two minutes, and approach/entry retains its 60-second
+  bound. These local probes do not solve arbitrary terrain or large obstacles.
 - Entrance coordinates identify a nearby door; ambiguous doors are withheld.
   Entry is limited to three uses and a bounded wait. A wrong or unidentified
   dungeon cannot start exploration. Interior room-door logic is unchanged.
@@ -149,10 +167,16 @@ deployed plugin folders.
 - **Waiting for local missions:** inspect `/rkm missions`, acceptance and
   resolved destination; travel to the matching outdoor playfield. `/rkm start`
   is required again after the local chain finishes.
-- **No usable route:** supply the correct outdoor `.nav` file and check mode.
-  Ground routes reject partial paths. Flight also needs a reachable landing
-  and final ground leg. Move to a reachable point; idle route checks retry
-  every five seconds. After a travel failure, restart explicitly.
+- **Route diagnosis:** candidate logs include playfield, player position,
+  actual movement state, mesh availability, costs, and route reasons. With no
+  mesh, expect `ground=... (no outdoor mesh; direct estimate)` and a direct
+  flight alternative where a corridor exists. Missing meshes no longer discard
+  all missions. Flight can still be blocked by geometry or unsuitable terrain.
+  Idle checks retry every five seconds and suppress unchanged candidate logs.
+- **Fallback stopped:** logs identify target/position, obstruction, or exhausted
+  recovery attempts. Move around the obstacle or closer to the entrance, then
+  `/rkm start`. An optional outdoor mesh improves difficult ground routes.
+  Do not assume a direct estimate guarantees passage through every obstacle.
 - **Landing pause:** dismount when prompted. Mode selection does not change
   your vehicle or force a flight-state switch.
 - **Entrance/handoff failure:** read the coordinate, door identity, route cost,

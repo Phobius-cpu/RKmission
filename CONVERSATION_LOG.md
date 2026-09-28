@@ -317,3 +317,46 @@ commands, navmesh requirements, session-only state, and recovery guidance.
 Inspected the source and pinned API signatures only. No local compilation,
 package restore, tests, or in-game run was performed; the user will pull,
 compile, and validate in game. The older Desktop/OneDrive backup was not updated.
+
+### User in-zone local-travel failure and fix request
+
+The user reported RKMission armed in the mission playfield and detected four
+accepted missions (1442233602, 1442233633, 1442233654, 1442233931), yet logged
+`ground=unreachable, flying=unreachable` for every candidate and requested an
+outdoor navmesh. They requested inspection of current main and AOSharp/reference
+movement APIs, a viable direct/fallback ground approach, independent world-space
+flight/landing, bounded recovery and useful logs, preserved dungeon systems,
+updated documentation, and coherent commits to main. No local builds or tests;
+the user will compile and test in game.
+
+### Assistant diagnosis and source fix
+
+Main's ground evaluator and every flight landing sample required a pathfinder;
+flight also required a complete mesh path from landing to entrance. This shared
+gate explains the reported rejection pattern in the correct playfield. The log
+does not distinguish a missing mesh from disconnected/strictly rejected endpoints.
+Inspected supplied AOSharp/newbots source and the installed pinned SharpNav SDK:
+`SMovementController.SetDestination` supports direct waypoints without a mesh,
+and the reference `BTBotBase` movement behavior uses that fallback. Nav destination
+submission's bool does not guarantee a queued path.
+
+Ground candidates retain complete mesh costs where available and otherwise use
+direct distance estimates. Execution attempts short geometry-checked direct
+waypoints, including precise entrance approach; stalled/rejected mesh movement
+can fall back. Flight uses terrain/world-space approach samples without mesh
+queries, retains clearance and altitude steering, and rechecks suitable terrain
+before descent when near the destination. Provisional points allow approaches
+to areas whose distant geometry has not loaded; they do not authorize blind landing.
+The user still dismounts before ground door approach.
+
+Added 12-second direct-step progress limits, at most three ground recoveries,
+20-second flight target-progress limits, a 15-minute total local-travel limit,
+and a two-minute dismount wait. Existing bounded entry and exact dungeon handoff
+remain. Logs identify route type/reason, coordinates, actual movement state,
+mesh availability, and recovery/failure details; repeated unchanged candidate
+logs are suppressed. README now describes optional meshes and fallback limits.
+Updated PROJECT_MEMORY.md with the diagnosis and reference/API evidence.
+
+Dungeon exploration, combat, room doors, lockpicking, loot, and the coordinator's
+verified dungeon handoff were not modified. Source/API inspection only; no
+compilation, package restore, automated tests, or in-game run was performed.
