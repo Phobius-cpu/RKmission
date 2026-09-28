@@ -10,10 +10,11 @@ namespace RKmission
 
     internal sealed class LocalMissionTravel
     {
-        private enum Phase { Idle, CoarseTravel, FlyClearance, FlyToEntrance, FlyAvoidObstacle, FlyMatchEntryHeight, ProbeExterior, OrbitBypass, AlignElevation, FinalApproach, Interact, CrossThreshold, AwaitTransition }
+        private enum Phase { Idle, CoarseTravel, FlyClearance, FlyToEntrance, FlyAvoidObstacle, FlyMatchEntryHeight, ProbeExterior, OrbitBypass, AlignElevation, FlyCloseApproach, FinalApproach, Interact, CrossThreshold, AwaitTransition }
         private const float FlightEntryRadius = 10;
-        // 30% longer than the original 3 m final-approach steps.
-        private const float FlightApproachLegLength = 3.9f;
+        private const float FlightApproachStartDistance = 6;
+        // Another 20% longer than the previous 3.9 m final-approach steps.
+        private const float FlightApproachLegLength = 4.68f;
         private readonly Action<string> _say;
         private readonly OutdoorNavigationSettings _settings;
         private readonly EntranceLearning _learning;
@@ -251,9 +252,21 @@ namespace RKmission
             switch (_phase)
             {
                 case Phase.AlignElevation:
-                    SetPath(Phase.FinalApproach, _entrance.FinalPoints(attempt));
-                    if (flying) _say($"Fly final approach: leg cap={FlightApproachLegLength:F2} m, " +
-                        "30% longer steps; retain precise threshold staging and matched entry height.");
+                    if (flying && LocalRoutePlanner.HorizontalDistance(player, attempt.Threshold) > FlightApproachStartDistance + 1)
+                    {
+                        // The exterior side and entry height are already confirmed.
+                        // Move inward on that side before starting short final legs;
+                        // never shrink the bypass ring used to reach another side.
+                        Vector3 tangent = new Vector3(-attempt.Normal.Z, 0, attempt.Normal.X);
+                        Vector3 close = attempt.Threshold + attempt.Normal * FlightApproachStartDistance + tangent * attempt.Lateral;
+                        SetPath(Phase.FlyCloseApproach, new[] { close });
+                        _say($"Fly close approach: selected sector={attempt.Sector}, target=({LocalRoutePlanner.Coordinates(close)}), " +
+                            $"staging distance={FlightApproachStartDistance:F1} m; confirmed side, matched height, one inward leg before final precision.");
+                    }
+                    else BeginFinalApproach(player);
+                    break;
+                case Phase.FlyCloseApproach:
+                    BeginFinalApproach(player);
                     break;
                 case Phase.FinalApproach:
                     if (attempt.DoorId != Identity.None) SetPhase(Phase.Interact);
@@ -262,6 +275,15 @@ namespace RKmission
                 case Phase.CrossThreshold: SetPhase(Phase.AwaitTransition); break;
             }
             return true;
+        }
+
+        private void BeginFinalApproach(Vector3 player)
+        {
+            EntranceAcquisition.Attempt attempt = _entrance.Active;
+            SetPath(Phase.FinalApproach, _entrance.FinalPoints(attempt));
+            if (_flying) _say($"Fly final approach: leg cap={FlightApproachLegLength:F2} m, " +
+                $"another 20% longer, actual entrance distance={LocalRoutePlanner.HorizontalDistance(player, attempt.Threshold):F2} m; " +
+                "retain precise threshold staging and matched entry height.");
         }
 
         private bool TickFlyEntryHeight(Vector3 player, DateTime now)

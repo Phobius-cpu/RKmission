@@ -1571,3 +1571,26 @@ onto the new architecture.
   evidence and the lesson that short waypoint legs can cause visible pauses.
 - README/history updated; source/diff review only. No local compile, restore,
   tests or game run, as requested. Commit and push coherent changes to main.
+
+## Another 20% larger Fly steps and closer final staging (2026-09-28)
+
+- User reports navigation is good, requests another 20% increase to final Fly
+  approach steps and starting them within 5-7 m of the mission entrance.
+- Increase Fly FinalApproach cap 3.9 -> 4.68 m. Choose 6 m as the closer staging
+  target, measured from the resolved threshold (live Door when associated,
+  otherwise mission anchor), along the confirmed candidate normal/lateral offset.
+- Preserve the successful 10 m height check. After reaching a candidate exterior
+  and AlignElevation, FlyCloseApproach executes one inward leg to the 6 m point
+  before starting FinalApproach. Existing 0.8 m arrival tolerance gives about
+  5-7 m actual distance. If already within 7 m, begin FinalApproach directly.
+  Log the close staging point/sector and actual distance when final approach starts.
+- Keep the wider obstacle bypass ring and learned wall/radius history unchanged.
+  A close staging point is not a new exterior sector or a smaller bypass radius;
+  an inward stall invokes the existing same-height side retry and wall attribution.
+  Reaching staging is not verified entry. Preserve exact dungeon verification.
+- Final 3/1.5/0.4 m threshold targets, height tolerances, progress clocks, cruise,
+  obstacle routing, accepted/current-playfield selection and dungeon systems are
+  unchanged. No new in-game evidence was supplied; this tunes the working sequence
+  documented by the 19:03-19:04 log, without fabricating a new successful result.
+- README/history updated. Source/diff inspection only; no local compilation,
+  restore, tests or game execution. Commit and push coherent changes to main.

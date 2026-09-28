@@ -1099,3 +1099,24 @@ Log the new cap at the start of FinalApproach. Cruise, obstacle/perimeter recove
 mission selection, height gate/matching, Door association/use, crossing and exact
 dungeon verification remain unchanged. README and PROJECT_MEMORY updated.
 Source/diff review only; no local compilation, restore, tests or game execution.
+
+### User requested another 20% and a 5-7 m final approach start
+
+Navigation is reported good. User requests another 20% increase to final Fly
+approach steps and starting closer to the mission entrance, within 5-7 m.
+
+### Assistant enlarged the steps and separated close staging from bypass clearance
+
+Increase the final Fly cap from 3.9 to 4.68 m. Keep the working 10 m height check,
+candidate-side confirmation and exterior height alignment. From that confirmed
+side, execute one FlyCloseApproach inward leg to a point 6 m outside the threshold
+at the same matched height, then begin FinalApproach. Existing arrival tolerance
+places that start approximately within 5-7 m; already-close positions proceed
+directly. Log staging and actual final-start distance.
+
+Keep the wider bypass ring and historical wall evidence, rather than shrinking
+clearance to match the new precision start distance. A staging stall uses existing
+side retry; only exact dungeon verification proves entry. Retain close threshold
+points, cruise, selection, Door use/crossing and all dungeon systems. README and
+PROJECT_MEMORY updated. No new log or success is invented. Source/diff review only;
+no local compilation, restore, tests or game execution.

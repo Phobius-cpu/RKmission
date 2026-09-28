@@ -74,7 +74,7 @@ and allows retry. Removed/expired/deleted missions are never proof of reward.
 
 **CoarseTravel (Run) / FlyClearance -> FlyToEntrance -> FlyMatchEntryHeight (Fly, 10 m trigger) -> ProbeExterior
 with OrbitBypass (Run) / FlyAvoidObstacle (Fly) when needed
--> AlignElevation -> FinalApproach -> Interact
+-> AlignElevation -> FlyCloseApproach (Fly, when farther than 7 m) -> FinalApproach -> Interact
 (if a valid Door exists) -> CrossThreshold -> AwaitTransition -> verified
 MissionDungeon handoff.**
 
@@ -237,6 +237,14 @@ exterior and, if obstacle avoidance raised the aircraft, rejoin the SAME entry
 height there before final approach. Do not derive a different doorway height
 from low terrain at each exterior point. Ground's floor logic is unchanged.
 
+After confirming that exterior side and matching height, `FlyCloseApproach` moves
+inward on the selected approach direction to a point 6 m outside the entrance.
+This is one observed leg before final precision, with the same stall recovery;
+it does not reduce the safe perimeter used to bypass walls or change sectors.
+Allowing the existing 0.8 m arrival tolerance places the start of final approach
+within approximately 5-7 m. If already within 7 m, start final approach directly.
+Keep the working 10 m height-check trigger separate from this closer staging point.
+
 A stalled approach yields to another sector at the same height. Crossing without
 zoning, or reaching every sector without verified entry, can advance the mission's
 bounded height hypotheses (up to six, retained across sectors), re-match height
@@ -254,11 +262,13 @@ cannot identify an otherwise invisible door with certainty.
 The historical PF665 measured point remains in the project history; it is no
 longer a hardcoded substitute for current geometry.
 
-Fly final approach advances up to 3.9 m per leg, 30% farther than the former 3 m
-cap. Each leg ends at the existing staging point if it is closer; arrival precision,
-stall detection and matched entrance height are retained. The 19:03-19:04 PF665 log
-confirmed successful cruise and entry but showed repeated 3 m approach adjustments;
-the larger cap reduces those intermediate stops, without promising a fixed speed gain.
+Fly final approach advances up to 4.68 m per leg, another 20% farther than the
+previous 3.9 m cap (which was 30% farther than the original 3 m). Each leg ends at
+the existing staging point if it is closer; arrival precision, stall detection
+and matched entrance height are retained. The 19:03-19:04 PF665 log confirmed
+successful cruise and entry but showed repeated 3 m approach adjustments. Larger
+steps and the closer 6 m staging point reduce intermediate stops; percentage
+changes describe step length rather than a guaranteed speed gain.
 Evidence: `docs/navigation-evidence/2026-09-28-pf665-1904-approach-steps.txt`.
 
 Final targets lie about 3/1.5/0.4 m outside the threshold, with lateral alternatives
