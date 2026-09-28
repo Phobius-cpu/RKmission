@@ -1,58 +1,132 @@
 # RKMission
 
-AO# plugin for solo Rubi-Ka missions. The source targets .NET Framework 4.8 and
-uses the AOSharp SDK packages referenced in `RKmission/RKmission.csproj`.
+AO# plugin for solo Rubi-Ka missions in Anarchy Online. It combines the original
+Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
+mission travel, room exploration, combat targeting, door handling, and looting.
 
-## Run
+**Status (2026-09-28):** the user reports that the bot seems good for now after
+the navigation and compiler fixes. This does not establish coverage of every
+mission layout.
 
-1. Stand within 7.5 m of a solo mission terminal and use it. RKMission can
-   also find a nearby terminal when a use event was missed.
-2. Set the target playfield with `/rkm zone <playfield id>` (the current
-   playfield is the default), then use `/rkm start`.
-3. RKMission first chooses the nearest already accepted mission in that
-   playfield. If there is none, it requests mission offers until the playfield
-   matches, accepts the nearest matching offer, and travels to its entrance.
-4. Inside, it generates a dungeon navmesh and starts Mali's original Dungeon
-   Map 2.0 renderer. It clears hostiles in the current room, handles a visible
-   objective, walks within range of corpses and chests for Manager.Loot to
-   process, lockpicks locked doors, then follows AO# room connections. A room
-   change must remain confirmed for one second; failed connections are blocked
-   and the closest reachable unvisited room is chosen next.
+## Setup
 
-Commands: `/rkm start`, `/rkm stop`, `/rkm status`, `/rkm zone <id>`,
-`/rkm rolls <count>` (default 100), `/rkm loot`, and `/rkm map`.
+- Use the classic client: the embedded Manager.Loot rejects the new engine.
+- Compile `RKmission/RKmission.csproj` yourself. It targets .NET Framework 4.8
+  and references AOSharpSDK, AOSharpSDK.SharpNav, and Newtonsoft.Json.
+- Deploy the compiled output and dependencies through your AO# setup. Preserve
+  the `Plugins/MaliMissionRoller2`, `Plugins/MalisDungeonMap2`, and
+  `Plugins/ManagerLoot` folders beside `RKmission.dll`. The project copies
+  their required JSON, UI, texture, and sound assets.
+- Supply AO# outdoor navmeshes in the deployed plugin's `NavMeshes` folder
+  for travel within the selected playfield. They are not included here.
+  Dungeon navmeshes are generated on entry.
+- Keep a **Lock Pick** in normal inventory, enough lockpicking skill, and
+  free inventory or configured backpack space.
+- Open `/ManagerLoot` to choose loot rules. Review its reverse and delete
+  settings; enabling Delete can remove items left in containers.
 
-Use `/ManagerLoot` for the original item list and settings, `/mmr` for Mali's
-roller settings, and `/mapsettings` for the original map settings. Manager.Loot
-keeps its own per-character or shared JSON lists under
-`%LOCALAPPDATA%\AOSharp\ManagerLoot`.
+## Quick start
 
-Keep a Lock Pick in normal inventory and enough free slots for loot. RKMission
-stops for a locked object without a pick, an unreachable enemy, or a failed
-container. If a route stalls, it tries the next reachable room and reports
-when blocked routes leave rooms unreachable. It stops if the character dies or
-the objective cannot be found in the explored rooms.
+1. Stand within 7.5 m of a solo mission terminal and use it.
+2. Set difficulty and sliders in Mali's roller window, which opens when
+   RKMission loads. Use its Settings button for the original options.
+3. Use `/rkm zone <playfield id>`. The default is the playfield where the
+   plugin was loaded. Optionally change the 100-roll limit with `/rkm rolls <count>`.
+4. Use `/rkm start`. An accepted mission in the target playfield takes
+   priority; otherwise it rolls and accepts a matching offer.
+5. Travel to the mission's playfield yourself if necessary. Navigation resumes
+   there and attempts to use the mission entrance.
+6. Inside, the bot clears rooms, interacts with visible objectives, processes
+   room loot, and crosses doors. Check `/rkm status` or stop with `/rkm stop`.
+7. After clearance is reported, check the game's objective/reward, exit
+   yourself, and start another run when ready.
 
-The current AO# navigation path covers the selected outdoor playfield and the
-mission dungeon. If a chosen mission is in another playfield, move the
-character to that playfield; travel to the mission resumes there. The plugin
-reports when it has cleared all reachable rooms, but AO# mission reward and
-quest completion should be checked in game. It does not delete missions or
-automatically start another run.
+You can also start while already inside a mission. Keep the correct target
+playfield set to associate an accepted mission with its objective.
 
-## Source decisions
+Zone rolling accepts offers by playfield and distance, using the target
+playfield's origin when rolling from another playfield. It bypasses the
+roller's manual reward-item and mission-type matching filters; difficulty
+and slider controls still apply.
 
-- The original Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot
-  source trees and UI/config assets are embedded in `RKmission/Plugins`.
-  RKMission invokes their classes directly; the small additions set a target
-  rolling zone and limit Manager.Loot to the current room.
-- AO# supplies the room graph and movement navmesh. The original Mali map
-  renderer supplies the dungeon display. Manager.Loot owns corpse/chest
-  opening, lockpicking, list matching, and selected item transfers.
-- Locked objects use AO# `LockableItem`/`Door` state and `Lock Pick.UseOn`.
-- The uploaded `RKmission.zip` contained an earlier, separate dungeon bot
-  experiment. The old repository held disconnected placeholders and duplicate
-  classes; these were replaced with one AO# plugin entry point.
+## Commands
 
-The user compiles and tests in AO#. Local compilation and tests are
-intentionally left to that in-game workflow.
+| Command | Purpose |
+| --- | --- |
+| `/rkm` or `/rkm status` | Show running/rolling state, target zone, selected mission, and visited/cleared room counts. |
+| `/rkm zone <id>` | Set a positive Rubi-Ka playfield ID before starting. |
+| `/rkm rolls <count>` | Set a positive roll limit (default 100). `/rkm rolls` displays it. |
+| `/rkm start` | Start selection, rolling/travel, or dungeon exploration. |
+| `/rkm stop` | Stop RKMission, its rolling, and movement. |
+| `/rkm loot` | Show guidance to use `/ManagerLoot`; does not open a window. |
+| `/ManagerLoot` | Open the original loot rule list and settings. |
+| `/lm` | Toggle Manager.Loot's independent enable state. |
+| `/printitems` | Toggle Manager.Loot's item-printing option. |
+| `/rkm map` or `/mapsettings` | Toggle Mali's map settings window; configure map visibility there. |
+| `/mmr maxitems <count>` | Change the roller's displayed-item limit. |
+| `/mmr shopvalue <value>` | Change the roller's shop-value factor. |
+
+Bare `/mmr` has no action in this embedded version. Configure rolling through
+its window. RKMission enables Manager.Loot as needed for a room; it can remain
+independently enabled after a run if you enabled it yourself. `/lm` toggles that state.
+
+## Current behavior and recent fixes
+
+- Mali's world-space room outlines provide safe interior waypoints and map
+  visible enemies, corpses, and containers to rooms. Discovery follows what
+  the client has loaded or spawned.
+- The closest usable adjacent unvisited room takes priority. Otherwise the
+  bot follows the shortest available chain through visited rooms to another
+  unvisited room, logging intermediate and goal rooms.
+- A dedicated crossing approaches the mapped threshold, resolves a live door
+  within 3 m, opens/lockpicks as needed, then continues inside. Locked/closed
+  flags first trigger a passage probe; a distant door identity cannot redirect it.
+- Entry requires 500 ms of stable target-room detection and a safe interior
+  position. Combat, loot, and normal room selection resume after confirmation.
+  The reverse connection has an eight-second cooldown.
+- Failed crossings block a connection for 30 then 90 seconds; a third failure
+  blocks it for that run. Other reachable routes are considered.
+- Combat interrupts loot approaches. Nearby attackers, hostile spawned
+  entities, and Alarm Sentries are considered alongside room enemies;
+  players and the local player's pets are excluded.
+- Manager.Loot handles container opening, chest lockpicking, rules, and item
+  transfers. A blocked loot approach gets an alternate attempt, then an
+  unreachable object is skipped with a log for that run.
+- The `adjacent` CS0136 compile conflict in `MissionDungeon.NextRoom` was
+  fixed using distinct target and traversal names without changing behavior.
+
+## Settings and troubleshooting
+
+Manager.Loot keeps character lists under
+`%LOCALAPPDATA%\AOSharp\ManagerLoot\<character>` and shared lists under
+`%LOCALAPPDATA%\AOSharp\ManagerLoot\Shared`. These personal runtime settings
+are separate from the source backup. Roller/map settings remain in their
+deployed plugin folders.
+
+- **No rolling:** use a nearby terminal, check the target zone and roll limit,
+  then start again.
+- **Map missing:** the original map recommends the launcher's
+  `Direct 3D T&L HAL` graphics setting.
+- **Door failure:** check the transition log, Lock Pick, and skill. Temporary
+  route blocks may expire and allow another attempt.
+- **Skipped loot/items left behind:** check skip logs, rules, and free space.
+  An empty rule list can still open containers; transfers follow loot settings.
+- **Stopped run:** read the reason in chat, including death, unreachable
+  enemies, failed routes/missing geometry, missing objective items or objectives,
+  and AO# exceptions.
+
+The bot does not route across playfields, automatically exit, delete accepted
+missions, or begin another cycle. Room clearance does not confirm the game's
+quest completion or reward.
+
+## History and local backup
+
+`PROJECT_MEMORY.md` stores durable project context and `CONVERSATION_LOG.md`
+stores user-visible conversation summaries. GitHub `main` is the source of truth.
+The synchronized local source backup is at:
+
+    C:\Users\Sumiko\OneDrive\Desktop\RK Mission Proj
+
+It contains source, embedded assets, documentation, and Git history. It does
+not include a newly compiled build or personal runtime settings. The user
+compiles and tests in AO#; no local compilation or tests were run for this update.

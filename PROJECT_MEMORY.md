@@ -315,3 +315,20 @@ Project-relevant memory and visible conversation summaries may be recorded here.
   Source inspection found no other similar conflicts in `NextRoom` or the
   surrounding transition methods.
 - No local compilation or tests were run; the user will pull and compile.
+
+## Working State, Usage Guide, and Local Backup (2026-09-28)
+
+- After the CS0136 fix, the user reported that the bot seems good for now.
+  This is user feedback, not verification of every mission layout.
+- The user requested a local source backup at
+  `C:\Users\Sumiko\OneDrive\Desktop\RK Mission Proj`, an updated README
+  on GitHub and locally, and saved project memories/conversation summaries.
+- The README now covers setup, quick start, verified commands, current
+  room/door navigation, spawned enemies, bounded loot approaches, settings,
+  and troubleshooting. It corrects crossing confirmation to 500ms, explains
+  map settings and informational `/rkm loot`, and distinguishes the roller UI
+  from `/mmr maxitems` and `/mmr shopvalue`. Zone rolling uses zone/distance
+  acceptance rather than manual reward/type filters.
+- The local backup contains synchronized main source, embedded assets,
+  documentation, and Git history. Personal runtime settings remain separate.
+  No new binaries were built; no local compilation or tests were run.

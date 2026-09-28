@@ -260,3 +260,19 @@ and `adjacentCandidate` and updated their references. Inspected the full
 method and surrounding transition methods for similar shadowing; no other
 conflicts were found there. Navigation behavior and log output are unchanged.
 No local compilation or tests were run; the user will pull and compile.
+
+### User working-state feedback and backup request
+
+> Bot seems good for now. Create a local backup at
+> C:\Users\Sumiko\OneDrive\Desktop\RK Mission Proj, update the README on
+> GitHub and locally with changes and relevant usage commands, and save
+> our memories and conversations on GitHub.
+
+### Assistant action
+
+Reviewed the source and command handlers, updated the README with setup and
+usage instructions, and recorded the user's working-state feedback. Corrected
+outdated navigation, loot, map-window, and roller command descriptions. Saved
+the synchronized repository source, embedded assets, documentation, and Git
+history as the requested local backup. Personal runtime settings are separate.
+No local compilation or tests were run.
