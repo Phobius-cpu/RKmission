@@ -131,6 +131,13 @@ namespace RKmission
             SMovementController.Halt();
         }
 
+        // Front-half integration only: refresh AO#'s live quest pointer, or detach a removed quest.
+        // The coordinator keeps its managed identity/objective history after removal.
+        public void UpdateMissionBinding(Mission mission)
+        {
+            _mission = mission;
+        }
+
         public void Dispose()
         {
             Stop();

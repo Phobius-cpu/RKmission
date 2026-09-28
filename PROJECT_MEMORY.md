@@ -14,20 +14,29 @@ This file is a durable project-context summary for future RKMission development 
 
 ## Intended Bot Workflow
 
-RKMission is intended to automate the full Rubi-Ka mission loop:
+The current responsibility boundary supersedes earlier automatic rolling plans:
 
-1. Roll missions.
-2. Select/accept a suitable mission.
-3. Travel to the mission location and enter the mission dungeon.
-4. Explore the dungeon systematically.
-5. Kill hostile enemies encountered.
-6. Detect and open normal doors.
-7. Use lockpicking for locked doors.
-8. Detect treasure chests/containers.
-9. Lockpick locked containers where required.
-10. Open/loot mission treasure containers.
-11. Continue exploration until the mission is cleared/completed.
-12. Exit and repeat the mission cycle.
+1. The user rolls/selects/accepts any number of Rubi-Ka missions and travels
+   between outdoor playfields by any means.
+2. `/rkm start` arms local takeover. RKMission tracks all resolved accepted
+   Rubi-Ka destinations, independent of Mali roller filter settings.
+3. On reaching a playfield with accepted missions, evaluate every local
+   entrance by route cost for the active mode; select the cheapest reachable one.
+4. Ground uses terrain navmesh paths; flying uses climb/direct cruise/descent
+   plus a reachable landing point and final ground route. AO# flight state
+   selects automatically; `/rkm travel auto|ground|flying` overrides by session.
+5. The user dismounts when prompted. Both modes converge on precise ground
+   approach, a unique entrance door, and exact mission/dungeon verification.
+6. Existing `MissionDungeon` owns room exploration/navigation, combat, doors,
+   lockpicking, and Manager.Loot. Preserve these working systems.
+7. Preserve identity/action/target/completion metadata per accepted mission.
+   Room clearance and removal are not quest completion. The user checks the
+   in-game objective/reward and records it with `/rkm complete [bound id]`.
+8. The user exits the dungeon. While armed, choose the next best accepted
+   mission in that same playfield. If none remains, disarm and leave transport
+   to the next playfield to the user; `/rkm start` re-arms there.
+
+Automatic exit traversal and objective-solver rewrites are outside this pass.
 
 ## Reference Source Archives Supplied
 
@@ -55,7 +64,7 @@ Use this repository as the persistent source of truth for RKMission project code
 
 Project-relevant memory and visible conversation summaries may be recorded here. Hidden system instructions, hidden reasoning, private chain-of-thought, credentials, or other non-user-visible internal data must not be stored.
 
-## Current Implementation (2026-09-27)
+## Historical Implementation (2026-09-27; rolling/travel superseded below)
 
 - Replaced the starter's duplicate, nonfunctional portable stubs with a single
   AO# plugin entry point, `RkMissionBot`, targeting .NET Framework 4.8.
@@ -332,3 +341,49 @@ Project-relevant memory and visible conversation summaries may be recorded here.
 - The local backup contains synchronized main source, embedded assets,
   documentation, and Git history. Personal runtime settings remain separate.
   No new binaries were built; no local compilation or tests were run.
+
+## Accepted-Mission Local Travel Revision (2026-09-28)
+
+- Replaced the RKMission front half's terminal/offer loop with `AcceptedMissions`.
+  It polls accepted quests once per second, snapshots identity/name/outdoor
+  playfield/entrance/dungeon identity/action types and objective target/item IDs,
+  and retains removed or user-completed history for the plugin session. Geography
+  follows the embedded Mali Rubi-Ka playfield catalog, without its user filters.
+  Unresolved locations retry on later polls. RKMission never requests/accepts
+  offers or deletes missions; the original roller window remains user-owned.
+- `LocalRoutePlanner` evaluates both ground and flight alternatives for every
+  local mission. Ground queries require a complete polygon corridor reaching
+  the destination; cost includes endpoint approach. Flight candidates use eight
+  nearby navmesh landing samples, terrain clearance/geometry corridor checks,
+  and total climb/cruise/descent/final-ground distance. Both modes require the
+  outdoor `NavMeshes/<playfield id>.nav` file. Missing/disconnected routes remain
+  idle and retry, rather than selecting the first accepted mission.
+- `LocalMissionTravel` defaults to AO# `MovementState.Fly` inference, with session
+  command overrides. Flight steering/arrival includes altitude: SharpNav's
+  ordinary waypoint arrival only checks X/Z, so it cannot implement descent
+  safely by itself. Flight lands near the door, then waits for the user to
+  dismount before the common ground approach. No vehicle equipment is changed.
+- Doors must match accepted entrance coordinates, be unique, and remain the
+  same live identity during entry. Use retries, stalls, and handoff waits are
+  bounded. `Mission.FindMissionForCurrentDungeon` from pinned AOSharpSDK 1.0.106
+  verifies exact quest identity and stable dungeon/room state before Start.
+- Working dungeon logic is unchanged except `UpdateMissionBinding(Mission)`:
+  the coordinator supplies a fresh live accepted quest or null after removal,
+  avoiding access to a stale native quest pointer. Exploration, room crossings,
+  combat, interior doors, lockpicking, and loot implementations are preserved.
+- The pinned Mission/Quest interfaces expose no dependable reward/completion
+  flag; QuestAction only defines Delete. Removal is `RemovedUnconfirmed`, never
+  automatic success. `/rkm complete [bound mission id]` records user-confirmed
+  completion for a verified run. Cleared-room and completion states are separate.
+  Stop/start abandons a held binding and allows retry of an unfinished mission.
+- After confirmation and user exit, re-cost remaining missions in that same
+  outdoor playfield. Disarm when none remains, or if the user exits elsewhere.
+  No automatic exit traversal or cross-playfield travel was added. No objective
+  solving was rewritten. Completion history/mode are in-memory for this session.
+- README documents `/rkm missions`, `/rkm travel auto|ground|flying`, and
+  `/rkm complete [id]`; old zone/roll-limit commands now explain the new boundary.
+  This pass does not refresh the earlier OneDrive/Desktop source backup.
+- Source/API inspection only, including pinned SDK signatures. No compilation,
+  package restore, automated tests, or in-game testing was performed. The user
+  will pull main, compile, and validate takeover, route selection, flight landing,
+  door/dungeon identity, and local continuation in game.

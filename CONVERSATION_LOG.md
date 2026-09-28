@@ -276,3 +276,44 @@ outdated navigation, loot, map-window, and roller command descriptions. Saved
 the synchronized repository source, embedded assets, documentation, and Git
 history as the requested local backup. Personal runtime settings are separate.
 No local compilation or tests were run.
+
+### User front-half implementation request (continued from Organize RKMission conversations)
+
+The user requested coherent source changes committed to GitHub main, with no
+local compilation/testing. The revised flow lets the user roll/select any
+number of accepted Rubi-Ka missions and travel between playfields themselves.
+RKMission should take over in any matching outdoor playfield, choose the best
+local entrance by route cost, support ground and flying-vehicle travel, land
+and converge on precise door approach, verify dungeon handoff, and continue
+with another local mission after completion. Preserve the working exploration,
+room navigation, combat, door, lockpick, and loot systems; retain objective and
+completion association without rewriting the dungeon logic.
+
+### Assistant implementation
+
+Replaced the automatic rolling/zone-selection coordinator with accepted-mission
+snapshots and local takeover. Added terrain/navmesh route costs for all local
+candidates and direct flying routes with climb, geometry clearance, descent,
+and a reachable final ground leg. The default mode reads AO# flight state;
+`/rkm travel auto|ground|flying` supplies overrides. Flight pauses at its landing
+point for the user to dismount, then shares precise ground door approach.
+Entrance attempts are bounded and ambiguous doors are withheld. AO#'s pinned
+exact current-dungeon quest lookup verifies the selected identity before the
+existing MissionDungeon logic starts.
+
+One small dungeon integration hook refreshes/detaches the live quest reference
+so removal does not leave a stale native mission pointer. The working room,
+combat, door, lockpick, and loot code remains unchanged. Managed records retain
+objective types and target/item identities, clearance, acceptance/removal, and
+completion evidence. The SDK has no dependable reward/completion flag, so
+removal and room clearance do not imply success. `/rkm complete [bound id]`
+records the user's objective/reward confirmation. After the user exits, local
+route selection resumes for another accepted mission in the same playfield;
+otherwise automation disarms and inter-playfield travel belongs to the user.
+Automatic exit traversal and objective-solver rewrites were not added.
+
+Updated README.md and PROJECT_MEMORY.md with this responsibility boundary,
+commands, navmesh requirements, session-only state, and recovery guidance.
+Inspected the source and pinned API signatures only. No local compilation,
+package restore, tests, or in-game run was performed; the user will pull,
+compile, and validate in game. The older Desktop/OneDrive backup was not updated.

@@ -4,9 +4,10 @@ AO# plugin for solo Rubi-Ka missions in Anarchy Online. It combines the original
 Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
 mission travel, room exploration, combat targeting, door handling, and looting.
 
-**Status (2026-09-28):** the user reports that the bot seems good for now after
-the navigation and compiler fixes. This does not establish coverage of every
-mission layout.
+**Status (2026-09-28):** the user reported working dungeon behavior before this
+travel revision. The new front half is source-only and awaits the user's build
+and in-game validation. Dungeon exploration, combat, room doors, lockpicking,
+and loot behavior are preserved; one hook refreshes the live mission binding.
 
 ## Setup
 
@@ -17,9 +18,10 @@ mission layout.
   the `Plugins/MaliMissionRoller2`, `Plugins/MalisDungeonMap2`, and
   `Plugins/ManagerLoot` folders beside `RKmission.dll`. The project copies
   their required JSON, UI, texture, and sound assets.
-- Supply AO# outdoor navmeshes in the deployed plugin's `NavMeshes` folder
-  for travel within the selected playfield. They are not included here.
-  Dungeon navmeshes are generated on entry.
+- Supply AO# outdoor navmeshes as `NavMeshes/<playfield id>.nav` beside the
+  deployed plugin. They are not included here. Both modes need an outdoor mesh:
+  ground uses it for the full route, flight uses it to choose a reachable landing
+  point and final ground leg. Dungeon navmeshes are generated on verified entry.
 - Keep a **Lock Pick** in normal inventory, enough lockpicking skill, and
   free inventory or configured backpack space.
 - Open `/ManagerLoot` to choose loot rules. Review its reverse and delete
@@ -27,37 +29,76 @@ mission layout.
 
 ## Quick start
 
-1. Stand within 7.5 m of a solo mission terminal and use it.
-2. Set difficulty and sliders in Mali's roller window, which opens when
-   RKMission loads. Use its Settings button for the original options.
-3. Use `/rkm zone <playfield id>`. The default is the playfield where the
-   plugin was loaded. Optionally change the 100-roll limit with `/rkm rolls <count>`.
-4. Use `/rkm start`. An accepted mission in the target playfield takes
-   priority; otherwise it rolls and accepts a matching offer.
-5. Travel to the mission's playfield yourself if necessary. Navigation resumes
-   there and attempts to use the mission entrance.
-6. Inside, the bot clears rooms, interacts with visible objectives, processes
-   room loot, and crosses doors. Check `/rkm status` or stop with `/rkm stop`.
-7. After clearance is reported, check the game's objective/reward, exit
-   yourself, and start another run when ready.
+1. Roll and accept any number of Rubi-Ka missions yourself. Use Mali's original
+   roller window, the game UI, or your preferred method. RKMission does not
+   request offers, choose rewards/types, or accept missions automatically.
+2. Check `/rkm missions`, configure `/ManagerLoot`, and use `/rkm start` to
+   arm local takeover. There is no target-zone filter or RKMission roll limit.
+3. Travel between playfields yourself by any means. When your current outdoor
+   playfield contains accepted missions, RKMission evaluates every local
+   entrance and takes the cheapest reachable route for the active movement mode.
+4. Default `/rkm travel auto` reads AO# `MovementState.Fly`. Use
+   `/rkm travel ground` or `/rkm travel flying` to override route selection for
+   this plugin session. These commands do not equip or remove a vehicle.
+5. On foot, terrain navigation leads to the entrance. In a flying vehicle,
+   the bot climbs, flies a direct corridor, and descends at a reachable landing
+   point near the mission. **Dismount when prompted**; ground approach resumes
+   automatically once flight/falling state clears.
+6. Both modes approach a unique nearby entrance door and attempt entry. AO#
+   must associate the dungeon with the exact selected mission for a stable
+   second before the existing `MissionDungeon` logic starts.
+7. Check the game's objective/reward. Use `/rkm complete` (or
+   `/rkm complete <bound mission id>`) to record confirmed completion, then
+   **exit the dungeon yourself**. While still armed, the bot chooses the next
+   cheapest accepted mission in that same outdoor playfield. If none remains,
+   it disarms; travel to another playfield yourself and use `/rkm start` again.
 
-You can also start while already inside a mission. Keep the correct target
-playfield set to associate an accepted mission with its objective.
+Starting inside a mission uses AO#'s exact current-dungeon mission lookup;
+it never guesses from mission-list order. Stop with `/rkm stop` whenever you
+want manual control. Stop/start abandons the active run binding and permits
+retrying an unfinished accepted mission.
 
-Zone rolling accepts offers by playfield and distance, using the target
-playfield's origin when rolling from another playfield. It bypasses the
-roller's manual reward-item and mission-type matching filters; difficulty
-and slider controls still apply.
+## Travel and completion boundary
+
+- Acceptance/removal is polled from `Mission.List` about once a second, even
+  while disarmed. Only outdoor Rubi-Ka destinations from Mali's playfield
+  catalog are eligible; unresolved/unsupported accepted records are retained
+  for visibility, and unresolved locations are reconsidered on later polls.
+  Roller filter settings do not restrict this collection.
+- Each mission retains its identity, entrance, dungeon identity, action types,
+  objective target/item identities, room-clearance state, and completion evidence.
+  Removal is `RemovedUnconfirmed`; it can mean reward, deletion, or expiration.
+- Ground cost is the complete navmesh path length plus endpoint approach.
+  Partial/disconnected paths are rejected. Flying cost includes climb, direct
+  cruise, descent, and the final ground route. Both alternatives are calculated;
+  the current mode determines which cost ranks missions, with mission ID as
+  the tie-breaker. Mode changes before landing re-evaluate local candidates.
+- Flight samples terrain clearance and checks climb/cruise/descent corridors
+  against visible geometry. It stops on a newly blocked corridor or movement
+  stall. It is local travel, not a Rubi-Ka-wide transport planner.
+- Entrance coordinates identify a nearby door; ambiguous doors are withheld.
+  Entry is limited to three uses and a bounded wait. A wrong or unidentified
+  dungeon cannot start exploration. Interior room-door logic is unchanged.
+- AOSharpSDK 1.0.106 exposes no dependable completion/reward flag. Room
+  clearance, an objective interaction, and a disappearing mission are not
+  completion evidence. `/rkm complete` records the user's in-game confirmation
+  for the verified bound mission, including a removed mission. This pass does
+  not add objective solvers or automatic exit traversal.
+- Mission history and travel-mode overrides last for the loaded plugin session.
+  Reloading rebuilds acceptance from the game; completion confirmations are
+  not written to disk. No quest is deleted by RKMission.
 
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
-| `/rkm` or `/rkm status` | Show running/rolling state, target zone, selected mission, and visited/cleared room counts. |
-| `/rkm zone <id>` | Set a positive Rubi-Ka playfield ID before starting. |
-| `/rkm rolls <count>` | Set a positive roll limit (default 100). `/rkm rolls` displays it. |
-| `/rkm start` | Start selection, rolling/travel, or dungeon exploration. |
-| `/rkm stop` | Stop RKMission, its rolling, and movement. |
+| `/rkm` or `/rkm status` | Show armed state, movement mode/phase, accepted count, bound mission/progress, and dungeon status. |
+| `/rkm missions` | List tracked mission IDs, entrances/playfields, objectives, acceptance, and completion state. |
+| `/rkm travel auto\|ground\|flying` | Set session travel mode; default auto uses the actual flight state. |
+| `/rkm start` | Arm accepted-mission monitoring/local takeover, or verify and resume the current dungeon. |
+| `/rkm stop` | Stop RKMission movement and dungeon automation. User-owned roller controls remain independent. |
+| `/rkm complete [mission id]` | Record the user's confirmed reward for the verified bound mission; exit yourself to continue locally. |
+| `/rkm zone <id>` / `/rkm rolls <count>` | Retired commands: display the new manual rolling/all-missions boundary. |
 | `/rkm loot` | Show guidance to use `/ManagerLoot`; does not open a window. |
 | `/ManagerLoot` | Open the original loot rule list and settings. |
 | `/lm` | Toggle Manager.Loot's independent enable state. |
@@ -103,8 +144,22 @@ Manager.Loot keeps character lists under
 are separate from the source backup. Roller/map settings remain in their
 deployed plugin folders.
 
-- **No rolling:** use a nearby terminal, check the target zone and roll limit,
-  then start again.
+- **No rolling:** RKMission no longer initiates rolling. Use Mali's original
+  window or the game UI to roll/accept missions yourself.
+- **Waiting for local missions:** inspect `/rkm missions`, acceptance and
+  resolved destination; travel to the matching outdoor playfield. `/rkm start`
+  is required again after the local chain finishes.
+- **No usable route:** supply the correct outdoor `.nav` file and check mode.
+  Ground routes reject partial paths. Flight also needs a reachable landing
+  and final ground leg. Move to a reachable point; idle route checks retry
+  every five seconds. After a travel failure, restart explicitly.
+- **Landing pause:** dismount when prompted. Mode selection does not change
+  your vehicle or force a flight-state switch.
+- **Entrance/handoff failure:** read the coordinate, door identity, route cost,
+  and entry logs. Ambiguous doors or an unmatched dungeon stop/hold entry.
+- **Clearance without confirmed completion:** check the objective/reward in
+  game and use `/rkm complete` for that bound mission. Deleted/expired missions
+  are not automatically marked complete; stop/start to abandon that binding.
 - **Map missing:** the original map recommends the launcher's
   `Direct 3D T&L HAL` graphics setting.
 - **Door failure:** check the transition log, Lock Pick, and skill. Temporary
@@ -115,18 +170,19 @@ deployed plugin folders.
   enemies, failed routes/missing geometry, missing objective items or objectives,
   and AO# exceptions.
 
-The bot does not route across playfields, automatically exit, delete accepted
-missions, or begin another cycle. Room clearance does not confirm the game's
-quest completion or reward.
+The user owns rolling, selection, inter-playfield transport, vehicle dismount,
+reward confirmation, and dungeon exit. RKMission owns local route selection,
+travel/door entry, verified dungeon handoff, and same-playfield continuation.
+The working dungeon systems continue to own exploration, combat and loot.
 
 ## History and local backup
 
 `PROJECT_MEMORY.md` stores durable project context and `CONVERSATION_LOG.md`
 stores user-visible conversation summaries. GitHub `main` is the source of truth.
-The synchronized local source backup is at:
+The prior source backup (created before this travel revision) is at:
 
     C:\Users\Sumiko\OneDrive\Desktop\RK Mission Proj
 
-It contains source, embedded assets, documentation, and Git history. It does
-not include a newly compiled build or personal runtime settings. The user
-compiles and tests in AO#; no local compilation or tests were run for this update.
+That backup is not refreshed by this revision; pull GitHub `main` for the new
+source and usage notes. The user compiles and tests in AO#; no local compilation
+or tests were run for this update.
