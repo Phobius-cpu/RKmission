@@ -19,6 +19,7 @@ namespace RKmission
         private readonly List<Vector3> _visited = new List<Vector3>();
         private Vector3 _target;
         private int _stallLimit;
+        private float _arrivalTolerance;
         private bool _active, _owns, _mesh, _flying, _precise, _steering;
         private DateTime _lastProgress, _nextSubmit, _lastSteer;
         public float BestDistance { get; private set; }
@@ -40,13 +41,15 @@ namespace RKmission
             _owns = _active = false;
         }
 
-        public void Begin(Vector3 target, bool flying, bool precise, bool tryMesh = false, int? stallSeconds = null)
+        public void Begin(Vector3 target, bool flying, bool precise, bool tryMesh = false, int? stallSeconds = null,
+            float? arrivalTolerance = null)
         {
             Halt(); _target = target; _flying = flying; _precise = precise; _mesh = _steering = false; _active = true;
             Vector3 player = DynelManager.LocalPlayer.Position;
             StartPosition = player;
             StartDistance = BestDistance = Distance(player, target, flying);
             _stallLimit = Math.Max(2, stallSeconds ?? _settings.LegStallSeconds);
+            _arrivalTolerance = arrivalTolerance ?? (precise ? 0.8f : 1.5f);
             _lastProgress = _lastSteer = DateTime.UtcNow; _nextSubmit = DateTime.MinValue;
             if (!flying && tryMesh)
             {
@@ -66,7 +69,7 @@ namespace RKmission
             Vector3 player = DynelManager.LocalPlayer.Position;
             float distance = Distance(player, _target, _flying);
             if (distance + 0.35f < BestDistance) { BestDistance = distance; _lastProgress = now; }
-            float tolerance = _precise ? 0.8f : 1.5f;
+            float tolerance = _arrivalTolerance;
             if (distance <= tolerance)
             {
                 Remember(_visited, _target); Halt(); return MovementResult.Reached;

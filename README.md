@@ -6,9 +6,9 @@ local mission travel, room exploration, combat, door handling and looting.
 
 **Status (2026-09-28):** outdoor travel/entrance navigation has been consolidated
 into one state machine with Run/Fly movement and persistent entrance diagnostics.
-Fly now travels toward the selected mission, compares over/around obstacle routes
-immediately, diagnoses the entrance side locally, then resolves entry height and
-approaches. Ground retains observed perimeter recovery.
+Fly gains cruise clearance, travels toward the selected mission while avoiding
+obstacles, matches mission entrance height when within 10 m, then diagnoses the
+approach side and enters. Ground retains observed perimeter recovery.
 Dungeon exploration, room navigation, combat,
 interior doors/lockpicking, loot and objectives are unchanged. The coordinator
 only adds diagnostics at the existing verified dungeon handoff. No local build,
@@ -50,10 +50,10 @@ package restore, tests or game run were performed; the user compiles and validat
    for flying entry. Commands never equip/dismount or write player position,
    speed, altitude or movement state. Manual landing in auto mode retains the
    selected mission and entrance history/deadline.
-6. Fly heads toward the mission anchor at actual flight height, comparing going
-   over or around obstacles before committing to a blocked corridor. Near the
-   anchor, compare local approach sides, reach the selected exterior, then resolve
-   entry height. Ground uses radial acquisition/perimeter recovery. Align elevation, approach
+6. Fly first gains local cruise clearance and compares over/around obstacle routes
+   during transit. Within 10 m of the anchor, match the mission entrance height
+   before comparing approach sides. Keep that height across exterior sectors;
+   surrounding terrain cannot redefine it. Ground uses radial acquisition/perimeter recovery. Align elevation, approach
    along its normal, uses an associated live Door if present and tries a short
    threshold crossing. Without a Door, it probes the inferred side/proximity
    threshold. Neither arrival nor Use proves entry: AO# must identify the exact
@@ -72,7 +72,7 @@ and allows retry. Removed/expired/deleted missions are never proof of reward.
 
 `LocalMissionTravel` owns one sequence:
 
-**CoarseTravel (Run) / FlyToEntrance (Fly) -> ProbeExterior
+**CoarseTravel (Run) / FlyClearance -> FlyToEntrance -> FlyMatchEntryHeight (Fly, 10 m trigger) -> ProbeExterior
 with OrbitBypass (Run) / FlyAvoidObstacle (Fly) when needed
 -> AlignElevation -> FinalApproach -> Interact
 (if a valid Door exists) -> CrossThreshold -> AwaitTransition -> verified
@@ -90,15 +90,17 @@ Fly transit/side-relocation planner, with immediate over/around comparison.
 
 Quest `Mission.Location.Pos` is a search anchor, not guaranteed doorway geometry.
 AOSharp Vector3 uses **Y altitude**, with X/Z on the outdoor plane. Nonzero quest
-Y is no more authoritative than zero/stale Y. Fly starts with direct world-space
-legs at current height. Corridor hints compare routes before wall-running; observed
+Y is no more authoritative than zero/stale Y. Fly first requests enough elevation
+above advisory local/forward/mission surface samples, bounded by the climb limit.
+It then retains actual cruise altitude until the 10 m entrance-height trigger.
+Corridor hints compare routes before wall-running; observed
 stalls retain failed position/direction and trigger a new over/around choice. Run
 uses optional complete mesh movement or progressive direct local legs, then
 full local heading/radius recovery after actual stalls. Rays affect scores and
 logs, not launch permission. There is no three-side-step failure limit.
 
 A Ground leg defaults to eight seconds without observed improvement before yielding.
-Fly transit/relocation yields after four seconds; entry/height probes after three.
+Fly transit/initial height matching yields after four seconds; final entry probes after three.
 Coarse travel fails only after 90 seconds without a new net horizontal minimum,
 or the 15-minute total travel bound. Detours and mode/phase changes cannot reset
 those clocks. These are local estimates, not guaranteed global routes.
@@ -169,14 +171,21 @@ logged separately from net side change. Requested sectors that were never reache
 are route failures, not completed exterior coverage. Angular coverage and fixed
 candidate minima survive retries so repeated arcs cannot refresh overall progress.
 
-**Fly follows destination -> avoid obstacle -> diagnose entrance side -> align
-entry height -> approach/enter.** It does not inherit Ground's floor-following
+**Fly follows gain clearance -> destination/avoid obstacle -> within 10 m match
+mission entrance height -> diagnose entrance side -> approach/enter.** It does not inherit Ground's floor-following
 orbit or wait for ring retries before climbing. Five narrow corridor rays score
 the next direct segment. If obstructed, compare estimated distance, corridor hits,
 previous blocked directions and revisited waypoints for routes around both sides
 and vertical-over routes. Execute one leg, then re-evaluate at the actual position.
 Rays remain incomplete hints; motion failures can override apparently clear rays.
 No outdoor navmesh or clearance certificate is required.
+
+`FlyClearance` samples support/obstacles below the current point, the next 20 m
+and the mission anchor. Request `FlightCruiseClearance` (default 6 m) above observed
+surfaces, including allowance for transit stopping tolerance. Keep a sufficient
+existing altitude; unknown geometry uses a modest bounded climb. An actually
+blocked initial ascent yields to normal over/around recovery instead of rejecting
+the mission. Cruise height and entrance height are separate targets.
 
 Over candidates ascend at current X/Z by local 6/12/24 m choices, increased by an
 advisory roof sample when useful, within `FlightClimbLimit` above run-start height.
@@ -191,27 +200,39 @@ remains clear; release it after an observed stall, obstruction hint or changed g
 Shorten the final tangential step to the target bearing instead of overshooting it
 and reversing. Overpass remains available when it offers a better route.
 
-Before selecting an approach side, compare its inward corridor using live Door
-height or its own local exterior support. Once that side is reached, resolve height
-from the associated live Door, a compatible exact verified entry height, or the
-locally supported surface plus flight clearance. A first downward hit can still
-be a roof. Check support farther OUTWARD along the reached side, within the Fly
-radius bound. If two neighboring support patches agree on a surface over 3 m
-lower, move beyond that edge at cruise height and resample after actual arrival
-before descending. A missing local surface can also trigger this outward search.
-Do not cast through a roof to select a hidden floor or borrow another side's height.
-Fly no longer uses the broad 17-column, multi-layer anchor floor vote; it does not
-align to an estimated low floor while still going around the building. Ground
-retains its existing supported-floor logic.
+On actual arrival within 10 m, halt transit and resolve one mission entrance
+height: associated live Door first, previous exact verified height for this anchor
+next (regardless of requested sector), otherwise support at the mission marker
+itself. Anchor support uses only five nearby columns, requiring centre plus two
+other columns. Try the highest supported plane plus clearance first. Lower local
+layers are bounded fallback hypotheses, not presumed accessible ground. If no
+support is available, run-start aircraft height is explicitly provisional.
+Zero/stale quest Y is never blindly used as the doorway height.
 
-Without a live Door, a stalled descent/approach or crossing without zoning tries
-bounded entry-height corrections. With support, try 0/-1/+1/+2 m relative to the
-initial clearance height (the downward correction retains at least 0.5 m above
-support). Without support, try 0/-2/-4/-8/+2 m from the observed aircraft height.
-Return to the exterior at current flight altitude, align vertically there, then
-try the normal approach again. Exhausted height alternatives yield to another side.
+`FlyMatchEntryHeight` moves vertically at the reached position, requiring actual
+height within 0.35 m before selecting a sector. If blocked, compare neighboring
+descent corridors on a bounded exterior and use the same Fly planner to relocate.
+The height target stays fixed; alignment may finish outside 10 m when the initial
+column is obstructed. Six observed recovery failures stop with height access
+unresolved, without claiming a side was selected or reached.
+
+Rank sides' inward corridors at that shared mission height. Reach the selected
+exterior and, if obstacle avoidance raised the aircraft, rejoin the SAME entry
+height there before final approach. Do not derive a different doorway height
+from low terrain at each exterior point. Ground's floor logic is unchanged.
+
+A stalled approach yields to another sector at the same height. Crossing without
+zoning, or reaching every sector without verified entry, can advance the mission's
+bounded height hypotheses (up to six, retained across sectors), re-match height
+and then resume diagnostics. A previously verified height stays in use until all
+sectors at that height have been reached; a single unsuccessful crossing cannot
+replace it. Provisional supported plans try lower marker-local planes before
+bounded +2/+4/+6 m and small clearance corrections; unknown support uses bounded
+offsets. An associated live Door height
+does not receive speculative alternatives. Sector changes never reset the height
+trial index. These hypotheses still require exact dungeon verification.
 The footprint rule protects side-to-side chords; a clear radial outward escape
-or return along the same completed entry approach does not force another climb.
+does not force another climb. Per-sector height-return loops have been removed.
 Only exact dungeon verification validates a learned entry height; roof/floor rays
 cannot identify an otherwise invisible door with certainty.
 The historical PF665 measured point remains in the project history; it is no
@@ -253,8 +274,8 @@ bypass direction, ring and span. Existing version-1 history remains readable;
 old wall bearings are recovered from recorded stall positions, not sector labels.
 Fly records also retain actual exterior position, entry-height/source, failed entry
 heights and up to 12 completed/stalled flight legs with origin/target/result/strategy.
-Store the exterior support point/height/source, including outward support found
-past a suspected roof and whether relocation is still pending.
+Store cruise height, the actual entrance-height matching point and the 10 m
+trigger distance. Older exterior-support records remain readable as history.
 Exact verified success saves the entry point/height alongside the approach vector.
 
 Only **exact verified entry** updates the last successful exterior vector. On a
@@ -282,6 +303,7 @@ the plugin is unloaded, then reload it; no new chat commands were added.
 | `FlightFloorClearance` | 1.5 | Floor-based Fly clearance, 0.5-3 m. |
 | `MaxFlightBypassRadius` | 36 | Fly footprint clearance limit, outer Ground radius to 60 m. |
 | `FlightClimbLimit` | 48 | Maximum climb above this run's initial aircraft height, 8-96 m. |
+| `FlightCruiseClearance` | 6 | Requested clearance above sampled obstacles before transit, 2-16 m. |
 | `MaxEntrances` | 256 | Retained entrances, 16-512. |
 | `AttemptsPerEntrance` | 96 | Retained diagnostic records each, 16-192. |
 

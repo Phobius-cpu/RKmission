@@ -1010,3 +1010,45 @@ wrong entry height. Preserve the verified successful flight/entry and dungeon
 handoff. Updated README and PROJECT_MEMORY. Source/diff review only; no local
 compile, restore, tests or game run. Mission selection, current-playfield filtering,
 Door association and dungeon exploration/combat/interior-door/loot remain unchanged.
+
+### User requested clearance and height matching before side diagnosis
+
+The 18:23-18:24 PF665 log after 91d5762 shows mission 1442298249 repeatedly
+approaching at heights around 15-18 m. Sector 14 stalled at radius 12.14 m;
+sector 13 tried 16.35/15.35/17.35/18.35 m, crossed without zoning, then sectors
+3 and 4 selected 15.50 m surrounding support. No verified entry. Preserve the
+full log in docs/navigation-evidence/2026-09-28-pf665-1823-height-drift.txt.
+The user's requested order is: gain enough elevation; within 10 m match mission
+entrance height; then diagnose which side to approach and enter.
+
+### Assistant replaced per-sector floor targets with a shared entrance height
+
+The previous outward support correction could select low surrounding terrain as
+the doorway floor. Remove that search and per-sector height resets. Proactively
+gain advisory cruise clearance before transit, then halt at actual <=10 m distance
+and match one mission entrance height before any side selection. Prefer associated
+live Door, then the anchor's previously exact verified height regardless of sector,
+then marker-local support (five small columns, first supported plane before lower
+fallback hypotheses). Missing geometry keeps the height explicitly provisional.
+Do not hardcode the prior verified Y=20.50 for mission 1442298249.
+
+Require actual height within 0.35 m before side diagnostics. If the initial vertical
+column is blocked, relocate through the existing Fly planner to a bounded exterior
+descent corridor, preserving the same height target; it may finish outside 10 m.
+Bound recovery after six observed failures. All rays remain advisory. Side ranking
+uses the matched height. After a bypass climb, rejoin that height for final approach.
+Blocked approaches try another side; completed crossings without zoning or reaching
+every sector without entry can advance
+one bounded mission-wide height plan, re-match and resume diagnostics. Changing
+sectors no longer replaces entrance height with local terrain or resets its trials.
+Coverage is tracked per height hypothesis; obsolete per-attempt height/return flags
+are removed.
+Keep the previously verified height through all sectors before reconsidering it;
+one crossing without entry does not invalidate known-good height. Provisional
+support plans prefer observed lower marker planes before bounded upward corrections.
+
+Persist cruise height, actual matching point and trigger distance, keeping older
+learning records intact. Updated README and PROJECT_MEMORY, preserving the history
+of repeated wall-running and height regressions. Source/diff inspection only; no
+local compilation, restore, tests or game execution. Accepted mission filtering,
+Door association and dungeon exploration/combat/interior-door/loot remain unchanged.

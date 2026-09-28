@@ -6,8 +6,9 @@ using AOSharp.Common.GameData;
 namespace RKmission
 {
     // One reactive 3D planner for Fly transit and exterior-side relocation.
-    // LocalMovement remains the only executor. Entry descent is handled only
-    // after actual side arrival, so bypass flight never inherits a floor target.
+    // LocalMovement remains the only executor. A 10 m height match precedes
+    // side diagnosis; subsequent bypass flight retains altitude until rejoining
+    // that same mission entry height, never the terrain at an orbit waypoint.
     internal sealed class FlightPathPlanner
     {
         private sealed class Choice
@@ -24,6 +25,8 @@ namespace RKmission
         private readonly Action<string> _say;
         private readonly float _ceiling;
         private readonly float _maximumRadius;
+        private readonly float _minimumRadius;
+        private readonly float _cruiseClearance;
         private int _sidePreference, _perimeterPreference;
         private int _committedDirection;
         private bool _committedPerimeter, _hasGoal;
@@ -32,9 +35,45 @@ namespace RKmission
         public string Strategy { get; private set; } = "direct";
         public int BypassDirection { get; private set; }
         public string OverpassResult { get; private set; }
+        public float CruiseHeight { get; private set; } = float.NaN;
 
         public FlightPathPlanner(Vector3 origin, OutdoorNavigationSettings settings, Action<string> say)
-        { _ceiling = origin.Y + settings.FlightClimbLimit; _maximumRadius = settings.MaxFlightBypassRadius; _say = say; }
+        {
+            _ceiling = origin.Y + settings.FlightClimbLimit; _maximumRadius = settings.MaxFlightBypassRadius;
+            _minimumRadius = settings.ProbeRadius;
+            _cruiseClearance = settings.FlightCruiseClearance; _say = say;
+        }
+
+        public float PrepareCruise(Vector3 player, Vector3 anchor)
+        {
+            if (!float.IsNaN(CruiseHeight)) return CruiseHeight;
+            CruiseHeight = LocalRoutePlanner.AdvisoryCruiseHeight(anchor, player, _ceiling, _cruiseClearance);
+            _overpassHeight = CruiseHeight; Strategy = "cruise clearance";
+            _say($"Fly cruise clearance: current height={player.Y:F2}, target height={CruiseHeight:F2}, " +
+                $"clearance={_cruiseClearance:F1} m, climb ceiling={_ceiling:F2}; gain elevation before transit, scene hints advisory.");
+            return CruiseHeight;
+        }
+
+        public Vector3 DescentExterior(Vector3 player, Vector3 anchor, float entryHeight, int retry)
+        {
+            float radius = Math.Min(_maximumRadius, Math.Max(_minimumRadius, LocalRoutePlanner.HorizontalDistance(player, anchor) + 4));
+            double bearing = LocalRoutePlanner.Angle(player - anchor);
+            var choices = new List<Choice>();
+            foreach (int offset in new[] { 0, -1, 1, -2, 2, -3, 3, 4 })
+            {
+                Vector3 point = anchor + LocalRoutePlanner.Direction(bearing + offset * Math.PI / 4) * radius;
+                point.Y = player.Y;
+                Vector3 below = point; below.Y = entryHeight;
+                choices.Add(new Choice { First = point,
+                    Score = Vector3.Distance(player, point) +
+                        (LocalRoutePlanner.FlightCorridor(point, below, out _) ? 80 : 0) +
+                        (RepeatsFailure(point, below) ? 120 : 0) });
+            }
+            Vector3 result = choices.OrderBy(x => x.Score).First().First;
+            _say($"Fly height-match recovery: attempt={retry}, desired entry height={entryHeight:F2}, " +
+                $"exterior=({LocalRoutePlanner.Coordinates(result)}), radius={radius:F1}; relocate before retrying vertical alignment, no new floor height.");
+            return result;
+        }
 
         public void Blocked(Vector3 position, Vector3 target)
         {
@@ -58,7 +97,7 @@ namespace RKmission
         }
 
         public Vector3 Next(Vector3 player, Vector3 destination, Vector3 anchor,
-            float perimeterRadius = 0, int preferredDirection = 0, bool returningFromEntry = false)
+            float perimeterRadius = 0, int preferredDirection = 0)
         {
             // Transit always retains the ACTUAL flight altitude, including a
             // successful climb. It cannot descend toward the old goal's Y.
@@ -74,17 +113,17 @@ namespace RKmission
             float radius = LocalRoutePlanner.HorizontalDistance(player, anchor);
             float closestRadius = ClosestRadius(player, direct, anchor);
             // The protected footprint applies to side-to-side chords, not an
-            // escape radially OUT of it. Entry returns can cross the sub-metre
-            // marker overshoot, reversing the same already traversed approach.
+            // escape radially OUT of it. A small rounding allowance also covers
+            // the near-zero radius at the mission marker after crossing.
             bool outwardExit = perimeter && radius < perimeterRadius &&
                 LocalRoutePlanner.HorizontalDistance(direct, anchor) > radius + 0.5f &&
-                closestRadius >= radius - (returningFromEntry ? 1f : 0.1f);
+                closestRadius >= radius - 0.1f;
             bool cutsStructure = perimeter && !aboveBypass && !outwardExit && closestRadius < perimeterRadius - 0.8f;
             if (!blocked && !observed && !cutsStructure)
             {
                 if (outwardExit)
                     _say($"Fly outward return: radius={radius:F2} -> {LocalRoutePlanner.HorizontalDistance(direct, anchor):F2}, " +
-                        $"height={player.Y:F2}, retrace entry={returningFromEntry}; clear outward corridor, no automatic overpass.");
+                        $"height={player.Y:F2}; clear outward corridor, no automatic overpass.");
                 _committedDirection = 0; Strategy = "direct"; return direct;
             }
 

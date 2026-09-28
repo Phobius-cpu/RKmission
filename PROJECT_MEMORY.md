@@ -1457,3 +1457,59 @@ onto the new architecture.
 - Source/diff review only, no local compile, restore, tests or game run. Accepted
   mission/current-playfield filtering, Door association and exact handoff remain;
   dungeon exploration/combat/interior-door/loot implementations are unchanged.
+
+## Cruise clearance then 10 m mission-height match (2026-09-28, 18:23-18:24 log)
+
+- User requires: gain enough elevation, within 10 m adjust to mission entrance
+  height, then diagnose which side to approach and enter. Continue no local
+  compilation/restore/tests or game execution; commit coherent changes to main.
+- Full new evidence:
+  `docs/navigation-evidence/2026-09-28-pf665-1823-height-drift.txt`.
+  Mission 1442298249, PF665 anchor X=718.59/Z=1470.90, no live Door. Sector 14
+  stalled around X=726.63/Z=1461.82/Y=18.26, radius 12.14 m. Sector 13 then
+  selected entry 16.35 m and retried 15.35/17.35/18.35 m. It crossed at 18.35
+  without zoning; sectors 3/4 selected still lower 15.50 m support. Sector 3
+  stalled around Z=1479/Y=14.9-17.6. Stopped during sector 4, no verified entry.
+  Earlier 18:02 log verified this same anchor at entry Y=20.50; that height must
+  be reused when present in runtime learning, not hardcoded into source/data.
+- The prior 91d5762 outward support correction could replace doorway height
+  with lower surrounding terrain. Its initial surface/height was still tied to
+  a particular reached sector. Removed outward floor search and per-sector
+  support-derived heights. Preserve earlier revisions/records as failed evidence.
+- Add explicit FlyClearance: advisory current/forward/anchor surface samples,
+  default 6 m clearance plus transit tolerance, ceiling remains run-start +48 m.
+  Retain already sufficient height. Unknown geometry requests +8 m; blocked
+  ascent yields to the existing reactive over/around planner. No hard ray gate.
+- Fly coarse target stops about 9 m from the anchor along the incoming bearing.
+  Actual horizontal distance <=10 m halts transit and instantiates acquisition.
+  Scan associated Doors but do not select/rank a sector until FlyMatchEntryHeight
+  confirms actual height within 0.35 m. Ground's existing trigger is unchanged.
+- One entrance-height plan per mission anchor: associated live Door, otherwise
+  any compatible exact verified Fly entry point (not just the remembered sector),
+  otherwise centre-supported marker-local plane + clearance. Only five nearby
+  columns; highest supported plane first, up to four layers retained as fallback.
+  Do not use broad 17-column/6 m voting or outdoor orbit terrain. Missing support
+  uses explicitly provisional run-start aircraft height; quest zero is not used.
+- Initial matching is vertical at the <=10 m arrival point. On observed block,
+  score nearby descent corridors, relocate with the existing single Fly planner,
+  retry the same height. May finish outside 10 m if the original column is blocked.
+  Six observed recovery failures stop as unresolved height access, not a claimed
+  entrance-side failure. All collision rays remain advisory.
+- Side ranking and final approach share that mission height. A bypass can climb,
+  then rejoin it at the actual selected exterior. Stalled approaches yield to a
+  different side instead of replaying four low exterior-floor offsets. A
+  completed crossing with no zone or reaching every sector without verified entry
+  advances the bounded, mission-wide height plan
+  (max six hypotheses) and re-matches before more side diagnosis. Trial index
+  survives sector changes; associated live Door height has no speculative offsets.
+  Keep a previously verified height until every sector has been reached; one
+  unsuccessful crossing does not invalidate it. Provisional supported plans try
+  observed lower marker planes before bounded +2/+4/+6 m clearance corrections.
+  Coverage for the current height is distinct from historical sector coverage.
+  Removed obsolete per-attempt height flags and return-path branch.
+- Add cruise height, actual height-match point and 10 m trigger to managed records.
+  Old version-1 records, including obsolete exterior support diagnostics, remain
+  readable; no runtime data reset or synthetic success. Update README/history.
+  Exact dungeon verification remains the only success gate. Accepted selection,
+  current playfield filtering, map upload, conservative Door association, dungeon
+  exploration/combat/interior-door/loot implementations are preserved.

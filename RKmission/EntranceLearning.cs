@@ -40,6 +40,10 @@ namespace RKmission
         public bool ExteriorReached, BypassSideReached;
         public string OverpassResult;
         public NavigationPoint EntryPoint, ReachedExteriorPoint;
+        public NavigationPoint HeightMatchPoint;
+        public float HeightMatchTriggerDistance;
+        public float? CruiseHeight;
+        // Retain older per-exterior support diagnostics as historical evidence.
         public NavigationPoint ExteriorSupportPoint;
         public float ExteriorSupportHeight;
         public string ExteriorSupportSource;

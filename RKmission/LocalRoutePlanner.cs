@@ -220,29 +220,54 @@ namespace RKmission
             height = median; return true;
         }
 
-        public static bool TryLowerExterior(Vector3 player, Vector3 anchor, float maximumRadius,
-            bool hasLocalSupport, float localFloor, out Vector3 exterior, out float floor)
+        public static List<float> MissionEntrySupports(Vector3 anchor, float referenceHeight)
         {
-            exterior = player; floor = localFloor;
-            float radius = HorizontalDistance(player, anchor);
-            if (radius < 1) return false;
-            Vector3 outward = player - anchor; outward.Y = 0; outward = outward.Normalize();
-            // Search only OUTWARD on the reached side, never beneath a solid
-            // roof or across other faces. Two neighboring support patches must
-            // agree before a lower surface warrants moving the aircraft there.
-            for (float nextRadius = radius + 4; nextRadius + 2 <= maximumRadius; nextRadius += 4)
+            var samples = new List<SurfaceSample>();
+            Vector3[] offsets = { Vector3.Zero, new Vector3(0.8f, 0, 0), new Vector3(-0.8f, 0, 0),
+                new Vector3(0, 0, 0.8f), new Vector3(0, 0, -0.8f) };
+            // Height belongs to the mission marker, never to a distant orbit
+            // point. Keep lower anchor-local planes as hypotheses only; the
+            // first supported plane is tried before any lower layer.
+            for (int column = 0; column < offsets.Length; column++)
             {
-                Vector3 next = anchor + outward * nextRadius; next.Y = player.Y;
-                Vector3 farther = anchor + outward * (nextRadius + 2); farther.Y = player.Y;
-                if (!TryExteriorFloor(next, player.Y, out float nextFloor) ||
-                    !TryExteriorFloor(farther, player.Y, out float fartherFloor) ||
-                    Math.Abs(nextFloor - fartherFloor) > 1.5f ||
-                    (hasLocalSupport && nextFloor >= localFloor - 3)) continue;
-                // Leave room beyond the edge; actual arrival resamples support
-                // before any height is adopted. Descent is an observed leg.
-                exterior = farther; floor = fartherFloor; return true;
+                Vector3 top = anchor + offsets[column], bottom = top;
+                top.Y = referenceHeight + 2; bottom.Y = referenceHeight - 96;
+                for (int layer = 0; layer < 4; layer++)
+                {
+                    try
+                    {
+                        if (!Playfield.Raycast(top, bottom, out Vector3 hit, out Vector3 normal) ||
+                            !AcceptedMissions.Finite(hit) || hit.Y >= top.Y) break;
+                        if (normal.Y >= 0.6f) samples.Add(new SurfaceSample { Column = column, Height = hit.Y });
+                        top.Y = hit.Y - 0.4f;
+                        if (top.Y <= bottom.Y) break;
+                    }
+                    catch { break; }
+                }
             }
-            return false;
+            var heights = new List<float>();
+            foreach (SurfaceSample centre in samples.Where(x => x.Column == 0).OrderByDescending(x => x.Height))
+                if (samples.Where(x => Math.Abs(x.Height - centre.Height) <= 1).Select(x => x.Column).Distinct().Count() >= 3 &&
+                    !heights.Any(x => Math.Abs(x - centre.Height) <= 1)) heights.Add(centre.Height);
+            return heights;
+        }
+
+        public static float AdvisoryCruiseHeight(Vector3 anchor, Vector3 player, float ceiling, float clearance)
+        {
+            float desired = player.Y; bool sampled = false;
+            Vector3 ahead = Toward(player, new Vector3(anchor.X, player.Y, anchor.Z), 20);
+            foreach (Vector3 point in new[] { player, (player + ahead) * 0.5f, ahead, anchor })
+                try
+                {
+                    Vector3 top = point, bottom = point; top.Y = ceiling; bottom.Y = player.Y - 96;
+                    if (!Playfield.Raycast(top, bottom, out Vector3 hit, out _) || !AcceptedMissions.Finite(hit)) continue;
+                    sampled = true;
+                    // Include the normal transit arrival tolerance in the
+                    // requested clearance; stop-short must not consume it.
+                    desired = Math.Max(desired, hit.Y + clearance + 0.8f);
+                }
+                catch { }
+            return Math.Min(ceiling, sampled ? desired : player.Y + 8);
         }
 
         public static float AdvisoryOverpassHeight(Vector3 anchor, Vector3 player, Vector3 exterior, float baseHeight)
