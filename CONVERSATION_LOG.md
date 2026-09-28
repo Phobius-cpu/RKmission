@@ -501,3 +501,33 @@ selection, accepted tracking, height refinement, vehicle entry and the working
 dungeon exploration/combat/interior doors/lockpick/loot are preserved. Source/API/
 diff review only; no local compilation, restore, tests or in-game run. The user
 will pull main, compile and test the descent and smoother navigation in game.
+
+### User short-hop regression and height-before-entry request (2026-09-28)
+
+The user reposted 07:58 lateral avoidance 37/38 logs and reported worse pathing
+than the previous version: characters move a couple of units instead of planning
+a coherent path to the entrance. They requested selecting entrance height when
+within 1-2 units, then proceeding to enter the mission.
+
+### Assistant committed-path correction
+
+Inspected main 141cf24 and replaced the single-bypass/two-leg recovery model
+with complete waypoint sequences for the one chosen entrance. Compare direct,
+raised/lateral/cruise/lower/approach and outward/down/return paths; prefer clear
+whole paths, retaining estimates when geometry is inconclusive. Follow the full
+sequence continuously and replan on actual sustained obstruction or waypoint
+stall, with a retry interval. Removed speculative LOS-driven movement stops and
+the rotate-in-place gate; moderate steering corrections remain smoothed.
+
+The final sequence now travels to about 1.5 m outside the chosen entrance,
+selects the floor/entry height within 2 m horizontally, aligns the character,
+then enters in the vehicle. Live door height takes priority over nearby surface
+consensus. Height is rechecked before use, and blocked alignment can use a
+complete outward/down/return detour. Unique door, proximity entry and exact
+selected mission/dungeon verification remain; no forced dismount.
+
+Updated README.md and PROJECT_MEMORY.md with the new phases and diagnostic
+logs. Preserved nearest-from-origin selection, accepted tracking, ground fallback
+and working dungeon exploration/combat/interior door/lockpick/loot. Source/API/diff
+review only; no local compilation, restore, tests or in-game run. User pulls main,
+compiles and validates coherent flight travel and the near-entrance height sequence.

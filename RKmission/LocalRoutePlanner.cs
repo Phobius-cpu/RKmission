@@ -46,12 +46,12 @@ namespace RKmission
             }
             // This is an estimate, not a clearance certificate. Never require a synthetic
             // climb/cruise/descent corridor to select a finite world-space destination.
-            route.FlightApproach = OutsideEntrance(entrance, origin, 4);
+            route.FlightApproach = OutsideEntrance(entrance, origin, 1.5f);
             route.CruiseEnd = route.FlightApproach;
             route.CruiseEnd.Y = Math.Max(origin.Y, entrance.Y + 12);
             route.Cost = Vector3.Distance(origin, route.CruiseEnd) +
-                Math.Abs(route.CruiseEnd.Y - entrance.Y) + 4;
-            route.Reason = "direct elevated flight; descent and entrance approach in vehicle";
+                Math.Abs(route.CruiseEnd.Y - entrance.Y) + 1.5f;
+            route.Reason = "committed flight path; select entrance height within 2 m, align, then enter in vehicle";
             return route;
         }
 
@@ -159,17 +159,6 @@ namespace RKmission
             return support >= 3;
         }
 
-        // A short ray around an already resolved ground level avoids reintroducing a
-        // roof/canopy from a high-altitude ray into the final doorway approach.
-        public static bool TrySurfaceNearHeight(Vector3 point, float height, out Vector3 surface)
-        {
-            Vector3 top = point, bottom = point;
-            top.Y = height + 3;
-            bottom.Y = height - 6;
-            return Playfield.Raycast(top, bottom, out surface, out Vector3 normal) &&
-                AcceptedMissions.Finite(surface) && normal.Y >= 0.6f && Math.Abs(surface.Y - height) <= 3;
-        }
-
         // A local terrain hint, independent of the accepted entrance's possibly stale height.
         // A missed/steep ray is inconclusive; callers retain a provisional point.
         public static bool TrySurface(Vector3 sample, float referenceHeight, out Vector3 surface)
@@ -245,14 +234,14 @@ namespace RKmission
             return distance <= length || distance < 0.1f ? destination : origin + (destination - origin) * (length / distance);
         }
 
-        // Combine the surface ray with the native scene line-of-sight query, using
-        // several offset rays to allow room for the vehicle rather than only its centre.
-        public static bool FlightCorridorClear(Vector3 origin, Vector3 destination, float radius, float endMargin = 0)
+        // Physical surface hits outweigh uncertain scene LOS. If LOS is inconclusive
+        // everywhere, a ray-clear multi-leg detour still beats a known blocked direct leg.
+        private static float FlightSegmentPenalty(Vector3 origin, Vector3 destination, float radius, out int hints)
         {
+            hints = 0;
             float distance = Vector3.Distance(origin, destination);
-            if (distance <= endMargin + 0.3f) return true;
+            if (distance <= 0.3f) return 0;
             Vector3 start = Toward(origin, destination, 0.3f);
-            Vector3 end = Toward(origin, destination, distance - endMargin);
             float horizontal = HorizontalDistance(origin, destination);
             Vector3 side = horizontal < 0.1f ? new Vector3(radius, 0, 0) :
                 new Vector3(-(destination.Z - origin.Z) * radius / horizontal, 0,
@@ -260,103 +249,96 @@ namespace RKmission
             // Player position can be close to the floor during vehicle entry. Do not
             // start a lower offset inside terrain and falsely forbid every climb.
             Vector3[] offsets = { Vector3.Zero, side, side * -1, Vector3.Up * radius, Vector3.Up * (radius * 2) };
-            foreach (Vector3 offset in offsets)
-                if (!ClearSegment(start + offset, end + offset) ||
-                    !Playfield.LineOfSight(start + offset, end + offset, 1, false)) return false;
-            return true;
-        }
-
-        // When a diagonal descent crosses a roof/wall, find a column outside it.
-        // Validate both the horizontal alignment and the full vertical drop before
-        // committing to either leg. Prefer a useful low-level continuation.
-        public static bool TryFlightDescentStep(Vector3 origin, Vector3 destination, float radius,
-            Vector3 forward, IList<Vector3> recent, float entryMargin,
-            out Vector3 step, out Vector3 dropPoint)
-        {
-            step = dropPoint = origin;
-            if (origin.Y - destination.Y < 2) return false;
-            var columns = new List<Vector3> { origin, destination };
-            double heading = Math.Atan2(origin.Z - destination.Z, origin.X - destination.X);
-            foreach (float distance in new float[] { 4, 8, 12, 20, 28 })
-                for (int i = 0; i < 8; i++)
-                {
-                    double angle = heading + i * Math.PI / 4;
-                    columns.Add(destination + new Vector3((float)Math.Cos(angle) * distance, 0,
-                        (float)Math.Sin(angle) * distance));
-                }
-            float best = float.PositiveInfinity;
-            foreach (Vector3 column in columns)
+            float penalty = 0;
+            for (int i = 0; i < offsets.Length; i++)
             {
-                Vector3 top = column, bottom = column;
-                top.Y = origin.Y;
-                bottom.Y = destination.Y;
-                if (TrySurfaceNearHeight(column, destination.Y - 1.5f, out Vector3 surface))
-                    bottom.Y = Math.Max(bottom.Y, surface.Y + 1.5f);
-                if (origin.Y - bottom.Y < 2 || !FlightCorridorClear(origin, top, radius) ||
-                    !FlightCorridorClear(top, bottom, radius)) continue;
-                Vector3 first = HorizontalDistance(origin, top) <= 0.5f ? bottom : top;
-                if (!FlightCorridorClear(origin, first, radius)) continue;
-                float score = HorizontalDistance(origin, top) * 0.6f + Vector3.Distance(bottom, destination);
-                if (!FlightCorridorClear(bottom, destination, radius, entryMargin)) score += 25;
-                score += TurnPenalty(forward, first - origin);
-                foreach (Vector3 previous in recent)
-                    if (Vector3.Distance(previous, first) < 3) score += 18;
-                if (score >= best) continue;
-                best = score;
-                step = first;
-                dropPoint = bottom;
+                Vector3 offset = offsets[i];
+                if (!ClearSegment(start + offset, destination + offset))
+                { penalty += i == 0 ? 5000 : 1000; hints++; }
+                if (!Playfield.LineOfSight(start + offset, destination + offset, 1, false))
+                { penalty += 50; hints++; }
             }
-            return !float.IsInfinity(best);
+            return penalty;
         }
 
-        private static float TurnPenalty(Vector3 forward, Vector3 direction)
+        // Compare complete waypoint sequences for this one destination. A clear path
+        // is preferred; incomplete client geometry retains an estimated attempt rather
+        // than vetoing the mission. Commit the whole sequence during execution.
+        public static List<Vector3> PlanFlightPath(Vector3 origin, Vector3 destination, Vector3 missionOrigin,
+            float ceiling, float radius, IList<Vector3> recent, out string reason)
         {
-            if (Vector3.Distance(Vector3.Zero, direction) < 0.1f || !AcceptedMissions.Finite(forward) ||
-                Vector3.Distance(Vector3.Zero, forward) < 0.1f) return 0;
-            float dot = Vector3.Dot(forward.Normalize(), direction.Normalize());
-            return (float)Math.Acos(Math.Max(-1, Math.Min(1, dot))) * 3;
-        }
-
-        public static bool TryFlightBypass(Vector3 origin, Vector3 destination, float ceiling, float radius,
-            int attempt, Vector3 forward, IList<Vector3> recent, out Vector3 step, out string kind)
-        {
-            step = origin;
-            kind = "no clear local bypass";
-            float best = float.PositiveInfinity;
-            double heading = Math.Atan2(destination.Z - origin.Z, destination.X - origin.X);
-            var candidates = new List<Vector3>();
-            float[] rises = origin.Y - destination.Y > 2 ? new float[] { -12, -6, -3, 0, 6, 12 } : new float[] { 0, 6, 12 };
-            // A vertical first leg can climb beside a building instead of flying diagonally
-            // through its wall. Raised forward/lateral legs then go over or around it.
-            foreach (float rise in new float[] { 4, 8, 16, 24 })
-                candidates.Add(new Vector3(origin.X, Math.Min(ceiling, origin.Y + rise), origin.Z));
-            for (int i = 0; i < 8; i++)
+            var bestPath = new List<Vector3> { destination };
+            float bestScore = float.PositiveInfinity;
+            int bestHits = 0;
+            Action<Vector3[]> consider = points =>
             {
-                double angle = heading + (i + attempt % 8) * Math.PI / 4;
-                foreach (float length in new float[] { 6, 12 })
+                var path = new List<Vector3>();
+                Vector3 previous = origin;
+                float cost = 0;
+                int hits = 0;
+                foreach (Vector3 point in points)
                 {
-                    foreach (float rise in rises)
-                        candidates.Add(new Vector3(origin.X + (float)Math.Cos(angle) * length,
-                            Math.Max(Math.Min(origin.Y, destination.Y), Math.Min(ceiling, origin.Y + rise)),
-                            origin.Z + (float)Math.Sin(angle) * length));
+                    if (!AcceptedMissions.Finite(point)) return;
+                    float length = Vector3.Distance(previous, point);
+                    if (length < 0.05f || (length < 0.5f && Vector3.Distance(point, destination) > 0.05f)) continue;
+                    cost += length;
+                    cost += FlightSegmentPenalty(previous, point, radius, out int legHints);
+                    hits += legHints;
+                    foreach (Vector3 visited in recent)
+                        if (Vector3.Distance(point, visited) < 3) cost += 12;
+                    path.Add(point);
+                    previous = point;
+                }
+                if (path.Count == 0) path.Add(destination);
+                // Probe penalties rank complete attempts; they never veto execution.
+                float score = cost;
+                if (score >= bestScore) return;
+                bestScore = score; bestPath = path; bestHits = hits;
+            };
+            consider(new[] { destination });
+            if (bestHits == 0)
+            { reason = "direct complete flight path; local probes clear"; return bestPath; }
+
+            float horizontal = HorizontalDistance(origin, destination);
+            Vector3 bearing = destination - origin;
+            if (horizontal < 0.1f)
+            {
+                bearing = destination - missionOrigin;
+                horizontal = HorizontalDistance(destination, missionOrigin);
+            }
+            Vector3 side = horizontal < 0.1f ? new Vector3(1, 0, 0) :
+                new Vector3(-bearing.Z / horizontal, 0, bearing.X / horizontal);
+            float baseHeight = Math.Max(origin.Y, destination.Y);
+            foreach (float rise in new float[] { 0, 12, 24, 40 })
+            {
+                float height = Math.Min(ceiling, baseHeight + rise);
+                foreach (float width in new float[] { 0, -8, 8, -16, 16, -28, 28 })
+                {
+                    Vector3 climb = origin, near = origin + side * width, far = destination + side * width;
+                    climb.Y = near.Y = far.Y = height;
+                    Vector3 lower = far; lower.Y = destination.Y;
+                    consider(new[] { climb, near, far, lower, destination });
                 }
             }
-            foreach (Vector3 point in candidates)
+            // For lower entrances, route out from over the roof, down outside it,
+            // then back at entrance height. This is a complete path, not a short hop.
+            if (origin.Y > destination.Y + 1)
             {
-                if (Vector3.Distance(origin, point) < 2 || !FlightCorridorClear(origin, point, radius)) continue;
-                float score = Vector3.Distance(origin, point) * 0.35f + Vector3.Distance(point, destination) +
-                    TurnPenalty(forward, point - origin);
-                // Prefer a bypass with a usable continuation, rather than repeatedly moving
-                // to a point immediately in front of the same tree/building.
-                if (!FlightCorridorClear(point, Toward(point, destination, 12), radius)) score += 20;
-                foreach (Vector3 previous in recent)
-                    if (Vector3.Distance(previous, point) < 3) score += 18;
-                if (score >= best) continue;
-                best = score;
-                step = point;
-                kind = point.Y < origin.Y - 2 ? "lowering arc" : point.Y > origin.Y + 2 ? "higher elevation" : "lateral arc";
+                double heading = Math.Atan2(origin.Z - destination.Z, origin.X - destination.X);
+                foreach (float distance in new float[] { 8, 16, 28 })
+                    for (int i = 0; i < 8; i++)
+                    {
+                        double angle = heading + i * Math.PI / 4;
+                        Vector3 top = destination + new Vector3((float)Math.Cos(angle) * distance, 0,
+                            (float)Math.Sin(angle) * distance);
+                        top.Y = origin.Y;
+                        Vector3 bottom = top; bottom.Y = destination.Y;
+                        consider(new[] { top, bottom, destination });
+                    }
             }
-            return !float.IsInfinity(best);
+            reason = bestHits == 0 ? $"complete sampled flight path; {bestPath.Count} legs, local probes clear" :
+                $"complete flight estimate; {bestPath.Count} legs, {bestHits} advisory probe hints";
+            return bestPath;
         }
 
         public static bool ClearSegment(Vector3 start, Vector3 end) =>

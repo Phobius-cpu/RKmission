@@ -26,17 +26,17 @@ The current responsibility boundary supersedes earlier automatic rolling plans:
    Keep the chosen identity/entrance fixed during movement. Estimates are not
    certified complete paths; other missions receive no route/probe planning.
 4. Ground uses complete navmesh paths when available, otherwise bounded AO#
-   direct local waypoints. Flying uses elevated direct cruise/descent to an
-   approach independently of the mesh, then precise entrance approach and
-   interaction in the flying vehicle. AO# flight state
+   direct local waypoints. Flying commits a complete waypoint sequence to
+   within 2 m of the chosen entrance, selects/aligns entrance height, then
+   proceeds to precise entrance approach and interaction in the flying vehicle. AO# flight state
    selects automatically; `/rkm travel auto|ground|flying` overrides by session.
 5. Flight has no dismount prompt/wait or forced ground approach. Both modes
    converge on the chosen entrance, a unique live door when exposed or a
    proximity entry attempt, and exact mission/dungeon verification. Refine
-   entrance floor from nearby surface consensus/live door data; flight checks
-   ahead and samples higher/lateral/lowering legs around detected objects. For
-   blocked lower approaches, align with a clear descent column, then lower in
-   vehicle. Retain committed waypoints and limit flight turn speed.
+   entrance floor from nearby surface consensus/live door data. Prefer complete
+   clear flight paths around/over objects; retain estimates when geometry is
+   inconclusive. Follow the full waypoint list, then gate entry on near-entrance
+   height alignment. Avoid speculative-probe hopping and frequent turn stops.
 6. Existing `MissionDungeon` owns room exploration/navigation, combat, doors,
    lockpicking, and Manager.Loot. Preserve these working systems.
 7. Preserve identity/action/target/completion metadata per accepted mission.
@@ -638,3 +638,54 @@ This correction extends proactive avoidance with lowering paths and waypoint com
   vehicle entry and dungeon exploration/combat/interior doors/lockpick/loot remain.
   Source/API/diff inspection only; no compilation, package restore, local tests or
   in-game run. User pulls main, compiles and validates descent and smoothing in game.
+
+## Committed Flight Paths and Height Before Entry (2026-09-28)
+
+This correction supersedes short flight bypass sampling and descent at 16 m.
+
+- User reports worse pathing than the previous version: characters move only a
+  couple of units instead of following a coherent path. Reposted 07:58 lateral
+  avoidance 37/38 logs show the repeated short targets. Requested selecting the
+  entrance height when within 1-2 units, then proceeding to enter the mission.
+- Inspected current main `141cf24`. Flight still committed only one short bypass
+  or a two-leg column, reacted to scene/offset probe hits, and stopped to rotate
+  for turns over 20 degrees. There was no complete waypoint sequence from current
+  position to final approach. Replaced that execution/planning model.
+- `PlanFlightPath` compares complete paths for the selected destination: direct;
+  climb/lateral/cruise/lower/approach using 8/16/28 m lateral offsets and 0/12/24/40 m
+  raised levels within the fixed ceiling; and outward/down/return sequences for
+  lower targets. Score every leg using surface/native LOS clearance probes and
+  recent points. Known centre surface hits carry much more weight than uncertain
+  scene LOS, so all-inconclusive LOS cannot force a known blocked direct descent
+  over a ray-clear detour. Prefer clear paths; retain a finite estimated attempt
+  if none clears. Mission selection still estimates nearest from one captured
+  origin, plans only that mission and preserves its identity/accepted coordinates.
+- `LocalMissionTravel` retains and follows the full waypoint list. Advance normal
+  legs continuously, using 1.2-2.5 m intermediate arrival based on speed. Check the
+  next segment from the actual position before cutting a corner. Replan
+  only for a changed goal, eight-second observed waypoint stall, or a nearby
+  surface obstruction sustained for one second, with a three-second retry interval.
+  Short actual surface checks can stop a physical obstruction; speculative scene
+  LOS/offset hints cannot repeatedly stop movement. Holds persist between updates.
+  Removed the rotate-in-place gate. Smooth moderate heading changes; face sharp
+  or corner-conflicting legs directly to retain continuous motion.
+- Flight phase sequence is now FlightCruise -> EntranceHeight -> EntranceApproach
+  -> EnterDoor. Travel to about 1.5 m outside the selected entrance. At <=2 m
+  horizontal distance, refresh/select actual entrance floor from a unique live
+  door or the existing 17-column/layer consensus. Align to floor+1 m vehicle
+  clearance, with <=0.75 m vertical error and <=2 m horizontal distance, then
+  permit entry. Recheck height before door use; a live-height change or drift
+  returns to alignment. Blocked height alignment plans a complete detour down
+  outside a roof and back to the same target. No automatic dismount.
+- Height remains provisional if geometry/live door data is unavailable; accepted
+  zero/stale height alone is not a route veto. Live door height cannot be overwritten
+  by terrain. Entry uses a <=2 m horizontal approach, actual 3D/height checks and
+  unique identity. Proximity entry and exact selected-dungeon verification remain.
+  Ground fallback and all dungeon exploration/combat/interior door/lockpick/loot
+  code are preserved. Three-minute approach/height/entry, 90-second flight final
+  progress, 15-minute travel, 45-second unresolved door and bounded use remain.
+  Complete path replans and height corrections cannot refresh final progress.
+- Logs list the whole committed path, leg index/count, replan reason, selected
+  floor/source within 2 m, aligned entry height, progress and hard failure.
+  Updated README/CONVERSATION_LOG. Source/API/diff inspection only; no compilation,
+  package restore, local tests or in-game run. User pulls main, compiles and tests.
