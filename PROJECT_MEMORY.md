@@ -33,7 +33,8 @@ The current responsibility boundary supersedes earlier automatic rolling plans:
 5. Flight has no dismount prompt/wait or forced ground approach. Both modes
    converge on the chosen entrance, a unique live door when exposed or a
    proximity entry attempt, and exact mission/dungeon verification. Refine
-   entrance floor from nearby surface consensus/live door data. Prefer complete
+   entrance coordinates from measured/live door/valid quest data, using terrain
+   only for missing height. Prefer complete
    clear flight paths around/over objects; retain estimates when geometry is
    inconclusive. Follow the full waypoint list, then gate entry on near-entrance
    height alignment. Avoid speculative-probe hopping and frequent turn stops.
@@ -998,3 +999,58 @@ connected obstacle search or the near-entrance height sequence.
   CONVERSATION_LOG. Source/diff/API inspection only, no local compilation, package
   restore, tests or game run. User pulls main, compiles and checks the full staged
   sequence plus actual movement on the reported zero-failure searches in game.
+
+## Entrance Coordinate Sources and Linear Approach (2026-09-28)
+
+- User identifies the troublesome doorway as X=553.2, Z=1475.0, height Y=18.1,
+  playfield 665, and requests corrected coordinates, 1-2 m approach radius,
+  object checks/detours before entry, and navigation as linear as possible.
+- Inspected main bb47f40 and supplied AOSharp reference sources. `Mission.Location`
+  obtains `GetQuestWorldPos` local `Pos`; `AcceptedMissions` stores it without axis
+  swapping. `Vector3` is X/Y/Z, while the user's AO coordinates are X/Z/Y. Existing
+  movement logs called an offset waypoint the entrance/final target, obscuring
+  that distinction. No tracker or SDK coordinate conversion change is needed.
+- Actual source inconsistencies: `ResolveEntranceHeight` could replace a nonzero
+  quest height with the lowest strongly supported local surface; live door `Position`
+  was treated as a floor and always received another 1.5-2 m flight clearance.
+  A lower terrain layer cannot establish the doorway's height. The reported old
+  stage target (554.4971,16.5,1473.821) is already about 1.75 m horizontally from
+  the supplied doorway, so its different X/Z alone is not evidence of an axis bug.
+- Preserve nonzero quest height; distinguish `EntranceIsFloor` from actual
+  entrance world coordinates. Only sampled floors or quest/live-door origins
+  matching the local floor within 0.5 m receive vehicle clearance. This preserves
+  working floor-origin doors without treating every live-door origin as ground.
+  Missing height uses a provisional player height/nearby terrain estimate until
+  a live door resolves. A bounded measured correction uses Vector3(553.2,18.1,1475)
+  only for accepted markers within 2 m in playfield 665. It is explicit user data,
+  not an inferred correction for all missions. It stays authoritative across
+  terrain/live-door updates. Other entries retain normal source resolution.
+- Live-door association stays unique and bound to one identity. Measured/nonzero
+  quest points use a 2 m horizontal association radius; zero-height unresolved
+  map markers retain 6 m. Use remains within 2 m horizontally and 3.5 m in 3D
+  of the live object. Normal live-door vertical tolerance stays 2.5 m; the supplied
+  measured point permits up to 3.5 m to the object's origin, retaining its measured
+  alignment height instead of descending toward a potentially offset model origin.
+  Exact selected-mission dungeon verification, three attempts and timeouts remain.
+- Select a 1.5 m approach side once near the entrance. Check both the travel segment
+  and final short entry segment using centre/body-offset probes. Prefer the direct
+  origin-facing side if clear; otherwise compare 16 sides for a viable final corridor
+  and send only the selected point to the existing connected obstacle planner.
+  Keep this side across probe retries; only changed entrance data or observed
+  blocked movement can replace it. No viable alternative cannot rotate a committed
+  anchor arbitrarily. Actual failure memory and progress limits remain active.
+- Flight confirms actual 1-2 m radius and <=0.75 m horizontal error to the checked
+  side before height alignment. Ground also stages at 1.5 m, confirming actual
+  1-2 m radius and existing 2.5 m height tolerance before entry. Ground fallback now
+  selects a clear forward waypoint first; otherwise its existing arc recovery runs.
+- When entrance height is resolved, cruise uses a straight sloped approach at that
+  target height. The planner adds climbs/around-object routes only for obstructions;
+  unresolved far heights retain provisional elevated travel. Existing smoothing,
+  braking, bounded connected search and advisory attempts remain. Never write player
+  position/height or alter equipment. Dungeon exploration/combat/interior doors/
+  lockpick/loot and accepted mission tracking are untouched.
+- Logs use invariant decimal points and explicit X/Z/height(Y) labels for the raw
+  marker, resolved entrance, waypoint and stage target. Source/diff/API review only;
+  no local compilation, restore, tests or game run. User pulls main, builds and
+  checks the exact measured entrance plus other missions and obstruction detours.
+  Documentation updated; runtime success remains unconfirmed.

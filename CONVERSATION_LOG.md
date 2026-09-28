@@ -703,3 +703,31 @@ Updated README.md and PROJECT_MEMORY.md. Reviewed source/diff without compiling,
 restoring packages, running local tests or running the game. User pulls main,
 compiles and validates movement and the staged entry sequence in game; its runtime
 outcome cannot be confirmed from source inspection alone.
+
+### User measured entrance and straight navigation (2026-09-28)
+
+The user supplied the actual doorway coordinates: X=553.2, Z=1475.0,
+height Y=18.1 in playfield 665. They report incorrect entrance coordinates and
+request checking inconsistencies, approaching within 1-2 m, detecting objects
+and finding a way around before entry, with navigation as linear as possible.
+
+### Assistant coordinate-source and approach repair
+
+Inspected main bb47f40 and the supplied AOSharp mission/vector/door/movement
+sources. The stored quest vector has the correct X/Y/Z order, but terrain sampling
+could overwrite valid quest height and live door coordinates received an extra
+floor-clearance offset. Movement logs also conflated approach waypoints and entrance
+coordinates. Preserve valid quest heights, apply flight clearance only to terrain
+floors or origins confirmed at floor height, and use the user's measured point for markers within 2 m there
+in playfield 665. Other missions do not inherit this correction.
+
+Check a 1.5 m approach point and its final entry corridor. Prefer a clear straight
+route; when obstructed, choose a checked side and retain a coherent detour around
+or over the object. Reconsider the side after observed blockage rather than on
+every update. Ground and flight confirm 1-2 m approach proximity before entry;
+flight also aligns to the selected height. Resolved height no longer forces an
+unnecessary cruise climb. Logs label X, Z and height separately and show the true
+entrance alongside movement targets. Preserve vehicle equipment, one selected
+mission, bounded recovery and exact dungeon handoff; dungeon behavior is untouched.
+Updated README.md and PROJECT_MEMORY.md. Source/diff review only, without local
+compilation, package restore, tests or game execution; the user validates in game.

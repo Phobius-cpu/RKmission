@@ -4,11 +4,13 @@ AO# plugin for solo Rubi-Ka missions in Anarchy Online. It combines the original
 Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
 mission travel, room exploration, combat targeting, door handling, and looting.
 
-**Status (2026-09-28):** the latest report still shows empty surface searches
-4-9 m from an entrance. Flight now commits a 1.5 m approach point, reaches its
-horizontal neighborhood, aligns height there, then proceeds to entry. A bounded
-movement estimate can run when surface search is inconclusive; actual stalls
-still trigger recovery. This awaits the user's build and in-game validation. Dungeon
+**Status (2026-09-28):** the reported doorway is X=553.2, Z=1475.0,
+height(Y)=18.1 in playfield 665. A correction uses that measured point only for
+mission markers within 2 m there. Valid quest heights are preserved, and terrain
+floors no longer overwrite them or get confused with live door coordinates.
+Both modes approach a checked point 1.5 m from the entrance before entry. Clear
+routes stay straight; obstructions trigger committed detours and observed stall
+recovery. This awaits the user's build and in-game validation. Dungeon
 exploration, combat, room doors, lockpicking, and loot behavior are preserved; one hook refreshes
 the live mission binding.
 
@@ -56,8 +58,9 @@ the live mission binding.
    Confirm actual position 1-2 m horizontally from the entrance and within
    0.75 m of the selected flight height before proceeding to entry.
    **Stay in your flying vehicle**: height alignment, approach and interaction
-   continue in flight. Live door height takes priority; unresolved height
-   remains provisional. There is no required dismount or ground detour.
+   continue in flight. Measured entrance coordinates take priority, then live
+   door/valid quest coordinates; terrain heights remain estimates when neither
+   is available. There is no required dismount or ground detour.
 6. Both modes approach the chosen entrance and use a unique nearby live door
    when available. Without one, movement continues to the selected entrance
    trigger point while waiting for a door or zoning. AO# must associate the
@@ -99,8 +102,9 @@ retrying an unfinished accepted mission.
   and a preferred detour side reduce oscillation. If every probe hits, a short
   cautious waypoint can still be attempted. Each reached/stalled leg resamples
   from the actual new position. There is no three-recovery limit.
-- Flying travel estimates an elevated route to a point 1.5 m outside the entrance,
-  anchored to the captured origin. Only the selected mission is planned. The bot
+- Flying travel estimates a route to a point 1.5 m outside the entrance,
+  anchored to the captured origin. With a resolved height, prefer a straight
+  sloped route instead of always climbing 12 m first. Only the selected mission is planned. The bot
   first tries direct and complete climb/cruise/approach paths. For obstructions, a bounded connected
   search links 4 m cells at current/target height and raised levels, up to the
   initial cruise/refined floor ceiling +40 m. It can follow several building
@@ -146,18 +150,26 @@ retrying an unfinished accepted mission.
   0.45 m waypoint tolerance. Cruise remains at 100 ms; ground/dungeon updates stay
   at 250 ms. This does not alter game speed or player position.
 - Flight follows `FlightCruise -> EntrancePosition -> EntranceHeight -> EntranceApproach -> EnterDoor`.
-  Within 24 m, commit one approach point 1.5 m outside the selected entrance and
-  resolve its flight height from live door/local surface data. Check the direct
+  Within 24 m, commit one approach point 1.5 m outside the selected entrance.
+  Check both travel to that point and its short final entry corridor with centre
+  and body-offset probes. Keep the straight side when clear; otherwise compare
+  16 sides once and choose an entry side for the existing connected detour planner.
+  Reconsider the side after actual stalled movement, not on every update.
+  Resolve flight height from measured/live door/quest coordinates or, when
+  unavailable, a terrain estimate. Check the direct
   corridor once on starting the coordinate stage: clear data allows early height
   adjustment; otherwise keep at least current altitude/selected clearance while
   reaching the entrance neighborhood. Provisional height cannot alone reject
-  this coordinate attempt. Keep the same approach side across retries; live door
-  coordinate changes reproject its offset, and refined height updates its Y.
-  Actual horizontal distance between 1 and 2 m completes EntrancePosition.
+  this coordinate attempt. Keep the same approach side across probe retries;
+  changed entrance data or an actual blocked leg permits another checked side.
+  Actual horizontal distance between 1 and 2 m, within 0.75 m horizontally of
+  the checked side, completes EntrancePosition.
   Then confirm that same distance range and <=0.75 m vertical error to complete
   EntranceHeight. An aligned observed position is not vetoed by a synthetic ray.
-  Select clearance as vehicle radius +0.25 m, bounded to 1.5-2 m above the
-  resolved floor; it is a travel allowance, not a new floor measurement. Use
+  Add vehicle clearance (radius +0.25 m, bounded to 1.5-2 m) only to a terrain
+  floor or a quest/live-door origin matching that floor within 0.5 m. Preserve
+  quest/live-door coordinates instead of overwriting them with terrain; other
+  entry heights and the supplied measured point receive no extra offset. Use
   this same target for planning, alignment, proximity entry and live door drift
   checks. These stages plan only one coordinate/height goal; the former 16 extra
   doorway endpoints per search cell are removed. A staging prefix cannot replace
@@ -178,8 +190,19 @@ retrying an unfinished accepted mission.
   discard an otherwise clear descent. Its staging column cannot change the chosen
   entrance floor or count as completed height alignment. This descent search
   also handles gaps over 1 m during final stages instead of only gaps over 3 m.
-  The floor, mission and live door identity
+  Ground also stages at the 1.5 m approach, confirms actual 1-2 m proximity
+  and its existing 2.5 m height tolerance, then enters. Its direct fallback
+  chooses a clear forward segment first before sampling arcs.
+  The entrance coordinate, mission and live door identity
   remain fixed; the vehicle stays equipped throughout.
+- AO's displayed coordinate order is X, Z, height Y, whereas `Vector3` stores
+  X, Y, Z. Logs now label these axes explicitly with decimal points and distinguish
+  the accepted marker, resolved entrance, movement waypoint and stage target.
+  The known playfield-665 correction is `(553.2, 18.1, 1475.0)` internally.
+  It cannot affect markers more than 2 m away or other playfields. Nearby terrain
+  cannot lower that measured height. A live door can refine other unresolved
+  markers, but association is limited to 2 m for measured/nonzero quest points
+  (6 m for unresolved zero-height map markers), with ambiguity checks retained.
 - If normal surface search returns no usable section within 24 m, rank bounded
   estimates ending at the same coordinate/height target. Try direct and coherent
   outside/drop/return arcs at 4/8/12/20 m in 16 directions, at current/target
