@@ -66,15 +66,67 @@ namespace RKmission
                 Vector3 point = anchor + LocalRoutePlanner.Direction(bearing + offset * Math.PI / 4) * radius;
                 point.Y = player.Y;
                 Vector3 below = point; below.Y = entryHeight;
+                Choice diagonal = ElevationChoices(point, below, anchor, radius, false).OrderBy(x => x.Score).First();
                 choices.Add(new Choice { First = point,
                     Score = Vector3.Distance(player, point) +
-                        (LocalRoutePlanner.FlightCorridor(point, below, out _) ? 80 : 0) +
-                        (RepeatsFailure(point, below) ? 120 : 0) });
+                        (LocalRoutePlanner.FlightCorridor(player, point, out _) ? 80 : 0) + diagonal.Score });
             }
             Vector3 result = choices.OrderBy(x => x.Score).First().First;
             _say($"Fly height-match recovery: attempt={retry}, desired entry height={entryHeight:F2}, " +
-                $"exterior=({LocalRoutePlanner.Coordinates(result)}), radius={radius:F1}; relocate before retrying vertical alignment, no new floor height.");
+                $"exterior=({LocalRoutePlanner.Coordinates(result)}), radius={radius:F1}; relocate before retrying diagonal alignment, no new floor height.");
             return result;
+        }
+
+        public Vector3 ElevationLeg(Vector3 player, Vector3 goal, Vector3 anchor, float perimeterRadius, string stage)
+        {
+            Choice best = ElevationChoices(player, goal, anchor, perimeterRadius, false).OrderBy(x => x.Score).First();
+            Strategy = "diagonal elevation";
+            _say($"Fly diagonal elevation: stage={stage}, from=({LocalRoutePlanner.Coordinates(player)}), " +
+                $"target=({LocalRoutePlanner.Coordinates(best.First)}), horizontal run={LocalRoutePlanner.HorizontalDistance(player, best.First):F2} m, " +
+                $"height delta={best.First.Y - player.Y:F2} m, obstruction hint={best.Obstructed}; no straight vertical leg.");
+            return best.First;
+        }
+
+        private List<Choice> ElevationChoices(Vector3 player, Vector3 goal, Vector3 anchor, float perimeterRadius, bool overpass)
+        {
+            Vector3 heading = goal - player; heading.Y = 0;
+            if (LocalRoutePlanner.HorizontalDistance(heading, Vector3.Zero) < 0.1f)
+            { heading = player - anchor; heading.Y = 0; }
+            if (LocalRoutePlanner.HorizontalDistance(heading, Vector3.Zero) < 0.1f) heading = new Vector3(1, 0, 0);
+            double bearing = LocalRoutePlanner.Angle(heading);
+            float radius = LocalRoutePlanner.HorizontalDistance(player, anchor);
+            float run = Math.Max(2, Math.Min(16, Math.Abs(goal.Y - player.Y)));
+            // At an entrance keep the diagonal slide near the reached side.
+            // Short tangential/outward motion respects the existing footprint.
+            if (perimeterRadius > 0) run = Math.Min(run, Math.Max(2, radius * 0.25f));
+            var choices = new List<Choice>();
+            foreach (int offset in new[] { 0, -1, 1, -2, 2, -3, 3, 4 })
+            {
+                Vector3 next = player + LocalRoutePlanner.Direction(bearing + offset * Math.PI / 4) * run;
+                next.Y = goal.Y;
+                if (perimeterRadius > 0)
+                {
+                    float nextRadius = LocalRoutePlanner.HorizontalDistance(next, anchor);
+                    float bound = Math.Max(radius, _maximumRadius);
+                    if (nextRadius > bound)
+                    {
+                        Vector3 radial = next - anchor; radial.Y = 0;
+                        Vector3 bounded = anchor + radial.Normalize() * bound;
+                        next.X = bounded.X; next.Z = bounded.Z;
+                    }
+                    if (LocalRoutePlanner.HorizontalDistance(player, next) < 1 ||
+                        ClosestRadius(player, next, anchor) < Math.Min(radius, perimeterRadius) - 0.8f) continue;
+                }
+                bool blocked = LocalRoutePlanner.FlightCorridor(player, next, out _);
+                bool observed = RepeatsFailure(player, next);
+                int hits = blocked ? 1 : 0;
+                if (overpass && LocalRoutePlanner.FlightCorridor(next, goal, out _)) hits++;
+                choices.Add(new Choice { First = next, Kind = overpass ? "over" : "diagonal elevation",
+                    Obstructed = blocked || observed,
+                    Score = Vector3.Distance(player, next) + LocalRoutePlanner.HorizontalDistance(next, goal) * (overpass ? 1 : 0.2f) +
+                        hits * (overpass ? 60 : 80) + (observed ? 120 : 0) + Math.Abs(offset) * 0.2f });
+            }
+            return choices;
         }
 
         public void Blocked(Vector3 position, Vector3 target)
@@ -216,14 +268,9 @@ namespace RKmission
                 blocked ? hit : destination, player.Y);
             foreach (float rise in new[] { 6f, 12f, 24f })
             {
-                Vector3 up = player; up.Y = Math.Min(_ceiling, Math.Max(player.Y + rise, roof));
-                if (up.Y <= player.Y + 1) continue;
-                Vector3 across = destination; across.Y = up.Y;
-                float cost = Vector3.Distance(player, up) + Vector3.Distance(up, across);
-                int hits = (LocalRoutePlanner.FlightCorridor(player, up, out _) ? 1 : 0) +
-                    (LocalRoutePlanner.FlightCorridor(up, across, out _) ? 1 : 0);
-                choices.Add(new Choice { Kind = "over", First = up,
-                    Score = cost + hits * 60 + (RepeatsFailure(player, up) ? 120 : 0) });
+                Vector3 across = destination; across.Y = Math.Min(_ceiling, Math.Max(player.Y + rise, roof));
+                if (across.Y <= player.Y + 1) continue;
+                choices.AddRange(ElevationChoices(player, across, anchor, perimeterRadius, true));
             }
             if (_committedDirection != 0)
             {
@@ -245,7 +292,7 @@ namespace RKmission
             Choice best = choices.OrderBy(x => x.Score).First();
             Strategy = best.Kind;
             if (best.Kind == "over")
-            { _committedDirection = 0; _overpassHeight = best.First.Y; OverpassResult = "ascending to advisory bypass height"; }
+            { _committedDirection = 0; _overpassHeight = best.First.Y; OverpassResult = "ascending diagonally to advisory bypass height"; }
             if (best.Direction != 0)
             {
                 _committedDirection = best.Direction;
@@ -254,6 +301,7 @@ namespace RKmission
             }
             _say($"Fly route choice: {best.Kind}, over cost={BestCost(choices, "over")}, around cost={BestCost(choices, "around")}, " +
                 $"current height={player.Y:F2}, next=({LocalRoutePlanner.Coordinates(best.First)}), " +
+                $"horizontal run={LocalRoutePlanner.HorizontalDistance(player, best.First):F2} m, " +
                 $"ray hit={blocked}, observed block={observed}, footprint crossing={cutsStructure}, " +
                 $"committed direction={_committedDirection}; no floor descent during bypass.");
             return best.First;

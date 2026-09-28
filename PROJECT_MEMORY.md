@@ -1594,3 +1594,32 @@ onto the new architecture.
   documented by the 19:03-19:04 log, without fabricating a new successful result.
 - README/history updated. Source/diff inspection only; no local compilation,
   restore, tests or game execution. Commit and push coherent changes to main.
+
+## Diagonal flight for every elevation section (2026-09-28)
+
+- User adds a constraint: never navigate an ascent or descent exactly vertically.
+  Applies to all outdoor Fly phases, including near-entrance height adjustments.
+- One ElevationChoices helper in the existing FlightPathPlanner ranks eight
+  horizontal directions at the requested height using corridor/failed-route hints.
+  Initial clearance and overpass climbs now include forward/lateral movement;
+  height matching and post-bypass alignment use outward/tangential slides.
+- Horizontal run normally 2-16 m based on height delta. Near the mission, limit
+  it to about a quarter of the current radius (minimum 2 m), clamp to the exterior
+  bound and avoid chords inside the current/protected footprint. Filter degenerate
+  projected points shorter than 1 m. Near-anchor initial clearance uses the same
+  footprint protection until sufficient altitude is reached. Rays remain advisory.
+- Descent recovery now ranks the actual diagonal height-change corridor plus
+  the relocation corridor, replacing pure vertical-column scoring. The mission
+  entrance-height target stays fixed across sectors and recoveries. No new planner.
+- LocalMovement retains a horizontal heading and a small horizontal component
+  if collision/rounding consumes X/Z before remaining elevation. This guard changes
+  steering only; original target, arrival precision and progress clocks remain.
+  One bounded log per leg reports a finishing correction. Full planned elevation
+  logs include stage, actual source/target, horizontal run and height delta.
+- Keep the working 10 m height gate, 6 m close approach, 4.68 m final cap,
+  observed stall recovery, selection, Door association/use and exact dungeon
+  handoff. Ground movement and dungeon exploration/combat/interior-door/loot are
+  unchanged. Update current README/log wording that formerly promised vertical
+  movement; retain historical attempts and earlier documentation in Git/history.
+- Source/diff inspection only; no local compile, restore, tests or game run.
+  No new in-game log or successful result is invented. Commit and push to main.

@@ -241,6 +241,8 @@ namespace RKmission
             if (_pathIndex < _path.Count)
             {
                 Vector3 target = _path[_pathIndex];
+                if (flying && _phase == Phase.AlignElevation && Math.Abs(target.Y - player.Y) > 0.35f)
+                    target = _flight.ElevationLeg(player, target, _route.Anchor, _entrance.FlightRingRadius, "rejoin entrance height");
                 if (flying && _phase == Phase.FinalApproach)
                     target = LocalRoutePlanner.Toward(player, target, FlightApproachLegLength);
                 _movement.Begin(target, flying, true, stallSeconds: flying ? 3 : (int?)null,
@@ -328,6 +330,8 @@ namespace RKmission
             {
                 _flyDescentRelocating = false;
                 target = player; target.Y = height;
+                target = _flight.ElevationLeg(player, target, _route.Anchor,
+                    LocalRoutePlanner.HorizontalDistance(player, _route.Anchor), "mission entrance height match");
             }
             SetPhase(Phase.FlyMatchEntryHeight);
             _movement.Begin(target, true, true, stallSeconds: 4, arrivalTolerance: _flyDescentRelocating ? 0.8f : 0.35f);
@@ -466,7 +470,9 @@ namespace RKmission
                     float cruise = _flight.PrepareCruise(player, _route.Anchor); _runRecord.CruiseHeight = cruise;
                     if (player.Y < cruise - 0.8f)
                     {
-                        Vector3 up = player; up.Y = cruise;
+                        float clearanceRing = remaining <= _settings.MaxFlightBypassRadius ? remaining : 0;
+                        Vector3 up = _flight.ElevationLeg(player, new Vector3(_route.Anchor.X, cruise, _route.Anchor.Z),
+                            _route.Anchor, clearanceRing, "initial cruise clearance");
                         SetPhase(Phase.FlyClearance); _movement.Begin(up, true, true, stallSeconds: 4);
                         _legActive = true; return true;
                     }

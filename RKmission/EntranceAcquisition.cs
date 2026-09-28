@@ -363,7 +363,7 @@ namespace RKmission
             Active.Record.ElevationSource = source; Active.Record.EntryPoint = NavigationPoint.From(Active.Threshold);
             Active.Record.ApproachPoint = NavigationPoint.From(Active.Threshold + Active.Normal * 1.5f);
             _say($"Fly entrance height: sector={Active.Sector}, height={height:F2}, source={source}; " +
-                "align vertically only at reached exterior, then approach along its direction.");
+                "align diagonally at the reached exterior, then approach along its direction.");
         }
         public void ObserveFlight(Vector3 player, FlightPathPlanner flight, float angularTravel)
         {

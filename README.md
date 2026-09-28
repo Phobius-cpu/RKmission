@@ -203,8 +203,20 @@ existing altitude; unknown geometry uses a modest bounded climb. An actually
 blocked initial ascent yields to normal over/around recovery instead of rejecting
 the mission. Cruise height and entrance height are separate targets.
 
-Over candidates ascend at current X/Z by local 6/12/24 m choices, increased by an
-advisory roof sample when useful, within `FlightClimbLimit` above run-start height.
+All Fly ascents and descents use diagonal movement, including initial clearance,
+overpasses, entrance height matching and height alignment after a bypass. Compare
+eight horizontal directions with corridor and observed-failure hints. Elevation
+legs use a 2-16 m horizontal run, shortened near the entrance to stay near the
+reached side. Bound the exterior slide and keep the protected footprint; collision
+hints still rank choices rather than reject flight. The executor retains horizontal
+steering if collision or rounding consumes that component before height is reached,
+without resetting its target or progress deadline. Arrival tolerance still ends
+the leg; no straight vertical finishing movement is commanded. Logs show the
+elevation stage, horizontal run, height delta and any diagonal finishing correction.
+
+Over candidates combine diagonal movement with local 6/12/24 m climbs, increased
+by an advisory roof sample when useful, within `FlightClimbLimit` above run-start
+height.
 After ascending, retain the higher actual altitude across the obstacle; do not
 descend back toward the old waypoint height. Around candidates near a mission use
 short tangential/outward segments outside the inferred footprint, expanding up to
@@ -225,12 +237,13 @@ layers are bounded fallback hypotheses, not presumed accessible ground. If no
 support is available, run-start aircraft height is explicitly provisional.
 Zero/stale quest Y is never blindly used as the doorway height.
 
-`FlyMatchEntryHeight` moves vertically at the reached position, requiring actual
-height within 0.35 m before selecting a sector. If blocked, compare neighboring
-descent corridors on a bounded exterior and use the same Fly planner to relocate.
-The height target stays fixed; alignment may finish outside 10 m when the initial
-column is obstructed. Six observed recovery failures stop with height access
-unresolved, without claiming a side was selected or reached.
+`FlyMatchEntryHeight` changes height while sliding outward or tangentially from the
+reached position, requiring actual height within 0.35 m before selecting a sector.
+If blocked, compare neighboring diagonal descent corridors on a bounded exterior
+and use the same Fly planner to relocate. The height target stays fixed; alignment
+may finish outside 10 m while sliding or recovering from an obstructed corridor.
+Six observed recovery failures stop with height access unresolved, without
+claiming a side was selected or reached.
 
 Rank sides' inward corridors at that shared mission height. Reach the selected
 exterior and, if obstacle avoidance raised the aircraft, rejoin the SAME entry

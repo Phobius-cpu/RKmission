@@ -1120,3 +1120,26 @@ side retry; only exact dungeon verification proves entry. Retain close threshold
 points, cruise, selection, Door use/crossing and all dungeon systems. README and
 PROJECT_MEMORY updated. No new log or success is invented. Source/diff review only;
 no local compilation, restore, tests or game execution.
+
+### User required climbs and descents to include horizontal movement
+
+User adds that ascending or descending navigation sections must never be exactly
+vertical. Apply it to initial Fly clearance, overpasses, entrance-height matching
+and post-bypass elevation alignment, while preserving the working navigation.
+
+### Assistant routed elevation through diagonal flight choices
+
+Reuse the single FlightPathPlanner to compare eight diagonal directions at the
+requested height. Corridor and observed-failure hints rank the routes. Initial
+climb progresses toward the mission when clear; near the entrance use bounded
+outward/tangential slides with footprint protection. Overpass climbs also include
+horizontal motion. Descent relocation scores diagonal height-change corridors.
+The same entrance height remains shared across sides.
+
+The executor retains horizontal steering through any remaining elevation tail,
+without changing the target, arrival tolerance or no-progress clock. Log the
+diagonal stage/run/height delta and a finishing correction at most once per leg.
+Update README and current entrance logs to remove obsolete vertical instructions.
+Preserve 10 m height matching, 6 m close staging, 4.68 m final steps, wall recovery,
+mission selection and dungeon systems. No new in-game evidence supplied; source/diff
+inspection only, no local compilation, restore, tests or game execution.

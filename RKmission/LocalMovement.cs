@@ -18,9 +18,11 @@ namespace RKmission
         private readonly List<Vector3> _failed = new List<Vector3>();
         private readonly List<Vector3> _visited = new List<Vector3>();
         private Vector3 _target;
+        private Vector3 _flightHeading;
         private int _stallLimit;
         private float _arrivalTolerance;
         private bool _active, _owns, _mesh, _flying, _precise, _steering;
+        private bool _elevationTailLogged;
         private DateTime _lastProgress, _nextSubmit, _lastSteer;
         public float BestDistance { get; private set; }
         public float StartDistance { get; private set; }
@@ -46,6 +48,16 @@ namespace RKmission
         {
             Halt(); _target = target; _flying = flying; _precise = precise; _mesh = _steering = false; _active = true;
             Vector3 player = DynelManager.LocalPlayer.Position;
+            _elevationTailLogged = false;
+            if (flying)
+            {
+                _flightHeading = target - player; _flightHeading.Y = 0;
+                if (LocalRoutePlanner.HorizontalDistance(_flightHeading, Vector3.Zero) < 0.1f)
+                { _flightHeading = DynelManager.LocalPlayer.Rotation.Forward; _flightHeading.Y = 0; }
+                if (!AcceptedMissions.Finite(_flightHeading) || LocalRoutePlanner.HorizontalDistance(_flightHeading, Vector3.Zero) < 0.1f)
+                    _flightHeading = new Vector3(1, 0, 0);
+                _flightHeading = _flightHeading.Normalize();
+            }
             StartPosition = player;
             StartDistance = BestDistance = Distance(player, target, flying);
             _stallLimit = Math.Max(2, stallSeconds ?? _settings.LegStallSeconds);
@@ -69,7 +81,7 @@ namespace RKmission
             Vector3 oldDirection = _target - player, newDirection = target - player;
             float oldDistance = Vector3.Distance(player, _target), newDistance = Vector3.Distance(player, target);
             // Only level, nearly straight cruise can retain forward movement.
-            // Turns, vertical legs and entrance precision still finish normally.
+            // Turns, elevation legs and entrance precision still finish normally.
             return Progress >= 2 && oldDistance > 1 && newDistance > oldDistance + 5 &&
                 Math.Abs(oldDirection.Y) <= 1 && Math.Abs(newDirection.Y) <= 1 &&
                 Vector3.Dot(oldDirection.Normalize(), newDirection.Normalize()) >= 0.966f;
@@ -138,6 +150,26 @@ namespace RKmission
             { StopMotion(); return MovementResult.Moving; }
             Vector3 delta = _target - player;
             if (!_flying) delta.Y = 0;
+            else
+            {
+                float horizontal = LocalRoutePlanner.HorizontalDistance(delta, Vector3.Zero);
+                if (horizontal > 0.15f)
+                    _flightHeading = new Vector3(delta.X, 0, delta.Z).Normalize();
+                // Collision or rounding can consume horizontal movement first.
+                // Retain a small diagonal component through the elevation tail,
+                // without changing the target, tolerance or progress deadline.
+                float minimumRun = Math.Max(0.25f, Math.Abs(delta.Y) * 0.05f);
+                if (Math.Abs(delta.Y) > 0.05f && horizontal < minimumRun)
+                {
+                    delta.X = _flightHeading.X * minimumRun; delta.Z = _flightHeading.Z * minimumRun;
+                    if (!_elevationTailLogged)
+                    {
+                        _elevationTailLogged = true;
+                        _say($"Fly diagonal elevation tail: height remaining={delta.Y:F2} m, horizontal steering={minimumRun:F2} m; " +
+                            "retain horizontal motion, original target and no-progress clock.");
+                    }
+                }
+            }
             Vector3 wanted = delta.Normalize();
             Vector3 current = DynelManager.LocalPlayer.Rotation.Forward;
             Vector3 direction = wanted;
