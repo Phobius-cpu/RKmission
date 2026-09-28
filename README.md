@@ -4,10 +4,10 @@ AO# plugin for solo Rubi-Ka missions in Anarchy Online. It combines the original
 Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
 mission travel, room exploration, combat targeting, door handling, and looting.
 
-**Status (2026-09-28):** the user reported working dungeon behavior before this
-travel revision. The nearest-entrance/vehicle-entry revision is source-only and
-awaits the user's build and in-game validation. Dungeon exploration, combat,
-room doors, lockpicking, and loot behavior are preserved; one hook refreshes
+**Status (2026-09-28):** the user reported working local flight/vehicle approach,
+with entrance height and obstacle avoidance needing refinement. Those refinements
+are source-only and await the user's build and in-game validation. Dungeon
+exploration, combat, room doors, lockpicking, and loot behavior are preserved; one hook refreshes
 the live mission binding.
 
 ## Setup
@@ -48,9 +48,9 @@ the live mission binding.
 5. On foot, use a complete mesh path if available, otherwise locally sampled
    waypoints/arcs around obstacles. In a flying vehicle, the bot attempts direct
    world-space travel toward an elevated point near the entrance, then prepares
-   descent within 16 horizontal metres. Collision probes advise recovery;
-   they do not reject the mission or stop moving characters. **Stay in your
-   flying vehicle**: descent, the precise entrance approach, and door interaction
+   descent within 16 horizontal metres. Ahead checks select higher or lateral
+   waypoints around detected obstacles while retaining the chosen mission.
+   **Stay in your flying vehicle**: descent, the precise entrance approach, and door interaction
    continue in flight. Unresolved height allows a short provisional descent
    followed by entrance approach; there is no dismount pause or ground detour
    while you remain in Fly state.
@@ -99,25 +99,39 @@ retrying an unfinished accepted mission.
   entrance, at least 12 m above its estimated height, followed by descent/final
   approach. This cost describes the single chosen flight route and does not
   rank other missions. A synthetic climb/cruise/descent probe cannot discard it.
-  Within 16 horizontal metres, the bot resolves local terrain/live door height
-  and prepares descent. A live
-  door loaded during descent replaces a provisional/terrain approach. Without
-  height evidence or a usable accepted height, a 4 m provisional surface target
+  Within 16 horizontal metres, the bot refines entrance height and prepares
+  descent. A unique live door supplies the authoritative position/height.
+  Otherwise, 17 vertical columns around the entrance sample up to four surface
+  layers to reduce roof/canopy mistakes. A height needs at least three independent
+  column votes, including nearby support; the centre or inner ring supplies
+  precise elevation. Surface sampling repeats every two seconds as geometry
+  loads, with a 0.5 m height tolerance. The staging surface four metres outside
+  is kept separate from the entrance floor. A live door appearing later replaces
+  terrain/provisional height. Without height evidence or a usable accepted height,
+  a 4 m provisional surface target
   allows a small descent before continuing to the chosen entrance in flight.
   No mesh is needed. The approach side is anchored to the captured origin.
   Flight steering remains active through precise approach; door use is allowed
   in Fly state for a selected flight route. Manually leaving flight near the
   entrance can continue the same mission on ground; this is never required.
-- Collision/terrain probes are soft hints. Ground/flight waypoint stalls of
-  eight seconds trigger resampling; ground mesh movement stalls of 15 seconds
-  trigger direct fallback. Flight recovery samples lateral/raised waypoints
-  with a ceiling 40 m above the initial elevated target. Recoveries do not
+- Flight checks a short corridor ahead every 400 ms using surface rays plus
+  native scene line-of-sight, with offset rays for vehicle clearance. Speed
+  controls an 8-24 m lookahead. A detected obstacle triggers clear vertical,
+  raised or lateral candidate legs, scored for useful continuation and recent
+  attempts. This can climb beside a building or arc around a tree before a
+  collision/stall. If no local bypass clears, hold and retry within the existing
+  no-progress limit; the mission remains selected. Only the final metre at the
+  selected entrance is reserved for proximity entry. The climb ceiling is 40 m
+  above the greater of initial cruise height and refined entrance height +12 m.
+- Ground probes remain soft hints. Ground/flight waypoint stalls of eight
+  seconds trigger resampling; ground mesh movement stalls of 15 seconds
+  trigger direct fallback. Recoveries and entrance-height corrections do not
   reset the final-target progress deadline: ground requires new best horizontal
   distance, flight new best 3D distance, within 90 seconds. Productive detours
   continue until the 15-minute overall limit. Precise approach/entry allows
   three minutes, unresolved door lookup/proximity entry 45 seconds, and door
-  use retains three attempts/20 seconds. Local sampling
-  cannot guarantee a route around arbitrary terrain or large obstacles.
+  use retains three attempts/20 seconds. Client geometry queries and local
+  sampling cannot guarantee a route around arbitrary terrain or large obstacles.
 - AO# uses **Y for altitude**, with X/Z as the horizontal plane. Zero/stale
   accepted entrance height cannot alone invalidate a route or hide a door:
   nearby terrain/player height supplies provisional travel elevation, and door
@@ -201,7 +215,9 @@ deployed plugin folders.
   plans for the mission list. Finite estimates remain attemptable even when
   clearance probes hit. Watch `Active movement` for the actual waypoint,
   `progress` for final-target distance,
-  `obstacle hint/recovery` for advisory probes/resampling, and
+  `Entrance height refined` for floor/source changes,
+  `Flight proactive avoidance` / `Flight obstacle bypass` for ahead checks
+  and higher/lateral targets, `Flight obstacle recovery` for a stalled leg, and
   `Flight descent/final approach` for descent, then
   `Flight entrance approach in vehicle` for the last metres.
   Idle selection checks retry every five seconds; mode warnings are suppressed

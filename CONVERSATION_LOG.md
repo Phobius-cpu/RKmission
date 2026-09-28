@@ -436,3 +436,34 @@ Updated README.md and PROJECT_MEMORY.md to replace route-cost ranking and user
 dismount guidance. Preserved dungeon exploration/combat/interior-door/loot logic
 and accepted tracking. Source/API/diff review only; no local compilation, restore,
 automated tests or in-game testing. The user will pull main, compile and test.
+
+### User entrance-height and flight-obstacle refinement (2026-09-28)
+
+The user supplied 07:27 flight recovery/vehicle entrance-approach logs near
+(699.33, 28.45, 1535.32). Pathing otherwise seemed fine. They requested refining
+mission entrance height and avoiding buildings, trees and other objects ahead
+by selecting a higher elevation or going around them. Keep the earlier nearest
+entrance from one origin and flight entry without leaving the vehicle.
+
+### Assistant refinement
+
+Entrance floor is now resolved from multiple nearby vertical columns/layers,
+with independent support and centre/inner-ring elevation, then refreshed during
+local descent/approach as geometry loads. A unique live door overrides terrain.
+The staging point's ground height no longer replaces the actual entrance floor.
+Logs identify old/new floor, evidence source and the resulting hover target.
+
+Flight checks a short speed-based corridor ahead with surface and native scene
+line-of-sight queries, including vehicle-clearance offsets. A detected obstacle
+can trigger a clear climb or lateral/raised waypoint before a stall; candidate
+continuation and recent attempts guide selection. If no bypass clears, hold and
+retry within the existing progress bounds. The selected mission, vehicle entry,
+precise live door use and exact dungeon verification are retained. Height updates
+and bypasses do not reset the final-target no-progress deadline.
+
+Confirmed the additional APIs in cached reference source and pinned SDK metadata.
+Updated README.md and PROJECT_MEMORY.md. Changes are confined to local planner/
+travel and these history documents; ground recovery, accepted tracking, dungeon
+exploration/combat/interior doors/lockpick/loot are preserved. Source/API/diff
+review only; no local compilation, package restore, tests or in-game run. The user
+will pull main, compile and test the two requested refinements in game.

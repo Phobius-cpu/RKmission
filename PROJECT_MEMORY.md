@@ -32,7 +32,9 @@ The current responsibility boundary supersedes earlier automatic rolling plans:
    selects automatically; `/rkm travel auto|ground|flying` overrides by session.
 5. Flight has no dismount prompt/wait or forced ground approach. Both modes
    converge on the chosen entrance, a unique live door when exposed or a
-   proximity entry attempt, and exact mission/dungeon verification.
+   proximity entry attempt, and exact mission/dungeon verification. Refine
+   entrance floor from nearby surface consensus/live door data; flight checks
+   ahead and samples higher/lateral legs around detected objects.
 6. Existing `MissionDungeon` owns room exploration/navigation, combat, doors,
    lockpicking, and Manager.Loot. Preserve these working systems.
 7. Preserve identity/action/target/completion metadata per accepted mission.
@@ -538,3 +540,52 @@ This correction supersedes all earlier route-cost ranking and dismount steps.
   or in-game run. User pulls main, compiles and validates in game. Dungeon
   exploration, combat, interior doors/lockpick/loot and accepted tracking are
   unchanged. Updated README and conversation history along with this memory.
+
+## Entrance Height Refinement and Proactive Flight Avoidance (2026-09-28)
+
+This section supersedes single-hit entrance height and stall-only flight avoidance.
+
+- User's 07:27 logs on main `c01a005` show flight recovery and vehicle entrance
+  approach near (699.33, 28.45, 1535.32). They report pathing otherwise fine,
+  requesting better entrance elevation and avoidance of buildings/trees by
+  climbing or going around them. Keep nearest-from-origin selection and vehicle
+  entry; no changes to accepted tracking or the working dungeon systems.
+- Previously, one downward hit could be a roof/canopy, and the surface four
+  metres outside could replace the actual entrance elevation. Height stayed
+  cached until a door appeared. Collision hints waited for an eight-second stall.
+- The chosen entrance now uses 17 columns (centre, 2 m and 6 m rings), up to
+  four downward surface layers, and walkable normals. At least three independent
+  columns must support a height within 1.5 m, with centre/inner support. Lower
+  layers win equally supported ties; centre height or the inner-ring mean gives
+  local entrance elevation. Only the selected mission is sampled. A unique live
+  door is authoritative and cannot subsequently be overwritten by terrain.
+- Local descent and entrance approach refresh surface evidence every two seconds
+  while within 24 horizontal metres, with 0.5 m height/position tolerance. Keep
+  staging terrain separate from entrance floor; short rays near resolved height
+  avoid reintroducing a high roof into staging. Zero/stale accepted height remains
+  provisional and cannot veto the route. Flight still descends/enters in vehicle.
+- Inspected cached AOSharp reference and pinned AOSharpSDK 1.0.106 assembly
+  metadata without loading/executing the SDK. Confirmed `Playfield.LineOfSight`,
+  `Playfield.Raycast`, and float player `Radius`/`Velocity` APIs. Raycast uses the
+  outdoor TilemapSurface; native line-of-sight supplements scene-object checks.
+  These queries cover client-loaded geometry and do not prove global feasibility.
+- Every 400 ms, flight checks an 8-24 m speed-based lookahead corridor with five
+  centre/lateral/above surface/line-of-sight rays. Clearance offsets exclude the
+  space below player origin, so near-floor entry does not falsely block every climb.
+  Detected obstruction or an eight-second
+  waypoint stall selects among clear vertical climbs (4/8/16/24 m) and eight-heading
+  lateral/raised legs (6/12 m long, 0/6/12 m rise). Continuation clearance and recent
+  points affect score. Ceiling is 40 m above max(initial cruise, refined floor+12).
+  No bypass found means stop and retry locally while keeping the chosen mission;
+  the original final-target no-progress clock still bounds the attempt. Exempt only
+  the last metre at the selected portal for proximity entry, not the whole approach.
+- Height corrections adjust flight distance baseline without resetting the progress
+  deadline. Existing 90-second final-target no-progress, 15-minute travel,
+  three-minute approach/entry, 45-second unresolved-door, and three uses/20-second
+  interaction bounds remain. Logs identify floor/source changes, proactive avoidance,
+  obstacle bypass target, stalled recovery, waiting for a clear bypass and hard failure.
+- Changed only local planner/travel and README/PROJECT_MEMORY/CONVERSATION_LOG.
+  Ground waypoint recovery, nearest mission selection, accepted tracking, verified
+  handoff and dungeon exploration/combat/interior doors/lockpick/loot are preserved.
+  Source/API/diff inspection only: no compilation, restore, local tests or in-game
+  run. User pulls main, compiles and validates height and obstacle avoidance in game.

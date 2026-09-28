@@ -21,7 +21,8 @@ namespace RKmission
         private float _bestStepDistance, _bestGroundDistance, _bestFlightDistance, _bestFlightStepDistance;
         private DateTime _stepProgress, _groundProgress, _flightProgress, _flightStepProgress, _lastMotion;
         private DateTime _travelStarted, _phaseAt, _nextMove, _lastUse, _entryStarted, _nextProgressLog, _nextProbeLog;
-        private int _groundRecoveries, _flightRecoveries, _preferredSide, _doorAttempts;
+        private DateTime _nextHeightCheck, _nextFlightProbe;
+        private int _groundRecoveries, _flightRecoveries, _flightAvoidances, _preferredSide, _doorAttempts;
         private string _movementKind, _lastEvaluation;
         private Identity _door = Identity.None;
         public TravelMode Mode { get; set; } = TravelMode.Auto;
@@ -60,7 +61,7 @@ namespace RKmission
             SMovementController.Halt();
             SMovementController.SetMovement(MovementAction.FullStop);
             _door = Identity.None;
-            _doorAttempts = _groundRecoveries = _flightRecoveries = _preferredSide = 0;
+            _doorAttempts = _groundRecoveries = _flightRecoveries = _flightAvoidances = _preferredSide = 0;
             _entryStarted = DateTime.MinValue;
             _travelStarted = DateTime.UtcNow;
             _forceDirect = !_route.GroundUsesMesh;
@@ -70,7 +71,8 @@ namespace RKmission
             _say($"Nearest entrance selected: {_route.Mission.Id.Instance}, {_route.Mission.Name}; origin={_route.Origin}, " +
                 $"entrance={_route.Entrance}, estimated distance={_route.EntranceDistance:F1} m. " +
                 $"Single {(flying ? "flying" : "ground")} route: {_route.Reason}, path cost={_route.Cost:F1} m; " +
-                $"movement={DynelManager.LocalPlayer.MovementState}, outdoor mesh={SMovementController.NavAgent?.HasPathfinder == true}.");
+                $"movement={DynelManager.LocalPlayer.MovementState}, outdoor mesh={SMovementController.NavAgent?.HasPathfinder == true}, " +
+                $"entrance height={_route.EntrancePoint.Y:F2} ({_route.HeightSource}).");
             return _route.Mission;
         }
 
@@ -96,6 +98,7 @@ namespace RKmission
             if (phase == Phase.EntranceApproach && _entryStarted == DateTime.MinValue) _entryStarted = _phaseAt;
             _lastPosition = DynelManager.LocalPlayer.Position;
             _nextMove = _nextProgressLog = _nextProbeLog = DateTime.MinValue;
+            _nextHeightCheck = _nextFlightProbe = DateTime.MinValue;
             _directActive = _flightDetour = false; _movementKind = null;
             _entryProbeLogged = false;
             _bestGroundDistance = _bestFlightDistance = _bestFlightStepDistance = float.PositiveInfinity;
@@ -144,6 +147,7 @@ namespace RKmission
                     if (!_approachFromDoor && LocalRoutePlanner.HorizontalDistance(position, _route.Entrance) <= 8 &&
                         ResolveDoor(mission) != null)
                     { PrepareFlightDescent(mission); return true; }
+                    RefreshEntranceHeight();
                     Vector3 approach = _route.FlightApproach + new Vector3(0, 1.5f, 0);
                     if (LocalRoutePlanner.HorizontalDistance(position, approach) <= 2 && Math.Abs(position.Y - approach.Y) <= 1.5f)
                     {
@@ -162,24 +166,66 @@ namespace RKmission
         {
             Vector3 position = DynelManager.LocalPlayer.Position;
             Door entrance = ResolveDoor(mission);
-            Vector3 anchor = entrance?.Position ?? LocalRoutePlanner.ResolveEntranceHeight(_route.Entrance, position, out _);
+            RefreshEntranceHeight(entrance, true);
+            Vector3 anchor = _route.EntrancePoint;
             Vector3 approach = LocalRoutePlanner.OutsideEntrance(anchor, _route.Origin, 4);
-            bool terrain = LocalRoutePlanner.TrySurface(approach, position.Y, out Vector3 surface);
-            bool knownHeight = entrance != null || terrain || !LocalRoutePlanner.HeightMissing(_route.Entrance);
-            // Use live door height if a local ray hit a roof. Missing height permits a small
-            // provisional descent rather than a blind descent to map Y=0. Flight continues
-            // through the entrance approach; this waypoint never requests a dismount.
-            if (terrain && (entrance == null || Math.Abs(surface.Y - anchor.Y) <= 5)) approach.Y = surface.Y;
-            else if (entrance != null) approach.Y = entrance.Position.Y;
-            else if (!knownHeight) approach.Y = position.Y - 4;
-            if (entrance == null) anchor.Y = approach.Y;
+            if (_route.EntranceHeightVerified &&
+                LocalRoutePlanner.TrySurfaceNearHeight(approach, anchor.Y, out Vector3 surface)) approach.Y = surface.Y;
+            else if (!_route.EntranceHeightVerified && LocalRoutePlanner.HeightMissing(_route.Entrance))
+            {
+                anchor.Y = approach.Y = position.Y - 4;
+                _route.HeightSource = "short provisional descent";
+            }
+            // Staging terrain and actual entrance floor are different measurements. Do not
+            // overwrite doorway height with the surface four metres in front of the building.
             _route.EntrancePoint = anchor;
             _route.FlightApproach = approach;
             _approachFromDoor = entrance != null;
             Begin(Phase.FlightDescent);
             _say($"Flight descent/final approach: target={approach + new Vector3(0, 1.5f, 0)}, " +
-                $"height={(entrance != null ? "live door" : terrain ? "local terrain hint" : knownHeight ? "accepted coordinate, provisional" : "short provisional descent")}; " +
-                $"position={position}; chosen entrance={_route.Entrance}; vehicle stays equipped. Clearance probes are advisory.");
+                $"entrance floor={anchor.Y:F2}, height source={_route.HeightSource}; " +
+                $"position={position}; chosen entrance={_route.Entrance}; vehicle stays equipped; checking ahead for local bypasses.");
+        }
+
+        private void RefreshEntranceHeight(Door door = null, bool force = false)
+        {
+            DateTime now = DateTime.UtcNow;
+            Vector3 position = DynelManager.LocalPlayer.Position;
+            if (LocalRoutePlanner.HorizontalDistance(position, _route.Entrance) > 24 ||
+                (!force && now < _nextHeightCheck && door == null)) return;
+            Vector3 point = _route.EntrancePoint;
+            string source;
+            if (door != null)
+            {
+                point = door.Position;
+                source = "live door";
+                _approachFromDoor = true;
+            }
+            else
+            {
+                if (_approachFromDoor || (!force && now < _nextHeightCheck)) return;
+                _nextHeightCheck = now.AddSeconds(2);
+                if (!LocalRoutePlanner.TryEntranceSurface(_route.Entrance, position.Y, out float height, out int support)) return;
+                point.Y = height;
+                source = $"local surface consensus ({support}/17 columns)";
+            }
+            _nextHeightCheck = now.AddSeconds(2);
+            if (_route.EntranceHeightVerified && Math.Abs(point.Y - _route.EntrancePoint.Y) <= 0.5f &&
+                LocalRoutePlanner.HorizontalDistance(point, _route.EntrancePoint) <= 0.5f &&
+                (_route.HeightSource == source || (source.StartsWith("local surface") && _route.HeightSource.StartsWith("local surface")))) return;
+            float previous = _route.EntrancePoint.Y;
+            _route.EntrancePoint = point;
+            _route.EntranceHeightVerified = true;
+            _route.HeightSource = source;
+            if (_route.Flying)
+            {
+                Vector3 approach = _route.FlightApproach;
+                approach.Y = point.Y;
+                if (LocalRoutePlanner.TrySurfaceNearHeight(approach, point.Y, out Vector3 surface)) approach.Y = surface.Y;
+                _route.FlightApproach = approach;
+            }
+            _say($"Entrance height refined: mission={_route.Mission.Id.Instance}, floor={previous:F2} -> {point.Y:F2}, " +
+                $"source={source}, entrance point={point}; hover target={point + new Vector3(0, 1.5f, 0)}.");
         }
 
         private bool GroundMove(Vector3 destination)
@@ -286,38 +332,80 @@ namespace RKmission
             if (!AcceptedMissions.Finite(destination)) return Fail("Flight target coordinates are invalid.");
             Vector3 position = DynelManager.LocalPlayer.Position;
             DateTime now = DateTime.UtcNow;
-            if (Vector3.Distance(destination, _flightGoal) > 1)
+            if (Vector3.Distance(destination, _flightGoal) > 0.05f)
             {
-                _flightGoal = destination; _bestFlightDistance = _bestFlightStepDistance = float.PositiveInfinity;
-                _flightProgress = _flightStepProgress = now; _flightDetour = false;
+                // A better height changes the goal, not proof of player movement. Adjust the
+                // distance baseline without refreshing the no-progress deadline.
+                _bestFlightDistance = Vector3.Distance(position, destination);
+                _flightGoal = destination;
+                _bestFlightStepDistance = float.PositiveInfinity;
+                _flightStepProgress = now;
+                _flightDetour = false;
+                _nextFlightProbe = DateTime.MinValue;
             }
             float remaining = Vector3.Distance(position, destination);
             if (remaining + 0.5f < _bestFlightDistance) { _bestFlightDistance = remaining; _flightProgress = now; }
             if (now - _flightProgress > TimeSpan.FromSeconds(90))
                 return Fail($"Flight made no improvement toward {_phase} target for 90 seconds; target={destination}, " +
-                    $"remaining={remaining:F1} m, best={_bestFlightDistance:F1} m, position={position}, recoveries={_flightRecoveries}.");
+                    $"remaining={remaining:F1} m, best={_bestFlightDistance:F1} m, position={position}, " +
+                    $"stall recoveries={_flightRecoveries}, obstacle bypasses={_flightAvoidances}.");
             LogProgress("Flight", position, destination, remaining, _flightProgress);
             if (_flightDetour && Vector3.Distance(position, _flightStep) <= 2)
             {
                 Halt(); Remember(_recentFlight, position); _flightDetour = false;
                 _bestFlightStepDistance = float.PositiveInfinity; _flightStepProgress = now;
+                _nextFlightProbe = DateTime.MinValue;
             }
             Vector3 target = _flightDetour ? _flightStep : destination;
             float stepDistance = Vector3.Distance(position, target);
             if (stepDistance + 0.4f < _bestFlightStepDistance) { _bestFlightStepDistance = stepDistance; _flightStepProgress = now; }
-            if (now - _flightStepProgress > TimeSpan.FromSeconds(8))
+            bool stalled = now - _flightStepProgress > TimeSpan.FromSeconds(8);
+            if (now >= _nextFlightProbe || stalled)
             {
-                Remember(_recentFlight, target); Halt();
-                _flightStep = LocalRoutePlanner.FlightRecoveryStep(position, destination, _route.CruiseEnd.Y + 40,
-                    ++_flightRecoveries, _recentFlight);
-                _flightDetour = true; target = _flightStep;
-                _bestFlightStepDistance = Vector3.Distance(position, target); _flightStepProgress = now;
-                _say($"Flight obstacle recovery {_flightRecoveries}: no waypoint progress for 8 seconds; " +
-                    $"alternate target={target}, final target={destination}; no-progress clock continues.");
+                _nextFlightProbe = now.AddMilliseconds(400);
+                float bodyRadius = DynelManager.LocalPlayer.Radius;
+                if (float.IsNaN(bodyRadius) || float.IsInfinity(bodyRadius)) bodyRadius = 0.6f;
+                float radius = Math.Max(0.6f, Math.Min(1.2f, bodyRadius + 0.25f));
+                float velocity = DynelManager.LocalPlayer.Velocity;
+                if (float.IsNaN(velocity) || float.IsInfinity(velocity)) velocity = 0;
+                float lookAhead = Math.Max(8, Math.Min(24, velocity * 1.5f + 4));
+                Vector3 probeEnd = LocalRoutePlanner.Toward(position, target, lookAhead);
+                // Leave only the last metre of the selected entrance for proximity entry;
+                // a door/wall at the exact portal coordinate is not an unrelated obstacle.
+                float entryMargin = !_flightDetour && _phase == Phase.EntranceApproach && remaining <= lookAhead ? 1 : 0;
+                bool blocked = !LocalRoutePlanner.FlightCorridorClear(position, probeEnd, radius, entryMargin);
+                if (blocked || stalled)
+                {
+                    if (_flightDetour) Remember(_recentFlight, target);
+                    if (stalled) _flightRecoveries++;
+                    float ceiling = Math.Max(_route.CruiseEnd.Y, _route.EntrancePoint.Y + 12) + 40;
+                    Halt();
+                    if (!LocalRoutePlanner.TryFlightBypass(position, destination, ceiling, radius,
+                        _flightAvoidances, _recentFlight, out Vector3 bypass, out string kind))
+                    {
+                        _flightDetour = false;
+                        _bestFlightStepDistance = float.PositiveInfinity;
+                        _flightStepProgress = now;
+                        if (now >= _nextProbeLog)
+                        {
+                            _nextProbeLog = now.AddSeconds(2);
+                            _say($"Flight avoidance: no clear local climb/arc yet; holding at {position}, " +
+                                $"retrying toward {destination}; final-target no-progress clock continues.");
+                        }
+                        return true;
+                    }
+                    _flightStep = target = bypass;
+                    _flightDetour = true;
+                    _bestFlightStepDistance = Vector3.Distance(position, target);
+                    _flightStepProgress = now;
+                    _flightAvoidances++;
+                    _say($"Flight {(stalled ? "obstacle recovery" : "proactive avoidance")} {_flightAvoidances}: " +
+                        $"{(stalled ? "waypoint stalled" : "object/terrain ahead")}, {kind}, bypass={target}, " +
+                        $"entrance/final target={destination}; no-progress clock continues.");
+                }
             }
-            LogMovement(_flightDetour ? "Flight recovery" : _phase == Phase.FlightDescent ? "Flight descent/final approach" :
+            LogMovement(_flightDetour ? "Flight obstacle bypass" : _phase == Phase.FlightDescent ? "Flight descent/final approach" :
                 _phase == Phase.EntranceApproach ? "Flight entrance approach in vehicle" : "Direct elevated flight", target, destination);
-            LogProbe(position, target, "Flight");
             Vector3 direction = target - position;
             // Ordinary waypoint arrival uses X/Z. Flight needs explicit altitude-aware steering
             // and a nondegenerate LookRotation basis for zero/vertical directions.
@@ -351,6 +439,7 @@ namespace RKmission
             if (IsFlying && !_route.Flying) return Fail("Ground route changed to flying state; select /rkm travel auto or flying to restart from this origin.");
             if (!IsFlying && DynelManager.LocalPlayer.IsFalling) { Halt(); return true; }
             Door entrance = ResolveDoor(mission);
+            RefreshEntranceHeight(entrance);
             if (entrance == null)
             {
                 if (DateTime.UtcNow - _phaseAt > TimeSpan.FromSeconds(45))
