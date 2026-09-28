@@ -436,9 +436,13 @@ namespace RKmission
                 _flightBlockedAt = _flightHolding ? now : DateTime.MinValue;
             }
             if (_flightHolding) { Halt(); return true; }
+            string purpose = _phase == Phase.EntranceHeight
+                ? target.Y < position.Y - 1 ? "lowering beside entrance" :
+                    LocalRoutePlanner.HorizontalDistance(target, _route.EntrancePoint) > 2
+                        ? "outside alignment for descent" : "entrance height alignment"
+                : _phase == Phase.EntranceApproach ? "entrance approach in vehicle" : "travel to within 2 m";
             LogMovement($"Flight committed {(_flightPathComplete ? "path" : "prefix")} leg {_flightPathIndex + 1}/{_flightPath.Count}: " +
-                (_phase == Phase.EntranceHeight ? "entrance height alignment" : _phase == Phase.EntranceApproach ?
-                    "entrance approach in vehicle" : "travel to within 2 m"), target, destination);
+                purpose, target, destination);
             if (stepDistance < 0.1f) { Halt(); return true; }
             Vector3 wanted = (target - position).Normalize();
             Vector3 current = DynelManager.LocalPlayer.Rotation.Forward;

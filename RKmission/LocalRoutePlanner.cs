@@ -297,6 +297,93 @@ namespace RKmission
             return length + hints * 4;
         }
 
+        // Search descent columns before the generic grid. A roof can require moving
+        // away from the doorway first; certify the sideways and downward legs as one
+        // section instead of demanding that sideways movement already gets closer.
+        private static List<Vector3> PlanOutsideDescent(Vector3 origin, Vector3 destination, Vector3 centre,
+            IList<Vector3> goals, float radius, IList<FlightBlockedLeg> blocked, float extent, bool portal,
+            ref int probes, out bool complete, out string reason)
+        {
+            complete = false;
+            int limit = Math.Min(FlightSearchProbeLimit, probes + 2000), columns = 0, clearDrops = 0;
+            string hitHint = "direct drop obstructed or inconclusive";
+            probes++;
+            if (Playfield.Raycast(Toward(origin, destination, 0.3f), destination, out Vector3 hit, out _) &&
+                AcceptedMissions.Finite(hit)) hitHint = $"direct drop surface at Y={hit.Y:F1}";
+            var levels = new List<float> { destination.Y };
+            foreach (float drop in new float[] { 6, 12, 18 })
+            {
+                float height = Math.Max(destination.Y, origin.Y - drop);
+                if (origin.Y - height >= 3 && !levels.Exists(y => Math.Abs(y - height) < 0.1f)) levels.Add(height);
+            }
+            List<Vector3> bestPath = null, bestSection = null;
+            float bestPathCost = float.PositiveInfinity, bestSectionCost = float.PositiveInfinity;
+            int bestHints = int.MaxValue;
+            double heading = Math.Atan2(origin.Z - centre.Z, origin.X - centre.X);
+            foreach (float distance in new float[] { 4, 8, 12, 20, 28, 40, 56, 72 })
+            {
+                if (distance > extent || probes >= limit) break;
+                for (int direction = 0; direction < 16 && probes < limit; direction++)
+                {
+                    double angle = heading + direction * Math.PI / 8;
+                    Vector3 top = centre + new Vector3((float)Math.Cos(angle) * distance, 0,
+                        (float)Math.Sin(angle) * distance);
+                    top.Y = origin.Y;
+                    columns++;
+                    float across = FlightEdge(origin, top, radius, blocked, false, ref probes, out int acrossHints);
+                    if (across < 0 || float.IsInfinity(across)) continue;
+                    foreach (float height in levels)
+                    {
+                        if (probes >= limit) break;
+                        Vector3 bottom = top; bottom.Y = height;
+                        float down = FlightEdge(top, bottom, radius, blocked, false, ref probes, out int downHints);
+                        if (down < 0 || float.IsInfinity(down)) continue;
+                        clearDrops++;
+                        var section = new List<Vector3>();
+                        if (Vector3.Distance(origin, top) > 0.05f) section.Add(top);
+                        section.Add(bottom);
+                        float sectionCost = Vector3.Distance(bottom, destination) + (across + down) * 0.025f;
+                        // A useful drop can end further away horizontally. Keep it
+                        // under the original final-target deadline, without moving
+                        // the selected entrance or overwriting its floor with this column.
+                        if (origin.Y - bottom.Y >= Math.Min(6, origin.Y - destination.Y) && sectionCost < bestSectionCost)
+                        { bestSectionCost = sectionCost; bestSection = section; }
+                        // Intermediate lowering planes are prefixes. At entry height,
+                        // check the return to the same entrance, including its clear side.
+                        if (Math.Abs(height - destination.Y) > 0.1f) continue;
+                        foreach (Vector3 goal in goals)
+                        {
+                            if (probes >= limit) break;
+                            float approach = FlightEdge(bottom, goal, radius, blocked, portal, ref probes, out int approachHints);
+                            if (approach < 0 || float.IsInfinity(approach)) continue;
+                            int hints = acrossHints + downHints + approachHints;
+                            float cost = across + down + approach + Vector3.Distance(goal, destination) * 0.25f;
+                            bool better = bestPath == null || (hints == 0 && bestHints != 0) ||
+                                ((hints == 0) == (bestHints == 0) && cost < bestPathCost);
+                            if (!better) continue;
+                            bestPath = new List<Vector3>(section); bestPath.Add(goal);
+                            bestPathCost = cost; bestHints = hints;
+                        }
+                    }
+                }
+            }
+            string stats = $"{columns} outside columns, {clearDrops} clear drops, {probes} probes; {hitHint}";
+            if (bestPath != null)
+            {
+                complete = true;
+                reason = $"outside descent and entrance return; {stats}; selected entry height={destination.Y:F1}";
+                return bestPath;
+            }
+            if (bestSection != null)
+            {
+                reason = $"outside descent prefix; {stats}; lowering target={bestSection[bestSection.Count - 1]}; " +
+                    "final doorway leg pending, continue from the lowered position";
+                return bestSection;
+            }
+            reason = $"outside descent search found no useful drop; {stats}";
+            return null;
+        }
+
         // Bounded A* links local grid cells at entrance/current/raised heights.
         // Unlike fixed rectangles, connected arcs can turn around several building
         // faces or reach a cave opening. Commit/simplify the whole path, not each cell.
@@ -321,6 +408,22 @@ namespace RKmission
             if (direct >= 0 && directHints == 0)
             { reason = "direct complete flight path; surface probes clear"; return new List<Vector3> { destination }; }
 
+            bool descending = origin.Y > destination.Y + 3;
+            string descentHint = null;
+            if (descending)
+            {
+                List<Vector3> descent = PlanOutsideDescent(origin, destination, entranceCentre ?? destination,
+                    goals, radius, blocked, extent, portal, ref probes, out bool descentComplete, out descentHint);
+                if (descent != null)
+                {
+                    complete = descentComplete;
+                    List<Vector3> section = SimplifyFlightPath(origin, descent, radius, blocked,
+                        portal && complete, ref probes);
+                    reason = $"{descentHint}; {section.Count} committed legs, complete={complete}; probes={probes}/{FlightProbeLimit}";
+                    return section;
+                }
+            }
+
             // Cheap whole-route candidates avoid spending the local grid budget on
             // hundreds of metres of open travel. Retain clear prefixes even if the
             // provisional final height/last descent cannot yet be reached.
@@ -330,7 +433,7 @@ namespace RKmission
             List<Vector3> prefix = null;
             float prefixScore = float.PositiveInfinity;
             Func<Vector3, float, float> progressScore = (point, cost) =>
-                HorizontalDistance(point, destination) + Math.Abs(point.Y - destination.Y) * 0.2f + cost * 0.025f;
+                Vector3.Distance(point, destination) + cost * 0.025f;
             float initialScore = progressScore(origin, 0);
             bool launching = !entranceCentre.HasValue && !portal && HorizontalDistance(origin, destination) > 24;
             Action<List<Vector3>, float> retainPrefix = (points, cost) =>
@@ -340,10 +443,10 @@ namespace RKmission
                 // Useful multi-leg travel/climb, not repeated two-unit micro-hops.
                 if (HorizontalDistance(origin, end) < 8 && Math.Abs(origin.Y - end.Y) < 6) return;
                 float score = progressScore(end, cost);
-                // Getting out from under a canopy/low start can first increase
-                // final distance. Permit a validated launch climb under the same
-                // deadline; prefer any section that already improves the approach.
-                if (score >= initialScore - 0.5f && !(launching && end.Y >= origin.Y + 6)) return;
+                // Leaving a canopy or reaching an outside descent column can first
+                // increase final distance. Keep the same observed-progress deadline.
+                bool necessaryDrop = descending && end.Y <= origin.Y - 6;
+                if (score >= initialScore - 0.5f && !necessaryDrop && !(launching && end.Y >= origin.Y + 6)) return;
                 if (score >= prefixScore) return;
                 prefixScore = score; prefix = new List<Vector3>(points);
             };
@@ -392,6 +495,12 @@ namespace RKmission
             foreach (float height in new[] { destination.Y, Math.Min(ceiling, Math.Max(origin.Y, destination.Y) + 12),
                 Math.Min(ceiling, Math.Max(origin.Y, destination.Y) + 24), ceiling })
                 if (!heights.Exists(h => Math.Abs(h - height) < 0.1f)) heights.Add(height);
+            if (descending)
+                foreach (float drop in new float[] { 6, 12, 18 })
+                {
+                    float height = Math.Max(destination.Y, origin.Y - drop);
+                    if (!heights.Exists(h => Math.Abs(h - height) < 0.1f)) heights.Add(height);
+                }
             const float spacing = 4;
             float minX = Math.Min(origin.X, destination.X) - extent, maxX = Math.Max(origin.X, destination.X) + extent;
             float minZ = Math.Min(origin.Z, destination.Z) - extent, maxZ = Math.Max(origin.Z, destination.Z) + extent;
@@ -480,7 +589,7 @@ namespace RKmission
                 string stats = $"{stop}; {expanded} cells, {probes} probes, {surfaceBlocks} physical/observed blocked edges; margin={extent:F0} m";
                 if (prefix == null)
                 {
-                    reason = $"no useful clear flight section; {stats}; {blocked.Count} observed failed legs; holding for retry";
+                    reason = $"no useful clear flight section; {stats}; {descentHint}; {blocked.Count} observed failed legs; holding for retry";
                     return new List<Vector3>();
                 }
                 List<Vector3> section = SimplifyFlightPath(origin, prefix, radius, blocked, false, ref probes);

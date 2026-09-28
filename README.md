@@ -4,9 +4,9 @@ AO# plugin for solo Rubi-Ka missions in Anarchy Online. It combines the original
 Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
 mission travel, room exploration, combat targeting, door handling, and looting.
 
-**Status (2026-09-28):** the connected search caused a stationary launch regression
-on a 149 m flight. The latest repair retains validated travel sections, restores
-complete climb/cruise candidates and refines cruise elevation nearby; it awaits the
+**Status (2026-09-28):** cruise now reaches the reported entrance, but descent
+stalled about 24 m above its selected height. The latest repair plans sideways
+movement to a clear descent column before lowering and returning; it awaits the
 user's build and in-game validation. Dungeon
 exploration, combat, room doors, lockpicking, and loot behavior are preserved; one hook refreshes
 the live mission binding.
@@ -112,7 +112,9 @@ retrying an unfinished accepted mission.
   a validated useful section of the path, then continue planning from its actual
   reached endpoint. Prefixes require at least 8 m horizontal or 6 m vertical
   displacement and a better estimated approach, or a clear launch climb while
-  far from the entrance; a necessary climb can temporarily increase final distance
+  far from the entrance or a necessary outside drop. Progress scoring uses actual
+  3D distance so vertical improvement is not outweighed by lateral displacement.
+  A necessary climb or descent detour can temporarily increase final distance
   under the same progress deadline. Shorter samples are not committed as repeated
   micro-hops. Hold/retry only when no usable section exists. Logs
   distinguish search limits from physical hits. Local searches cannot certify global access.
@@ -135,7 +137,16 @@ retrying an unfinished accepted mission.
   within 2 m horizontally. Only then proceed to door/proximity entry. Height is
   rechecked before each use; drift or a new live door height returns to alignment.
   If the direct descent is blocked, a complete outward/down/return path can reach
-  the alignment target. If its original side is blocked by the mission building,
+  the alignment target. Before the grid search, sample 16 headings at
+  4/8/12/20/28/40/56/72 m within the current search margin, testing the sideways
+  leg at current height and the drop to selected entry height. Intermediate planes
+  6/12/18 m below current altitude allow safe partial lowering around roofs.
+  This search gets about 2,000 probes within the existing shared budget. Keep both
+  sideways/lowering legs even if the final doorway leg is unresolved, then continue
+  from the lower position. A detour away from the entrance is not a reason to
+  discard an otherwise clear descent. Its staging column cannot change the chosen
+  entrance floor or count as completed height alignment. If its original side
+  is blocked by the mission building,
   sample 16 points 1.5 m around this same entrance at the selected entry height
   and keep the reachable endpoint. The floor, mission and live door identity
   remain fixed; the vehicle stays equipped throughout.
@@ -246,7 +257,10 @@ deployed plugin folders.
   `Flight blocked leg recorded` / `Flight obstacle search waiting` for observed
   obstruction and bounded search retries. `Entrance alignment side changed`
   identifies a reachable approach around the same entrance. Watch
-  `Entrance height selected within 2 m` / `Entrance height aligned` for the
+  `outside descent prefix` / `outside descent and entrance return`,
+  `outside alignment for descent` and `lowering beside entrance` for roof avoidance.
+  The descent search reports clear columns/drops and the direct-drop surface Y.
+  Watch `Entrance height selected within 2 m` / `Entrance height aligned` for the
   height-before-entry sequence. Flight progress includes the vertical gap.
   Idle selection checks retry every five seconds; mode warnings are suppressed
   when unchanged. During movement, the selected mission remains fixed.

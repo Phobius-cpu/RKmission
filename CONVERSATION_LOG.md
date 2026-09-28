@@ -590,3 +590,28 @@ Obstacle search, failed-direction memory, original progress bounds, mission
 selection, ground fallback and working dungeon systems remain. Updated README.md
 and PROJECT_MEMORY.md. Source/diff review only; no local compilation, restore,
 tests or in-game run. User pulls main, compiles and validates launch/travel in game.
+
+### User cruise arrival but blocked descent (2026-09-28)
+
+The user supplied 09:54 Broken Shores logs. Mission 1442233602 travels about
+104 m on a two-leg flight path and reaches the entrance horizontally. The floor
+refines to 15.2; final height target is 16.2 while the character is at 40.625.
+EntranceHeight repeats an empty search with 79 cells, 4,010 probes and 1,405
+blocked edges, despite widened margins. Some missions still have pathing issues.
+
+### Assistant outside-column descent repair
+
+Inspected main 7c591ea. The high grid repeatedly probes all low doorway points,
+has no intermediate lower planes, and rejects sideways/downward prefixes because
+its score undervalues altitude loss. Added a dedicated search for a clear column
+beside the building: move sideways at current height, lower there, then return
+to the chosen entrance. Keep that coherent descent section even when the final
+doorway connection is unresolved; continue planning from its actual lower endpoint.
+
+Intermediate lowering planes allow staged descent where a full drop is blocked.
+Generic fallback now scores actual 3D progress and permits necessary descent
+detours. Logs show outside alignment/lowering, clear columns and the direct-drop
+surface height. Existing vehicle entry, final height gate, floor/door identity,
+timeouts, ground fallback and dungeon systems remain. Updated README.md and
+PROJECT_MEMORY.md. Source/API/diff review only; no local compilation, restore,
+tests or in-game run. User pulls main, compiles and checks this descent in game.

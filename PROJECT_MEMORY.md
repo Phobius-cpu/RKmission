@@ -787,3 +787,46 @@ connected obstacle search or the near-entrance height sequence.
   unchanged. Updated README/CONVERSATION_LOG. Source/diff inspection only; no local
   compilation, restore, tests or in-game run. User pulls main, compiles and checks
   launch from the reported position and subsequent entrance avoidance in game.
+
+## Outside Descent After Cruise Arrival (2026-09-28)
+
+- User's 09:54 logs from Broken Shores: mission 1442233602 selects a 103.8 m
+  flight, follows two committed legs, and reaches within 2 m horizontally. The
+  local floor refines from provisional 28.575 to 15.2 (17/17 columns). Selected
+  entry height is 16.2; character is at Y=40.625. EntranceHeight then repeatedly
+  returns no useful section: 79 cells, 4,010 probes and 1,405 blocked edges, with
+  margins growing 48/64/80 m. Cruise works; final descent still stalls in the air.
+- Inspected main 7c591ea. All 17 low entrance targets are tried directly from
+  each expanded high cell, consuming the budget before reaching an outside
+  column. Grid heights contain only current, final and raised planes. The prefix
+  score weights vertical gap by 0.2 while counting all horizontal retreat, so
+  even a useful descent beside the building can be discarded. Only launch climbs
+  have an exception for temporary retreat; entrance descent does not.
+- Add a dedicated outside-column search before generic flight search whenever
+  current altitude exceeds final height by more than 3 m and the direct segment
+  needs avoidance. Sample 16 directions on 4/8/12/20/28/40/56/72 m rings inside
+  the current margin. Certify current-height sideways movement and vertical drop
+  as a connected section; prefer a complete return to this same entrance when
+  possible. Its budget is about 2,000 probes within the existing shared limits.
+- Test selected entry height and intermediate 6/12/18 m lower planes. At final
+  height, test the doorway/clear-side return; intermediate planes are prefixes,
+  avoiding repeated doorway rays from every high staging point. Preserve a
+  useful verified drop of >=6 m, or the entire requested drop when 3-6 m remains,
+  even if the final doorway leg is still blocked. Actual prefix arrival continues
+  planning from the lowered position using the existing executor, without marking
+  success or changing the floor/entrance anchor. Keep the entire path and certify
+  shortcuts so a diagonal cannot cut back through the roof.
+- Generic fallback adds intermediate lower grid planes and scores prefixes by
+  actual 3D distance plus route cost. A necessary >=6 m lower section may temporarily
+  retreat horizontally. Full-path/failed-leg geometry rules, 90-second observed
+  final-target progress and three-minute entry limits remain; search/replans cannot
+  reset those clocks. Vehicle equipment/movement state is unchanged.
+- Logs identify outside alignment versus lowering beside the entrance and record
+  tested columns, clear drops, the selected lowering point and direct-drop surface
+  Y. Rechecked the existing AOSharp Raycast hit-position API; no new SDK API or
+  dependency. Terrain at a staging column never overwrites the selected doorway
+  height. Unique door identity, nearest mission, ground fallback and all dungeon
+  exploration/combat/interior door/lockpick/loot behavior remain untouched.
+- Updated README/CONVERSATION_LOG and inspected source/diff only. No local build,
+  package restore, tests or in-game run. User pulls main, compiles and validates
+  outside descent and return to the reported Broken Shores entrance in game.
