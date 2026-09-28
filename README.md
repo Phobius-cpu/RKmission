@@ -5,7 +5,7 @@ Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
 mission travel, room exploration, combat targeting, door handling, and looting.
 
 **Status (2026-09-28):** the user reported working dungeon behavior before this
-travel revision. The local-travel navmesh dependency fix is source-only and
+travel revision. The local-travel feasibility/recovery revision is source-only and
 awaits the user's build and in-game validation. Dungeon exploration, combat,
 room doors, lockpicking, and loot behavior are preserved; one hook refreshes
 the live mission binding.
@@ -43,11 +43,14 @@ the live mission binding.
 4. Default `/rkm travel auto` reads AO# `MovementState.Fly`. Use
    `/rkm travel ground` or `/rkm travel flying` to override route selection for
    this plugin session. These commands do not equip or remove a vehicle.
-5. On foot, use a complete mesh path if available, otherwise short direct
-   waypoints with local terrain/obstacle checks. In a flying vehicle, the bot
-   climbs, flies a direct corridor, and rechecks a terrain approach near the
-   mission before descending. **Dismount when prompted**; ground approach resumes
-   automatically once flight/falling state clears.
+5. On foot, use a complete mesh path if available, otherwise locally sampled
+   waypoints/arcs around obstacles. In a flying vehicle, the bot attempts direct
+   world-space travel toward an elevated point near the entrance, then prepares
+   descent within 16 horizontal metres. Collision probes advise recovery;
+   they do not reject the mission or stop moving characters. **Dismount when
+   prompted**; ground approach resumes once flight/falling state clears. If
+   local height remains unresolved, the bot makes a short provisional descent
+   and asks you to land/dismount before the precise door approach.
 6. Both modes approach a unique nearby entrance door and attempt entry. AO#
    must associate the dungeon with the exact selected mission for a stable
    second before the existing `MissionDungeon` logic starts.
@@ -74,27 +77,39 @@ retrying an unfinished accepted mission.
   Removal is `RemovedUnconfirmed`; it can mean reward, deletion, or expiration.
 - Ground cost uses complete navmesh path length plus endpoint approach when
   available. A missing, partial, or disconnected mesh falls back to a direct
-  distance estimate, preserving that mission as an attemptable candidate.
+  horizontal distance estimate, preserving that mission as an attemptable candidate.
   AOSharpSDK.SharpNav 1.0.44 `SetDestination` queues a direct waypoint without
-  a pathfinder; `SetNavDestination` requires one. Ground execution uses steps
-  up to 12 m, local raycasts, and limited side-step recovery when needed.
-- Flying cost includes climb, world-space cruise, descent, and estimated final
-  approach distance. Eight points 12 m from the entrance are sampled without
-  mesh queries; suitable terrain hits take priority over provisional points.
-  Distant geometry may be unloaded: a provisional approach can be attempted,
-  but descent requires a fresh suitable terrain hit near arrival. Steep faces
-  and surfaces more than 8 m above/below entrance height are rejected.
-  Both alternatives are calculated; the active mode determines ranking, with
-  mission ID as tie-breaker. Mode changes before landing re-evaluate candidates.
-- Flight samples terrain clearance and checks climb/cruise/descent corridors
-  against visible geometry. It stops on a newly blocked corridor or movement
-  stall. Direct ground steps have a 12-second progress watchdog and at most
-  three obstruction/stall recoveries per mission. Mesh movement stalls after
-  20 seconds trigger the direct fallback; flight also requires progress toward
-  its current target within 20 seconds. Local travel has a 15-minute total
-  limit, dismount waits two minutes, and approach/entry retains its 60-second
-  bound. These local probes do not solve arbitrary terrain or large obstacles.
-- Entrance coordinates identify a nearby door; ambiguous doors are withheld.
+  a pathfinder; `SetNavDestination` requires one. Ground fallback samples
+  16 headings at 2/4/8/12 m, including tangent and backward arcs. Scores prefer
+  progress, clear probes and plausible terrain; recent visited/failed points
+  and a preferred detour side reduce oscillation. If every probe hits, a short
+  cautious waypoint can still be attempted. Each reached/stalled leg resamples
+  from the actual new position. There is no three-recovery limit.
+- Flying cost estimates direct world-space travel to a point 4 m outside the
+  entrance, at least 12 m above its estimated height, followed by descent/final
+  approach. Every finite local entrance retains a flight estimate; a synthetic
+  climb/cruise/descent probe cannot discard it. Within 16 horizontal metres,
+  the bot resolves local terrain/live door height and prepares descent. A live
+  door loaded during descent replaces a provisional/terrain approach. Without
+  height evidence or a usable accepted height, a 4 m provisional surface target
+  allows a small descent before requesting user landing. No mesh is needed.
+  Both alternatives are calculated; active mode selects ranking, with mission
+  ID as tie-breaker. Landing near the entrance joins the same ground approach.
+- Collision/terrain probes are soft hints. Ground/flight waypoint stalls of
+  eight seconds trigger resampling; ground mesh movement stalls of 15 seconds
+  trigger direct fallback. Flight recovery samples lateral/raised waypoints
+  with a ceiling 40 m above the initial elevated target. Recoveries do not
+  reset the final-target progress deadline: ground requires new best horizontal
+  distance, flight new best 3D distance, within 90 seconds. Productive detours
+  continue until the 15-minute overall limit. Dismount waits two minutes;
+  precise approach/entry allows three minutes, unresolved door lookup 45
+  seconds, and door use retains three attempts/20 seconds. Local sampling
+  cannot guarantee a route around arbitrary terrain or large obstacles.
+- AO# uses **Y for altitude**, with X/Z as the horizontal plane. Zero/stale
+  accepted entrance height cannot alone invalidate a route or hide a door:
+  nearby terrain/player height supplies provisional travel elevation, and door
+  lookup uses a 6 m horizontal neighborhood. The live door's actual position
+  and height still govern final interaction; ambiguous doors are withheld.
   Entry is limited to three uses and a bounded wait. A wrong or unidentified
   dungeon cannot start exploration. Interior room-door logic is unchanged.
 - AOSharpSDK 1.0.106 exposes no dependable completion/reward flag. Room
@@ -169,13 +184,17 @@ deployed plugin folders.
   is required again after the local chain finishes.
 - **Route diagnosis:** candidate logs include playfield, player position,
   actual movement state, mesh availability, costs, and route reasons. With no
-  mesh, expect `ground=... (no outdoor mesh; direct estimate)` and a direct
-  flight alternative where a corridor exists. Missing meshes no longer discard
-  all missions. Flight can still be blocked by geometry or unsuitable terrain.
+  mesh, expect `ground=... (no outdoor mesh; direct estimate)` and
+  `flying=... (world-space flight estimate; elevated approach, local descent on arrival)`.
+  Finite estimates remain attemptable even when clearance probes hit. Watch
+  `Active movement` for the actual waypoint, `progress` for final-target distance,
+  `obstacle hint/recovery` for advisory probes/resampling, and
+  `Flight descent/final approach` for the locally resolved landing target.
   Idle checks retry every five seconds and suppress unchanged candidate logs.
-- **Fallback stopped:** logs identify target/position, obstruction, or exhausted
-  recovery attempts. Move around the obstacle or closer to the entrance, then
-  `/rkm start`. An optional outdoor mesh improves difficult ground routes.
+- **Fallback stopped:** `Local travel HARD FAILURE` identifies an actual
+  timeout/no-progress, invalid coordinates/state, or entrance failure. Three
+  obstruction probes no longer stop a run. Move around the obstacle or closer
+  to the entrance, then `/rkm start`. An optional outdoor mesh improves difficult ground routes.
   Do not assume a direct estimate guarantees passage through every obstacle.
 - **Landing pause:** dismount when prompted. Mode selection does not change
   your vehicle or force a flight-state switch.

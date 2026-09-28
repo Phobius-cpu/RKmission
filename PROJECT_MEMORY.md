@@ -437,3 +437,60 @@ local-travel fix below.
   run. The user will pull main, compile, and validate ground/flight takeover,
   terrain landing, fallback stop behavior, and entry in game. The earlier
   Desktop/OneDrive backup is not refreshed by this request.
+
+## Local Travel Soft Feasibility and Progressive Recovery (2026-09-28)
+
+This section supersedes the clearance gates and three-recovery limits above.
+
+- Latest user logs in outdoor playfield 665: no outdoor mesh, valid ground
+  estimates around 32-100 m, but three side steps exhausted recovery. Every
+  flight candidate was rejected with `no clear climb/cruise/descent to a
+  suitable approach point` while the player was already in Fly state nearby.
+- Main `07fdbfa`/travel implementation `cd74489` hard-gated flight selection on
+  `TryCruise`'s three synthetic segments, stopped flight on any corridor hit,
+  required a fresh terrain hit before descent, and counted ordinary ground
+  detours against a lifetime three-recovery cap. Full 3D distance for door
+  lookup also hid entrances with zero/stale accepted map height.
+- Re-read cached pinned AOSharpSDK.SharpNav 1.0.44 controller/agent source and
+  supplied AOSharp/newbots references. `SetDestination` queues a direct leg
+  without a mesh; `SetNavDestination` submission alone does not prove a queued
+  path. Path arrival zeroes Y and uses X/Z distance; flight steering retains
+  explicit 3D rotation/arrival and a nondegenerate vertical basis. SDK Vector3
+  uses Y as altitude (X/Z are horizontal). `Playfield.Raycast` uses outdoor
+  TilemapSurface; these probes are hints about client-visible geometry.
+- Flight now always retains a finite estimate for a finite local entrance,
+  attempts direct movement toward an elevated point 4 m outside the entrance,
+  and prepares descent only within 16 horizontal metres. There is no synthetic
+  climb/cruise/descent feasibility gate. Local terrain/live door position sets
+  approach height; a newly visible door can upgrade descent once. Without a
+  height hint or usable accepted height, a short provisional descent leads to
+  the user's landing/dismount step, not rejection or blind descent to map Y=0.
+- Ground mesh costs still require a complete path; other candidates use a
+  horizontal direct estimate. Fallback samples 16 headings at 2/4/8/12 m,
+  including tangent/backtracking arcs, scoring distance improvement, terrain,
+  clearance, recent visited/failed points and detour-side continuity. Probes
+  are soft scores; even all-hit sampling permits a short exploratory leg.
+  Execution resamples from the actual position after arrival/stall, not after
+  a fixed number of obstruction probes. Recent point memory is bounded to 24.
+- Eight seconds without waypoint improvement causes ground/flight recovery;
+  stationary mesh movement switches to direct after 15 seconds. Flight samples
+  lateral/raised recovery legs with a ceiling initial cruise height +40 m.
+  Recovery does not reset final-target progress. New best horizontal ground
+  distance/new best 3D flight distance must improve within 90 seconds; useful
+  movement can continue up to the 15-minute travel limit. Dismount waits two
+  minutes. Precise approach/entry has a three-minute overall limit, unresolved
+  unique door lookup 45 seconds, and door use remains three attempts/20 seconds.
+- Both modes converge on the same live-door approach. Door lookup uses the
+  accepted X/Z neighborhood (6 m); accepted Y alone cannot exclude it. Unique
+  identity is retained across entry, and actual live door distance/height plus
+  grounded/nonfalling state still govern interaction. Exact dungeon/quest
+  verification is unchanged. These local samples do not guarantee global paths.
+- Logs separate candidate estimates, submitted active waypoint/final target,
+  five-second progress reports, eight-second advisory collision hints,
+  obstacle recoveries, descent/height evidence, interaction and HARD FAILURE.
+- Changed only local planner/travel, coordinator's outdoor wait wording, and
+  README/PROJECT_MEMORY/CONVERSATION_LOG. Accepted-mission tracking, dungeon
+  exploration/combat/room doors/lockpick/loot, assets, dependencies and exact
+  dungeon handoff are unchanged. Source/API inspection only: no compilation,
+  package restore, local tests or in-game run. User pulls main, compiles and
+  validates ground recovery/flight approach/descent/door interaction in game.

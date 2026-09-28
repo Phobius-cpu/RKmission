@@ -360,3 +360,49 @@ Updated PROJECT_MEMORY.md with the diagnosis and reference/API evidence.
 Dungeon exploration, combat, room doors, lockpicking, loot, and the coordinator's
 verified dungeon handoff were not modified. Source/API inspection only; no
 compilation, package restore, automated tests, or in-game run was performed.
+
+### User playfield-665 feasibility/recovery follow-up (2026-09-28)
+
+Continuing Organize RKMission conversations, the user reported working mission
+tracking/distance ranking with no outdoor mesh, ground estimates about 32-100 m,
+three side-step recoveries followed by an obstruction stop, and every flying
+route rejected by climb/cruise/descent clearance even while already flying near
+entrances. Requested soft feasibility, direct elevated flight with local descent,
+multi-waypoint/arc ground recovery driven by actual progress/time, precise shared
+entrance interaction despite zero/stale elevation, improved logs, updated project
+history and coherent changes on main. User retains compilation/in-game testing.
+
+### Assistant diagnosis and implementation
+
+Inspected main 07fdbfa and its cd74489 local travel code, cached pinned SharpNav
+1.0.44 movement/agent implementation, and supplied AOSharp/newbots references.
+Flight selection required all synthetic climb/cruise/descent segments to clear;
+execution also immediately failed any collision or missing terrain hit. Ground
+counted useful detours against a lifetime three-recovery budget. Door lookup's
+3D distance could exclude horizontally correct entrances with map height zero.
+AOSharp uses Y altitude and horizontal X/Z; direct SetDestination does not need
+a mesh, but ordinary waypoint arrival omits height, requiring explicit 3D flight.
+
+Replaced flight clearance certification with a viable direct elevated approach
+estimate for every finite entrance, actual movement attempts, advisory probes,
+local descent near the entrance and bounded stall recovery. Local live door or
+terrain height takes priority; a door loaded during descent upgrades the approach.
+An unresolved height permits a short provisional descent and user landing, not
+a route veto. Ground samples 16 headings at four radii, scores progress/clearance/
+terrain/recent attempts, and progressively resamples from its new position. No
+three-recovery cutoff remains. Eight-second waypoint stalls cause recovery;
+90 seconds without new best final-target distance, plus a 15-minute overall
+bound, determine movement failure. Recovery cannot refresh that progress deadline.
+
+Both modes converge on horizontal mission-door lookup followed by precise live
+3D door approach and bounded interaction. Unique entrance identity, nonfalling
+ground state and exact selected mission/dungeon verification remain. Approach/
+entry allows three minutes; door lookup 45 seconds; dismount two minutes and door
+use three attempts/20 seconds. Logs distinguish estimates, active/final targets,
+progress, advisory obstacles, recovery, descent/height source and HARD FAILURE.
+
+Updated README.md and PROJECT_MEMORY.md. Working mission tracking, exploration,
+combat, interior doors, lockpick and loot code were preserved; coordinator changed
+only its idle route-selection wording. Source/API and diff review only. No local
+compilation, package restore, automated tests or in-game testing were performed.
+The user will pull, compile and validate these changes in playfield 665.

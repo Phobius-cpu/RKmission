@@ -225,7 +225,7 @@ namespace RKmission
                     _selected = _travel.SelectBest(local);
                     if (_selected == null)
                     {
-                        Wait("No local route for the active movement state. Check the candidate reasons and /rkm travel mode; move to a clear approach if flight is obstructed. Outdoor navmeshes are optional; route evaluation will retry.");
+                        Wait("No local estimate for the active movement state. Check world coordinates, vehicle state, and /rkm travel mode. Outdoor meshes and clearance probes do not gate a direct attempt; selection will retry.");
                         return;
                     }
                     _waitingReason = null;

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using AOSharp.Common.GameData;
 using AOSharp.Core;
 using AOSharp.Pathfinding;
@@ -12,7 +13,7 @@ namespace RKmission
     {
         public AcceptedMission Mission;
         public float GroundCost = float.PositiveInfinity, FlyingCost = float.PositiveInfinity;
-        public Vector3 Landing, CruiseStart, CruiseEnd;
+        public Vector3 Landing, CruiseEnd;
         public bool GroundUsesMesh, LandingVerified;
         public string GroundReason, FlyingReason;
         public float Cost(bool flying) => flying ? FlyingCost : GroundCost;
@@ -29,33 +30,20 @@ namespace RKmission
                 route.GroundReason = route.FlyingReason = "invalid world coordinates";
                 return route;
             }
-            route.GroundUsesMesh = TryGroundCost(origin, mission.Entrance, out float ground);
-            route.GroundCost = route.GroundUsesMesh ? ground : Vector3.Distance(origin, mission.Entrance);
+            Vector3 entrance = ResolveEntranceHeight(mission.Entrance, origin, out _);
+            route.GroundUsesMesh = TryGroundCost(origin, entrance, out float ground);
+            route.GroundCost = route.GroundUsesMesh ? ground : HorizontalDistance(origin, entrance);
             route.GroundReason = route.GroundUsesMesh ? "complete navmesh path" :
                 SMovementController.NavAgent?.HasPathfinder == true ? "mesh does not connect endpoints; direct estimate" :
                 "no outdoor mesh; direct estimate";
-            // Prepare a flight alternative even when on foot; choosing it still requires actual flight state.
-            route.FlyingReason = "no clear climb/cruise/descent to a suitable approach point";
-            for (int i = 0; i < 8; i++)
-            {
-                double angle = i * Math.PI / 4;
-                Vector3 sample = mission.Entrance + new Vector3((float)Math.Cos(angle) * 12, 0, (float)Math.Sin(angle) * 12);
-                if (!TryLandingPoint(sample, out Vector3 landing, out bool verified)) continue;
-                // Landing/final approach must not depend on a ground navmesh. A missing distant
-                // terrain hit is provisional until the client loads that area; recheck before descent.
-                float finalCost = Vector3.Distance(landing, mission.Entrance);
-                if (!TryCruise(origin, landing, out Vector3 start, out Vector3 end)) continue;
-                float cost = Vector3.Distance(origin, start) + Vector3.Distance(start, end) +
-                    Vector3.Distance(end, landing) + finalCost;
-                if (route.LandingVerified && !verified) continue;
-                if (route.LandingVerified == verified && cost >= route.FlyingCost) continue;
-                route.FlyingCost = cost;
-                route.LandingVerified = verified;
-                route.FlyingReason = verified ? "direct flight; terrain approach" : "direct flight; terrain check on arrival";
-                route.Landing = landing;
-                route.CruiseStart = start;
-                route.CruiseEnd = end;
-            }
+            // This is an estimate, not a clearance certificate. Never require a synthetic
+            // climb/cruise/descent corridor to select a finite world-space destination.
+            route.Landing = OutsideEntrance(entrance, origin, 4);
+            route.CruiseEnd = route.Landing;
+            route.CruiseEnd.Y = Math.Max(origin.Y, entrance.Y + 12);
+            route.FlyingCost = Vector3.Distance(origin, route.CruiseEnd) +
+                Math.Abs(route.CruiseEnd.Y - entrance.Y) + 4;
+            route.FlyingReason = "world-space flight estimate; elevated approach, local descent on arrival";
             return route;
         }
 
@@ -93,72 +81,109 @@ namespace RKmission
             return !float.IsNaN(cost) && !float.IsInfinity(cost);
         }
 
-        public static bool TryLandingPoint(Vector3 sample, out Vector3 landing, out bool verified)
+        public static bool HeightMissing(Vector3 point) => Math.Abs(point.Y) < 0.01f;
+
+        public static Vector3 ResolveEntranceHeight(Vector3 entrance, Vector3 position, out bool verified)
         {
-            landing = sample;
-            verified = false;
-            if (!Playfield.Raycast(sample + new Vector3(0, 50, 0), sample - new Vector3(0, 60, 0),
-                out Vector3 surface, out Vector3 normal)) return true;
-            // Reject steep faces and high roofs/large drops relative to the accepted entrance.
-            if (!AcceptedMissions.Finite(surface) || normal.Y < 0.65f || Math.Abs(surface.Y - sample.Y) > 8) return false;
-            landing = surface;
-            verified = true;
-            return true;
+            verified = TrySurface(entrance, position.Y, out Vector3 surface);
+            if (verified) entrance.Y = surface.Y;
+            else if (HeightMissing(entrance)) entrance.Y = position.Y;
+            return entrance;
         }
 
-        // A local, geometry-checked waypoint, not a claim of a complete outdoor path.
-        public static bool TryDirectGroundStep(Vector3 origin, Vector3 destination, bool alternate,
-            int attempt, out Vector3 step, out bool detour)
+        // A local terrain hint, independent of the accepted entrance's possibly stale height.
+        // A missed/steep ray is inconclusive; callers retain a provisional point.
+        public static bool TrySurface(Vector3 sample, float referenceHeight, out Vector3 surface)
+        {
+            Vector3 top = sample, bottom = sample;
+            top.Y = referenceHeight + 40;
+            bottom.Y = referenceHeight - 160;
+            return Playfield.Raycast(top, bottom, out surface, out Vector3 normal) &&
+                AcceptedMissions.Finite(surface) && normal.Y >= 0.5f;
+        }
+
+        public static Vector3 OutsideEntrance(Vector3 entrance, Vector3 from, float radius)
+        {
+            float distance = HorizontalDistance(entrance, from);
+            if (distance < 0.1f) return entrance + new Vector3(radius, 0, 0);
+            return entrance + new Vector3((from.X - entrance.X) * radius / distance, 0,
+                (from.Z - entrance.Z) * radius / distance);
+        }
+
+        // Sample a full fan at several radii, including tangents/backtracking around a wall.
+        // Probes affect scores only. Even if every probe hits, submit a short cautious attempt
+        // and let observed movement decide. Recent attempts discourage local oscillation.
+        public static bool TryDirectGroundStep(Vector3 origin, Vector3 destination, int preferredSide,
+            int attempt, IList<Vector3> recent, out Vector3 step, out string hint, out int side)
         {
             step = origin;
-            detour = false;
+            hint = "no finite local waypoint";
+            side = 0;
             float distance = HorizontalDistance(origin, destination);
             if (distance < 0.6f) return false;
             double heading = Math.Atan2(destination.Z - origin.Z, destination.X - origin.X);
-            float length = Math.Min(12, distance);
-            for (int i = alternate ? 1 : 0; i < 5; i++)
+            float best = float.PositiveInfinity;
+            float[] radii = { 12, 8, 4, 2 };
+            foreach (float radius in radii)
             {
-                double offset = i == 0 ? 0 : ((i + 1) / 2) * Math.PI / 4 * (i % 2 == 1 ? 1 : -1);
-                if (attempt % 2 == 1) offset = -offset;
-                Vector3 candidate = origin + new Vector3((float)Math.Cos(heading + offset) * length, 0,
-                    (float)Math.Sin(heading + offset) * length);
-                if (Playfield.Raycast(candidate + new Vector3(0, 4, 0), candidate - new Vector3(0, 8, 0),
-                    out Vector3 surface, out Vector3 normal))
+                for (int i = 0; i < 16; i++)
                 {
-                    if (!AcceptedMissions.Finite(surface) || normal.Y < 0.65f || Math.Abs(surface.Y - origin.Y) > 4) continue;
-                    candidate = surface;
+                    int direction = i == 0 ? 0 : (i % 2 == 1 ? 1 : -1);
+                    double offset = ((i + 1) / 2) * Math.PI / 8 * direction;
+                    if (preferredSide == -1 || (preferredSide == 0 && attempt % 2 == 1)) offset = -offset;
+                    float length = i == 0 ? Math.Min(radius, distance) : radius;
+                    Vector3 candidate = origin + new Vector3((float)Math.Cos(heading + offset) * length, 0,
+                        (float)Math.Sin(heading + offset) * length);
+                    float terrainPenalty = 0;
+                    bool surfaceKnown = TrySurface(candidate, origin.Y, out Vector3 surface);
+                    if (surfaceKnown && Math.Abs(surface.Y - origin.Y) <= 5) candidate.Y = surface.Y;
+                    else if (surfaceKnown) terrainPenalty = 20; // Roof/drop hint; retain current height.
+                    if (!AcceptedMissions.Finite(candidate)) continue;
+                    bool clear = ClearSegment(origin + Vector3.Up, candidate + Vector3.Up);
+                    float score = HorizontalDistance(candidate, destination) + length * 0.35f + terrainPenalty;
+                    // A hit prefers a shorter exploratory leg, rather than forbidding execution.
+                    if (!clear) score += 30 + length * 2;
+                    if (!surfaceKnown) score += 1;
+                    int candidateSide = Math.Sign(offset);
+                    if (preferredSide != 0 && candidateSide != 0 && candidateSide != preferredSide) score += 5;
+                    for (int j = 0; j < recent.Count; j++)
+                        if (HorizontalDistance(candidate, recent[j]) < 3) score += 18;
+                    if (score >= best) continue;
+                    best = score;
+                    step = candidate;
+                    side = candidateSide;
+                    hint = (i == 0 ? "forward" : "obstacle arc") +
+                        (clear ? "; probe clear" : "; probe hit, cautious attempt") +
+                        (surfaceKnown ? "; terrain hint" : "; provisional height");
                 }
-                if (!ClearSegment(origin + Vector3.Up, candidate + Vector3.Up)) continue;
-                step = candidate;
-                detour = i != 0;
-                return true;
             }
-            return false;
+            return !float.IsInfinity(best);
         }
 
-        private static bool TryCruise(Vector3 origin, Vector3 landing, out Vector3 start, out Vector3 end)
+        public static Vector3 FlightRecoveryStep(Vector3 origin, Vector3 destination, float ceiling,
+            int attempt, IList<Vector3> recent)
         {
-            float altitude = Math.Max(origin.Y, landing.Y + 20);
-            float distance = HorizontalDistance(origin, landing);
-            int steps = Math.Min(64, Math.Max(1, (int)Math.Ceiling(distance / 40)));
-            // Terrain sampling sets broad-flight clearance; the complete horizontal segment is also raycast.
-            for (int i = 0; i <= steps; i++)
+            Vector3 bestPoint = destination;
+            float best = float.PositiveInfinity;
+            double heading = Math.Atan2(destination.Z - origin.Z, destination.X - origin.X);
+            for (int i = 0; i < 8; i++)
             {
-                float t = (float)i / steps;
-                Vector3 point = origin + (landing - origin) * t;
-                point.Y = altitude + 200;
-                Vector3 below = point; below.Y = Math.Min(origin.Y, landing.Y) - 100;
-                if (Playfield.Raycast(point, below, out Vector3 hit, out _)) altitude = Math.Max(altitude, hit.Y + 20);
+                double angle = heading + (i + attempt % 8) * Math.PI / 4;
+                for (int level = 0; level < 3; level++)
+                {
+                    Vector3 point = origin + new Vector3((float)Math.Cos(angle) * 6, level * 6,
+                        (float)Math.Sin(angle) * 6);
+                    point.Y = Math.Min(point.Y, ceiling);
+                    float score = Vector3.Distance(point, destination) + level * 2;
+                    if (!ClearSegment(origin, point)) score += 25;
+                    foreach (Vector3 previous in recent)
+                        if (Vector3.Distance(previous, point) < 4) score += 20;
+                    if (score >= best) continue;
+                    best = score;
+                    bestPoint = point;
+                }
             }
-            start = new Vector3(origin.X, altitude, origin.Z);
-            end = new Vector3(landing.X, altitude, landing.Z);
-            for (int attempt = 0; attempt < 4; attempt++)
-            {
-                if (ClearSegment(start, end) && ClearSegment(origin, start) &&
-                    ClearSegment(end, landing + new Vector3(0, 1.5f, 0))) return true;
-                start.Y += 20; end.Y += 20;
-            }
-            return false;
+            return bestPoint;
         }
 
         public static bool ClearSegment(Vector3 start, Vector3 end) =>
