@@ -51,7 +51,7 @@ namespace RKmission
             route.CruiseEnd.Y = Math.Max(origin.Y, entrance.Y + 12);
             route.Cost = Vector3.Distance(origin, route.CruiseEnd) +
                 Math.Abs(route.CruiseEnd.Y - entrance.Y) + 1.5f;
-            route.Reason = "committed flight path; select height early on a clear local approach, align, then enter in vehicle";
+            route.Reason = "committed flight path; set 1.5 m approach coordinates, align height within 1-2 m, then enter in vehicle";
             return route;
         }
 
@@ -288,6 +288,60 @@ namespace RKmission
         public static bool FlightSegmentClear(Vector3 from, Vector3 to, float radius, IList<FlightBlockedLeg> blocked)
             => !RepeatsBlockedLeg(from, to, radius, blocked) && ClearSegment(from, to);
 
+        public static bool ObservedFlightSegmentBlocked(Vector3 from, Vector3 to, float radius, IList<FlightBlockedLeg> blocked)
+            => RepeatsBlockedLeg(from, to, radius, blocked);
+
+        // Near the entrance, an exhausted/inconclusive surface search must not
+        // require a clearance certificate before trying the fixed approach point.
+        // Rank whole direct/arc/climb-drop-return estimates by surface hints, but
+        // exclude actual failed movement. Execution retains collision/stall bounds.
+        public static List<Vector3> PlanEntranceAttempt(Vector3 origin, Vector3 destination, float radius,
+            IList<FlightBlockedLeg> blocked, out string reason)
+        {
+            const int probeLimit = 512;
+            int probes = 0, bestHints = 0;
+            float bestCost = float.PositiveInfinity;
+            List<Vector3> best = null;
+            Action<List<Vector3>> consider = candidate =>
+            {
+                Vector3 previous = origin;
+                float cost = 0;
+                int hints = 0;
+                var legs = new List<Vector3>();
+                foreach (Vector3 point in candidate)
+                {
+                    float length = Vector3.Distance(previous, point);
+                    if (length < 0.05f) continue;
+                    if (RepeatsBlockedLeg(previous, point, radius, blocked)) return;
+                    if (probes >= probeLimit) return;
+                    probes++;
+                    if (!ClearSegment(Toward(previous, point, 0.3f), point)) hints++;
+                    cost += length; legs.Add(point); previous = point;
+                }
+                cost += hints * 32;
+                if (legs.Count == 0 || cost >= bestCost) return;
+                best = legs; bestCost = cost; bestHints = hints;
+            };
+            consider(new List<Vector3> { destination });
+            double heading = Math.Atan2(origin.Z - destination.Z, origin.X - destination.X);
+            foreach (float distance in new float[] { 4, 8, 12, 20 })
+                for (int direction = 0; direction < 16 && probes < probeLimit; direction++)
+                    foreach (float rise in new float[] { 0, 4 })
+                    {
+                        double angle = heading + direction * Math.PI / 8;
+                        Vector3 outside = destination + new Vector3((float)Math.Cos(angle) * distance, 0,
+                            (float)Math.Sin(angle) * distance);
+                        outside.Y = Math.Max(origin.Y, destination.Y) + rise;
+                        Vector3 lowered = outside; lowered.Y = destination.Y;
+                        consider(new List<Vector3> { outside, lowered, destination });
+                    }
+            reason = best == null
+                ? $"no entrance estimate avoids observed failed movement; {probes}/{probeLimit} advisory probes"
+                : $"fixed approach movement estimate; {best.Count} legs, {bestHints} advisory surface hints; " +
+                    $"{probes}/{probeLimit} probes; actual progress/stall governs recovery";
+            return best ?? new List<Vector3>();
+        }
+
         // Only confirmed surface hits/observed failed legs exclude a search edge.
         // Offset probes rank body clearance; missing native LOS is not a rejection.
         // Limit all probes, including shortcutting, per complete planning attempt.
@@ -408,30 +462,20 @@ namespace RKmission
         // faces or reach a cave opening. Commit/simplify the whole path, not each cell.
         public static List<Vector3> PlanFlightPath(Vector3 origin, Vector3 destination,
             float ceiling, float radius, IList<FlightBlockedLeg> blocked, float extent,
-            Vector3? entranceCentre, bool portal, out bool complete, out string reason)
+            bool entranceStage, bool portal, out bool complete, out string reason)
         {
             complete = true;
             var goals = new List<Vector3> { destination };
-            if (entranceCentre.HasValue)
-            {
-                Vector3 centre = entranceCentre.Value;
-                for (int i = 0; i < 16; i++)
-                {
-                    double angle = i * Math.PI / 8;
-                    goals.Add(centre + new Vector3((float)Math.Cos(angle) * 1.5f, 0,
-                        (float)Math.Sin(angle) * 1.5f));
-                }
-            }
             int probes = 0, directHints = 0;
             float direct = FlightEdge(origin, destination, radius, blocked, portal, ref probes, out directHints);
             if (direct >= 0 && directHints == 0)
             { reason = "direct complete flight path; surface probes clear"; return new List<Vector3> { destination }; }
 
-            bool descending = origin.Y > destination.Y + 3;
+            bool descending = origin.Y > destination.Y + (entranceStage ? 1 : 3);
             string descentHint = null;
             if (descending)
             {
-                List<Vector3> descent = PlanOutsideDescent(origin, destination, entranceCentre ?? destination,
+                List<Vector3> descent = PlanOutsideDescent(origin, destination, destination,
                     goals, radius, blocked, extent, portal, ref probes, out bool descentComplete, out descentHint);
                 if (descent != null)
                 {
@@ -454,7 +498,7 @@ namespace RKmission
             Func<Vector3, float, float> progressScore = (point, cost) =>
                 Vector3.Distance(point, destination) + cost * 0.025f;
             float initialScore = progressScore(origin, 0);
-            bool launching = !entranceCentre.HasValue && !portal && HorizontalDistance(origin, destination) > 24;
+            bool launching = !entranceStage && !portal && HorizontalDistance(origin, destination) > 24;
             Action<List<Vector3>, float> retainPrefix = (points, cost) =>
             {
                 if (points.Count == 0) return;
@@ -551,8 +595,8 @@ namespace RKmission
                 if (found >= 0 && priority >= foundCost) break;
                 FlightNode node = nodes[current];
                 node.Closed = true; expanded++;
-                // Try actual destinations from this cell. Alternate endpoints are
-                // confined to 1.5 m around this same entrance at selected entry height.
+                // Connect only to the committed stage target. No new approach side
+                // or altitude can silently replace the entrance alignment point.
                 foreach (Vector3 goal in goals)
                 {
                     float cost = FlightEdge(node.Point, goal, radius, blocked, portal, ref probes, out _);
@@ -608,7 +652,9 @@ namespace RKmission
                 string stats = $"{stop}; {expanded} cells, {probes} probes, {surfaceBlocks} physical/observed blocked edges; margin={extent:F0} m";
                 if (prefix == null)
                 {
-                    reason = $"no useful clear flight section; {stats}; {descentHint}; {blocked.Count} observed failed legs; holding for retry";
+                    reason = $"no useful clear flight section; {stats}; " +
+                        (descentHint == null ? "" : descentHint + "; ") +
+                        $"{blocked.Count} observed failed legs";
                     return new List<Vector3>();
                 }
                 List<Vector3> section = SimplifyFlightPath(origin, prefix, radius, blocked, false, ref probes);
@@ -621,8 +667,7 @@ namespace RKmission
             raw.Reverse();
             List<Vector3> path = SimplifyFlightPath(origin, raw, radius, blocked, portal, ref probes);
             reason = $"connected obstacle route; {path.Count} legs, {expanded} cells, {surfaceBlocks} blocked edges; " +
-                $"probes={probes}/{FlightProbeLimit}, search margin={extent:F0} m, endpoint={foundGoal}" +
-                (Vector3.Distance(foundGoal, destination) > 0.1f ? "; clear side of the same entrance" : "");
+                $"probes={probes}/{FlightProbeLimit}, search margin={extent:F0} m, endpoint={foundGoal}";
             return path;
         }
 

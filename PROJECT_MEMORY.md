@@ -933,3 +933,68 @@ connected obstacle search or the near-entrance height sequence.
   CONVERSATION_LOG. Source/API/diff review only; no build, restore, local tests
   or in-game run. User pulls main, compiles and checks early clear descent and
   stable final approach in game.
+
+## Fixed Entrance Coordinates, Height, Then Entry (2026-09-28)
+
+- User's 11:08 logs: EntranceHeight is 9.3/6.4/4.9 m from target
+  (554.4971, 16.5, 1473.821), with vertical gaps 0.7/3.8/2.6 m.
+  Search repeatedly exhausts about 4,040 probes after 87-89 cells, with
+  1,640-1,698 physical/observed blocked edges and zero observed failed legs.
+  User requests the coordinates and height be set 1-2 m from the entrance
+  before entering, for all failures of this type, and asks whether it resolves
+  the issue. Source changes can be checked here; game behavior requires their
+  compilation/in-game validation under the existing no-local-test instruction.
+- Inspected main 6d41771. Direct final altitude planning still requires a
+  complete clear section or a relatively long validated prefix. The planner
+  tests 17 low doorway goals from each cell, while final small descents <=3 m
+  miss the outside-column search. A zero-length result prevents movement even
+  with no observed failure. Alignment also requires a clear synthetic ray after
+  position/height have already been physically reached.
+- Add EntrancePosition for all flying routes within 24 m, including unresolved
+  height. Commit one 1.5 m approach point and a selected height. If locally resolved
+  height/direct body corridor is clear, permit early height adjustment during
+  coordinate travel; otherwise hold at least current altitude/desired clearance
+  while travelling to that neighborhood. Reach actual horizontal distance 1-2 m,
+  then enter EntranceHeight and confirm the same distance plus vertical error
+  <=0.75 m before EntranceApproach. No surface-ray certificate can veto an already
+  aligned physical position. Keep the vehicle throughout; no direct position,
+  altitude, speed or movement-state writes are introduced.
+- Keep the chosen approach point across retries and subsequent drift recovery.
+  Only live door coordinate changes reproject its 1.5 m offset; local floor/live
+  door height changes update its height. FlightEntryPoint/vehicle clearance stays
+  consistent with 6d41771. An outside staging column or validated prefix cannot
+  overwrite this anchor. Re-enter coordinate/height stages on loss of alignment;
+  the three-minute entry deadline now starts at EntrancePosition and never resets.
+- Without a live door, proximity entry uses <=0.45 m horizontal and <=0.75 m
+  vertical error. The old 0.7 m 3D check could require further descent despite
+  a height offset of 0.71-0.75 m already accepted by alignment; keep those
+  tolerances consistent while waiting for actual zoning/door visibility.
+- Remove the 16 alternate doorway goals and ref destination mutation. The
+  connected/descent planner receives one stage target and an explicit entrance
+  stage flag, retaining cruise launch semantics. Final descent search runs above
+  a 1 m gap; cruise retains its old 3 m threshold. Regular search still certifies
+  centre segments and preserves useful prefixes/observed blocked-leg geometry.
+- If it returns empty in a committed final stage within 24 m, rank direct and
+  whole outside/lower/return estimates at 4/8/12/20 m, 16 headings, and current/
+  target level or +4 m. Bound the extra centre-ray work to 512 probes and use
+  hits as scoring hints. Reject all candidates that repeat known failed movement.
+  With zero observed failures, a finite nontrivial direct target remains attemptable
+  instead of indefinitely awaiting a complete geometry certificate. Do not simplify
+  these unverified sections through obstacles; execute the committed sequence.
+- Advisory paths retain observed-failure checks on steering, probes and waypoint
+  transitions, while synthetic surface hits are logged soft hints. Actual eight-
+  second stalls record failure and trigger normal search/another coherent estimate.
+  Probe-only pauses cannot populate failed-leg memory; record only actively
+  commanded stalled movement that was not being held by the surface probe.
+  Retain descent footprint memory, near-waypoint braking, 25/100/250 ms cadence,
+  90-second progress, 15-minute travel and three-minute entry bounds. If every
+  estimate repeats known failures or the clock expires, hold/fail normally.
+- Logs show fixed approach point, EntrancePosition, coordinates reached, actual
+  radial distance, coordinates/height aligned, advisory=True and committed attempt
+  legs. Avoid the empty descent-detail double semicolon. Same mission/door identity,
+  unique door/use range checks and exact dungeon verification remain. Ground
+  travel/fallback and dungeon exploration/combat/interior doors/lockpick/loot are
+  untouched; only the two local-travel files change. Updated README and
+  CONVERSATION_LOG. Source/diff/API inspection only, no local compilation, package
+  restore, tests or game run. User pulls main, compiles and checks the full staged
+  sequence plus actual movement on the reported zero-failure searches in game.

@@ -4,11 +4,11 @@ AO# plugin for solo Rubi-Ka missions in Anarchy Online. It combines the original
 Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
 mission travel, room exploration, combat targeting, door handling, and looting.
 
-**Status (2026-09-28):** the user still reports unstable final height alignment.
-The latest repair selects approach height earlier on clear routes, adds vehicle
-clearance and brakes near precise waypoints. Movement labels follow the committed
-leg instead of alternating with small height changes. It awaits the user's build
-and in-game validation. Dungeon
+**Status (2026-09-28):** the latest report still shows empty surface searches
+4-9 m from an entrance. Flight now commits a 1.5 m approach point, reaches its
+horizontal neighborhood, aligns height there, then proceeds to entry. A bounded
+movement estimate can run when surface search is inconclusive; actual stalls
+still trigger recovery. This awaits the user's build and in-game validation. Dungeon
 exploration, combat, room doors, lockpicking, and loot behavior are preserved; one hook refreshes
 the live mission binding.
 
@@ -50,10 +50,11 @@ the live mission binding.
 5. On foot, use a complete mesh path if available, otherwise locally sampled
    waypoints/arcs around obstacles. In a flying vehicle, the bot attempts direct
    world-space travel along a committed waypoint sequence to a point about
-   1.5 m outside the chosen entrance. Within 24 m, select a locally resolved
-   entrance height and approach at that height when the direct corridor is clear.
-   Obstructions retain elevated travel and detours. Within 2 m horizontally,
-   confirm height alignment, then proceed to entry.
+   1.5 m outside the chosen entrance. Within 24 m, commit that point and the
+   selected entrance height. A clear corridor can adjust height during travel;
+   otherwise reach the coordinates at current clearance, then align height.
+   Confirm actual position 1-2 m horizontally from the entrance and within
+   0.75 m of the selected flight height before proceeding to entry.
    **Stay in your flying vehicle**: height alignment, approach and interaction
    continue in flight. Live door height takes priority; unresolved height
    remains provisional. There is no required dismount or ground detour.
@@ -119,14 +120,18 @@ retrying an unfinished accepted mission.
   3D distance so vertical improvement is not outweighed by lateral displacement.
   A necessary climb or descent detour can temporarily increase final distance
   under the same progress deadline. Shorter samples are not committed as repeated
-  micro-hops. Hold/retry only when no usable section exists. Logs
+  micro-hops. Near the entrance, an inconclusive search can instead commit a
+  bounded direct/arc movement estimate to the same stage target (see below).
+  Hold/retry when neither a usable section nor such an attempt remains. Logs
   distinguish search limits from physical hits. Local searches cannot certify global access.
 - The committed waypoint list is followed in order. New plans require
   changed destinations, eight seconds without waypoint progress, or sustained
   nearby surface obstruction; failed retries are separated by at least three seconds.
   Reaching a validated prefix immediately plans the next section, without treating
   that endpoint as the mission entrance or recording it as a failed direction.
-  A short actual surface check runs every 400 ms and can pause for a nearby hit.
+  A short surface check runs every 400 ms and can pause a normally planned path
+  for a nearby hit. On an explicitly advisory entrance attempt, surface hits are
+  logged hints; observed failed movement still blocks the attempted direction.
   Scene/offset probe hints alone do not repeatedly stop moving characters. Normal
   arrival advances the existing path without stopping, after checking the next
   segment from the actual position to avoid cutting a corner. Moderate heading changes
@@ -140,20 +145,26 @@ retrying an unfinished accepted mission.
   predicts arrival/overshoot. Resume movement after slowing if still outside the
   0.45 m waypoint tolerance. Cruise remains at 100 ms; ground/dungeon updates stay
   at 250 ms. This does not alter game speed or player position.
-- Flight follows `FlightCruise -> EntranceHeight -> EntranceApproach -> EnterDoor`.
-  Local live door/surface data resolves the height within 24 m. Every 500 ms in
-  that range, check the direct approach with centre, side and upper body rays
-  plus observed obstruction memory. If clear, commit the approach at entrance
-  height before reaching the doorway instead of staying high until within 2 m.
-  If obstructed/inconclusive, keep elevated travel and the existing obstacle
-  routing; that hint cannot reject the selected mission. Later obstacles still
-  trigger the normal bounded recovery. These checks concern only the chosen entrance.
+- Flight follows `FlightCruise -> EntrancePosition -> EntranceHeight -> EntranceApproach -> EnterDoor`.
+  Within 24 m, commit one approach point 1.5 m outside the selected entrance and
+  resolve its flight height from live door/local surface data. Check the direct
+  corridor once on starting the coordinate stage: clear data allows early height
+  adjustment; otherwise keep at least current altitude/selected clearance while
+  reaching the entrance neighborhood. Provisional height cannot alone reject
+  this coordinate attempt. Keep the same approach side across retries; live door
+  coordinate changes reproject its offset, and refined height updates its Y.
+  Actual horizontal distance between 1 and 2 m completes EntrancePosition.
+  Then confirm that same distance range and <=0.75 m vertical error to complete
+  EntranceHeight. An aligned observed position is not vetoed by a synthetic ray.
   Select clearance as vehicle radius +0.25 m, bounded to 1.5-2 m above the
   resolved floor; it is a travel allowance, not a new floor measurement. Use
   this same target for planning, alignment, proximity entry and live door drift
-  checks. Confirm alignment within 0.75 m vertically and within 2 m horizontally.
-  Alignment targets stay 1.5 m outside the doorway so waypoint arrival tolerance
-  cannot stop the character outside that final horizontal check.
+  checks. These stages plan only one coordinate/height goal; the former 16 extra
+  doorway endpoints per search cell are removed. A staging prefix cannot replace
+  the committed approach point or count as final alignment.
+  Without a live door, final proximity movement uses <=0.45 m horizontal and
+  <=0.75 m vertical error to the entrance trigger point, matching height alignment
+  instead of chasing a tighter 3D height tolerance after coordinates are reached.
   Only then proceed to door/proximity entry. Height is
   rechecked before each use; drift or a new live door height returns to alignment.
   If the direct descent is blocked, a complete outward/down/return path can reach
@@ -165,11 +176,21 @@ retrying an unfinished accepted mission.
   sideways/lowering legs even if the final doorway leg is unresolved, then continue
   from the lower position. A detour away from the entrance is not a reason to
   discard an otherwise clear descent. Its staging column cannot change the chosen
-  entrance floor or count as completed height alignment. If its original side
-  is blocked by the mission building,
-  sample 16 points 1.5 m around this same entrance at the selected entry height
-  and keep the reachable endpoint. The floor, mission and live door identity
+  entrance floor or count as completed height alignment. This descent search
+  also handles gaps over 1 m during final stages instead of only gaps over 3 m.
+  The floor, mission and live door identity
   remain fixed; the vehicle stays equipped throughout.
+- If normal surface search returns no usable section within 24 m, rank bounded
+  estimates ending at the same coordinate/height target. Try direct and coherent
+  outside/drop/return arcs at 4/8/12/20 m in 16 directions, at current/target
+  altitude and +4 m. Allow up to 512 extra centre probes, scoring their hits as
+  hints; actual failed legs/descents remain exclusions. `advisory=True` and
+  `Flight committed attempt leg` distinguish these estimates from regular paths.
+  Follow the entire sequence with the existing arrival/braking control, log
+  nearby probe hints at most every eight seconds, and recover after eight seconds
+  of actual waypoint stall. Estimates cannot bypass coordinate/height or door
+  gates, reset progress limits, move the player directly, or change equipment.
+  A probe-only pause replans without adding a falsely observed failed leg.
 - An actual eight-second movement stall on a nearly vertical entrance descent
   learns an obstruction area around the stopping point, even if terrain rays
   report a clear drop. Start with a 4 m radius; another stalled descent inside
@@ -287,15 +308,16 @@ deployed plugin folders.
   `complete=True/False` for complete routes versus validated sections,
   `Flight committed path leg` / `Flight committed prefix leg` for progress through that sequence, and
   `Flight blocked leg recorded` / `Flight obstacle search waiting` for observed
-  obstruction and bounded search retries. `Entrance alignment side changed`
-  identifies a reachable approach around the same entrance. Watch
+  obstruction and bounded search retries. `advisory=True` / `Flight committed attempt leg`
+  identifies an attempted estimate when surface search is inconclusive. Watch
   `outside descent prefix` / `outside descent and entrance return`,
   `outside alignment for descent` and `descending to approach height` for roof avoidance.
   The descent search reports clear columns/drops and the direct-drop surface Y.
-  Watch `Entrance height selected during clear approach` for early height planning,
-  `Early flight height approach deferred` for an obstructed early corridor, and
-  `Entrance height selected within 2 m` / `Entrance height aligned` for final
-  alignment. Selection logs include vehicle radius/clearance; flight progress
+  Watch `Entrance approach point set`, `Entrance coordinates reached`, then
+  `Entrance coordinates and height aligned` before entry. These logs show the
+  committed point, actual entrance distance and vertical error. An early clear
+  corridor can still adjust height during coordinate travel. Selection logs include
+  vehicle radius/clearance; flight progress
   includes the vertical gap and velocity. Movement labels use the committed
   leg's starting altitude so slight corrections cannot alternate/log every tick.
   Idle selection checks retry every five seconds; mode warnings are suppressed

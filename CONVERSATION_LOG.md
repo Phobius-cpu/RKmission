@@ -673,3 +673,33 @@ progress limits, selected mission, ground fallback and working dungeon behavior.
 Updated README.md and PROJECT_MEMORY.md. Source/API/diff review only; no local
 compilation, restore, tests or game run. User pulls main, compiles and checks
 early height planning and a stable approach at this entrance in game.
+
+### User empty final searches and 1-2 m approach sequence (2026-09-28)
+
+The user supplied 11:08 logs. EntranceHeight is about 4.9-9.3 m from its target
+with 0.7-3.8 m vertical gaps. Searches repeatedly exhaust about 4,040 probes
+with zero observed failed legs. The user requests setting coordinates and height
+within 1-2 m of the entrance before entry for all such errors, and checking whether
+that solves the issue.
+
+### Assistant committed coordinates, height, then entry
+
+Inspected main 6d41771. Added an explicit EntrancePosition stage and one committed
+1.5 m approach point for every flying route. Clear corridors can adjust height
+early; otherwise reach the coordinate neighborhood at current clearance first.
+Actual position must be 1-2 m from the entrance, then confirm height within 0.75 m
+before proceeding to entry. Keep the point across retries and prevent a synthetic
+ray from vetoing alignment that the character has physically reached.
+
+Plan only that stage target, removing the 16 extra doorway endpoints tried from
+each search cell. Handle smaller final descents too. When near-entrance surface
+search remains inconclusive, allow a bounded direct/arc movement estimate ending
+at the same target. Surface hits rank these attempts; observed failed movement
+still excludes directions and triggers recovery after an actual stall. Logs
+distinguish advisory attempts, fixed point, reached coordinates, actual distance
+and height alignment. Keep braking, progress/entry limits, vehicle equipment,
+unique live door/exact dungeon gates, ground fallback and working dungeon code.
+Updated README.md and PROJECT_MEMORY.md. Reviewed source/diff without compiling,
+restoring packages, running local tests or running the game. User pulls main,
+compiles and validates movement and the staged entry sequence in game; its runtime
+outcome cannot be confirmed from source inspection alone.
