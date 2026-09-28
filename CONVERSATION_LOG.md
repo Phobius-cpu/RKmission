@@ -1080,3 +1080,22 @@ waypoint pauses can resemble recovery even when no wall stall occurs. Preserve
 the successful height/entry sequence and all earlier failed evidence. README and
 PROJECT_MEMORY updated; source/diff inspection only, no local compilation, restore,
 tests or game execution. Mission selection and dungeon systems unchanged.
+
+### User requested about 30% larger entrance-approach adjustments
+
+The 19:03-19:04 PF665 log confirms improved continuous cruise and another exact
+entry into mission 1442298249, dungeon 14654046. Remembered entry height 20.61 m
+and sector 13 are revalidated. Five consecutive 3 m FinalApproach legs remain
+before the short threshold staging points. User asks to improve those small
+adjustments by about 30%. Full evidence preserved in
+docs/navigation-evidence/2026-09-28-pf665-1904-approach-steps.txt.
+
+### Assistant increased the final Fly approach step from 3 m to 3.9 m
+
+Increase movement per approach leg by 30%, retaining the same staging points,
+matched height and precise arrival. Clamp each leg to its staging target, with
+the existing small doorway steps still intact; no guaranteed 30% time reduction.
+Log the new cap at the start of FinalApproach. Cruise, obstacle/perimeter recovery,
+mission selection, height gate/matching, Door association/use, crossing and exact
+dungeon verification remain unchanged. README and PROJECT_MEMORY updated.
+Source/diff review only; no local compilation, restore, tests or game execution.

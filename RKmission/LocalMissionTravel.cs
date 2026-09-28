@@ -12,6 +12,8 @@ namespace RKmission
     {
         private enum Phase { Idle, CoarseTravel, FlyClearance, FlyToEntrance, FlyAvoidObstacle, FlyMatchEntryHeight, ProbeExterior, OrbitBypass, AlignElevation, FinalApproach, Interact, CrossThreshold, AwaitTransition }
         private const float FlightEntryRadius = 10;
+        // 30% longer than the original 3 m final-approach steps.
+        private const float FlightApproachLegLength = 3.9f;
         private readonly Action<string> _say;
         private readonly OutdoorNavigationSettings _settings;
         private readonly EntranceLearning _learning;
@@ -238,7 +240,8 @@ namespace RKmission
             if (_pathIndex < _path.Count)
             {
                 Vector3 target = _path[_pathIndex];
-                if (flying && _phase == Phase.FinalApproach) target = LocalRoutePlanner.Toward(player, target, 3);
+                if (flying && _phase == Phase.FinalApproach)
+                    target = LocalRoutePlanner.Toward(player, target, FlightApproachLegLength);
                 _movement.Begin(target, flying, true, stallSeconds: flying ? 3 : (int?)null,
                     arrivalTolerance: flying && _phase == Phase.AlignElevation ? 0.35f : (float?)null); _legActive = true;
                 _say($"Outdoor navigation target: phase={_phase}, sector={attempt.Sector}, source={attempt.Source}, " +
@@ -249,6 +252,8 @@ namespace RKmission
             {
                 case Phase.AlignElevation:
                     SetPath(Phase.FinalApproach, _entrance.FinalPoints(attempt));
+                    if (flying) _say($"Fly final approach: leg cap={FlightApproachLegLength:F2} m, " +
+                        "30% longer steps; retain precise threshold staging and matched entry height.");
                     break;
                 case Phase.FinalApproach:
                     if (attempt.DoorId != Identity.None) SetPhase(Phase.Interact);

@@ -254,6 +254,13 @@ cannot identify an otherwise invisible door with certainty.
 The historical PF665 measured point remains in the project history; it is no
 longer a hardcoded substitute for current geometry.
 
+Fly final approach advances up to 3.9 m per leg, 30% farther than the former 3 m
+cap. Each leg ends at the existing staging point if it is closer; arrival precision,
+stall detection and matched entrance height are retained. The 19:03-19:04 PF665 log
+confirmed successful cruise and entry but showed repeated 3 m approach adjustments;
+the larger cap reduces those intermediate stops, without promising a fixed speed gain.
+Evidence: `docs/navigation-evidence/2026-09-28-pf665-1904-approach-steps.txt`.
+
 Final targets lie about 3/1.5/0.4 m outside the threshold, with lateral alternatives
 on later passes. Inferred final points/crossings stay within the 6 m anchor boundary;
 live-door staging can lie on the wider movement ring, while the Door itself must

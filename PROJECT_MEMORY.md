@@ -1549,3 +1549,25 @@ onto the new architecture.
 - README and conversation history updated. Source/diff inspection only, no local
   compile/tests/restore/game run. Accepted/current-playfield selection, map upload,
   live Door association and dungeon exploration/combat/interior-door/loot unchanged.
+
+## 30% longer final Fly approach steps (2026-09-28, 19:03-19:04 log)
+
+- User confirms smoother travel and requests about 30% improvement to the small
+  entrance-approach adjustments. Interpret this as 30% farther per approach leg,
+  not a promised 30% speed increase or relaxation of entrance precision.
+- Full evidence: `docs/navigation-evidence/2026-09-28-pf665-1904-approach-steps.txt`.
+  Mission 1442298249, PF665, anchor X=718.59/Z=1470.90. Cruise uses a clear 60 m
+  leg, continuous 20 m horizons near obstruction and one right-side bypass, then
+  a clear 56.01 m leg. Actual height gate fires at 9.85 m; remembered exact entry
+  height 20.61 is reused. Sector 13 is actually reached. Five consecutive 3 m
+  final-approach legs precede short staging legs and a crossing at Y=20.61.
+  Exact dungeon 14654046 verified; existing exploration/loot resumes. No stalls.
+- Change only Fly FinalApproach leg cap from 3 m to 3.9 m. Clamp every leg to its
+  existing staging point using Toward, so close 3/1.5/0.4 m threshold targets are
+  not skipped or moved. Log the 3.9 m cap when entering FinalApproach.
+- Keep 60 m cruise, obstacle/perimeter routing, the 10 m gate, height matching,
+  arrival tolerances, progress clocks, stall recovery, Door use/crossing and exact
+  handoff unchanged. Ground and dungeon systems are untouched. Preserve earlier
+  evidence and the lesson that short waypoint legs can cause visible pauses.
+- README/history updated; source/diff review only. No local compile, restore,
+  tests or game run, as requested. Commit and push coherent changes to main.
