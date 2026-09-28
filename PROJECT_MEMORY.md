@@ -34,7 +34,9 @@ The current responsibility boundary supersedes earlier automatic rolling plans:
    converge on the chosen entrance, a unique live door when exposed or a
    proximity entry attempt, and exact mission/dungeon verification. Refine
    entrance floor from nearby surface consensus/live door data; flight checks
-   ahead and samples higher/lateral legs around detected objects.
+   ahead and samples higher/lateral/lowering legs around detected objects. For
+   blocked lower approaches, align with a clear descent column, then lower in
+   vehicle. Retain committed waypoints and limit flight turn speed.
 6. Existing `MissionDungeon` owns room exploration/navigation, combat, doors,
    lockpicking, and Manager.Loot. Preserve these working systems.
 7. Preserve identity/action/target/completion metadata per accepted mission.
@@ -589,3 +591,50 @@ This section supersedes single-hit entrance height and stall-only flight avoidan
   handoff and dungeon exploration/combat/interior doors/lockpick/loot are preserved.
   Source/API/diff inspection only: no compilation, restore, local tests or in-game
   run. User pulls main, compiles and validates height and obstacle avoidance in game.
+
+## Lower-Entrance Descent and Flight Smoothing (2026-09-28)
+
+This correction extends proactive avoidance with lowering paths and waypoint commitment.
+
+- User's 07:58 logs after `13ee0dc` show FlightDescent at Y=39.87 with a final
+  target Y=23.5, 19.7 m remaining and no improvement for 20 seconds. Bypasses
+  36-38 stayed at the same altitude. Avoidance seemed useful, but the character
+  struggled above a lower entrance and path changes looked jerky.
+- Source diagnosis: generic bypass candidates could only remain level or climb;
+  they could not leave a blocked diagonal descent via a clear lower column.
+  Every probe hit could replace the waypoint immediately. Arrival stopped movement,
+  minor goal changes discarded detours, and direct LookRotation snapped direction.
+  A reported hold also failed to persist between 400 ms probe updates, allowing
+  forward movement to resume on the next tick toward the blocked goal.
+- Add a dedicated descent-column search for obstructed/stalled local approaches
+  at least 2 m above the target. Sample current/approach columns and eight-heading
+  rings at 4/8/12/20/28 m around the approach. Validate horizontal alignment at
+  current altitude and the full vertical drop. Prefer low-level continuation to
+  the final approach and smaller turns; nearby terrain can raise the lower endpoint
+  for 1.5 m hover clearance. Keep the two-leg plan, then recheck descent from the
+  actual alignment position before lowering. General bypasses also sample 3/6/12 m
+  downward arcs, bounded by target altitude, alongside lateral/raised candidates.
+- Keep a clear active waypoint until arrival, confirmed obstruction or eight-second
+  stall. Two consecutive blocked probes confirm replanning; movement stops on the
+  first suspect hit and remains held between probe updates. No useful candidate
+  means persistent hold/retry, with the final-target deadline continuing. Height
+  refinements keep the bypass; a >1 m correction invalidates cached descent data.
+- Arrival radius is 1.2-2.5 m based on speed, avoiding small-target overshoot;
+  cached descent is always rechecked from the actual position. Normal waypoint
+  transitions no longer unconditionally halt. Flight steering limits direction
+  change to 120 degrees/second, rotating in place for >20-degree turns and checking
+  the actual heading for smaller moving turns. The final entrance exemption remains
+  limited to the last metre of an aligned approach; exact door/proximity checks
+  and vehicle entry are preserved. Direction scoring discourages sharp reversal.
+- Inspected pinned movement queue/update behavior and cached Quaternion/Vector3
+  implementation. Confirmed Quaternion.Forward, Vector3.Normalize/Dot and
+  Quaternion.LookRotation in AOSharpSDK 1.0.106 Common assembly metadata without
+  executing the SDK. Smoothing handles vertical and opposite directions.
+- Logs add descent-column alignment/lowering target and vertical gap in flight
+  progress. Existing 90-second final-target progress, 15-minute travel and bounded
+  approach/door-use limits remain; replans never refresh the final progress clock.
+- Changed only local planner/travel and README/PROJECT_MEMORY/CONVERSATION_LOG.
+  Nearest-from-origin selection, accepted tracking, floor refinement, ground fallback,
+  vehicle entry and dungeon exploration/combat/interior doors/lockpick/loot remain.
+  Source/API/diff inspection only; no compilation, package restore, local tests or
+  in-game run. User pulls main, compiles and validates descent and smoothing in game.

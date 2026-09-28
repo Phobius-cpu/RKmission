@@ -266,14 +266,66 @@ namespace RKmission
             return true;
         }
 
+        // When a diagonal descent crosses a roof/wall, find a column outside it.
+        // Validate both the horizontal alignment and the full vertical drop before
+        // committing to either leg. Prefer a useful low-level continuation.
+        public static bool TryFlightDescentStep(Vector3 origin, Vector3 destination, float radius,
+            Vector3 forward, IList<Vector3> recent, float entryMargin,
+            out Vector3 step, out Vector3 dropPoint)
+        {
+            step = dropPoint = origin;
+            if (origin.Y - destination.Y < 2) return false;
+            var columns = new List<Vector3> { origin, destination };
+            double heading = Math.Atan2(origin.Z - destination.Z, origin.X - destination.X);
+            foreach (float distance in new float[] { 4, 8, 12, 20, 28 })
+                for (int i = 0; i < 8; i++)
+                {
+                    double angle = heading + i * Math.PI / 4;
+                    columns.Add(destination + new Vector3((float)Math.Cos(angle) * distance, 0,
+                        (float)Math.Sin(angle) * distance));
+                }
+            float best = float.PositiveInfinity;
+            foreach (Vector3 column in columns)
+            {
+                Vector3 top = column, bottom = column;
+                top.Y = origin.Y;
+                bottom.Y = destination.Y;
+                if (TrySurfaceNearHeight(column, destination.Y - 1.5f, out Vector3 surface))
+                    bottom.Y = Math.Max(bottom.Y, surface.Y + 1.5f);
+                if (origin.Y - bottom.Y < 2 || !FlightCorridorClear(origin, top, radius) ||
+                    !FlightCorridorClear(top, bottom, radius)) continue;
+                Vector3 first = HorizontalDistance(origin, top) <= 0.5f ? bottom : top;
+                if (!FlightCorridorClear(origin, first, radius)) continue;
+                float score = HorizontalDistance(origin, top) * 0.6f + Vector3.Distance(bottom, destination);
+                if (!FlightCorridorClear(bottom, destination, radius, entryMargin)) score += 25;
+                score += TurnPenalty(forward, first - origin);
+                foreach (Vector3 previous in recent)
+                    if (Vector3.Distance(previous, first) < 3) score += 18;
+                if (score >= best) continue;
+                best = score;
+                step = first;
+                dropPoint = bottom;
+            }
+            return !float.IsInfinity(best);
+        }
+
+        private static float TurnPenalty(Vector3 forward, Vector3 direction)
+        {
+            if (Vector3.Distance(Vector3.Zero, direction) < 0.1f || !AcceptedMissions.Finite(forward) ||
+                Vector3.Distance(Vector3.Zero, forward) < 0.1f) return 0;
+            float dot = Vector3.Dot(forward.Normalize(), direction.Normalize());
+            return (float)Math.Acos(Math.Max(-1, Math.Min(1, dot))) * 3;
+        }
+
         public static bool TryFlightBypass(Vector3 origin, Vector3 destination, float ceiling, float radius,
-            int attempt, IList<Vector3> recent, out Vector3 step, out string kind)
+            int attempt, Vector3 forward, IList<Vector3> recent, out Vector3 step, out string kind)
         {
             step = origin;
             kind = "no clear local bypass";
             float best = float.PositiveInfinity;
             double heading = Math.Atan2(destination.Z - origin.Z, destination.X - origin.X);
             var candidates = new List<Vector3>();
+            float[] rises = origin.Y - destination.Y > 2 ? new float[] { -12, -6, -3, 0, 6, 12 } : new float[] { 0, 6, 12 };
             // A vertical first leg can climb beside a building instead of flying diagonally
             // through its wall. Raised forward/lateral legs then go over or around it.
             foreach (float rise in new float[] { 4, 8, 16, 24 })
@@ -283,15 +335,17 @@ namespace RKmission
                 double angle = heading + (i + attempt % 8) * Math.PI / 4;
                 foreach (float length in new float[] { 6, 12 })
                 {
-                    foreach (float rise in new float[] { 0, 6, 12 })
+                    foreach (float rise in rises)
                         candidates.Add(new Vector3(origin.X + (float)Math.Cos(angle) * length,
-                            Math.Min(ceiling, origin.Y + rise), origin.Z + (float)Math.Sin(angle) * length));
+                            Math.Max(Math.Min(origin.Y, destination.Y), Math.Min(ceiling, origin.Y + rise)),
+                            origin.Z + (float)Math.Sin(angle) * length));
                 }
             }
             foreach (Vector3 point in candidates)
             {
                 if (Vector3.Distance(origin, point) < 2 || !FlightCorridorClear(origin, point, radius)) continue;
-                float score = Vector3.Distance(origin, point) * 0.35f + Vector3.Distance(point, destination);
+                float score = Vector3.Distance(origin, point) * 0.35f + Vector3.Distance(point, destination) +
+                    TurnPenalty(forward, point - origin);
                 // Prefer a bypass with a usable continuation, rather than repeatedly moving
                 // to a point immediately in front of the same tree/building.
                 if (!FlightCorridorClear(point, Toward(point, destination, 12), radius)) score += 20;
@@ -300,7 +354,7 @@ namespace RKmission
                 if (score >= best) continue;
                 best = score;
                 step = point;
-                kind = point.Y > origin.Y + 2 ? "higher elevation" : "lateral arc";
+                kind = point.Y < origin.Y - 2 ? "lowering arc" : point.Y > origin.Y + 2 ? "higher elevation" : "lateral arc";
             }
             return !float.IsInfinity(best);
         }

@@ -17,13 +17,18 @@ namespace RKmission
         private LocalRoute _route;
         private Phase _phase;
         private bool _ownsMovement, _forceDirect, _directActive, _flightDetour, _approachFromDoor, _entryProbeLogged;
+        private bool _flightDropPending, _flightHolding;
         private Vector3 _lastPosition, _directStep, _groundTarget, _flightStep, _flightGoal, _loggedTarget;
+        private Vector3 _flightDropPoint;
         private float _bestStepDistance, _bestGroundDistance, _bestFlightDistance, _bestFlightStepDistance;
+        private float _flightDropGoalHeight;
         private DateTime _stepProgress, _groundProgress, _flightProgress, _flightStepProgress, _lastMotion;
         private DateTime _travelStarted, _phaseAt, _nextMove, _lastUse, _entryStarted, _nextProgressLog, _nextProbeLog;
-        private DateTime _nextHeightCheck, _nextFlightProbe;
+        private DateTime _nextHeightCheck, _nextFlightProbe, _lastFlightSteer;
         private int _groundRecoveries, _flightRecoveries, _flightAvoidances, _preferredSide, _doorAttempts;
+        private int _flightBlockedProbes;
         private string _movementKind, _lastEvaluation;
+        private string _flightStepKind;
         private Identity _door = Identity.None;
         public TravelMode Mode { get; set; } = TravelMode.Auto;
         public string Status => _phase.ToString();
@@ -80,6 +85,7 @@ namespace RKmission
         {
             Halt(); _route = null; _phase = Phase.Idle; _door = Identity.None;
             _lastEvaluation = null; _directActive = _flightDetour = false;
+            _flightDropPending = _flightHolding = false;
             _recentGround.Clear(); _recentFlight.Clear();
         }
 
@@ -100,6 +106,8 @@ namespace RKmission
             _nextMove = _nextProgressLog = _nextProbeLog = DateTime.MinValue;
             _nextHeightCheck = _nextFlightProbe = DateTime.MinValue;
             _directActive = _flightDetour = false; _movementKind = null;
+            _flightDropPending = _flightHolding = false;
+            _flightBlockedProbes = 0; _flightStepKind = null; _lastFlightSteer = _phaseAt;
             _entryProbeLogged = false;
             _bestGroundDistance = _bestFlightDistance = _bestFlightStepDistance = float.PositiveInfinity;
             _flightStepProgress = _phaseAt;
@@ -315,6 +323,7 @@ namespace RKmission
             if (DateTime.UtcNow < _nextProgressLog) return;
             _nextProgressLog = DateTime.UtcNow.AddSeconds(5);
             _say($"{kind} progress: phase={_phase}, position={position}, final target={target}, remaining={distance:F1} m, " +
+                (kind == "Flight" ? $"vertical gap={position.Y - target.Y:F1} m, " : "") +
                 $"no improvement for {(DateTime.UtcNow - progress).TotalSeconds:F0}/90 s.");
         }
 
@@ -337,10 +346,14 @@ namespace RKmission
                 // A better height changes the goal, not proof of player movement. Adjust the
                 // distance baseline without refreshing the no-progress deadline.
                 _bestFlightDistance = Vector3.Distance(position, destination);
+                // Keep a committed bypass through minor height refinements. A substantial
+                // correction invalidates a cached descent column and needs fresh clearance.
+                if (_flightDetour && (_flightDropPending || _flightStepKind == "Flight controlled descent") &&
+                    Math.Abs(destination.Y - _flightDropGoalHeight) > 1)
+                { _flightDropPending = _flightDetour = false; }
                 _flightGoal = destination;
-                _bestFlightStepDistance = float.PositiveInfinity;
-                _flightStepProgress = now;
-                _flightDetour = false;
+                if (!_flightDetour)
+                { _bestFlightStepDistance = float.PositiveInfinity; _flightStepProgress = now; }
                 _nextFlightProbe = DateTime.MinValue;
             }
             float remaining = Vector3.Distance(position, destination);
@@ -350,9 +363,26 @@ namespace RKmission
                     $"remaining={remaining:F1} m, best={_bestFlightDistance:F1} m, position={position}, " +
                     $"stall recoveries={_flightRecoveries}, obstacle bypasses={_flightAvoidances}.");
             LogProgress("Flight", position, destination, remaining, _flightProgress);
-            if (_flightDetour && Vector3.Distance(position, _flightStep) <= 2)
+            float bodyRadius = DynelManager.LocalPlayer.Radius;
+            if (float.IsNaN(bodyRadius) || float.IsInfinity(bodyRadius)) bodyRadius = 0.6f;
+            float radius = Math.Max(0.6f, Math.Min(1.2f, bodyRadius + 0.25f));
+            float velocity = DynelManager.LocalPlayer.Velocity;
+            if (float.IsNaN(velocity) || float.IsInfinity(velocity)) velocity = 0;
+            // Reach the leg within one update's travel, then recheck the real position
+            // before lowering. This avoids overshooting a tiny alignment radius at speed.
+            float arrivalRadius = Math.Max(1.2f, Math.Min(2.5f, velocity * 0.12f));
+            if (_flightDetour && Vector3.Distance(position, _flightStep) <= arrivalRadius)
             {
-                Halt(); Remember(_recentFlight, position); _flightDetour = false;
+                Remember(_recentFlight, position);
+                if (_flightDropPending && LocalRoutePlanner.FlightCorridorClear(position, _flightDropPoint, radius))
+                {
+                    _flightStep = _flightDropPoint;
+                    _flightStepKind = "Flight controlled descent";
+                    _say($"Flight descent column aligned: position={position}, lowering target={_flightStep}, " +
+                        $"entrance/final target={destination}; vehicle stays equipped.");
+                }
+                else _flightDetour = false;
+                _flightDropPending = _flightHolding = false; _flightBlockedProbes = 0;
                 _bestFlightStepDistance = float.PositiveInfinity; _flightStepProgress = now;
                 _nextFlightProbe = DateTime.MinValue;
             }
@@ -363,59 +393,104 @@ namespace RKmission
             if (now >= _nextFlightProbe || stalled)
             {
                 _nextFlightProbe = now.AddMilliseconds(400);
-                float bodyRadius = DynelManager.LocalPlayer.Radius;
-                if (float.IsNaN(bodyRadius) || float.IsInfinity(bodyRadius)) bodyRadius = 0.6f;
-                float radius = Math.Max(0.6f, Math.Min(1.2f, bodyRadius + 0.25f));
-                float velocity = DynelManager.LocalPlayer.Velocity;
-                if (float.IsNaN(velocity) || float.IsInfinity(velocity)) velocity = 0;
                 float lookAhead = Math.Max(8, Math.Min(24, velocity * 1.5f + 4));
                 Vector3 probeEnd = LocalRoutePlanner.Toward(position, target, lookAhead);
                 // Leave only the last metre of the selected entrance for proximity entry;
                 // a door/wall at the exact portal coordinate is not an unrelated obstacle.
                 float entryMargin = !_flightDetour && _phase == Phase.EntranceApproach && remaining <= lookAhead ? 1 : 0;
                 bool blocked = !LocalRoutePlanner.FlightCorridorClear(position, probeEnd, radius, entryMargin);
+                _flightBlockedProbes = blocked ? _flightBlockedProbes + 1 : 0;
+                _flightHolding = blocked;
+                // Stop for a suspect corridor, but retain this target until a second
+                // consecutive probe confirms it. A single noisy hit must not switch arcs.
+                if (blocked && !stalled && _flightBlockedProbes < 2) { Halt(); return true; }
                 if (blocked || stalled)
                 {
                     if (_flightDetour) Remember(_recentFlight, target);
                     if (stalled) _flightRecoveries++;
                     float ceiling = Math.Max(_route.CruiseEnd.Y, _route.EntrancePoint.Y + 12) + 40;
                     Halt();
-                    if (!LocalRoutePlanner.TryFlightBypass(position, destination, ceiling, radius,
-                        _flightAvoidances, _recentFlight, out Vector3 bypass, out string kind))
+                    Vector3 forward = DynelManager.LocalPlayer.Rotation.Forward;
+                    bool descent = _phase != Phase.FlightCruise && position.Y - destination.Y > 2;
+                    bool column = descent && LocalRoutePlanner.TryFlightDescentStep(position, destination, radius,
+                        forward, _recentFlight, _phase == Phase.EntranceApproach ? 1 : 0,
+                        out _flightStep, out _flightDropPoint);
+                    string kind = column ? "clear descent column" : null;
+                    Vector3 bypass = _flightStep;
+                    if (!column && !LocalRoutePlanner.TryFlightBypass(position, destination, ceiling, radius,
+                        _flightAvoidances, forward, _recentFlight, out bypass, out kind))
                     {
-                        _flightDetour = false;
+                        _flightDetour = _flightDropPending = false; _flightHolding = true;
                         _bestFlightStepDistance = float.PositiveInfinity;
                         _flightStepProgress = now;
                         if (now >= _nextProbeLog)
                         {
                             _nextProbeLog = now.AddSeconds(2);
-                            _say($"Flight avoidance: no clear local climb/arc yet; holding at {position}, " +
+                            _say($"Flight avoidance: no clear local descent/climb/arc yet; holding at {position}, " +
                                 $"retrying toward {destination}; final-target no-progress clock continues.");
                         }
                         return true;
                     }
                     _flightStep = target = bypass;
-                    _flightDetour = true;
+                    _flightDetour = true; _flightHolding = false; _flightBlockedProbes = 0;
+                    _flightDropPending = column && Vector3.Distance(bypass, _flightDropPoint) > 0.5f;
+                    if (column) _flightDropGoalHeight = destination.Y;
+                    _flightStepKind = column ? (_flightDropPending ? "Flight descent column alignment" : "Flight controlled descent") :
+                        kind == "lowering arc" ? "Flight lowering bypass" : "Flight obstacle bypass";
                     _bestFlightStepDistance = Vector3.Distance(position, target);
                     _flightStepProgress = now;
                     _flightAvoidances++;
                     _say($"Flight {(stalled ? "obstacle recovery" : "proactive avoidance")} {_flightAvoidances}: " +
                         $"{(stalled ? "waypoint stalled" : "object/terrain ahead")}, {kind}, bypass={target}, " +
+                        (column ? $"lowering point={_flightDropPoint}, " : "") +
                         $"entrance/final target={destination}; no-progress clock continues.");
                 }
             }
-            LogMovement(_flightDetour ? "Flight obstacle bypass" : _phase == Phase.FlightDescent ? "Flight descent/final approach" :
+            if (_flightHolding) { Halt(); return true; }
+            LogMovement(_flightDetour ? _flightStepKind : _phase == Phase.FlightDescent ? "Flight descent/final approach" :
                 _phase == Phase.EntranceApproach ? "Flight entrance approach in vehicle" : "Direct elevated flight", target, destination);
             Vector3 direction = target - position;
             // Ordinary waypoint arrival uses X/Z. Flight needs explicit altitude-aware steering
             // and a nondegenerate LookRotation basis for zero/vertical directions.
-            if (Vector3.Distance(position, target) < 0.1f) { Halt(); return true; }
-            Vector3 up = LocalRoutePlanner.HorizontalDistance(position, target) < 0.1f ? new Vector3(0, 0, 1) : Vector3.Up;
-            DynelManager.LocalPlayer.Rotation = Quaternion.LookRotation(direction, up);
+            stepDistance = Vector3.Distance(position, target);
+            if (stepDistance < 0.1f) { Halt(); return true; }
+            Vector3 wanted = direction.Normalize();
+            Vector3 current = DynelManager.LocalPlayer.Rotation.Forward;
+            if (!AcceptedMissions.Finite(current) || Vector3.Distance(current, Vector3.Zero) < 0.1f) current = wanted;
+            else current = current.Normalize();
+            double angle = Math.Acos(Math.Max(-1, Math.Min(1, Vector3.Dot(current, wanted))));
+            double elapsed = Math.Max(0.02, Math.Min(0.2, (now - _lastFlightSteer).TotalSeconds));
+            _lastFlightSteer = now;
+            Vector3 steering = SmoothFlightDirection(current, wanted, angle, elapsed * Math.PI * 2 / 3);
+            Vector3 up = Math.Abs(steering.X) + Math.Abs(steering.Z) < 0.05f ? new Vector3(0, 0, 1) : Vector3.Up;
+            // Smooth the rotation, but do not fly a wide turning arc through an obstacle.
+            // Tight corners rotate in place; small moving turns check their actual heading.
+            float steeringDistance = Math.Min(stepDistance, Math.Max(2, Math.Min(6, velocity * 0.5f + 1)));
+            float steeringMargin = !_flightDetour && _phase == Phase.EntranceApproach &&
+                stepDistance <= steeringDistance + 0.1f && angle < Math.PI / 36 ? 1 : 0;
+            bool turnInPlace = angle > Math.PI / 9 || (angle > Math.PI / 180 &&
+                !LocalRoutePlanner.FlightCorridorClear(position,
+                    position + steering * steeringDistance, radius, steeringMargin));
+            if (turnInPlace) Halt();
+            DynelManager.LocalPlayer.Rotation = Quaternion.LookRotation(steering, up);
+            if (turnInPlace) { SMovementController.SetMovement(MovementAction.Update); return true; }
             SMovementController.SetMovement(MovementAction.ForwardStart);
             SMovementController.SetMovement(MovementAction.Update);
             _ownsMovement = true;
             return true;
+        }
+
+        private static Vector3 SmoothFlightDirection(Vector3 current, Vector3 wanted, double angle, double maxTurn)
+        {
+            if (angle <= maxTurn) return wanted;
+            Vector3 tangent = wanted - current * Vector3.Dot(current, wanted);
+            if (Vector3.Distance(tangent, Vector3.Zero) < 0.001f)
+            {
+                // A 180-degree turn needs a deterministic perpendicular direction.
+                tangent = new Vector3(-current.Z, 0, current.X);
+                if (Vector3.Distance(tangent, Vector3.Zero) < 0.001f) tangent = new Vector3(1, 0, 0);
+            }
+            return current * (float)Math.Cos(maxTurn) + tangent.Normalize() * (float)Math.Sin(maxTurn);
         }
 
         private Door ResolveDoor(AcceptedMission mission)

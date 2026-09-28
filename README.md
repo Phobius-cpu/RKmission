@@ -4,8 +4,9 @@ AO# plugin for solo Rubi-Ka missions in Anarchy Online. It combines the original
 Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
 mission travel, room exploration, combat targeting, door handling, and looting.
 
-**Status (2026-09-28):** the user reported working local flight/vehicle approach,
-with entrance height and obstacle avoidance needing refinement. Those refinements
+**Status (2026-09-28):** the user reported useful flight obstacle avoidance,
+with descent looping above lower entrances and jerky turns. The descent and
+smoothing refinements
 are source-only and await the user's build and in-game validation. Dungeon
 exploration, combat, room doors, lockpicking, and loot behavior are preserved; one hook refreshes
 the live mission binding.
@@ -118,11 +119,27 @@ retrying an unfinished accepted mission.
   native scene line-of-sight, with offset rays for vehicle clearance. Speed
   controls an 8-24 m lookahead. A detected obstacle triggers clear vertical,
   raised or lateral candidate legs, scored for useful continuation and recent
-  attempts. This can climb beside a building or arc around a tree before a
-  collision/stall. If no local bypass clears, hold and retry within the existing
+  attempts and turn size. Lowering arcs are also available. This can climb beside
+  a building or arc around a tree before a collision/stall. If no local bypass
+  clears, hold and retry within the existing
   no-progress limit; the mission remains selected. Only the final metre at the
   selected entrance is reserved for proximity entry. The climb ceiling is 40 m
   above the greater of initial cruise height and refined entrance height +12 m.
+- A blocked descent toward a lower entrance first searches for a clear drop
+  column: align at the current height outside the obstruction, then lower toward
+  the resolved entrance elevation. Columns include the current/approach position
+  and rings out to 28 m around the approach. Both alignment and full descent are
+  checked before committing; descent is rechecked from the actual arrival position.
+  Nearby ground can raise the drop endpoint to retain hover clearance. A clear
+  low-level continuation is preferred, then precise entrance approach resumes.
+- Clear waypoints remain committed until arrival, confirmed obstruction, or stall.
+  Two consecutive ahead hits confirm a replan; a suspect/blocked corridor holds
+  movement across intervening updates. Minor height refinements preserve the active
+  bypass. Normal waypoint arrival no longer causes an unconditional full stop.
+  Flight direction turns at up to 120 degrees/second; turns over 20 degrees rotate
+  in place, and smaller moving turns check the actual heading for clearance.
+  Waypoint arrival tolerates 1.2-2.5 m according to speed, followed by the actual
+  descent recheck; precise entrance/door proximity checks retain their own limits.
 - Ground probes remain soft hints. Ground/flight waypoint stalls of eight
   seconds trigger resampling; ground mesh movement stalls of 15 seconds
   trigger direct fallback. Recoveries and entrance-height corrections do not
@@ -217,7 +234,9 @@ deployed plugin folders.
   `progress` for final-target distance,
   `Entrance height refined` for floor/source changes,
   `Flight proactive avoidance` / `Flight obstacle bypass` for ahead checks
-  and higher/lateral targets, `Flight obstacle recovery` for a stalled leg, and
+  and higher/lateral/lowering targets, `Flight obstacle recovery` for a stalled leg, and
+  `Flight descent column alignment` / `Flight controlled descent` for the way down.
+  Flight progress includes the vertical gap to the final target. Watch
   `Flight descent/final approach` for descent, then
   `Flight entrance approach in vehicle` for the last metres.
   Idle selection checks retry every five seconds; mode warnings are suppressed

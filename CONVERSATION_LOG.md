@@ -467,3 +467,37 @@ travel and these history documents; ground recovery, accepted tracking, dungeon
 exploration/combat/interior doors/lockpick/loot are preserved. Source/API/diff
 review only; no local compilation, package restore, tests or in-game run. The user
 will pull main, compile and test the two requested refinements in game.
+
+### User lower-entrance loop and smoother-navigation follow-up (2026-09-28)
+
+The user supplied 07:58 logs with FlightDescent at Y=39.87, final target Y=23.5,
+19.7 m remaining and no improvement for 20 seconds. Avoidance attempts 36-38
+selected lateral points at the same height. The entrance was below the flight
+path; the bot seemed stuck trying to find it. Object avoidance seemed okay,
+but the user asked to smooth the jerky path changes.
+
+### Assistant descent and steering changes
+
+Source inspection found no downward bypass candidates, immediate replanning on
+any probe hit, full stops at waypoint arrival, instant direction changes, and
+a hold that could resume movement between probe updates. Added descent columns:
+move outside the obstruction at current altitude, recheck the actual alignment
+position, then descend toward the lower approach in vehicle. Both legs need
+local clearance; low-level continuation is preferred. General avoidance now
+also has downward arcs. The selected mission and precise entrance interaction
+remain fixed.
+
+Clear waypoints persist until arrival, confirmed obstruction or stall. Two
+consecutive hits confirm a replan; blocked movement remains held between checks.
+Minor height updates preserve a committed bypass. Normal waypoint transitions
+continue smoothly, direction changes are limited by elapsed time, and sharp
+turns rotate in place while smaller moving turns check their actual path.
+Logs identify alignment, controlled descent, lowering points and vertical gap.
+Existing progress/time bounds continue without being refreshed by replanning.
+
+Confirmed the smoothing APIs using cached source and pinned SDK metadata.
+Updated README.md and PROJECT_MEMORY.md. Ground fallback, nearest mission
+selection, accepted tracking, height refinement, vehicle entry and the working
+dungeon exploration/combat/interior doors/lockpick/loot are preserved. Source/API/
+diff review only; no local compilation, restore, tests or in-game run. The user
+will pull main, compile and test the descent and smoother navigation in game.
