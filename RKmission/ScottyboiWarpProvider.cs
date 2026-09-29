@@ -12,16 +12,26 @@ namespace RKmission
 {
     internal enum WarpResult { InProgress, Succeeded, Failed }
 
-    // A best-effort provider. Commands are learned from the current help reply;
-    // no bot availability is baked into the plugin.
+    // A best-effort provider. Menu commands are learned from the current help
+    // reply; Hope is a confirmed fallback when Mort's menu page is missing.
     internal sealed class ScottyboiWarpProvider : IDisposable
     {
-        private enum State { Idle, Lookup, Help, Invite, Warp, Settling, Done, Failed }
+        private enum State { Idle, Lookup, Help, CommandLookup, Invite, Warp, Settling, Done, Failed }
+        private sealed class WarpCommand
+        {
+            public string Recipient, Text;
+            public WarpCommand(string recipient, string text)
+            { Recipient = recipient; Text = text; }
+        }
         private const string BotName = "Scottyboi";
+        private const string MenuName = "scty";
+        private const string ReplyName = "Scottyboi1";
         private readonly Action<string> _say;
         private readonly MovementArbiter _movement;
         private State _state;
-        private uint _botId;
+        private uint _botId, _menuId, _replyId, _helpId, _recipientId, _warperId;
+        private string _warperName;
+        private WarpCommand _pendingCommand;
         private int _targetId;
         private string _targetName;
         private string[] _targetAliases;
@@ -59,6 +69,9 @@ namespace RKmission
                 _targetId = targetId;
                 _helpRetried = _teleportStarted = false;
                 _lastReply = null;
+                _botId = _menuId = _replyId = _helpId = _recipientId = _warperId = 0;
+                _warperName = null;
+                _pendingCommand = null;
                 _helpReplies = _menuPageCount = 0;
                 _menuPages.Clear();
                 LastFailure = null;
@@ -68,9 +81,14 @@ namespace RKmission
                 _state = State.Lookup;
                 _movement.Halt(MovementOwner.WarpTravel);
                 Network.Send(new LookupMessage { Id = 0, Name = BotName });
+                Network.Send(new LookupMessage { Id = 0, Name = MenuName });
+                Network.Send(new LookupMessage { Id = 0, Name = ReplyName });
                 _say($"Asking {BotName} for its current warp menu for playfield {targetId}.");
                 return WarpResult.InProgress;
             }
+            if (_state == State.Lookup && _menuId == 0 && _botId != 0 &&
+                DateTime.UtcNow - _started > TimeSpan.FromSeconds(3))
+                StartHelp(_botId);
             if (_state == State.Settling)
             {
                 if (DateTime.UtcNow - _zonedAt < TimeSpan.FromSeconds(2)) return WarpResult.InProgress;
@@ -83,11 +101,17 @@ namespace RKmission
                 _say($"Warp to playfield {_targetId} verified after zoning settled.");
                 return WarpResult.Succeeded;
             }
+            if (_state == State.Help && _targetId == (int)PlayfieldId.Mort &&
+                DateTime.UtcNow - _started > TimeSpan.FromSeconds(10))
+            {
+                _say("Mort's menu page is missing; using the confirmed Hope command.");
+                RequestWarp(new WarpCommand(MenuName, "hope"));
+            }
             if (_state == State.Help && !_helpRetried &&
                 DateTime.UtcNow - _started > TimeSpan.FromSeconds(10) &&
                 (_helpReplies == 0 || _menuPageCount > _menuPages.Count))
             {
-                Chat.SendPrivateMessage(_botId, "!help");
+                Chat.SendPrivateMessage(_helpId, "!help");
                 _helpRetried = true;
                 _started = DateTime.UtcNow;
                 _say("Scottyboi's warp menu is incomplete; requesting its pages once more.");
@@ -102,25 +126,54 @@ namespace RKmission
                       (_menuPageCount > 0 ? $" of {_menuPageCount}" : "") +
                       (_lastReply == null ? "." : $". Last reply: {_lastReply}")
                     : _state == State.Invite
-                        ? "Scottyboi did not send a team invite after the destination command."
+                        ? $"Scottyboi did not send a team invite after '{_pendingCommand?.Text}'" +
+                          (_warperName == null ? "." : $" from {_warperName}.")
+                        : _state == State.CommandLookup
+                            ? $"Could not resolve Scottyboi menu recipient {_pendingCommand?.Recipient}."
                         : "Warp bot did not complete the current step in time.");
             return _state == State.Failed ? WarpResult.Failed : WarpResult.InProgress;
         }
 
         private void OnChatMessage(object sender, ChatMessageBody message)
         {
-            if (_state == State.Lookup && message is LookupMessage lookup &&
-                string.Equals(lookup.Name, BotName, StringComparison.OrdinalIgnoreCase) && lookup.Id != 0)
+            if (message is LookupMessage lookup)
             {
-                _botId = lookup.Id;
-                Chat.SendPrivateMessage(_botId, "!help");
-                _state = State.Help;
-                _started = DateTime.UtcNow;
+                if (string.Equals(lookup.Name, BotName, StringComparison.OrdinalIgnoreCase))
+                    _botId = lookup.Id;
+                else if (string.Equals(lookup.Name, MenuName, StringComparison.OrdinalIgnoreCase))
+                {
+                    _menuId = lookup.Id;
+                    if (_state == State.Lookup && _menuId != 0) StartHelp(_menuId);
+                }
+                else if (string.Equals(lookup.Name, ReplyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    _replyId = lookup.Id;
+                    // The chat alias scty may resolve to Scottyboi1's canonical name.
+                    if (_menuId == 0) _menuId = lookup.Id;
+                    if (_state == State.Lookup && _menuId != 0) StartHelp(_menuId);
+                }
+                else if (_warperName != null &&
+                    string.Equals(lookup.Name, _warperName, StringComparison.OrdinalIgnoreCase))
+                    _warperId = lookup.Id;
+                if (_state == State.CommandLookup && _pendingCommand != null &&
+                    (string.Equals(lookup.Name, _pendingCommand.Recipient, StringComparison.OrdinalIgnoreCase) ||
+                     (string.Equals(_pendingCommand.Recipient, MenuName, StringComparison.OrdinalIgnoreCase) &&
+                      string.Equals(lookup.Name, ReplyName, StringComparison.OrdinalIgnoreCase))) &&
+                    lookup.Id != 0)
+                    SendWarpCommand(lookup.Id);
                 return;
             }
-            if (_state != State.Help || !(message is PrivateMsgMessage reply) ||
-                reply.Sender != _botId || reply.Text == null)
+            if (!(message is PrivateMsgMessage reply) || reply.Text == null)
                 return;
+            if (_state == State.Invite || _state == State.Warp)
+            {
+                HandleWarpReply(reply);
+                return;
+            }
+            // The paged menu can be delivered by numbered Scottyboi accounts,
+            // not necessarily the account that received !help.
+            if (_state != State.Help ||
+                reply.Text.IndexOf("Warp destinations", StringComparison.OrdinalIgnoreCase) < 0) return;
             _helpReplies++;
             foreach (Match page in Regex.Matches(reply.Text,
                 @"Warp destinations\s*\((\d+)\s*/\s*(\d+)\)", RegexOptions.IgnoreCase))
@@ -131,23 +184,77 @@ namespace RKmission
             if (_lastReply.Length > 180) _lastReply = _lastReply.Substring(0, 180) + "...";
             foreach (string alias in _targetAliases)
             {
-                if (TryParseMenuMessage(reply.Text, alias, out string command))
+                if (TryParseMenuMessage(reply.Text, alias, out WarpCommand command))
                 { RequestWarp(command); return; }
             }
         }
 
-        private void RequestWarp(string command)
+        private void StartHelp(uint recipientId)
         {
-            Chat.SendPrivateMessage(_botId, command);
+            _helpId = recipientId;
+            Chat.SendPrivateMessage(recipientId, "!help");
+            _state = State.Help;
+            _started = DateTime.UtcNow;
+        }
+
+        private void RequestWarp(WarpCommand command)
+        {
+            _pendingCommand = command;
+            _started = DateTime.UtcNow;
+            uint recipientId = string.Equals(command.Recipient, MenuName, StringComparison.OrdinalIgnoreCase)
+                ? _menuId : string.Equals(command.Recipient, ReplyName, StringComparison.OrdinalIgnoreCase)
+                    ? _replyId : string.Equals(command.Recipient, BotName, StringComparison.OrdinalIgnoreCase)
+                        ? _botId : 0;
+            if (recipientId != 0) SendWarpCommand(recipientId);
+            else
+            {
+                _state = State.CommandLookup;
+                Network.Send(new LookupMessage { Id = 0, Name = command.Recipient });
+            }
+        }
+
+        private void SendWarpCommand(uint recipientId)
+        {
+            _recipientId = recipientId;
+            Chat.SendPrivateMessage(recipientId, _pendingCommand.Text);
             _state = State.Invite;
             _started = DateTime.UtcNow;
-            _say($"Sent Scottyboi command '{command}' for playfield {_targetId}; waiting for a team invite and zoning.");
+            _say($"Sent Scottyboi command '{_pendingCommand.Text}' to {_pendingCommand.Recipient} " +
+                $"for playfield {_targetId}; waiting for a team invite and zoning.");
+        }
+
+        private void HandleWarpReply(PrivateMsgMessage reply)
+        {
+            string text = Regex.Replace(WebUtility.HtmlDecode(reply.Text), "<[^>]+>", " ");
+            if (text.IndexOf("queue to get warped to", StringComparison.OrdinalIgnoreCase) < 0)
+                return;
+            Match destination = Regex.Match(text,
+                @"queue to get warped to\s+(?<zone>[^,.]+)", RegexOptions.IgnoreCase);
+            if (!destination.Success ||
+                Array.FindIndex(_targetAliases, alias =>
+                    Normalize(destination.Groups["zone"].Value) == alias) < 0) return;
+            Match warper = Regex.Match(text, @"warper\s*\((?<name>[a-z][a-z0-9_-]{2,24})\)",
+                RegexOptions.IgnoreCase);
+            if (!warper.Success) return;
+            _warperName = warper.Groups["name"].Value;
+            if (_state == State.Invite &&
+                Regex.IsMatch(text, @"\bis offline\b|\bneeds to log on\b", RegexOptions.IgnoreCase))
+            {
+                Fail($"Scottyboi queued '{_pendingCommand?.Text}', but warper {_warperName} is offline.");
+                return;
+            }
+            Network.Send(new LookupMessage { Id = 0, Name = _warperName });
         }
 
         private void OnTeamRequest(object sender, TeamRequestEventArgs request)
         {
             if ((_state != State.Invite && _state != State.Warp) ||
-                request.Requester.Instance != _botId || Team.IsInTeam)
+                Team.IsInTeam ||
+                (request.Requester.Instance != _botId &&
+                 request.Requester.Instance != _recipientId &&
+                 request.Requester.Instance != _menuId &&
+                 request.Requester.Instance != _replyId &&
+                 request.Requester.Instance != _warperId))
                 return;
             request.Accept();
             _joinedByProvider = true;
@@ -179,7 +286,7 @@ namespace RKmission
             _say(reason + " Normal travel fallback is required.");
         }
 
-        private static bool TryParseMenuLine(string line, string target, out string command)
+        private static bool TryParseMenuLine(string line, string target, out WarpCommand command)
         {
             command = null;
             // Chat links can contain nested formatting and URL-escaped spaces.
@@ -192,10 +299,14 @@ namespace RKmission
                 if (MatchesTarget(label, target) && TryCommandFromUrl(url, out command)) return true;
             }
             Match legacyLink = Regex.Match(line,
-                @"(?:chatcmd:///tell|/tell)\s+Scottyboi\s+(?<command>!?[a-z][a-z0-9_-]{1,20})[^>]*>(?<label>[^<]+)",
+                @"(?:chatcmd:///tell|/tell)\s+(?<recipient>Scottyboi\d*|scty)\s+(?<command>!?[a-z][a-z0-9_-]{1,20})[^>]*>(?<label>[^<]+)",
                 RegexOptions.IgnoreCase);
             if (legacyLink.Success && MatchesTarget(legacyLink.Groups["label"].Value, target))
-            { command = legacyLink.Groups["command"].Value; return true; }
+            {
+                command = new WarpCommand(legacyLink.Groups["recipient"].Value,
+                    legacyLink.Groups["command"].Value);
+                return true;
+            }
             if (line.IndexOf("<a", StringComparison.OrdinalIgnoreCase) >= 0) return false;
             string clean = Regex.Replace(WebUtility.HtmlDecode(line), "<[^>]+>", " ").Trim();
             string[] parts = Regex.Split(clean, @"\s*(?:=>|[-:=])\s*");
@@ -205,16 +316,17 @@ namespace RKmission
                 if (!MatchesTarget(parts[i], target)) continue;
                 string candidate = parts[1 - i].Trim();
                 Match tell = Regex.Match(candidate,
-                    @"^(?:/tell\s+Scottyboi\s+)?(?<command>!?[a-z][a-z0-9_-]{1,20})$",
+                    @"^(?:/tell\s+(?<recipient>Scottyboi\d*|scty)\s+)?(?<command>!?[a-z][a-z0-9_-]{1,20})$",
                     RegexOptions.IgnoreCase);
                 if (!tell.Success) continue;
-                command = tell.Groups["command"].Value;
+                command = new WarpCommand(tell.Groups["recipient"].Success
+                    ? tell.Groups["recipient"].Value : BotName, tell.Groups["command"].Value);
                 return true;
             }
             return false;
         }
 
-        private static bool TryParseMenuMessage(string message, string target, out string command)
+        private static bool TryParseMenuMessage(string message, string target, out WarpCommand command)
         {
             command = null;
             // Nadybot puts each menu page in the href of a text:// blob link.
@@ -235,7 +347,7 @@ namespace RKmission
             return false;
         }
 
-        private static bool TryParseMenuSection(string body, string target, out string command)
+        private static bool TryParseMenuSection(string body, string target, out WarpCommand command)
         {
             command = null;
             bool inSection = false;
@@ -262,15 +374,17 @@ namespace RKmission
             return false;
         }
 
-        private static bool TryCommandFromUrl(string url, out string command)
+        private static bool TryCommandFromUrl(string url, out WarpCommand command)
         {
             command = null;
             Match tell = Regex.Match(url,
-                @"(?:chatcmd:///tell|/tell)\s+Scottyboi\s+(?<command>!?[a-z][a-z0-9_-]{0,20}(?:\s+[a-z0-9_-]{1,30}){0,3})\s*$",
+                @"(?:chatcmd:///tell|/tell)\s+(?<recipient>Scottyboi\d*|scty)\s+(?<command>!?[a-z][a-z0-9_-]{0,20}(?:\s+[a-z0-9_-]{1,30}){0,3})\s*$",
                 RegexOptions.IgnoreCase);
             if (!tell.Success) return false;
-            command = tell.Groups["command"].Value.Trim();
-            return !Regex.IsMatch(command, @"^!?help(?:\s|$)", RegexOptions.IgnoreCase);
+            string text = tell.Groups["command"].Value.Trim();
+            if (Regex.IsMatch(text, @"^!?help(?:\s|$)", RegexOptions.IgnoreCase)) return false;
+            command = new WarpCommand(tell.Groups["recipient"].Value, text);
+            return true;
         }
 
         private static bool MatchesTarget(string label, string target)
@@ -320,6 +434,9 @@ namespace RKmission
             _state = State.Idle;
             _teleportStarted = _helpRetried = false;
             _lastReply = null;
+            _botId = _menuId = _replyId = _helpId = _recipientId = _warperId = 0;
+            _warperName = null;
+            _pendingCommand = null;
             _targetAliases = null;
             _helpReplies = _menuPageCount = 0;
             _menuPages.Clear();

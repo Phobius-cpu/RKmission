@@ -108,8 +108,12 @@ ACG key/entrance candidates. Broad, unlocated Neko candidate lists yield to the
 local Run/Fly mission-door approach after a bounded search. For longer travel,
 the bot asks Scottyboi for its current paged menu, reads a location command
 under the destination playfield's heading for any zone, and waits for
-Scottyboi's team invite. If some menu pages are missing, it requests the menu
-once more. A character already in a team cannot receive Scottyboi's invite.
+the assigned warper's team invite. For other zones, if some menu pages are missing, it
+requests the menu once more. A character already in a team cannot receive
+Scottyboi's invite.
+For Mort, the confirmed `scty` command `hope` is used when the Mort menu page
+does not arrive. An offline warper reply ends that request and reports why no
+team invite can follow.
 If the warp fails, travel uses mapped Grid, Fixer Grid (with a Data
 Receptacle), border, and teleporter links; a visible Grid terminal can also
 supply an entry link.
