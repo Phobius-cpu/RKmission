@@ -18,7 +18,7 @@ This current responsibility boundary supersedes the historical rolling/travel
 implementations below; keep that chronology as evidence of earlier outcomes.
 
 1. The user rolls/selects/accepts any number of missions and handles every
-   inter-playfield transfer, vehicle equipment, reward confirmation and exit.
+   inter-playfield transfer, vehicle equipment and return-item terminal hand-in.
 2. `/rkm start` arms takeover only for accepted Rubi-Ka missions in the current
    outdoor playfield. Rank active-mode estimates from a captured current origin:
    complete optional Run mesh cost or horizontal fallback; horizontal Fly estimate.
@@ -56,15 +56,25 @@ implementations below; keep that chronology as evidence of earlier outcomes.
 7. The existing stable exact mission/dungeon/room check gates `MissionDungeon`.
    Dungeon entry/post-combat readiness now gates new room actions and enemy
    acquisition starts within 20 m. Preserve exploration, room/door crossing,
-   lockpick, loot rules and objective behavior behind that gate. The outdoor
+   lockpick and ordinary loot rules behind that gate. Objective ordering now
+   reserves known objective rooms when possible and always defers completion
+   until every other enemy is dead and ordinary rooms/loot are cleared. The outdoor
    coordinator retains managed navigation evidence through zoning and records
    the existing exact verification.
-8. Room clearance/removal is not reward. `/rkm complete [bound id]` records user
-   confirmation; after user exit, select another local accepted mission from the
-   new origin. Stop when none remains and leave further transport to the user.
+8. Non-return objectives require our final action, observed objective/server
+   evidence and exact quest absence for two seconds, with no manual deletion.
+   Then finish remaining objective NPC/corpse/loot, record automatic completion,
+   route back to verified external-door geometry and wait for actual outdoor
+   zoning before selecting the next closest local mission. For return-item
+   missions, collection after clearance completes the bot run with a separate
+   manual-hand-in-pending flag; no terminal navigation/use or reward claim.
+   `/rkm complete [bound id]` remains a manual override. Stop when none remains
+   and leave inter-playfield transport to the user.
 
 Settings reload on plugin load; existing `/rkm travel auto|ground|flying` commands
-remain. No new chat commands, objective solving or automatic dungeon exit.
+remain. No new chat commands; automatic objective finale and dungeon exit are
+now authorized. Missing routes, unfinished/skipped loot or unclear objective
+evidence must not be silently treated as successful automatic completion.
 Do not compile, restore packages or test locally; the user owns in-game validation.
 
 ## Reference Source Archives Supplied
@@ -1693,3 +1703,56 @@ onto the new architecture.
 - Source/API metadata and diff review only. No compilation, package restore,
   automated tests or game execution; user pulls main, compiles and validates.
   No new in-game success is claimed. Prior backup remains the previous checkpoint.
+
+## Objective finale, automatic exit and local chaining (2026-09-29)
+
+- User says the preparation/recovery changes seem good and asks to preserve them.
+  Keep readiness settings/implementation, 20 m new engagements and the accepted
+  outdoor navigation checkpoint. No additional outdoor tuning is requested.
+- User requests retrieval of the five regular RK terminal types and completion
+  ordering: find item, return item, repair/use item, find person, kill person.
+  Reference: https://forums.funcom.com/t/rubi-ka-mission-settings-101/6664 and
+  AO-Universe's how-to-pull-a-mission guide. Use the existing Mali icon mapping
+  (11329/11330/11335/11337/11342) and native action identities, not name guessing.
+- User clarifies that visiting the objective room last is conditional on layout
+  feasibility, but completing its objective must always wait until every other
+  enemy is dead. Avoid known objective rooms while alternate ordinary routes
+  remain; allow required cut-throughs with exact objective identities held.
+  Late-loaded objectives cannot have their room reserved before discovery.
+- Managed MissionObjective preserves all seen steps/identities when native
+  actions change or the quest disappears. Ordinary combat and both Manager.Loot
+  candidate paths exclude held objectives. Reopen cleared rooms on new loaded
+  enemies/loot; require all mapped rooms cleared and no skipped/unfinished loot
+  before final actions. Early objective aggro/player/pet attack halts and recalls
+  pets rather than allowing an early completion; external plugins/manual actions
+  remain outside RKMission's ownership and may require user resolution.
+- Find-item uses actual pickup/use, with objective container contents collected
+  independently of the ordinary allowlist. Find-person observes first, waits for
+  acknowledgement, then kills the NPC last and processes its corpse. Kill-person
+  is acquired last at the preserved 20 m range. Repair uses the exact source item
+  on the exact destination. Missing items/metadata/acknowledgement holds completion.
+- Non-return automatic evidence combines our final action, pickup/source use/
+  death/observation or recognized inbound server completion text and exact quest
+  absence for two seconds. Outgoing manual Delete blocks the inference. The SDK
+  has no exposed authoritative reward flag, so disappearance alone is insufficient.
+- User explicitly supersedes the initial return-terminal travel proposal:
+  **leave all return-item hand-ins manual**, because they are almost always in
+  another playfield. After dungeon clearance, collect the item last, mark the
+  bot run completed, retain ReturnHandInPending=true, exit and chain locally.
+  Do not navigate to/use any return terminal or claim the game reward. Completed
+  return quests remain excluded even if still accepted. Status is session-scoped,
+  matching the previous manual completion tracker.
+- Manager.Loot now records finished transfer/close processing separately from
+  opened containers; keep ordinary rules/delete/reverse/quantity settings. Hold
+  the exact objective container until the finale, capture collected contents and
+  protect quest items from bag/reverse transfers. Skips hold automatic completion.
+- Automatic exit reuses the mapped room crossings/blacklists/reverse cooldown,
+  returns to the saved entry room and crosses identified external geometry with
+  bounded waits. Can recover an entry room when starting inside. Missing geometry/
+  blocked exit stops diagnostically rather than teleporting or assuming zoning.
+  Reopen clearance if new enemies/loot appear while returning. Actual outdoor
+  zoning starts the next closest eligible mission in the current playfield.
+- Preserve /rkm complete [bound id] as an explicit manual status override; while
+  armed it also requests automatic exit. Update README and conversation record.
+  Source/API metadata and diff review only; no compile, restore, automated tests
+  or game run. User owns build/in-game validation; no new successful run is claimed.

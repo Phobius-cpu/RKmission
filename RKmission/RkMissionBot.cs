@@ -5,6 +5,7 @@ using AOSharp.Core;
 using AOSharp.Core.UI;
 using AOSharp.Pathfinding;
 using MalisDungeonMap2;
+using SmokeLounge.AOtomation.Messaging.Messages;
 
 namespace RKmission
 {
@@ -45,6 +46,10 @@ namespace RKmission
             Game.TeleportStarted += ZoningStarted;
             Game.TeleportEnded += ZoningEnded;
             Network.N3MessageSent += _readiness.ObserveAction;
+            Network.N3MessageSent += _missions.ObserveSent;
+            Network.N3MessageReceived += _missions.ObserveQuest;
+            Network.N3MessageReceived += ObserveMissionMessage;
+            Mission.RollListChanged += _missions.ObserveRoll;
             Say("Loaded. Accept missions yourself, /rkm start, then travel to any mission playfield. /rkm travel auto|ground|flying; /rkm missions.");
         }
 
@@ -55,6 +60,10 @@ namespace RKmission
             Game.TeleportStarted -= ZoningStarted;
             Game.TeleportEnded -= ZoningEnded;
             Network.N3MessageSent -= _readiness.ObserveAction;
+            Network.N3MessageSent -= _missions.ObserveSent;
+            Network.N3MessageReceived -= _missions.ObserveQuest;
+            Network.N3MessageReceived -= ObserveMissionMessage;
+            Mission.RollListChanged -= _missions.ObserveRoll;
             _dungeon.Dispose();
             _roller.Teardown();
             _map.Teardown();
@@ -62,6 +71,11 @@ namespace RKmission
         }
 
         private static void Say(string text) => Chat.WriteLine("RKMission: " + text);
+
+        private void ObserveMissionMessage(object sender, N3Message message)
+        {
+            if (_running && _verifiedRun) _dungeon.Objective?.ObserveMessage(message);
+        }
 
         private void Command(string command, string[] args, ChatWindow window)
         {
@@ -94,8 +108,8 @@ namespace RKmission
                     if (!Game.IsZoning) _missions.Refresh(true);
                     foreach (AcceptedMission record in _missions.Records.OrderBy(x => x.Id.Instance))
                         Say($"{record.Id.Instance}: {record.Name}; playfield={record.PlayfieldId}, entrance={record.Entrance}; " +
-                            $"objective={record.Objectives}; state={record.State}, accepted={record.Present}, RK destination={record.IsRubiKaDestination}, " +
-                            $"rooms cleared={record.RoomsCleared}, evidence={record.CompletionEvidence ?? "none"}.");
+                            $"type={record.Kind}, objective={record.Objectives}; state={record.State}, accepted={record.Present}, RK destination={record.IsRubiKaDestination}, " +
+                            $"rooms cleared={record.RoomsCleared}, manual return hand-in pending={record.ReturnHandInPending}, evidence={record.CompletionEvidence ?? "none"}.");
                     if (!_missions.Records.Any()) Say("No accepted Rubi-Ka mission destinations detected.");
                     break;
                 case "complete": ConfirmCompletion(args); break;
@@ -165,11 +179,16 @@ namespace RKmission
             }
             _selected.State = MissionProgress.CompletedByUser;
             _selected.CompletionEvidence = "User confirmed the objective/reward with /rkm complete";
-            _dungeon.Stop();
             _travel.Reset();
             _waitingReason = null;
+            if (_running && Playfield.IsDungeon)
+            {
+                if (!_dungeon.IsRunning) _dungeon.Start(_selected);
+                _dungeonStarted = _dungeon.IsRunning;
+                _dungeon.BeginExit();
+            }
             Say($"Completion recorded for {_selected.Id.Instance}: {_selected.Name}. " +
-                "Exit the mission yourself; while armed, the next accepted mission in the same playfield will take over.");
+                "While armed, exit is automatic and the next closest accepted mission in this playfield will take over.");
         }
 
         private void Update(object sender, float elapsed)
@@ -202,7 +221,7 @@ namespace RKmission
                 _handoffWaitStarted = DateTime.MinValue;
                 if (_selected != null && _verifiedRun)
                 {
-                    if (_selected.State != MissionProgress.CompletedByUser)
+                    if (!_selected.Completed)
                     {
                         Wait("The previous mission has no confirmed reward. Check it and use /rkm complete; /rkm stop then start abandons this run binding.");
                         return;
@@ -284,25 +303,33 @@ namespace RKmission
 
         private void TickDungeon()
         {
-            if (_selected?.State == MissionProgress.CompletedByUser)
-            {
-                Wait("Mission completion confirmed. Exit yourself to resume same-playfield travel."); return;
-            }
             if (_dungeonStarted)
             {
                 if (Playfield.ModelIdentity != _activeDungeon)
                 {
                     Stop(); Say("Dungeon instance changed outside the verified handoff; run stopped."); return;
                 }
-                if (!_dungeon.IsRunning && !_dungeon.IsComplete) { Stop(); return; }
-                _dungeon.UpdateMissionBinding(Mission.List?.FirstOrDefault(x => x.Identity == _selected.Id));
+                if (!_dungeon.IsRunning)
+                {
+                    if (_selected.Completed && _dungeon.IsExiting)
+                    { Wait("Automatic exit is held; leave manually to resume the armed local mission chain. See the exit diagnostic."); return; }
+                    Stop(); return;
+                }
                 _dungeon.Tick();
                 if (_dungeon.IsComplete && !_clearanceReported)
                 {
                     _clearanceReported = true;
                     _selected.RoomsCleared = true;
-                    _dungeon.Stop();
-                    Wait("All reachable rooms cleared; quest completion is unconfirmed. Check the objective/reward, /rkm complete, then exit.");
+                    if (!_selected.Completed)
+                    {
+                        _selected.State = MissionProgress.CompletedAutomatically;
+                        _selected.CompletionEvidence = _selected.ReturnHandInPending
+                            ? "Return objective item collected after dungeon clearance; terminal hand-in/reward remains manual"
+                            : _dungeon.Objective.Evidence;
+                    }
+                    Say(_selected.ReturnHandInPending
+                        ? "Return item collected, all rooms cleared and loot processed. Run marked completed; hand-in is manual. Automatically exiting."
+                        : "Objective acknowledged, all rooms cleared and loot processed. Automatically returning to the mission exit.");
                 }
                 return;
             }
@@ -336,7 +363,7 @@ namespace RKmission
             _selected = record;
             _verifiedRun = true;
             _activeDungeon = Playfield.ModelIdentity;
-            if (record.State == MissionProgress.CompletedByUser)
+            if (record.Completed)
             {
                 Wait("This mission was already confirmed complete in this session. Exit to continue local travel."); return;
             }
@@ -347,7 +374,7 @@ namespace RKmission
             _travel.CompleteHandoff(true, "exact selected mission dungeon stable for one second with a live room");
             _travel.Reset();
             _waitingReason = null;
-            _dungeon.Start(bound); // The working dungeon implementation receives this exact accepted mission.
+            _dungeon.Start(record);
             _dungeonStarted = _dungeon.IsRunning;
             _clearanceReported = false;
             if (_dungeonStarted) Say($"Verified mission {_selected.Id.Instance} in dungeon {Playfield.ModelIdentity.Instance}; existing dungeon logic resumed.");

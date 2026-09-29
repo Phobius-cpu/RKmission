@@ -42,10 +42,16 @@ namespace ManagerLoot
 
         private readonly Dictionary<int, double> openedContainers = new Dictionary<int, double>();
         private readonly HashSet<MissionIdentity> _unreachableMissionLoot = new HashSet<MissionIdentity>();
+        private readonly HashSet<MissionIdentity> _seenMissionLoot = new HashSet<MissionIdentity>();
+        private readonly HashSet<MissionIdentity> _finishedMissionLoot = new HashSet<MissionIdentity>();
+        private readonly HashSet<MissionIdentity> _objectiveLootItems = new HashSet<MissionIdentity>();
         // RKMission limits the original loot state machine to the room being cleared.
         public int MissionRoomId { get; private set; } = -1;
         public Func<Dynel, int, bool> MissionRoomContains { get; set; }
         public Func<int, IEnumerable<Dynel>> MissionRoomDynels { get; set; }
+        public Func<Dynel, bool> MissionLootAllowed { get; set; }
+        public Func<Item, bool> MissionItemProtected { get; set; }
+        public MissionIdentity MissionObjectiveContainer { get; set; } = MissionIdentity.None;
         // RKMission temporarily owns the stationary recovery window. Preserve
         // original settings/process state and resume it after preparation.
         public bool MissionActionsPaused { get; set; }
@@ -71,8 +77,27 @@ namespace ManagerLoot
             _enabledForMission = false;
         }
 
-        public void ResetMissionLootSkips() => _unreachableMissionLoot.Clear();
+        public void ResetMissionLootSkips()
+        {
+            _unreachableMissionLoot.Clear();
+            _seenMissionLoot.Clear();
+            _finishedMissionLoot.Clear();
+            _objectiveLootItems.Clear();
+            openedContainers.Clear();
+            MissionObjectiveContainer = MissionIdentity.None;
+            CurrentCorpse = null;
+            CorpseContainer = null;
+            CurrentProcess = ProcessState.Load_Backpacks;
+        }
         public int SkippedMissionLootCount => _unreachableMissionLoot.Count;
+        public int UnfinishedMissionLootCount => _seenMissionLoot.Count(x => !_finishedMissionLoot.Contains(x));
+        public IEnumerable<MissionIdentity> MissionObjectiveItems => _objectiveLootItems;
+        private bool ProtectedMissionItem(Item item) =>
+            _objectiveLootItems.Contains(item.UniqueIdentity) || (MissionItemProtected?.Invoke(item) ?? false);
+        public bool HasUnprocessedMissionLoot(int roomId) =>
+            (MissionRoomDynels?.Invoke(roomId) ?? DynelManager.AllDynels).Any(x =>
+                (x.Identity.Type == IdentityType.Corpse || x.Identity.Type == IdentityType.Container) &&
+                IsInMissionRoom(x, roomId) && !_finishedMissionLoot.Contains(x.Identity));
 
         public void SkipUnreachableMissionLoot(MissionIdentity identity)
         {
@@ -84,13 +109,24 @@ namespace ManagerLoot
             }
         }
 
-        public Dynel NextMissionLoot(int roomId) =>
-            (MissionRoomDynels?.Invoke(roomId) ?? DynelManager.AllDynels)
+        public Dynel NextMissionLoot(int roomId)
+        {
+            var candidates = (MissionRoomDynels?.Invoke(roomId) ?? DynelManager.AllDynels)
             .Where(x => (x.Identity.Type == IdentityType.Corpse || x.Identity.Type == IdentityType.Container)
                 && IsInMissionRoom(x, roomId)
-                && !_unreachableMissionLoot.Contains(x.Identity)
-                && !openedContainers.ContainsKey(x.Identity.Instance))
+                && (MissionLootAllowed?.Invoke(x) ?? true)).ToList();
+            foreach (Dynel candidate in candidates) _seenMissionLoot.Add(candidate.Identity);
+            return candidates.Where(x =>
+                !_unreachableMissionLoot.Contains(x.Identity)
+                && !_finishedMissionLoot.Contains(x.Identity))
             .OrderBy(x => x.DistanceFrom(DynelManager.LocalPlayer)).FirstOrDefault();
+        }
+
+        private void FinishMissionContainer()
+        {
+            if (MissionRoomId >= 0 && CorpseContainer != null)
+                _finishedMissionLoot.Add(CorpseContainer.Identity);
+        }
 
         private bool IsInMissionRoom(Dynel dynel, int roomId) =>
             dynel.Room?.Instance == roomId ||
@@ -263,6 +299,7 @@ namespace ManagerLoot
                     if (contAddItem.Source == IdentityType.Inventory) return;
                     foreach (var item in Inventory.Items.Where(i => i.Slot.Type == IdentityType.Inventory)) //&& i.Slot.Instance == contAddItem.Slot slot is always 111 so it can not match the item slot
                     {
+                        if (ProtectedMissionItem(item)) continue;
                         if (!_settings["Reverse"].AsBool())
                         {
 
@@ -328,6 +365,7 @@ namespace ManagerLoot
                 }
 
             if (CurrentProcess != ProcessState.Opening) return;
+            if (MissionRoomId >= 0 && CurrentCorpse?.Identity != container.Identity) return;
 
             if (Inventory.Backpacks.Any(b => b.Identity == container.Identity)) return;
 
@@ -368,6 +406,7 @@ namespace ManagerLoot
                 if (Game.IsZoning) return;
                 if (Time.AONormalTime < ZoneDelay) return;
                 if (MissionActionsPaused) return;
+                if (MissionLootAllowed != null && MissionRoomId < 0) return;
 
                 if (MissionRoomId < 0 && _settings["DisableIfEmptyList"].AsBool() &&
                     Rules != null && Rules.Count == 0 && _settings["Enable"].AsBool())
@@ -405,7 +444,7 @@ namespace ManagerLoot
                     case ProcessState.Open_Corpse:
                         if (CorpseContainer != null) { CurrentProcess = ProcessState.Move_To_Inventory; return; }
 
-                        if (Inventory.Items.Where(i => i.Slot.Type == IdentityType.Inventory && i.UniqueIdentity.Type != IdentityType.Container).Select(i => new { Item = i, Rule = GetRuleForItem(i) }).FirstOrDefault(x => x.Rule != null && x.Rule.BagName != "")?.Item != null)
+                        if (Inventory.Items.Where(i => i.Slot.Type == IdentityType.Inventory && i.UniqueIdentity.Type != IdentityType.Container && !ProtectedMissionItem(i)).Select(i => new { Item = i, Rule = GetRuleForItem(i) }).FirstOrDefault(x => x.Rule != null && x.Rule.BagName != "")?.Item != null)
                         { CurrentProcess = ProcessState.Move_To_BackPack; return; }
 
                         if (Spell.HasPendingCast || Item.HasPendingUse || PerkAction.List.Any(perk => perk.IsExecuting)) return;
@@ -416,6 +455,8 @@ namespace ManagerLoot
                         var dynel = roomDynels.Where(c => !openedContainers.ContainsKey(c.Identity.Instance)
                         && !_unreachableMissionLoot.Contains(c.Identity)
                         && (c.Identity.Type == IdentityType.Container || c.Identity.Type == IdentityType.Corpse)
+                        && (MissionLootAllowed?.Invoke(c) ?? true)
+                        && (MissionRoomId < 0 || !_finishedMissionLoot.Contains(c.Identity))
                         && (MissionRoomId < 0 || IsInMissionRoom(c, MissionRoomId)))
                             .OrderBy(d => d.Position.DistanceFrom(DynelManager.LocalPlayer.Position)).FirstOrDefault(c => DynelManager.LocalPlayer.Position.Distance2DFrom(c.Position) < 6);
 
@@ -436,6 +477,7 @@ namespace ManagerLoot
                             if (DynelManager.LocalPlayer.IsAttacking || DynelManager.NPCs.Any(c => c.IsAttacking && c.FightingTarget?.Identity == DynelManager.LocalPlayer.Identity)) return;
 
                             var chest = new Chest(dynel);
+                            CurrentCorpse = dynel;
                             if (chest.IsLocked)
                             {
                                 var lockPick = Inventory.Items.FirstOrDefault(p => p.Name == "Lock Pick");
@@ -461,8 +503,10 @@ namespace ManagerLoot
                         break;
 
                     case ProcessState.Move_To_Inventory:
+                        if (Spell.HasPendingCast || Item.HasPendingUse || PerkAction.List.Any(perk => perk.IsExecuting)) return;
                         if (CorpseContainer == null || CorpseContainer.Items == null || CorpseContainer.Items.Count == 0)
                         {
+                            if (CorpseContainer?.Items != null) FinishMissionContainer();
                             CurrentCorpse = null;
                             CorpseContainer = null;
                             CurrentProcess = ProcessState.Open_Corpse;
@@ -477,11 +521,14 @@ namespace ManagerLoot
                             return;
                         }
 
-                        var corpseItem = CorpseContainer.Items.FirstOrDefault(i => (!_settings["Reverse"].AsBool() && CheckRules(i)) || (_settings["Reverse"].AsBool() && !CheckRules(i)));
+                        var corpseItem = CorpseContainer.Items.FirstOrDefault(i =>
+                            CorpseContainer.Identity == MissionObjectiveContainer ||
+                            (!_settings["Reverse"].AsBool() && CheckRules(i)) || (_settings["Reverse"].AsBool() && !CheckRules(i)));
 
                         if (corpseItem != null)
                         {
-                            if (_settings["Reverse"].AsBool()) reverseItems.Add(corpseItem.Id);
+                            if (CorpseContainer.Identity == MissionObjectiveContainer) _objectiveLootItems.Add(corpseItem.UniqueIdentity);
+                            if (_settings["Reverse"].AsBool() && CorpseContainer.Identity != MissionObjectiveContainer) reverseItems.Add(corpseItem.Id);
                             corpseItem.MoveToInventory();
 
                             CurrentProcess = ProcessState.Move_To_BackPack;
@@ -504,7 +551,7 @@ namespace ManagerLoot
                     case ProcessState.Move_To_BackPack:
                         if (Spell.HasPendingCast || Item.HasPendingUse || PerkAction.List.Any(perk => perk.IsExecuting)) return;
 
-                        var invItemWithBag = Inventory.Items.Where(i => i.Slot.Type == IdentityType.Inventory && i.UniqueIdentity.Type != IdentityType.Container).Select(i => new { Item = i, Rule = GetRuleForItem(i) }).FirstOrDefault(x => x.Rule != null && x.Rule.BagName != "");
+                        var invItemWithBag = Inventory.Items.Where(i => i.Slot.Type == IdentityType.Inventory && i.UniqueIdentity.Type != IdentityType.Container && !ProtectedMissionItem(i)).Select(i => new { Item = i, Rule = GetRuleForItem(i) }).FirstOrDefault(x => x.Rule != null && x.Rule.BagName != "");
 
                         var invItemNoBag = Rules.FirstOrDefault(r => string.IsNullOrEmpty(r.BagName) && Inventory.Items.Count(i => i.Slot.Type == IdentityType.Inventory && i.UniqueIdentity.Type != IdentityType.Container && GetRuleForItem(i) == r) >= Convert.ToInt32(r.Quantity));
 
@@ -541,6 +588,8 @@ namespace ManagerLoot
 
                         break;
                     case ProcessState.Close_Corpse:
+                        if (Item.HasPendingUse) return;
+                        FinishMissionContainer();
                         //Chat.WriteLine("Closing corpse and clearing references.", ChatColor.Yellow);
                         if (CurrentCorpse != null && CurrentCorpse.Position.DistanceFrom(DynelManager.LocalPlayer.Position) < 6)
                         {

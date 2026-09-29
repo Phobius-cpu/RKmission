@@ -7,15 +7,17 @@ local mission travel, room exploration, combat, door handling and looting.
 **Status (2026-09-29):** mission entry and post-combat room actions now wait for
 buff preparation and HP/nano recovery when needed; new enemy engagements are
 limited to 20 m. The user-confirmed outdoor navigation is preserved.
+Objectives now wait for ordinary room/enemy/loot clearance, followed by automatic
+completion, return to the entry door, actual exit and nearest local mission chaining.
+Return-item runs finish for the bot when the item is collected; terminal hand-ins
+remain entirely manual, with a separate pending-hand-in flag.
 Outdoor travel/entrance navigation has been consolidated
 into one state machine with Run/Fly movement and persistent entrance diagnostics.
 Fly gains cruise clearance, travels toward the selected mission while avoiding
 obstacles, matches mission entrance height when within 10 m, then diagnoses the
 approach side and enters. Ground retains observed perimeter recovery.
-Dungeon exploration, room navigation,
-interior doors/lockpicking, loot and objectives retain their implementations behind
-the new readiness gate and enemy acquisition range. The coordinator
-only adds diagnostics at the existing verified dungeon handoff. No local build,
+Mapped interior crossings, readiness, combat range and normal loot rules are
+preserved while objective ordering and automatic exit are added. No local build,
 package restore, tests or game run were performed; the user compiles and validates.
 
 ## Setup
@@ -63,14 +65,17 @@ package restore, tests or game run were performed; the user compiles and validat
    threshold. Neither arrival nor Use proves entry: AO# must identify the exact
    selected mission dungeon with a stable room for one second before
    `MissionDungeon` starts.
-7. Check the objective/reward, use `/rkm complete [bound mission id]`, and exit
-   the dungeon yourself. While armed, RKMission selects another accepted mission
+7. Clear ordinary rooms/enemies/loot before the reserved objective. On confirmed
+   objective completion (or return-item collection), RKMission records completion
+   and routes back through the mapped rooms to exit automatically. While armed,
+   RKMission selects the next closest accepted mission
    in that same playfield from the new origin. If none remains, it stops local
    automation; travel elsewhere yourself and use `/rkm start` again.
 
 Starting inside a mission retains AO#'s exact dungeon-to-mission lookup.
 `/rkm stop` gives back control; stop/start abandons an unfinished run binding
-and allows retry. Removed/expired/deleted missions are never proof of reward.
+and allows retry. Quest disappearance alone never proves reward. `/rkm complete
+[bound id]` remains a manual completion override; automatic exit follows while armed.
 
 ## Outdoor navigation architecture
 
@@ -469,7 +474,7 @@ A stalled room scan stops without claiming clearance.
 | `/rkm travel auto\|ground\|flying` | Set session travel mode; default auto uses the actual flight state. |
 | `/rkm start` | Arm accepted-mission monitoring/local takeover, or verify and resume the current dungeon. |
 | `/rkm stop` | Stop RKMission movement and dungeon automation. User-owned roller controls remain independent. |
-| `/rkm complete [mission id]` | Record the user's confirmed reward for the verified bound mission; exit yourself to continue locally. |
+| `/rkm complete [mission id]` | Manually mark the verified bound run completed; while armed, exit automatically and continue locally. |
 | `/rkm zone <id>` / `/rkm rolls <count>` | Retired commands: display the new manual rolling/all-missions boundary. |
 | `/rkm loot` | Show guidance to use `/ManagerLoot`; does not open a window. |
 | `/ManagerLoot` | Open the original loot rule list and settings. |
@@ -485,12 +490,67 @@ independently enabled after a run if you enabled it yourself. `/lm` toggles that
 
 ## Current behavior and recent fixes
 
+### Objective ordering and automatic completion
+
+The five regular Rubi-Ka terminal types are find item, return item, repair/use
+item, find person and kill person. See the original player guide reproduced on
+[Funcom's forum](https://forums.funcom.com/t/rubi-ka-mission-settings-101/6664).
+Native mission icons use the same mapping as Mali's existing roller. Accepted
+quest updates and subsequent action changes are retained as managed snapshots;
+offers never become travel candidates without acceptance. Unavailable metadata
+holds completion rather than guessing an objective from a name.
+
+| Type | Reserved final action |
+| --- | --- |
+| Find item | Use/pick up the exact quest item; objective containers also transfer their contents. |
+| Return item | Pick up the quest item, then mark the bot run completed with `manual return hand-in pending=true`. No terminal travel or hand-in is performed. |
+| Repair/use item | Use the native source item on the exact destination. |
+| Find person | Observe/target the exact NPC after ordinary clearance; wait for acknowledgement, then kill it last and process its corpse. |
+| Kill person | Keep the exact NPC out of normal target acquisition; engage it last within 20 m, then process its corpse. |
+
+Known objective rooms are avoided while another room can be reached without
+them. If the room is a required passage, enter/pass through it while holding
+the objective. A room whose objective has not loaded cannot be reserved in
+advance; the exact target/item identities remain protected. Every room must
+finish its ordinary enemies and loot before the final objective action. Recheck
+already cleared rooms for loaded new enemies/loot. Early objective aggression
+or player/pet attacks stop the bot and recall pets rather than waive the order.
+An independent combat plugin or manual action can still act outside RKMission;
+the guard reports the conflict when observed.
+
+Non-return completion needs our final action plus observed objective evidence
+(pickup, source-item consumption, NPC death/observation, or server completion
+text) and absence of the exact bound quest for two seconds. An observed manual
+quest deletion blocks this inference. No separate authoritative reward flag is
+exposed by this SDK; missing evidence/acknowledgement stops for manual review.
+Return collection is explicitly a bot-run completion and does not claim a game
+reward: hand in the item yourself later, usually in another playfield. Completed
+records are excluded from local selection even while a return quest remains
+accepted. Completion tracking, like the previous manual tracking, lasts for the
+loaded plugin session.
+
+Manager.Loot must finish opening/transferring/closing every discovered normal
+container/corpse according to its existing rules; merely opening it is insufficient.
+The objective container is held separately and its contents bypass the normal
+allowlist so the required item is collected. Quest items stay protected from
+automatic bag/reverse transfers. Unreachable/skipped or unfinished loot and
+unreachable rooms hold automatic completion/exit. This does not enable Loot All
+for ordinary chests or change the user's normal delete/reverse/quantity rules.
+
+After clearance, return through the same mapped crossings to the saved entry
+room and cross verified external-door geometry. Starting inside can recover an
+external entry room from the map. Missing exit geometry, blocked routes or a
+crossing that never zones stop with a diagnostic; no teleport or assumed exit.
+New enemies/loot encountered on return reopen clearance. Only actual outdoor
+zoning releases the run and selects the next closest eligible mission from the
+new position. Inter-playfield travel and return hand-ins remain manual.
+
 - Mali's world-space room outlines provide safe interior waypoints and map
   visible enemies, corpses, and containers to rooms. Discovery follows what
   the client has loaded or spawned.
-- The closest usable adjacent unvisited room takes priority. Otherwise the
-  bot follows the shortest available chain through visited rooms to another
-  unvisited room, logging intermediate and goal rooms.
+- The closest usable room route to unfinished ordinary work takes priority,
+  reserving known objective rooms when possible. Backtracking uses mapped
+  connections and logs intermediate and goal rooms.
 - A dedicated crossing approaches the mapped threshold, resolves a live door
   within 3 m, opens/lockpicks as needed, then continues inside. Locked/closed
   flags first trigger a passage probe; a distant door identity cannot redirect it.
@@ -505,6 +565,7 @@ independently enabled after a run if you enabled it yourself. `/lm` toggles that
 - Manager.Loot handles container opening, chest lockpicking, rules, and item
   transfers. A blocked loot approach gets an alternate attempt, then an
   unreachable object is skipped with a log for that run.
+  Skips now prevent automatic completion rather than count as finished loot.
 - The `adjacent` CS0136 compile conflict in `MissionDungeon.NextRoom` was
   fixed using distinct target and traversal names without changing behavior.
 
@@ -530,11 +591,13 @@ settings remain in their deployed plugin folders.
   and `/rkm start`; prior attempt diagnostics remain available.
 - **Persistence failed:** read the logged file/path error; give the deployed data
   folder normal write access before reloading. Malformed history is preserved.
-- **Rooms cleared but reward unconfirmed:** check the game objective/reward,
-  `/rkm complete`, then exit yourself. Removal/expiration is not completion.
+- **Objective/exit held:** inspect reserved-objective, loot and exit diagnostics.
+  Resolve aggro, missing items/free space or locked routes. After checking the
+  objective in game, `/rkm complete` can override completion while keeping automatic
+  exit available when armed. Return-item hand-ins are always manual.
 - **Dungeon map missing:** Mali recommends `Direct 3D T&L HAL` in the launcher.
 - **Interior door/loot issues:** check existing transition/skip logs, Lock Pick,
-  skill, loot rules and free space. These systems were not rewritten.
+  skill, loot rules and free space; unfinished loot holds completion.
 - **AO# error/death:** the coordinator stops and reports the reason.
 
 ## History and local backup

@@ -87,6 +87,64 @@ namespace RKmission
         public IEnumerable<Dynel> VisibleRoomDynels(int roomId) =>
             DynelManager.AllDynels.Where(dynel => ContainsDynel(roomId, dynel));
 
+        public bool TryExit(int entryRoom, Vector3 arrival, out Vector3 threshold,
+            out Vector3 across, out Identity doorId)
+        {
+            threshold = across = Vector3.Zero;
+            doorId = Identity.None;
+            Room room = Room(entryRoom);
+            if (room == null) return false;
+            var candidates = new List<Vector3>();
+            for (int i = 0; i < room.NumDoors; i++)
+            {
+                int adjacent = room.GetDoorConnectZone(i);
+                if (_rooms.ContainsKey(adjacent)) continue; // Includes unavailable interior connections.
+                room.GetDoorPosRot(i, out Vector3 point, out Quaternion rotation);
+                candidates.Add(point);
+            }
+            // A live external door may exist without an external room-table entry.
+            foreach (Door door in Playfield.Doors.Where(x =>
+                (x.RoomLink1?.Instance == entryRoom && x.RoomLink2 == null) ||
+                (x.RoomLink2?.Instance == entryRoom && x.RoomLink1 == null) ||
+                (x.RoomLink1 == null && x.RoomLink2 == null &&
+                    (x.Room == null || x.Room.Floor == room.Floor) &&
+                    Walls(entryRoom)?.Any(wall => SegmentDistance(x.Position, wall) <= 1.5f) == true &&
+                    !_connections.Values.Any(edge => Vector3.Distance(edge.Threshold, x.Position) <= 3f))))
+                candidates.Add(door.Position);
+            if (candidates.Count == 0) return false;
+            threshold = candidates.OrderBy(x => Vector3.Distance(x, arrival)).First();
+            Vector3 outward = threshold - arrival; outward.Y = 0;
+            if (HorizontalDistance(outward, Vector3.Zero) < 0.5f) outward = -DynelManager.LocalPlayer.Rotation.Forward;
+            outward.Y = 0;
+            if (HorizontalDistance(outward, Vector3.Zero) < 0.1f) outward = new Vector3(1, 0, 0);
+            outward = outward.Normalize();
+            Vector3 exitPoint = threshold;
+            var directions = new[] { outward, -outward, new Vector3(-outward.Z, 0, outward.X), new Vector3(outward.Z, 0, -outward.X) };
+            Vector3? chosen = directions.Select(x => (Vector3?)(exitPoint + x * 3f))
+                .FirstOrDefault(x => !IsInside(entryRoom, x.Value));
+            if (!chosen.HasValue) return false;
+            across = chosen.Value;
+            doorId = Playfield.Doors.Where(x => Vector3.Distance(x.Position, exitPoint) <= 3f)
+                .OrderBy(x => Vector3.Distance(x.Position, exitPoint)).FirstOrDefault()?.Identity ?? Identity.None;
+            return true;
+        }
+
+        public bool TryEntryFromInside(Vector3 position, out int roomId, out Vector3 approach)
+        {
+            roomId = -1;
+            approach = Vector3.Zero;
+            float best = float.MaxValue;
+            foreach (Room room in _rooms.Values)
+            {
+                if (!TryExit(room.Instance, position, out Vector3 threshold, out _, out _) ||
+                    !TryInterior(room.Instance, threshold, out Vector3 interior, out _)) continue;
+                float distance = Vector3.Distance(position, threshold);
+                if (distance >= best) continue;
+                best = distance; roomId = room.Instance; approach = interior;
+            }
+            return roomId >= 0;
+        }
+
         private List<Edge> Walls(int roomId)
         {
             if (_worldWalls.TryGetValue(roomId, out List<Edge> cached)) return cached;

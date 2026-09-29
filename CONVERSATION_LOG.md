@@ -1205,3 +1205,49 @@ clearance; movement does not target/attack/send pets outside the new range.
 Preserve the confirmed outdoor navigation and existing room crossing/objectives.
 Update README and PROJECT_MEMORY. Source/API/diff review only; no compilation,
 restore, automated tests or game run. User owns compilation and in-game validation.
+
+### User requested objective ordering, automatic completion and exit
+
+User reports the mission-start/post-combat recovery changes seem good and asks
+to preserve them. Retrieve the regular Rubi-Ka mission types and adjust room
+exploration, combat, loot and item use so the objective room/target/container is
+handled at the end. Once the objective and all rooms/enemies/containers are done,
+automatically return to the exit, record completion and select the next closest
+mission. Retain /rkm complete as a manual override.
+
+User clarifies: the objective room should be visited last IF possible, but the
+objective must always remain incomplete until every other enemy is dead.
+
+### User clarified return-item hand-ins remain completely manual
+
+During implementation, the assistant proposed source-terminal handling. User
+explicitly changes that scope: just collect the return item after clearance,
+mark the run completed, exit and continue to the next missions. All terminal
+hand-ins remain manual because they are almost always in another playfield.
+This latest instruction supersedes the terminal-travel proposal; no such code
+is included in the final change.
+
+### Assistant implemented a reserved finale and automatic return to the exit
+
+Identify the five standard terminal types through the existing Mali icon mapping
+and accepted native action identities. Reserve known objective rooms where an
+alternate ordinary route exists. Required passages can be traversed with the
+objective held. Prevent early bot-owned targeting/killing/looting/use; early
+objective aggression/player/pet attacks stop and recall pets. Recheck all mapped
+rooms and finish normal loot processing before the finale. Preserve the readiness
+implementation, 20 m range, existing crossing behavior and outdoor navigation.
+
+Use/pick up find-item objectives, observe find-person objectives before killing
+them last, acquire kill-person objectives last, and use the exact repair item.
+For non-return types, require final-action/state/server evidence plus exact quest
+absence and no observed manual deletion. Then finish objective NPC/corpse/loot,
+route back to external entry-door geometry and wait for actual outdoor zoning
+before nearest local selection. Missing routes/metadata/evidence or unfinished/
+skipped loot holds completion. The SDK does not expose a separate reward flag.
+
+For return-item types, inventory-confirmed collection completes the bot run with
+manual hand-in pending shown separately. Keep the item and accepted quest for
+the user's later turn-in; don't select that completed run again this session.
+Preserve /rkm complete and document automatic exit while armed. Update README
+and PROJECT_MEMORY. Source/API/diff review only; no compilation, restoration,
+automated tests or game execution and no new in-game success claim.

@@ -532,7 +532,7 @@ namespace RKmission
             string name = door.Name ?? "";
             string reason = null;
             float offset = LocalRoutePlanner.HorizontalDistance(point, _anchor);
-            if (!_mission.Present || _mission.State == MissionProgress.CompletedByUser ||
+            if (!_mission.Present || _mission.Completed ||
                 Playfield.IsDungeon || Playfield.ModelIdentity.Instance != _mission.PlayfieldId)
                 reason = "selected mission is not accepted in this outdoor playfield";
             else if (id.Type != IdentityType.Door) reason = "object type is not Door";
@@ -556,7 +556,7 @@ namespace RKmission
                     else if (!questLinked && (buildingType != 0 || building != 0))
                         reason = "unlinked building context; " + context;
                     else if (!questLinked && _accepted.Any(x => x.Id != _mission.Id && x.Present &&
-                        x.State != MissionProgress.CompletedByUser && x.PlayfieldId == _mission.PlayfieldId &&
+                        !x.Completed && x.PlayfieldId == _mission.PlayfieldId &&
                         AcceptedMissions.Finite(x.Entrance) && LocalRoutePlanner.HorizontalDistance(x.Entrance, _anchor) > 1 &&
                         LocalRoutePlanner.HorizontalDistance(point, x.Entrance) <= offset + 0.5f))
                         reason = "door is closer to or ambiguous with another accepted mission anchor; " + context;

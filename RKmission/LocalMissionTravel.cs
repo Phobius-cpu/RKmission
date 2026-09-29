@@ -70,7 +70,7 @@ namespace RKmission
             Vector3 origin = DynelManager.LocalPlayer.Position;
             if (!AcceptedMissions.Finite(origin)) return null;
             _accepted.Clear(); _accepted.AddRange(missions.Where(x => x.Present && x.IsRubiKaDestination &&
-                x.State != MissionProgress.CompletedByUser && x.PlayfieldId == Playfield.ModelIdentity.Instance && AcceptedMissions.Finite(x.Entrance)));
+                !x.Completed && x.PlayfieldId == Playfield.ModelIdentity.Instance && AcceptedMissions.Finite(x.Entrance)));
             var estimates = _accepted.Select(x => LocalRoutePlanner.Estimate(x, origin, flying))
                 .Where(x => x != null && !float.IsNaN(x.Cost) && !float.IsInfinity(x.Cost)).OrderBy(x => x.Cost).ThenBy(x => x.Mission.Id.Instance).ToList();
             foreach (LocalRoute estimate in estimates)

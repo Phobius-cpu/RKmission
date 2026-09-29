@@ -3,10 +3,13 @@ using System.Collections.Generic;
 using System.Linq;
 using AOSharp.Common.GameData;
 using AOSharp.Core;
+using SmokeLounge.AOtomation.Messaging.Messages;
+using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
 
 namespace RKmission
 {
-    internal enum MissionProgress { Accepted, InProgress, RemovedUnconfirmed, CompletedByUser }
+    internal enum MissionProgress { Accepted, InProgress, RemovedUnconfirmed, CompletedAutomatically, CompletedByUser }
+    internal enum RkMissionKind { Unknown, FindItem, ReturnItem, Repair, FindPerson, KillPerson }
 
     // Managed snapshots only: AO# Mission pointers are refreshed, never retained across zoning/removal.
     internal sealed class AcceptedMission
@@ -18,10 +21,17 @@ namespace RKmission
         // AOSharp Vector3 uses Y for altitude and X/Z for the outdoor plane.
         public Vector3 Entrance;
         public Identity DungeonInstance;
+        public Identity Source = Identity.None;
+        public RkMissionKind Kind;
+        public Vector3? DungeonEntryPosition;
+        public int DungeonEntryRoom;
+        public bool DeletedByUser;
+        public bool ReturnHandInPending;
         public List<MissionAction> Actions;
         public bool Present, HandoffVerified, RoomsCleared;
         public MissionProgress State;
         public bool IsRubiKaDestination => AcceptedMissions.IsRubiKaPlayfield(PlayfieldId);
+        public bool Completed => State == MissionProgress.CompletedAutomatically || State == MissionProgress.CompletedByUser;
     }
 
     internal sealed class AcceptedMissions
@@ -36,12 +46,53 @@ namespace RKmission
             650, 600, 551, 586
         };
         private readonly Dictionary<Identity, AcceptedMission> _records = new Dictionary<Identity, AcceptedMission>();
+        private readonly Dictionary<Identity, RkMissionKind> _kinds = new Dictionary<Identity, RkMissionKind>();
         private DateTime _nextRefresh;
         public IEnumerable<AcceptedMission> Records => _records.Values;
         public static bool IsRubiKaPlayfield(int id) => RubiKaPlayfields.Contains(id);
         public AcceptedMission Find(Identity id) => _records.TryGetValue(id, out AcceptedMission record) ? record : null;
         public IEnumerable<AcceptedMission> Eligible(int playfield) => Records.Where(x => x.Present && x.IsRubiKaDestination &&
-            x.PlayfieldId == playfield && x.State != MissionProgress.CompletedByUser);
+            x.PlayfieldId == playfield && !x.Completed);
+
+        // Offered metadata identifies all five types, but never makes an offer eligible.
+        public void ObserveRoll(object sender, RollListChangedArgs args)
+        {
+            foreach (var offer in args.MissionDetails ?? Array.Empty<SmokeLounge.AOtomation.Messaging.GameData.MissionInfo>())
+                _kinds[offer.MissionIdentity] = FromIcon(offer.MissionIcon);
+        }
+
+        public void ObserveQuest(object sender, N3Message message)
+        {
+            if (!(message is QuestFullUpdateMessage update)) return;
+            foreach (var quest in update.Quests ?? Array.Empty<SmokeLounge.AOtomation.Messaging.GameData.Quest>())
+            {
+                RkMissionKind kind = FromIcon(quest.MissionIconId);
+                if (kind != RkMissionKind.Unknown) _kinds[quest.QuestId] = kind;
+            }
+        }
+
+        public void ObserveSent(object sender, N3Message message)
+        {
+            if (message is QuestMessage quest && quest.Action == QuestAction.Delete)
+            {
+                AcceptedMission record = Find(quest.Mission);
+                if (record != null) record.DeletedByUser = true;
+            }
+        }
+
+        private static RkMissionKind FromIcon(int icon)
+        {
+            // Same native icons already used by the embedded Mali roller.
+            switch (icon)
+            {
+                case 11329: return RkMissionKind.ReturnItem;
+                case 11330: return RkMissionKind.KillPerson;
+                case 11335: return RkMissionKind.FindPerson;
+                case 11337: return RkMissionKind.FindItem;
+                case 11342: return RkMissionKind.Repair;
+                default: return RkMissionKind.Unknown;
+            }
+        }
 
         public void Refresh(bool force = false)
         {
@@ -70,6 +121,9 @@ namespace RKmission
                     record.State = record.HandoffVerified ? MissionProgress.InProgress : MissionProgress.Accepted;
                 record.Name = mission.DisplayName;
                 record.DungeonInstance = mission.PlayfieldInstance;
+                record.Source = mission.Source;
+                if (_kinds.TryGetValue(id, out RkMissionKind kind) && kind != RkMissionKind.Unknown)
+                    record.Kind = kind;
                 if (location != null && Finite(location.Pos) && (outdoorDestination || !record.IsRubiKaDestination))
                 {
                     record.PlayfieldId = location.Playfield.Instance;
@@ -86,7 +140,7 @@ namespace RKmission
             foreach (AcceptedMission record in Records.Where(x => !seen.Contains(x.Id)))
             {
                 record.Present = false;
-                if (record.State != MissionProgress.CompletedByUser)
+                if (!record.Completed)
                     record.State = MissionProgress.RemovedUnconfirmed;
                 // Removed/expired/deleted quests and rewards are indistinguishable in Mission.List.
                 // Keep the bound identity and objective metadata, but never claim completion here.
