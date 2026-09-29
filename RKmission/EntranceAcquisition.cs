@@ -36,6 +36,7 @@ namespace RKmission
         private int _flightHeightTrial;
         private Identity _flightHeightDoor = Identity.None;
         private float _flightDoorOriginHeight;
+        private float _flightApproachMinimum;
         private bool _flightInitialHeightVerified;
         private NavigationPoint _flightHeightMatchPoint;
         private readonly Dictionary<Identity, Candidate> _candidates = new Dictionary<Identity, Candidate>();
@@ -290,6 +291,7 @@ namespace RKmission
         public int PreferredFlightDirection => _memory.LastSuccessMode == "Fly" ? _memory.LastBypassDirection : 0;
         public bool NeedsFlightSideChange(Attempt attempt) => BypassRequired && !(attempt.KnownGood && !_sessionWallObserved);
         public float FlightEntryHeight => _flightHeights[_flightHeightTrial].Height;
+        public float FlightApproachHeight => Math.Max(FlightEntryHeight + 2, _flightApproachMinimum);
         public string FlightEntryHeightSource => _flightHeights[_flightHeightTrial].Source;
         public bool FlightEntryHeightVerified => _flightInitialHeightVerified && _flightHeightTrial == 0;
         public void ResolveFlightEntryHeight(Vector3 player, float fallbackHeight)
@@ -307,41 +309,44 @@ namespace RKmission
                 _flightHeightCoveredSectors.Clear();
                 _flightInitialHeightVerified = false;
                 _flightDoorOriginHeight = door.Position.Y;
+                _flightApproachMinimum = height + 2;
                 AddFlightHeight(height, source);
             }
             else if (_flightHeights.Count == 0)
             {
+                List<float> supports = LocalRoutePlanner.MissionEntrySupports(_anchor, player.Y);
                 bool verified = _memory.LastSuccessMode == "Fly" && _memory.LastSuccessEntryPoint?.Valid == true;
                 _flightInitialHeightVerified = verified;
-                List<float> supports = LocalRoutePlanner.MissionEntrySupports(_anchor, player.Y);
                 float height = verified ? _memory.LastSuccessEntryPoint.Y :
                     supports.Count > 0 ? supports[0] + _settings.FlightFloorClearance : fallbackHeight;
                 string source = verified ? "previous exact verified mission entrance height, shared across sides" :
                     supports.Count > 0 ? "mission-anchor local support plus clearance; provisional entrance height" :
                     "run-start aircraft height; mission entrance height unknown, provisional";
-                AddFlightHeight(height, source);
-                if (!verified)
+                _flightApproachMinimum = (verified || supports.Count == 0 ? height :
+                    supports[0] + _settings.FlightFloorClearance) + 2;
+                if (!verified && supports.Count >= 2)
+                    AddSupportedFlightHeights(supports);
+                else
                 {
-                    foreach (float support in supports.Skip(1))
-                        AddFlightHeight(support + _settings.FlightFloorClearance, "lower mission-anchor supported plane; roof-height hypothesis failed");
-                    if (supports.Count == 0)
-                        foreach (float offset in new[] { 2f, 4f, -2f, -4f, -8f })
-                            AddFlightHeight(height + offset, "bounded mission entrance height hypothesis; no local support");
-                    // Keep observed planes first, then correct their own clearance.
-                    // Offsets from the initial roof alone cannot refine a lower
-                    // doorway plane. Lowest local support gets the spare trials first.
-                    foreach (float support in supports.OrderBy(x => x))
+                    AddFlightHeight(height, source);
+                    if (!verified)
                     {
-                        AddFlightHeight(support + 0.5f, "mission-anchor supported plane plus 0.5 m clearance; provisional entrance height");
-                        AddFlightHeight(support + _settings.FlightFloorClearance + 2f,
-                            "mission-anchor supported plane plus clearance and 2 m; provisional entrance height");
+                        if (supports.Count == 0)
+                            foreach (float offset in new[] { 2f, 4f, -2f, -4f, -8f })
+                                AddFlightHeight(height + offset, "bounded mission entrance height hypothesis; no local support");
+                        foreach (float support in supports)
+                        {
+                            AddFlightHeight(support + 0.5f, "mission-anchor supported plane plus 0.5 m clearance; provisional entrance height");
+                            AddFlightHeight(support + _settings.FlightFloorClearance + 2f,
+                                "mission-anchor supported plane plus clearance and 2 m; provisional entrance height");
+                        }
                     }
-                }
-                if (supports.Count > 0 || verified)
-                {
-                    foreach (float offset in new[] { 2f, 4f, 6f })
-                        AddFlightHeight(height + offset, "bounded mission entrance height upward correction");
-                    AddFlightHeight(height + Math.Max(-1f, 0.5f - _settings.FlightFloorClearance), "small mission entrance clearance correction");
+                    if (supports.Count > 0 || verified)
+                    {
+                        foreach (float offset in new[] { 2f, 4f, 6f })
+                            AddFlightHeight(height + offset, "bounded mission entrance height upward correction");
+                        AddFlightHeight(height + Math.Max(-1f, 0.5f - _settings.FlightFloorClearance), "small mission entrance clearance correction");
+                    }
                 }
             }
             else return;
@@ -354,6 +359,34 @@ namespace RKmission
         {
             if (_flightHeights.Count < 6 && !_flightHeights.Any(x => Math.Abs(x.Height - height) < 0.25f))
                 _flightHeights.Add(new FlightHeight { Height = height, Source = source });
+        }
+        private void AddSupportedFlightHeights(List<float> supports)
+        {
+            // Doorways can lie between the roof and lower local supports.
+            // Keep every observed plane, filling spare trials within their range.
+            var heights = supports.Select(x => new FlightHeight
+            {
+                Height = x + _settings.FlightFloorClearance,
+                Source = "mission-anchor local support plus clearance; provisional entrance height"
+            }).OrderByDescending(x => x.Height).ToList();
+            while (heights.Count < 6)
+            {
+                int splitAt = -1; float largestGap = 0;
+                for (int i = 0; i + 1 < heights.Count; i++)
+                {
+                    float gap = heights[i].Height - heights[i + 1].Height;
+                    // Preserve 0.25 m separation; equal gaps prefer the higher interval.
+                    if (gap >= 0.5f && gap > largestGap)
+                    { largestGap = gap; splitAt = i; }
+                }
+                if (splitAt < 0) break;
+                heights.Insert(splitAt + 1, new FlightHeight
+                {
+                    Height = heights[splitAt + 1].Height + largestGap / 2,
+                    Source = "between mission-anchor supported planes; provisional doorway height"
+                });
+            }
+            foreach (FlightHeight height in heights) AddFlightHeight(height.Height, height.Source);
         }
         public void FlightHeightMatched(Vector3 player)
         { _flightHeightMatchPoint = NavigationPoint.From(player); LastProgress = DateTime.UtcNow; }
@@ -374,7 +407,7 @@ namespace RKmission
             Active.Record.ElevationSource = source; Active.Record.EntryPoint = NavigationPoint.From(Active.Threshold);
             Active.Record.ApproachPoint = NavigationPoint.From(Active.Threshold + Active.Normal * 1.5f);
             _say($"Fly entrance height: sector={Active.Sector}, height={height:F2}, source={source}; " +
-                "align diagonally at the reached exterior, then approach along its direction.");
+                "resolved threshold height; raised exterior staging is chosen separately before inward approach.");
         }
         public void ObserveFlight(Vector3 player, FlightPathPlanner flight, float angularTravel)
         {

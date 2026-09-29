@@ -6,9 +6,9 @@ using AOSharp.Common.GameData;
 namespace RKmission
 {
     // One reactive 3D planner for Fly transit and exterior-side relocation.
-    // LocalMovement remains the only executor. A 10 m height match precedes
-    // side diagnosis; subsequent bypass flight retains altitude until rejoining
-    // that same mission entry height, never the terrain at an orbit waypoint.
+    // LocalMovement remains the only executor. Raised staging at 10 m precedes
+    // side diagnosis; bypass flight retains altitude through raised staging,
+    // then approaches entry from above, never using orbit terrain as door height.
     internal sealed class FlightPathPlanner
     {
         private sealed class Choice
@@ -72,7 +72,7 @@ namespace RKmission
                         (LocalRoutePlanner.FlightCorridor(player, point, out _) ? 80 : 0) + diagonal.Score });
             }
             Vector3 result = choices.OrderBy(x => x.Score).First().First;
-            _say($"Fly height-match recovery: attempt={retry}, desired entry height={entryHeight:F2}, " +
+            _say($"Fly height-match recovery: attempt={retry}, desired staging height={entryHeight:F2}, " +
                 $"exterior=({LocalRoutePlanner.Coordinates(result)}), radius={radius:F1}; relocate before retrying diagonal alignment, no new floor height.");
             return result;
         }
@@ -80,6 +80,20 @@ namespace RKmission
         public Vector3 ElevationLeg(Vector3 player, Vector3 goal, Vector3 anchor, float perimeterRadius, string stage)
         {
             Choice best = ElevationChoices(player, goal, anchor, perimeterRadius, false).OrderBy(x => x.Score).First();
+            return ElevationTarget(player, best, stage);
+        }
+
+        public bool TryElevationLeg(Vector3 player, Vector3 goal, Vector3 anchor, float perimeterRadius, string stage,
+            Vector3 outward, out Vector3 target)
+        {
+            Choice best = ElevationChoices(player, goal, anchor, perimeterRadius, false, outward).OrderBy(x => x.Score).FirstOrDefault();
+            target = player;
+            if (best == null) return false;
+            target = ElevationTarget(player, best, stage); return true;
+        }
+
+        private Vector3 ElevationTarget(Vector3 player, Choice best, string stage)
+        {
             Strategy = "diagonal elevation";
             _say($"Fly diagonal elevation: stage={stage}, from=({LocalRoutePlanner.Coordinates(player)}), " +
                 $"target=({LocalRoutePlanner.Coordinates(best.First)}), horizontal run={LocalRoutePlanner.HorizontalDistance(player, best.First):F2} m, " +
@@ -87,8 +101,10 @@ namespace RKmission
             return best.First;
         }
 
-        private List<Choice> ElevationChoices(Vector3 player, Vector3 goal, Vector3 anchor, float perimeterRadius, bool overpass)
+        private List<Choice> ElevationChoices(Vector3 player, Vector3 goal, Vector3 anchor, float perimeterRadius, bool overpass,
+            Vector3 outward = default(Vector3))
         {
+            outward.Y = 0; // The entry-side constraint is horizontal, independent of quest Y.
             Vector3 heading = goal - player; heading.Y = 0;
             if (LocalRoutePlanner.HorizontalDistance(heading, Vector3.Zero) < 0.1f)
             { heading = player - anchor; heading.Y = 0; }
@@ -117,6 +133,9 @@ namespace RKmission
                     if (LocalRoutePlanner.HorizontalDistance(player, next) < 1 ||
                         ClosestRadius(player, next, anchor) < Math.Min(radius, perimeterRadius) - 0.8f) continue;
                 }
+                // Below-entry recovery may lift outward or tangentially, never
+                // advance through the selected doorway before regaining height.
+                if (Vector3.Dot(next - player, outward) < 0) continue;
                 bool blocked = LocalRoutePlanner.FlightCorridor(player, next, out _);
                 bool observed = RepeatsFailure(player, next);
                 int hits = blocked ? 1 : 0;

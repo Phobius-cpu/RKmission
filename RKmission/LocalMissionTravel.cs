@@ -13,6 +13,7 @@ namespace RKmission
         private enum Phase { Idle, CoarseTravel, FlyClearance, FlyToEntrance, FlyAvoidObstacle, FlyMatchEntryHeight, ProbeExterior, OrbitBypass, AlignElevation, FlyCloseApproach, FinalApproach, Interact, CrossThreshold, AwaitTransition }
         private const float FlightEntryRadius = 10;
         private const float FlightApproachStartDistance = 6;
+        private const float FlightHeightTolerance = 0.35f;
         // Another 20% longer than the previous 3.9 m final-approach steps.
         private const float FlightApproachLegLength = 4.68f;
         private readonly Action<string> _say;
@@ -30,7 +31,9 @@ namespace RKmission
         private bool _flyExteriorActive, _flyNeedsSideChange;
         private bool _flyCruiseReady, _flyHeightMatched, _flyDescentRelocating;
         private float _flyMatchedHeight;
+        private float _flyApproachStartHeight;
         private int _flyHeightRecoveries;
+        private int _flyApproachHeightRecoveries;
         private Vector3 _flyDescentExterior;
         private int _flyRouteStalls;
         private double _flyStartBearing, _flyLastBearing;
@@ -156,7 +159,7 @@ namespace RKmission
                 _entrance = new EntranceAcquisition(mission, _accepted, _route.Anchor, _settings, _learning, _say);
                 SetPhase(Phase.ProbeExterior);
                 if (flying) _say($"Fly 10 m height trigger: actual distance={LocalRoutePlanner.HorizontalDistance(player, _route.Anchor):F2} m, " +
-                    $"cruise height={player.Y:F2}; resolve and match mission entrance height before side diagnostics.");
+                    $"cruise height={player.Y:F2}; resolve entry height and prepare raised staging before side diagnostics.");
             }
             if (_entrance == null) return CoarseTravel(player, now);
             _entrance.Scan(player, flying);
@@ -202,6 +205,23 @@ namespace RKmission
             }
             if (_flyExteriorActive) return TickFlyExterior(player, now);
             if (_orbit != null) return TickOrbit(player, now);
+            if (flying && (_phase == Phase.FlyCloseApproach || _phase == Phase.FinalApproach ||
+                _phase == Phase.Interact || _phase == Phase.CrossThreshold) && player.Y < attempt.Threshold.Y)
+            {
+                // Never continue an inward approach from below its doorway target.
+                // Realign diagonally outside/in the outward direction before resuming.
+                if (++_flyApproachHeightRecoveries > 2)
+                {
+                    Retry("entry height lost after two raised-approach recoveries; try another exterior side", player, false);
+                    return true;
+                }
+                _flyApproachStartHeight = Math.Max(player.Y, _entrance.FlightApproachHeight);
+                Vector3 above = player; above.Y = _flyApproachStartHeight;
+                SetPath(Phase.AlignElevation, new[] { above });
+                _say($"Fly approach below-height guard: actual={player.Y:F2}, entry={attempt.Threshold.Y:F2}, " +
+                    $"raised staging={_flyApproachStartHeight:F2}, recovery={_flyApproachHeightRecoveries}/2; halt inward motion and gain height diagonally first.");
+                return true;
+            }
             if (_phase == Phase.Interact) return Interact(player, now);
             if (_phase == Phase.AwaitTransition)
             {
@@ -241,12 +261,21 @@ namespace RKmission
             if (_pathIndex < _path.Count)
             {
                 Vector3 target = _path[_pathIndex];
-                if (flying && _phase == Phase.AlignElevation && Math.Abs(target.Y - player.Y) > 0.35f)
-                    target = _flight.ElevationLeg(player, target, _route.Anchor, _entrance.FlightRingRadius, "rejoin entrance height");
+                if (flying && _phase == Phase.AlignElevation && Math.Abs(target.Y - player.Y) > FlightHeightTolerance)
+                {
+                    if (!_flight.TryElevationLeg(player, target, _route.Anchor, _entrance.FlightRingRadius,
+                        "align above entrance for inward approach", player.Y < attempt.Threshold.Y ? attempt.Normal : Vector3.Zero,
+                        out Vector3 alignment))
+                    {
+                        Retry("no bounded diagonal route to raised staging on this side", player, false); return true;
+                    }
+                    target = alignment;
+                }
                 if (flying && _phase == Phase.FinalApproach)
                     target = LocalRoutePlanner.Toward(player, target, FlightApproachLegLength);
                 _movement.Begin(target, flying, true, stallSeconds: flying ? 3 : (int?)null,
-                    arrivalTolerance: flying && _phase == Phase.AlignElevation ? 0.35f : (float?)null); _legActive = true;
+                    arrivalTolerance: flying && (_phase == Phase.AlignElevation || _phase == Phase.FinalApproach ||
+                        _phase == Phase.CrossThreshold) ? FlightHeightTolerance : (float?)null); _legActive = true;
                 _say($"Outdoor navigation target: phase={_phase}, sector={attempt.Sector}, source={attempt.Source}, " +
                     $"target=({LocalRoutePlanner.Coordinates(target)}), elevation={attempt.HeightSource}, door={attempt.DoorId}.");
                 return true;
@@ -256,14 +285,15 @@ namespace RKmission
                 case Phase.AlignElevation:
                     if (flying && LocalRoutePlanner.HorizontalDistance(player, attempt.Threshold) > FlightApproachStartDistance + 1)
                     {
-                        // The exterior side and entry height are already confirmed.
-                        // Move inward on that side before starting short final legs;
+                        // The exterior side and raised staging height are confirmed.
+                        // Move inward above the entry target before descending in final legs;
                         // never shrink the bypass ring used to reach another side.
                         Vector3 tangent = new Vector3(-attempt.Normal.Z, 0, attempt.Normal.X);
                         Vector3 close = attempt.Threshold + attempt.Normal * FlightApproachStartDistance + tangent * attempt.Lateral;
+                        close.Y = _flyApproachStartHeight;
                         SetPath(Phase.FlyCloseApproach, new[] { close });
                         _say($"Fly close approach: selected sector={attempt.Sector}, target=({LocalRoutePlanner.Coordinates(close)}), " +
-                            $"staging distance={FlightApproachStartDistance:F1} m; confirmed side, matched height, one inward leg before final precision.");
+                            $"staging distance={FlightApproachStartDistance:F1} m, entry height={attempt.Threshold.Y:F2}; start above, descend during final precision.");
                     }
                     else BeginFinalApproach(player);
                     break;
@@ -282,16 +312,25 @@ namespace RKmission
         private void BeginFinalApproach(Vector3 player)
         {
             EntranceAcquisition.Attempt attempt = _entrance.Active;
-            SetPath(Phase.FinalApproach, _entrance.FinalPoints(attempt));
+            List<Vector3> points = _entrance.FinalPoints(attempt);
+            if (_flying)
+                for (int i = 0; i < points.Count; i++)
+                {
+                    // The arrival sphere must not extend below the doorway plane.
+                    Vector3 point = points[i]; point.Y += FlightHeightTolerance; points[i] = point;
+                }
+            SetPath(Phase.FinalApproach, points);
             if (_flying) _say($"Fly final approach: leg cap={FlightApproachLegLength:F2} m, " +
                 $"another 20% longer, actual entrance distance={LocalRoutePlanner.HorizontalDistance(player, attempt.Threshold):F2} m; " +
-                "retain precise threshold staging and matched entry height.");
+                $"start height={player.Y:F2}, entry height={attempt.Threshold.Y:F2}; approach from above, retain precise threshold points.");
         }
 
         private bool TickFlyEntryHeight(Vector3 player, DateTime now)
         {
-            float height = _entrance.FlightEntryHeight;
-            if (_legActive)
+            // Prepare the raised approach, not a descent to a provisional low plane.
+            // A player already above the minimum can retain that actual altitude.
+            float height = Math.Max(player.Y, _entrance.FlightApproachHeight);
+            if (_legActive && Math.Abs(player.Y - height) > FlightHeightTolerance)
             {
                 MovementResult result = _movement.Tick(); LogProgress(player, now);
                 if (result == MovementResult.Moving) return true;
@@ -300,24 +339,26 @@ namespace RKmission
                 {
                     _flight.Blocked(player, _movement.Target);
                     if (++_flyHeightRecoveries >= 6)
-                        return Fail("mission entrance height could not be matched after bounded descent-corridor recovery; no approach side selected");
+                        return Fail("raised entrance staging could not be reached after bounded elevation-corridor recovery; no approach side selected");
                     _flyDescentExterior = _flight.DescentExterior(player, _route.Anchor, height, _flyHeightRecoveries);
                     _flyDescentRelocating = true;
                 }
                 else _flight.Reached(player);
             }
-            if (Math.Abs(player.Y - height) <= 0.35f)
+            if (Math.Abs(player.Y - height) <= FlightHeightTolerance)
             {
-                _movement.Halt(); _flyHeightMatched = true; _flyMatchedHeight = height; _flyDescentRelocating = false;
+                if (_legActive) RecordFlightLeg(_runRecord, player, MovementResult.Moving, "raised staging height available; horizontal leg ended");
+                _movement.Halt(); _flyHeightMatched = true; _flyMatchedHeight = _entrance.FlightEntryHeight; _flyDescentRelocating = false;
+                _flyApproachStartHeight = height;
                 _entrance.FlightHeightMatched(player);
-                Vector3 entry = _route.Anchor; entry.Y = height;
+                Vector3 entry = _route.Anchor; entry.Y = _entrance.FlightEntryHeight;
                 _runRecord.EntryPoint = NavigationPoint.From(entry);
                 _runRecord.ElevationSource = _entrance.FlightEntryHeightSource;
                 _runRecord.HeightMatchPoint = NavigationPoint.From(player); _runRecord.HeightMatchTriggerDistance = FlightEntryRadius;
                 _learning.Record(_runMemory, _runRecord);
-                _say($"Fly entrance height matched: target={height:F2}, actual={player.Y:F2}, " +
+                _say($"Fly raised entrance approach ready: staging target={height:F2}, actual={player.Y:F2}, entry target={_entrance.FlightEntryHeight:F2}, " +
                     $"distance={LocalRoutePlanner.HorizontalDistance(player, _route.Anchor):F2} m, " +
-                    $"source={_entrance.FlightEntryHeightSource}; begin approach-side diagnostics now, keep this height across sectors.");
+                    $"source={_entrance.FlightEntryHeightSource}; begin approach-side diagnostics above entry, retain higher altitude across sectors.");
                 SetPhase(Phase.ProbeExterior); return true;
             }
             Vector3 target;
@@ -330,13 +371,16 @@ namespace RKmission
             {
                 _flyDescentRelocating = false;
                 target = player; target.Y = height;
-                target = _flight.ElevationLeg(player, target, _route.Anchor,
-                    LocalRoutePlanner.HorizontalDistance(player, _route.Anchor), "mission entrance height match");
+                if (!_flight.TryElevationLeg(player, target, _route.Anchor,
+                    LocalRoutePlanner.HorizontalDistance(player, _route.Anchor), "raised entrance staging preparation",
+                    player.Y < _entrance.FlightEntryHeight ? player - _route.Anchor : Vector3.Zero, out Vector3 elevation))
+                    return Fail("no bounded diagonal route to raised entrance staging; approach not started");
+                target = elevation;
             }
             SetPhase(Phase.FlyMatchEntryHeight);
-            _movement.Begin(target, true, true, stallSeconds: 4, arrivalTolerance: _flyDescentRelocating ? 0.8f : 0.35f);
+            _movement.Begin(target, true, true, stallSeconds: 4, arrivalTolerance: _flyDescentRelocating ? 0.8f : FlightHeightTolerance);
             _legActive = true;
-            _say($"Fly height-match target: ({LocalRoutePlanner.Coordinates(target)}), entry height={height:F2}, " +
+            _say($"Fly height-match target: ({LocalRoutePlanner.Coordinates(target)}), staging height={height:F2}, entry height={_entrance.FlightEntryHeight:F2}, " +
                 $"relocating={_flyDescentRelocating}, source={_entrance.FlightEntryHeightSource}; approach side not selected.");
             return true;
         }
@@ -379,6 +423,7 @@ namespace RKmission
         private void BeginFlyExterior(Vector3 player, bool requireNewSide)
         {
             _orbit = null; _flyExteriorActive = true; _flyNeedsSideChange = requireNewSide; _flyRouteStalls = 0;
+            _flyApproachHeightRecoveries = 0;
             _flyStartBearing = _flyLastBearing = LocalRoutePlanner.Angle(player - _route.Anchor);
             _flyAngularTravel = _entrance.Active.Record.AngularSpanDegrees;
             SetPhase(Phase.ProbeExterior);
@@ -420,6 +465,10 @@ namespace RKmission
             if (remaining <= 1 && radius >= _entrance.FlightRingRadius - 1 && (!_flyNeedsSideChange || sideChange >= 20))
             {
                 _entrance.FlyingExteriorReached(player); _flyExteriorActive = false;
+                _flyApproachStartHeight = Math.Max(player.Y, _entrance.FlightApproachHeight);
+                attempt.Exterior.Y = _flyApproachStartHeight;
+                _say($"Fly approach from above: reached height={player.Y:F2}, staging height={_flyApproachStartHeight:F2}, " +
+                    $"entry height={attempt.Threshold.Y:F2}; retain higher bypass altitude, climb outside if needed, no descent before close approach.");
                 SetPath(Phase.AlignElevation, new[] { attempt.Exterior }); return true;
             }
             Vector3 target = _flight.Next(player, attempt.Exterior, _route.Anchor,
@@ -554,6 +603,7 @@ namespace RKmission
             attempt.Record.CrossCommands++;
             Vector3 point = attempt.Threshold - attempt.Normal * 0.8f;
             if (LocalRoutePlanner.HorizontalDistance(point, _route.Anchor) > EntranceAcquisition.SearchRadius) point = attempt.Threshold;
+            if (_flying) point.Y += FlightHeightTolerance;
             _say($"Entrance crossing: mission={_route.Mission.Id.Instance}, sector={attempt.Sector}, door={attempt.DoorId}, " +
                 $"target=({LocalRoutePlanner.Coordinates(point)}), reason={reason}; arrival cannot prove entry.");
             SetPath(Phase.CrossThreshold, new[] { point });
@@ -568,7 +618,7 @@ namespace RKmission
                 Origin = NavigationPoint.From(_movement.StartPosition), Target = NavigationPoint.From(_movement.Target),
                 Position = NavigationPoint.From(player), Stage = _phase.ToString(),
                 Strategy = _flyExteriorActive || _entrance == null ? _flight.Strategy :
-                    _phase == Phase.FlyMatchEntryHeight ? (_flyDescentRelocating ? _flight.Strategy : "mission entrance height match") :
+                    _phase == Phase.FlyMatchEntryHeight ? (_flyDescentRelocating ? _flight.Strategy : "raised entrance staging preparation") :
                     "entry alignment/approach", Result = outcome ?? result.ToString() });
             if (record.FlightLegs.Count > 12) record.FlightLegs.RemoveAt(0);
             if (_entrance?.Active?.Record == record) _entrance.SaveAttempt();

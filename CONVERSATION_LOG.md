@@ -1385,3 +1385,61 @@ automated tests or game execution. User owns build and in-game validation.
 Automatic approval review rejected uploading the full private gameplay log to
 GitHub without explicit payload-export authorization. Continue with the source
 correction and concise analysis; leave the original log local.
+
+## 2026-09-29 - Start entrance approach from above
+
+### User supplied the doorway coordinates and next approach log
+
+Entrance measurement: X=588.3, Z=1367.5, Y=30.5, playfield 665. User asked to
+debug approach status and add a rule that, if needed, the approach starts higher,
+never from below. The excerpt shows an overpass at Y=38 followed by an exterior
+descent to the provisional Y=27.01 target, then a final-approach stall at actual
+Y~27.1 near the building face. The supplied measurement establishes the low
+approach; it does not prove a successful corrected entry. Full logs stay local.
+
+### Local handoff and resumed work
+
+User asked for a Work handoff and chose a new ChatGPT Work task. Automatic
+approval review rejected its code/coordinates/local-path payload being sent to
+cloud. User chose "Keep the handoff local"; saved a local note and patch, with
+the source draft uncommitted/unpublished. No Work cloud task was created.
+User then said "u can resume code changes to navigation aproach pattern".
+
+### User extended the pattern to all mission entrances
+
+After resuming, the user said "make this pattern apply to all mission entrance
+not just this one". Remove the draft's editable coordinate hint and its default
+measurement. The supplied coordinates remain evidence only. Every flying mission
+entrance uses its own associated live Door, exact learned height or marker-local
+supports, in that order, without playfield or coordinate exceptions. Preserve
+native horizontal geometry and Door association/ownership checks.
+
+For unresolved entrances with at least two local supports, keep all nominal
+support-plus-clearance heights, fill spare slots by splitting the largest gaps,
+then try candidates from highest to lowest. Keep the six-candidate limit, the
+observed nominal height range and 0.25 m separation. This adds provisional
+doorway heights between roof and lower planes without assuming the measured
+entrance's height applies elsewhere. Live/verified heights and single/no-support
+fallbacks retain their behavior. No trial counts as success until verified zoning.
+
+### Assistant completed the general approach correction
+
+Resolve entry at the existing 10 m gate and prepare staging 2 m above it, keeping
+an already higher altitude. Retain the higher bypass altitude at the reached
+exterior and through the 6 m staging point. Descend during final precision to
+the existing horizontal points. Keep one controller/planner and the 4.68 m cap.
+
+Source review found the draft's 0.8 m final arrival could accept a below-entry
+position and its guard could repeat indefinitely on one candidate. Aim flying
+final/crossing points 0.35 m above entry with 0.35 m arrival precision. Halt any
+inward action below entry and repair outward/tangentially, with two repairs per
+candidate before yielding. Height drift alone does not learn a wall. Flatten
+direction checks to horizontal geometry; explicitly handle a no-choice result
+at the exterior bound. Recognize staging height before failing an incidental
+horizontal leg. Preserve normal stalls, fixed deadlines and exact dungeon checks.
+
+Update README and PROJECT_MEMORY. Preserve dungeon preparation/recovery, 20 m
+engagement, cleared-room transit/reopening, one-second reverse cooldown, reserved
+objectives/pending loot, manual return hand-ins, automatic exit/local chaining
+and /rkm complete. Source/API/diff review only; no compile, restore, automated
+tests or game run. User owns build and in-game validation.

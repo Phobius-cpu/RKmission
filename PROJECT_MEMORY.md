@@ -41,8 +41,10 @@ implementations below; keep that chronology as evidence of earlier outcomes.
    CW/CCW progress, preserves the other direction and verifies actual side change.
    Fly uses one `FlightPathPlanner` from transit through side relocation, compares
    over/around immediately, retains actual cruise height through obstacles, and
-   resolves entry height only after reaching the exterior using live/verified/local
-   support. The broad multi-layer floor voter remains Ground-only.
+   resolves entry height at the actual 10 m gate using live/verified/local
+   support. Prepare staging above that height and retain higher bypass altitude
+   to the 6 m close point, then descend during final precision. Do not start inward
+   movement below the entry plane. The broad multi-layer floor voter remains Ground-only.
    Fixed target minima/angular coverage survive retries. Only reached exteriors
    count as coverage; exhausted bypass may stop with an unresolved-route reason
    after no progress. Defaults: 8 s leg stalls, 90 s no-progress, 15 min total.
@@ -1885,3 +1887,63 @@ onto the new architecture.
 - Automatic approval review rejected exporting the full private gameplay log to
   GitHub without explicit authorization for that payload. Publish the focused
   source correction and concise analysis only; retain the original log locally.
+
+## Approach from above at every flying entrance (2026-09-29)
+
+- The user supplied another local approach excerpt and measured entrance
+  PF665, X=588.3, Z=1367.5, Y=30.5. The bot held target Y=27.01, descended from
+  a successful Y=38 overpass at the reached exterior, then stalled roughly 3 m
+  from the marker at actual Y=27.1. Its approach was about 3.4 m below the
+  measured doorway. No associated live Door was found; corrected entry is
+  not yet proven in game. Keep the full gameplay log local.
+- User explicitly requested a rule that the entrance approach starts from
+  higher altitude when needed, never from below. A local draft was saved during
+  a requested Work handoff. Cloud creation was rejected for payload export;
+  user chose to keep the handoff local, then authorized resuming source changes
+  here. No Work cloud task was created or messaged.
+- User clarified: "make this pattern apply to all mission entrance not just
+  this one". Remove the draft's coordinate-specific height hint and settings
+  additions. The measured point is evidence only. Use the same raised approach
+  for every flying entrance, based on its associated live Door, exact learned
+  height or marker-local supports, in that order. Keep native X/Z, the 6 m Door
+  association radius and ownership checks. No playfield or coordinate exception.
+- With at least two local supports and no live/verified Door height, retain all
+  support-plus-clearance candidates and fill spare slots by bisecting the
+  largest adjacent gaps, higher gap first on ties. Try the completed plan in
+  descending order with at most six candidates, within the nominal supported
+  height range and at least 0.25 m separation. This can approach doorways between
+  roof and lower support heights without a configured measurement. It remains
+  a bounded provisional search, not guaranteed doorway detection. Single-support,
+  no-support and verified-height offsets are unchanged.
+- At the existing actual 10 m gate, resolve the entry plane and prepare staging
+  at least 2 m above it, retaining an already higher character. For unverified
+  support plans also stay above the initial highest supported nominal height
+  plus 2 m, including later lower entry hypotheses. EntryPoint remains the
+  threshold height; HeightMatchPoint records raised preparation. The matched
+  plan key remains entry height so staging does not cause repeated re-matching.
+- Gain height diagonally outside when needed. Retain higher bypass altitude at
+  the reached exterior and through the 6 m close point; descend during final
+  legs toward the same 3/1.5/0.4 m horizontal points. Keep the 4.68 m leg cap.
+  Flying final/crossing targets are entry+0.35 m with 0.35 m arrival precision;
+  their arrival sphere does not extend below the entry plane. Ground is unchanged.
+- Before close/final movement, interaction or crossing, an actual Y below entry
+  halts inward motion. Repair using only outward/tangential diagonal choices
+  relative to the selected entrance normal; initial preparation uses the anchor
+  radial direction. Flatten the constraint to X/Z so stale quest Y cannot bias
+  it. Allow two repairs per candidate; a third yields to another side without
+  learning a wall from height drift alone. Real stalls retain normal diagnostics.
+- Constrained elevation selection returns no-route explicitly when no choice
+  survives the exterior bound/direction rule. Initial preparation stops with a
+  reason; candidate alignment retries. Do not pick an inward route or throw on
+  an empty list. Recognize sufficient staging altitude before spending recovery
+  on an unfinished incidental horizontal climb leg. Retain fixed deadlines,
+  the six preparation-recovery bound and six inferred-height candidate limit.
+- Preserve ordinary transit/overpass routing, diagonal movement, exact dungeon
+  verification and accepted readiness, 20 m engagement, room-local clearance,
+  one-second reverse cooldown, objective-last order, reserved/pending loot,
+  manual return hand-ins, automatic exit/chaining and /rkm complete.
+- README and conversation history describe the final behavior. Source/API/diff
+  review only, including independent review of the tolerance and no-route cases;
+  no compile, package restore, automated tests or game execution. User validates
+  the measured entrance and the general pattern in game. Other unseen doorway
+  heights remain provisional; do not claim geometry or successful zoning from rays.
