@@ -207,18 +207,7 @@ namespace RKmission
             // An established doorway crossing retains its existing ownership and
             // deadlines. Defer recovery until safe room arrival, observing aggro
             // throughout; every new room action still passes this gate.
-            if (_transition == null && _readiness.Hold())
-            {
-                _loot.MissionActionsPaused = true;
-                _destination = null;
-                _roomQuietAt = DateTime.MinValue;
-                if (_readiness.Failure != null)
-                {
-                    _say(_readiness.Failure);
-                    Stop();
-                }
-                return;
-            }
+            if (_transition == null && HoldForReadiness()) return;
             if (_meshes == null) return;
 
             int floor = Math.Abs(DynelManager.LocalPlayer.Room.Floor);
@@ -232,8 +221,13 @@ namespace RKmission
             Room room = DynelManager.LocalPlayer.Room;
             if (_transition != null)
             {
+                int arrivalRoom = _transition.Edge.Target;
                 TickTransition(room);
-                return; // Room selection, combat and loot cannot retarget a doorway crossing.
+                // Keep exclusive ownership until entry is confirmed. A cleared
+                // arrival can route straight onward in this same update, but
+                // recovery still gets its stationary window when needed.
+                if (_transition != null || !IsRunning || _currentRoom != arrivalRoom) return;
+                if (HoldForReadiness()) return;
             }
             if (_currentRoom < 0)
             {
@@ -258,7 +252,7 @@ namespace RKmission
                 _observedRoom = -1;
                 _roomQuietAt = DateTime.MinValue;
                 _say($"Confirmed room {_currentRoom} outside an active doorway crossing.");
-                SMovementController.Halt();
+                if (!_clearedRooms.Contains(_currentRoom)) SMovementController.Halt();
             }
             else
             {
@@ -300,25 +294,28 @@ namespace RKmission
                 return;
             }
 
-            if (_roomQuietAt == DateTime.MinValue)
+            // Rechecking live contents above is cheap. Only a room that has not
+            // been cleared needs another stationary clearance window.
+            if (!_clearedRooms.Contains(room.Instance))
             {
-                _roomQuietAt = DateTime.UtcNow;
-                return;
+                if (_roomQuietAt == DateTime.MinValue)
+                {
+                    _roomQuietAt = DateTime.UtcNow;
+                    return;
+                }
+                if (DateTime.UtcNow - _roomQuietAt < TimeSpan.FromSeconds(2))
+                    return;
             }
-            if (DateTime.UtcNow - _roomQuietAt < TimeSpan.FromSeconds(2))
-                return;
 
             _clearedRooms.Add(room.Instance);
             if (_objective.Failure != null) { Stop(); _say(_objective.Failure); return; }
             Room next = NextRoom(room);
             if (next == null)
             {
-                SMovementController.Halt();
-                if (_edgeFailures.Values.Any(x => !x.Permanent && x.Until > DateTime.UtcNow) ||
-                    _reverseCooldown.Values.Any(x => x > DateTime.UtcNow))
-                    return;
                 if (_clearedRooms.Count < Playfield.Rooms.Count)
                 {
+                    SMovementController.Halt();
+                    if (WaitingForRoute) return;
                     Stop();
                     _say("No further reachable rooms; failed doors/routes or missing Mali room geometry remain.");
                     return;
@@ -333,6 +330,7 @@ namespace RKmission
                 { Stop(); _say("No supported mission objective metadata is available; automatic completion is held."); return; }
                 if (!_objective.Finale)
                 {
+                    SMovementController.Halt();
                     _objective.BeginFinale();
                     _roomQuietAt = DateTime.MinValue;
                     return;
@@ -344,7 +342,13 @@ namespace RKmission
                     {
                         Room hop = RouteTo(room.Instance, id => id == objectiveRoom.Value, false);
                         if (hop != null) { BeginTransition(room.Instance, hop.Instance); return; }
+                        SMovementController.Halt();
+                        if (WaitingForRoute) return;
+                        Stop();
+                        _say("No mapped route to the remaining objective room; automatic completion is held.");
+                        return;
                     }
+                    SMovementController.Halt();
                     _objective.Tick(room, _layout, Navigate, _loot);
                     if (_objective.Failure != null) { Stop(); _say(_objective.Failure); }
                     return;
@@ -355,7 +359,12 @@ namespace RKmission
                     Room hop = RouteTo(room.Instance, id => id == occupied.Instance, false);
                     if (hop != null) BeginTransition(room.Instance, hop.Instance);
                     else if (occupied.Instance != room.Instance)
-                    { Stop(); _say("A remaining enemy has no available room route; automatic exit is held."); }
+                    {
+                        SMovementController.Halt();
+                        if (WaitingForRoute) return;
+                        Stop();
+                        _say("A remaining enemy has no available room route; automatic exit is held.");
+                    }
                     return;
                 }
                 IsComplete = _objective.RewardConfirmed || _objective.CollectedReturnItem;
@@ -366,6 +375,20 @@ namespace RKmission
             }
 
             BeginTransition(room.Instance, next.Instance);
+        }
+
+        private bool HoldForReadiness()
+        {
+            if (!_readiness.Hold()) return false;
+            _loot.MissionActionsPaused = true;
+            _destination = null;
+            _roomQuietAt = DateTime.MinValue;
+            if (_readiness.Failure != null)
+            {
+                _say(_readiness.Failure);
+                Stop();
+            }
+            return true;
         }
 
         private IEnumerable<SimpleChar> EnemyCandidates(Room room)
@@ -554,7 +577,8 @@ namespace RKmission
             if (now - _exitStarted > TimeSpan.FromMinutes(5))
             { Stop(); _say("Automatic exit route exceeded five minutes; exit manually to continue the local chain."); return; }
             if (_readiness.InCombat || (_record.State != MissionProgress.CompletedByUser &&
-                (EnemyCandidates(room).Any() || _loot.HasUnprocessedMissionLoot(room.Instance))))
+                (EnemyCandidates(room).Any() || _loot.HasUnprocessedMissionLoot(room.Instance,
+                    dynel => !_objective.IsObservationItem(dynel.Identity)))))
             {
                 // New arrivals invalidate automatic all-enemies-cleared evidence.
                 IsComplete = false;
@@ -761,6 +785,7 @@ namespace RKmission
             _destination = null;
             _observedRoom = -1;
             _say($"Transition {source}->{target}: approach doorway at {edge.Threshold}, door {door?.Identity.ToString() ?? "none"}; interior {edge.Interior}.");
+            Navigate(edge.Threshold);
         }
 
         private void TickTransition(Room detectedRoom)
@@ -789,8 +814,14 @@ namespace RKmission
                 }
                 if (safelyInsideTarget)
                 {
-                    // Keep the current interior route active during the brief
-                    // stability check; confirmation will stop it once complete.
+                    // Keep the interior route active during the brief stability
+                    // check. Cleared-room confirmation can continue onward.
+                    if (_clearedRooms.Contains(edge.Target) && !_readiness.InCombat &&
+                        !_loot.IsProcessingMissionLoot)
+                    {
+                        crossing.PushingDeeper = true;
+                        Navigate(edge.DeepInterior);
+                    }
                     return;
                 }
             }
@@ -839,7 +870,7 @@ namespace RKmission
                 crossing.LastProgress = now;
                 crossing.BestDistance = float.MaxValue;
                 _destination = null;
-                SMovementController.Halt();
+                if (door != null && !door.IsOpen) SMovementController.Halt();
                 if (crossing.Phase == TransitionPhase.ProbeDoor)
                     _say($"Transition {edge.Source}->{edge.Target}: door flags say locked and closed; probing passage before lockpicking.");
             }
@@ -853,7 +884,7 @@ namespace RKmission
                     crossing.LastProgress = now;
                     crossing.BestDistance = float.MaxValue;
                     _destination = null;
-                    SMovementController.Halt();
+                    if (door != null && !door.IsOpen) SMovementController.Halt();
                 }
                 else if (now - crossing.PhaseStarted < TimeSpan.FromSeconds(3))
                 {
@@ -986,12 +1017,16 @@ namespace RKmission
             _visitedRooms.Add(edge.Target);
             _edgeFailures.Remove(EdgeKey(edge.Source, edge.Target));
             _reverseCooldown[EdgeKey(edge.Source, edge.Target)] = DateTime.UtcNow.AddSeconds(8);
-            _say($"Transition {edge.Source}->{edge.Target}: confirmed in target room; reverse edge on 8-second cooldown.");
+            _say($"Transition {edge.Source}->{edge.Target}: confirmed in " +
+                (_clearedRooms.Contains(edge.Target) ? "previously cleared room; no repeat clearance pause" : "target room") +
+                "; reverse edge on 8-second cooldown.");
             _transition = null;
             _destination = null;
             _observedRoom = -1;
             _roomQuietAt = DateTime.MinValue;
-            SMovementController.Halt();
+            if (!_clearedRooms.Contains(_currentRoom) || _readiness.InCombat ||
+                _loot.IsProcessingMissionLoot)
+                SMovementController.Halt();
         }
 
         private void FailTransition(string reason)
@@ -1020,6 +1055,10 @@ namespace RKmission
                 (failure.Permanent || failure.Until > DateTime.UtcNow)) ||
                 (_reverseCooldown.TryGetValue(key, out DateTime until) && until > DateTime.UtcNow);
         }
+
+        private bool WaitingForRoute =>
+            _edgeFailures.Values.Any(x => !x.Permanent && x.Until > DateTime.UtcNow) ||
+            _reverseCooldown.Values.Any(x => x > DateTime.UtcNow);
 
         private void Navigate(Vector3 destination)
         {

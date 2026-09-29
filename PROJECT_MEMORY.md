@@ -1756,3 +1756,35 @@ onto the new architecture.
   armed it also requests automatic exit. Update README and conversation record.
   Source/API metadata and diff review only; no compile, restore, automated tests
   or game run. User owns build/in-game validation; no new successful run is claimed.
+
+## Find-item selection and cleared-room passages (2026-09-29)
+
+- User reports that a find-item mission repeatedly tried to use the object
+  instead of targeting it. This corrects the pickup/use interpretation in the
+  previous objective-finale entry: **find item selects the exact object**.
+  Only explicit return-item collection uses pickup; all return hand-ins remain
+  manual. Refresh pickup classification when return metadata arrives later.
+- Retain the objective-last gate. Our final action plus exact item selection or
+  recognized server completion evidence still needs disappearance of the bound
+  quest for two seconds, with no observed manual deletion. Selection alone never
+  completes the run. Keep find-item objects out of Manager.Loot,
+  including exit's unfinished-content check, so an observation container cannot
+  trigger repeated clearance after its mission is acknowledged.
+- User reports repeated visits and stopping on every room entry. Room routing
+  uses intermediate cleared rooms to reach unfinished branches/objectives or
+  the exit; such backtracking is necessary in some layouts. Remove forced halts
+  on cleared-room confirmation and at already open doorways; retain the safe
+  interior position and 500 ms room identity confirmation. Keep an interior
+  route active during that confirmation and issue the next doorway route in
+  the same update after arrival, without repeating the two-second quiet wait.
+  During the finale, available objective routes also continue immediately;
+  unrelated edge cooldowns no longer delay them. Truly unavailable routes still
+  wait for cooldown expiry or stop with a diagnostic if no route can recover.
+- Still inspect live room contents and reopen ordinary clearance when needed.
+  Keep readiness/recovery ownership at every confirmed arrival, combat/loot
+  interruption, closed-door handling, failed-edge limits and reverse cooldown.
+  Do not change outdoor navigation, 20 m acquisition, automatic exit/chaining,
+  return-item manual hand-in policy or /rkm complete.
+- Source/API/diff review only; no compile, package restore, automated tests or
+  game run. Update README and conversation history and publish coherent main
+  changes. User owns build/in-game validation; this is not a confirmed game run.

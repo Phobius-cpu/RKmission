@@ -94,10 +94,11 @@ namespace ManagerLoot
         public IEnumerable<MissionIdentity> MissionObjectiveItems => _objectiveLootItems;
         private bool ProtectedMissionItem(Item item) =>
             _objectiveLootItems.Contains(item.UniqueIdentity) || (MissionItemProtected?.Invoke(item) ?? false);
-        public bool HasUnprocessedMissionLoot(int roomId) =>
+        public bool HasUnprocessedMissionLoot(int roomId, Func<Dynel, bool> include = null) =>
             (MissionRoomDynels?.Invoke(roomId) ?? DynelManager.AllDynels).Any(x =>
                 (x.Identity.Type == IdentityType.Corpse || x.Identity.Type == IdentityType.Container) &&
-                IsInMissionRoom(x, roomId) && !_finishedMissionLoot.Contains(x.Identity));
+                IsInMissionRoom(x, roomId) && !_finishedMissionLoot.Contains(x.Identity) &&
+                (include == null || include(x)));
 
         public void SkipUnreachableMissionLoot(MissionIdentity identity)
         {

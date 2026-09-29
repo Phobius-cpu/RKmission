@@ -52,7 +52,9 @@ namespace RKmission
             foreach (MissionAction action in _record.Actions ?? new List<MissionAction>())
             {
                 Identity target = Target(action);
-                bool pickup = action is FindItemAction;
+                // Find-item missions complete by selecting the item. Only a
+                // return-item mission needs to collect it for a later hand-in.
+                bool pickup = action is FindItemAction && Returning;
                 if (action is UseItemOnItemAction use && (_record.Kind == RkMissionKind.ReturnItem ||
                     (use.Destination == _record.Source && _record.Source != Identity.None)))
                 {
@@ -61,9 +63,15 @@ namespace RKmission
                     pickup = true;
                 }
                 if (target == Identity.None) continue;
-                if (!_steps.Any(step => step.Target == target && step.Action.Type == action.Type))
+                Step existing = _steps.FirstOrDefault(step => step.Target == target && step.Action.Type == action.Type);
+                if (existing == null)
                     _steps.Add(new Step { Action = action, Target = target, Pickup = pickup });
+                else
+                    existing.Pickup = pickup;
             }
+            // A return hand-in action may arrive after its FindItemAction.
+            foreach (Step step in _steps.Where(x => x.Action is FindItemAction))
+                step.Pickup = Returning;
             if (layout == null) return;
             foreach (Step step in _steps)
             {
@@ -88,11 +96,14 @@ namespace RKmission
         }
 
         public bool IsObjective(Identity identity) => _steps.Any(x => x.Target == identity);
+        public bool IsObservationItem(Identity identity) => _steps.Any(x =>
+            x.Target == identity && x.Action is FindItemAction && !x.Pickup);
         public bool HoldEnemy(Identity identity) => _record.State != MissionProgress.CompletedByUser && _steps.Any(step => step.Target == identity &&
             (step.Action is KillPersonAction ? !(Finale && FinalActionsAllowed) :
                 step.Action is FindPersonAction && (!RewardConfirmed || !FinalActionsAllowed)));
         public bool HoldLoot(Dynel dynel) => IsObjective(dynel.Identity) &&
-            (!(Finale && FinalActionsAllowed) || dynel.Identity.Type == IdentityType.SimpleChar);
+            (IsObservationItem(dynel.Identity) || !(Finale && FinalActionsAllowed) ||
+                dynel.Identity.Type == IdentityType.SimpleChar);
 
         public void BeginFinale()
         {
@@ -120,6 +131,8 @@ namespace RKmission
                     else if (step.ObservationStarted == DateTime.MinValue) step.ObservationStarted = now;
                     else if (now - step.ObservationStarted >= TimeSpan.FromSeconds(30)) step.Proof = true;
                 }
+                else if (step.Action is FindItemAction && !step.Pickup)
+                    step.Proof |= Targeting.Target?.Identity == step.Target;
                 else if (step.Pickup)
                     step.Proof |= Inventory.Items.Any(x => x.UniqueIdentity == step.Target || _pickedUpItems.Contains(x.UniqueIdentity));
                 else if (step.Action is UseItemOnItemAction use)
@@ -204,12 +217,15 @@ namespace RKmission
                         MarkSent(step);
                         return false; // Manager.Loot opens/picks and transfers the objective contents.
                     }
-                    target.Use(); // Find-item completion requires pickup, not a targeting-only command.
+                    target.Use(); // Return-item collection only; hand-in remains manual.
                 }
                 else
                 {
-                    // Observation may need ~30 s. Keep selection without repeated retargeting.
+                    // Find item selects the exact object without opening/using
+                    // it. Find person may need ~30 s of uninterrupted selection.
                     if (Targeting.Target?.Identity != target.Identity) target.Target();
+                    if (step.Action is FindItemAction)
+                        step.Proof |= Targeting.Target?.Identity == step.Target;
                 }
                 MarkSent(step);
                 return true;

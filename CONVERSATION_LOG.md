@@ -1251,3 +1251,34 @@ the user's later turn-in; don't select that completed run again this session.
 Preserve /rkm complete and document automatic exit while armed. Update README
 and PROJECT_MEMORY. Source/API/diff review only; no compilation, restoration,
 automated tests or game execution and no new in-game success claim.
+
+## 2026-09-29 - Find-item targeting and continuous cleared-room traversal
+
+### User reported two in-game issues
+
+The find-item mission kept trying to "use" the item instead of targeting it.
+The character also revisited cleared rooms and stopped on entering every room.
+User asks to target the find item and avoid stopping in an already cleared room.
+
+### Assistant corrected selection and removed repeated transit pauses
+
+Correct the previous pickup/use assumption: find-item actions select the exact
+object and wait for bound-quest completion acknowledgement. Keep it protected
+from opening/looting, including exit's unfinished-loot check. Explicit return
+missions still collect the item after clearance and leave all hand-ins manual.
+Refresh this distinction if mission type metadata arrives after the item action.
+
+Cleared rooms may be necessary intermediate passages to unfinished branches,
+the reserved objective or the exit. Keep movement through those rooms during
+the existing entry stability check, do not halt on confirmation or at open
+doorways, skip their repeated two-second clearance wait and issue the onward
+route in the same update. Continue to inspect room contents and pause for new
+combat/loot, preparation or recovery and closed/blocked doors. Preserve objective
+ordering, the 20 m engagement limit, reverse cooldown, automatic exit/chaining,
+manual /rkm complete and accepted outdoor navigation.
+Available objective routes do not halt or wait because of an unrelated edge's
+cooldown; a genuinely blocked objective route remains held or stops diagnostically.
+
+Updated README and PROJECT_MEMORY. Source/API/diff review only; no compilation,
+package restoration, automated tests or game execution. Build and in-game
+validation remain with the user; no successful game result is claimed.

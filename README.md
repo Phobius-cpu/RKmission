@@ -502,7 +502,7 @@ holds completion rather than guessing an objective from a name.
 
 | Type | Reserved final action |
 | --- | --- |
-| Find item | Use/pick up the exact quest item; objective containers also transfer their contents. |
+| Find item | Target/select the exact quest item and wait for completion acknowledgement; do not use, open or pick it up. |
 | Return item | Pick up the quest item, then mark the bot run completed with `manual return hand-in pending=true`. No terminal travel or hand-in is performed. |
 | Repair/use item | Use the native source item on the exact destination. |
 | Find person | Observe/target the exact NPC after ordinary clearance; wait for acknowledgement, then kill it last and process its corpse. |
@@ -519,7 +519,7 @@ An independent combat plugin or manual action can still act outside RKMission;
 the guard reports the conflict when observed.
 
 Non-return completion needs our final action plus observed objective evidence
-(pickup, source-item consumption, NPC death/observation, or server completion
+(exact item selection, source-item consumption, NPC death/observation, or server completion
 text) and absence of the exact bound quest for two seconds. An observed manual
 quest deletion blocks this inference. No separate authoritative reward flag is
 exposed by this SDK; missing evidence/acknowledgement stops for manual review.
@@ -531,8 +531,10 @@ loaded plugin session.
 
 Manager.Loot must finish opening/transferring/closing every discovered normal
 container/corpse according to its existing rules; merely opening it is insufficient.
-The objective container is held separately and its contents bypass the normal
-allowlist so the required item is collected. Quest items stay protected from
+Return-item objective containers are held separately and their contents bypass
+the normal allowlist so the required item is collected. Find-item observation
+objects remain protected from opening/looting even after selection and do not
+count as unfinished loot during exit. Quest items stay protected from
 automatic bag/reverse transfers. Unreachable/skipped or unfinished loot and
 unreachable rooms hold automatic completion/exit. This does not enable Loot All
 for ordinary chests or change the user's normal delete/reverse/quantity rules.
@@ -557,6 +559,12 @@ new position. Inter-playfield travel and return hand-ins remain manual.
 - Entry requires 500 ms of stable target-room detection and a safe interior
   position. Combat, loot, and normal room selection resume after confirmation.
   The reverse connection has an eight-second cooldown.
+- Previously cleared rooms are passages when they still have no work: keep
+  movement active during entry confirmation, skip the repeated two-second
+  clearance wait and route onward in the same update. Open doorways do not
+  issue a halt. Required backtracking to other branches, the objective or exit
+  can still revisit a room. New enemies/loot, needed recovery, closed doors and
+  unavailable routes can require a stop; entry confirmation remains enforced.
 - Failed crossings block a connection for 30 then 90 seconds; a third failure
   blocks it for that run. Other reachable routes are considered.
 - Combat interrupts loot approaches. Nearby attackers, hostile spawned
