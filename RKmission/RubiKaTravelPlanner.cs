@@ -230,7 +230,13 @@ namespace RKmission
         {
             _target = target;
             _step = null;
-            _warpFailed = false;
+            // A nearby, single verified link is cheaper and avoids bothering a
+            // public warp bot for a short border/terminal transition.
+            int current = Playfield.ModelIdentity.Instance;
+            _warpFailed = target > 0 && DynelManager.LocalPlayer != null &&
+                _graph.TryGetValue(current, out List<Link> direct) && direct.Any(x =>
+                    x.To == target && (x.Kind == "FixerGridExit" ||
+                        Vector3.Distance(DynelManager.LocalPlayer.Position, x.Position) <= 300f));
             _failedLinks.Clear();
             LastFailure = null;
             _movement.Release(MovementOwner.OutdoorTravel);

@@ -37,7 +37,8 @@ The implementation code milestone is `1a998f8`.
   request and timeout backoff remain.
 - `RubiKaTravelPlanner` uses the Neko Fixer Grid IDs when a Data Receptacle
   exists, verifies each zone, blacklists timed-out links and replans. The
-  existing graph is still sparse and requires in-game validation.
+  existing graph is still sparse and requires in-game validation. It skips
+  Scotty requests for a nearby direct mapped transition.
 - `CombatDriver` owns enemy approach, range/LOS and attack initiation while
   `MissionDungeon` selects enemies. `RouteToRoom` exposes the existing
   failed-edge-aware room route for lift, objective and exit targets.
