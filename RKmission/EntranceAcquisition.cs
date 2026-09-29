@@ -36,7 +36,6 @@ namespace RKmission
         private int _flightHeightTrial;
         private Identity _flightHeightDoor = Identity.None;
         private float _flightDoorOriginHeight;
-        private float _flightApproachMinimum;
         private bool _flightInitialHeightVerified;
         private NavigationPoint _flightHeightMatchPoint;
         private readonly Dictionary<Identity, Candidate> _candidates = new Dictionary<Identity, Candidate>();
@@ -291,7 +290,9 @@ namespace RKmission
         public int PreferredFlightDirection => _memory.LastSuccessMode == "Fly" ? _memory.LastBypassDirection : 0;
         public bool NeedsFlightSideChange(Attempt attempt) => BypassRequired && !(attempt.KnownGood && !_sessionWallObserved);
         public float FlightEntryHeight => _flightHeights[_flightHeightTrial].Height;
-        public float FlightApproachHeight => Math.Max(FlightEntryHeight + 2, _flightApproachMinimum);
+        // Approach clearance belongs to the current doorway hypothesis, not a
+        // previous roof plane or bypass altitude. Arrival tolerance is 0.35 m.
+        public float FlightApproachHeight => FlightEntryHeight + 1.5f;
         public string FlightEntryHeightSource => _flightHeights[_flightHeightTrial].Source;
         public bool FlightEntryHeightVerified => _flightInitialHeightVerified && _flightHeightTrial == 0;
         public void ResolveFlightEntryHeight(Vector3 player, float fallbackHeight)
@@ -309,7 +310,6 @@ namespace RKmission
                 _flightHeightCoveredSectors.Clear();
                 _flightInitialHeightVerified = false;
                 _flightDoorOriginHeight = door.Position.Y;
-                _flightApproachMinimum = height + 2;
                 AddFlightHeight(height, source);
             }
             else if (_flightHeights.Count == 0)
@@ -322,8 +322,6 @@ namespace RKmission
                 string source = verified ? "previous exact verified mission entrance height, shared across sides" :
                     supports.Count > 0 ? "mission-anchor local support plus clearance; provisional entrance height" :
                     "run-start aircraft height; mission entrance height unknown, provisional";
-                _flightApproachMinimum = (verified || supports.Count == 0 ? height :
-                    supports[0] + _settings.FlightFloorClearance) + 2;
                 if (!verified && supports.Count >= 2)
                     AddSupportedFlightHeights(supports);
                 else

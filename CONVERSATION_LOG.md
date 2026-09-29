@@ -1443,3 +1443,41 @@ engagement, cleared-room transit/reopening, one-second reverse cooldown, reserve
 objectives/pending loot, manual return hand-ins, automatic exit/local chaining
 and /rkm complete. Source/API/diff review only; no compile, restore, automated
 tests or game run. User owns build and in-game validation.
+
+## 2026-09-29 - Limit approach clearance and compare the saved backup
+
+### User reported an approach above the measured doorway
+
+At 12:28 the character remained near X=588.2/Z=1367.8/Y=35.0 in PF665, while
+the entrance was X=588.0/Z=1367.7/Y=30.5. User asks whether the above-entry
+approach is too high, requests 1-2 m clearance, and asks to check their local
+backup because the approach pattern differs from prior iterations.
+
+### Assistant compared the exact accepted backup and made a focused correction
+
+Read-only verification of the dated Desktop backup found clean HEAD0350491,
+with accepted navigation code965003e. That version matched a fixed height at
+10 m and returned from higher overpass altitude at the confirmed exterior before
+the 6 m inward leg. LocalMovement flight steering, horizontal staging points and
+4.68 m final cap are unchanged. Later source changes refined height hypotheses;
+cefb80d then kept current aircraft altitude and the initial highest nominal
+support+2 m as approach floors. Those floors could hold later lower trials too
+high. The supplied coordinates do not establish which height trial/phase was active.
+
+Use current entry+1.5 m staging at every flying entrance. Match it diagonally,
+including descending from higher bypass altitude outside before moving inward.
+Remove the initial-roof and actual-altitude approach floors. Keep high obstacle
+bypass routing available and retain the generic height hypotheses/door checks.
+A resolved Y=30.5 entry targets Y=32.0 staging before final descent.
+
+Close approach now uses the existing 0.35 m precision, giving 1.15-1.85 m accepted
+clearance. Keep final/crossing points at entry+0.35 m. Advance a full final waypoint
+only inside that precision instead of the old 0.9 m gate. Extend bounded height
+repair to above entry+2 m as well as below entry; allow the intended final descent.
+Below-entry repairs retain outward constraints, while high descent retains the
+bounded perimeter choices that remain feasible at the maximum exterior radius.
+
+Preserve accepted dungeon behavior and the original backup. Update README and
+PROJECT_MEMORY. Source/API/diff and independent backup review only; no compile,
+restore, automated tests or game run. Successful corrected entry remains for the
+user to validate in game.

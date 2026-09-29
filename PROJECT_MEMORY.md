@@ -42,8 +42,8 @@ implementations below; keep that chronology as evidence of earlier outcomes.
    Fly uses one `FlightPathPlanner` from transit through side relocation, compares
    over/around immediately, retains actual cruise height through obstacles, and
    resolves entry height at the actual 10 m gate using live/verified/local
-   support. Prepare staging above that height and retain higher bypass altitude
-   to the 6 m close point, then descend during final precision. Do not start inward
+   support. Prepare staging at entry+1.5 m; after higher-altitude bypass, align
+   back to that target outside before the 6 m close point and final descent. Do not start inward
    movement below the entry plane. The broad multi-layer floor voter remains Ground-only.
    Fixed target minima/angular coverage survive retries. Only reached exteriors
    count as coverage; exhausted bypass may stop with an unresolved-route reason
@@ -1890,6 +1890,8 @@ onto the new architecture.
 
 ## Approach from above at every flying entrance (2026-09-29)
 
+The `cefb80d` behavior recorded here is superseded by the height-band correction below.
+
 - The user supplied another local approach excerpt and measured entrance
   PF665, X=588.3, Z=1367.5, Y=30.5. The bot held target Y=27.01, descended from
   a successful Y=38 overpass at the reached exterior, then stalled roughly 3 m
@@ -1947,3 +1949,45 @@ onto the new architecture.
   no compile, package restore, automated tests or game execution. User validates
   the measured entrance and the general pattern in game. Other unseen doorway
   heights remain provisional; do not claim geometry or successful zoning from rays.
+
+## Restore fixed approach height with 1-2 m clearance (2026-09-29)
+
+- User reports the character stuck near X=588.2/Z=1367.8/Y=35.0 in PF665;
+  the entrance is X=588.0/Z=1367.7/Y=30.5. Actual altitude is 4.5 m above the
+  measured doorway. They request a 1-2 m above-entry approach and comparison
+  with their locally stored navigation backup. Coordinates alone do not identify
+  the active phase or inferred height trial; no successful corrected entry is claimed.
+- Read-only inspection found the exact dated backup at
+  `C:\Users\Sumiko\OneDrive\Desktop\RK Mission Proj\RKmission-backup-2026-09-28`,
+  clean HEAD `03504913bed1d373a44025cca249899c60cae470`, parent navigation
+  checkpoint `965003e02871b64febda71d704dd71831e2d46c1`. It matched entry height
+  at 10 m and returned from a higher overpass to that fixed height at the confirmed
+  exterior before its 6 m close approach. LocalMovement steering is unchanged.
+- Since that checkpoint, height candidates were refined around local supports
+  and then given bounded descending interpolation. `cefb80d` changed preparation,
+  exterior alignment and recovery to retain actual higher altitude, and held all
+  trials above the initial highest nominal support+2 m. These height floors could
+  keep a lower trial approaching too high and changed the accepted movement pattern.
+- Replace those floors with current entry+1.5 m for every flying entrance. Match
+  that fixed target diagonally at the existing 10 m gate and after confirmed exterior
+  arrival before close approach. High altitude remains available for obstacle bypass;
+  it no longer becomes the doorway staging target. A resolved Y=30.5 entry targets
+  Y=32.0 staging. Keep geometry-derived heights provisional and no coordinate exception.
+- Use 0.35 m arrival precision for close approach as well as preparation/alignment,
+  giving an accepted staging height 1.15-1.85 m above the resolved entry target.
+  Keep final/crossing targets at entry+0.35 m and allow their intended final descent.
+  Require the full final waypoint to be within 0.35 m before advancing its index;
+  the old 0.9 m gate could skip the end of a capped leg under the tighter precision.
+- Extend the existing two-repair guard to actual height above entry+2 m as well
+  as below the entry plane. Regain fixed staging before inward actions resume.
+  Below-entry repairs retain the strict outward/tangential constraint. Above-entry
+  descent retains bounded perimeter choices: requiring strict outward motion at
+  the maximum radius would reject every clipped diagonal candidate.
+- Preserve 6 m Door association, live/verified height precedence, six candidate
+  height limit, native X/Z, 10 m gate, exterior confirmation, 6 m close point,
+  4.68 m final cap, 3/1.5/0.4 m points, diagonal steering, stall/deadline handling,
+  exact dungeon verification and accepted dungeon/readiness/combat/loot behavior.
+  The local backup is read-only and is not refreshed or overwritten.
+- README and CONVERSATION_LOG record the comparison and correction. Source/API/diff
+  review only, including independent backup provenance and boundary review; no build,
+  package restore, automated tests or game execution. User validates in game.

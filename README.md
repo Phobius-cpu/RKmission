@@ -7,7 +7,7 @@ local mission travel, room exploration, combat, door handling and looting.
 **Status (2026-09-29):** mission entry and post-combat room actions now wait for
 buff preparation and HP/nano recovery when needed; new enemy engagements are
 limited to 20 m. Every flying approach now starts above its resolved entry target,
-retains higher bypass altitude through close staging and descends in final legs.
+aligns to entry+1.5 m outside before close staging and descends in final legs.
 Objectives now wait for ordinary room/enemy/loot clearance, followed by automatic
 completion, return to the entry door, actual exit and nearest local mission chaining.
 Return-item runs finish for the bot when the item is collected; terminal hand-ins
@@ -61,7 +61,7 @@ package restore, tests or game run were performed; the user compiles and validat
    during transit. Within 10 m of the anchor, resolve the mission entrance height
    and prepare staging above it before comparing approach sides. Keep the entry target across exterior sectors;
    surrounding terrain cannot redefine it. Fly starts the inward approach above
-   the entry target, retaining higher bypass altitude or climbing outside first,
+   the entry target, aligning diagonally to entry+1.5 m outside first,
    and descends during final precision. Ground uses radial acquisition/perimeter recovery. Align elevation, approach
    along its normal, uses an associated live Door if present and tries a short
    threshold crossing. Without a Door, it probes the inferred side/proximity
@@ -256,11 +256,11 @@ support is available, run-start aircraft height is explicitly provisional.
 Zero/stale quest Y is never blindly used as the doorway height.
 
 For every flying mission entrance, `FlyMatchEntryHeight` prepares a staging target
-above that entrance's resolved entry height. There are no coordinate or playfield
+1.5 m above that entrance's current resolved entry height. There are no coordinate or playfield
 exceptions. Keep native X/Z targets, Door association and ownership checks.
-An already higher character retains that altitude; otherwise climb diagonally,
-outward or tangentially. Proceed when the staging minimum is met within 0.35 m,
-even if the incidental horizontal climb leg has not finished. Below-entry climbs
+Align diagonally to that fixed target, including descent from a higher aircraft
+altitude. Proceed when it is matched within 0.35 m, giving 1.15-1.85 m clearance
+above the entry target, even if the incidental horizontal leg has not finished. Below-entry climbs
 exclude inward directions using horizontal geometry, independent of quest Y.
 If blocked, compare neighboring elevation corridors on a bounded exterior and
 use the same Fly planner to relocate. Preparation may finish outside 10 m while
@@ -272,11 +272,12 @@ preparation stops with a reason or a reached candidate yields to another side;
 an empty choice list cannot launch movement or throw from this preparation path.
 
 Rank sides' inward corridors at that shared mission height. Reach the selected
-exterior, then stage at least 2 m above the resolved entry height. For unverified
-support plans, staging also stays 2 m above the initial highest supported height,
-even while a lower entry hypothesis is tried. Retain a higher actual bypass altitude;
-climb diagonally outside if needed. Do not descend to the entry target at the
-exterior. Do not derive a different doorway height
+exterior, then align diagonally to the current entry height plus 1.5 m before
+moving inward. Higher altitude is retained while bypassing obstacles; it is
+returned to the approach target at the reached exterior. Lower entry hypotheses
+get their own entry+1.5 m staging target; an initial roof plane cannot hold them
+up. This restores the saved checkpoint's deliberate height return with the
+requested small above-entry cushion. Do not derive a different doorway height
 from low terrain at each exterior point. Ground's floor logic is unchanged.
 
 After confirming that exterior side and raised staging, `FlyCloseApproach` moves
@@ -285,14 +286,18 @@ keeping that raised staging height. Final approach descends diagonally toward
 the same 3/1.5/0.4 m horizontal points, with the same 4.68 m leg cap. Flying final
 and crossing targets sit 0.35 m above the doorway plane, with 0.35 m arrival
 precision so an accepted arrival stays at or above that plane. A guard halts
-close/final approach, interaction or crossing whenever actual Y is below entry,
-then regains raised staging diagonally without moving inward. Allow at most two
+close/final approach, interaction or crossing whenever actual Y is below entry
+or more than 2 m above it, then regains entry+1.5 m staging before continuing.
+Below-entry repair excludes inward diagonal choices. Final descent toward the
+doorway plane is allowed. Allow at most two
 height repairs per candidate; a third loss yields to another side without
 recording a wall from height drift alone.
 This is one observed leg before final precision, with the same stall recovery;
 it does not reduce the safe perimeter used to bypass walls or change sectors.
-Allowing the existing 0.8 m arrival tolerance places the start of final approach
-within approximately 5-7 m. If already within 7 m, start final approach directly.
+Close approach also uses 0.35 m arrival precision to retain the 1-2 m height band.
+A capped final leg advances to the next full staging waypoint only when the
+current full waypoint is within that precision; the old 0.9 m gate cannot skip it.
+If already within 7 m after height alignment, start final approach directly.
 Keep the working 10 m height-check trigger separate from this closer staging point.
 
 A stalled approach yields to another sector at the same height. Crossing without
@@ -315,13 +320,19 @@ Y=27.01, actual Y=27.11 and no associated Door. It ends with a manual reset,
 without the real doorway height or verified entry. The full pasted log remains
 local; project history records this analysis.
 The footprint rule protects side-to-side chords; a clear radial outward escape
-does not force another climb. Per-sector height-return loops have been removed.
+does not force another climb. Match height at the 10 m gate and at each confirmed
+exterior before close approach, using the same current entrance hypothesis.
 Only exact dungeon verification validates a learned entry height; roof/floor rays
 cannot identify an otherwise invisible door with certainty.
 PF665 measurements remain evidence only. The later measured entrance at X=588.3,
 Z=1367.5, Y=30.5 exposed an approach at Y=27.01 below its doorway after an overpass
 at Y=38. The raised staging and descending height trials apply to all flying
 entrances using each entrance's own live, learned or inferred geometry.
+The user's 12:28 feedback put the character at Y=35.0 and the entrance at Y=30.5.
+Comparison with the dated local backup at `0350491` showed `cefb80d` had retained
+high bypass/initial-support altitude through close staging. Staging is now
+entry+1.5 m: a resolved Y=30.5 entrance targets Y=32.0 before final descent.
+This is a source correction; successful entry at this doorway still needs in-game verification.
 
 Fly final approach advances up to 4.68 m per leg, another 20% farther than the
 previous 3.9 m cap (which was 30% farther than the original 3 m). Each leg ends at

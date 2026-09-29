@@ -7,8 +7,8 @@ namespace RKmission
 {
     // One reactive 3D planner for Fly transit and exterior-side relocation.
     // LocalMovement remains the only executor. Raised staging at 10 m precedes
-    // side diagnosis; bypass flight retains altitude through raised staging,
-    // then approaches entry from above, never using orbit terrain as door height.
+    // side diagnosis; bypass flight can retain altitude over an obstacle, then
+    // returns to entry-relative staging before inward approach from above.
     internal sealed class FlightPathPlanner
     {
         private sealed class Choice
