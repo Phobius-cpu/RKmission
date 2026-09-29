@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Text.RegularExpressions;
 using AOSharp.Common.GameData;
@@ -12,7 +13,7 @@ namespace RKmission
     internal enum WarpResult { InProgress, Succeeded, Failed }
 
     // A best-effort provider. Commands are learned from the current help reply;
-    // no destination aliases or bot availability are baked into the plugin.
+    // no bot availability is baked into the plugin.
     internal sealed class ScottyboiWarpProvider : IDisposable
     {
         private enum State { Idle, Lookup, Help, Invite, Warp, Settling, Done, Failed }
@@ -23,12 +24,15 @@ namespace RKmission
         private uint _botId;
         private int _targetId;
         private string _targetName;
+        private string[] _targetAliases;
         private DateTime _started;
         private DateTime _backoffUntil;
         private DateTime _zonedAt;
         private bool _helpRetried, _teleportStarted;
         private bool _joinedByProvider;
         private string _lastReply;
+        private int _helpReplies, _menuPageCount;
+        private readonly HashSet<int> _menuPages = new HashSet<int>();
         public string LastFailure { get; private set; }
 
         public ScottyboiWarpProvider(Action<string> say, MovementArbiter movement)
@@ -55,8 +59,13 @@ namespace RKmission
                 _targetId = targetId;
                 _helpRetried = _teleportStarted = false;
                 _lastReply = null;
+                _helpReplies = _menuPageCount = 0;
+                _menuPages.Clear();
                 LastFailure = null;
                 _targetName = Normalize(((PlayfieldId)targetId).ToString());
+                _targetAliases = targetId == (int)PlayfieldId.Mort
+                    ? new[] { _targetName, "sentinels", "sentinelsmort", "mortsentinels" }
+                    : new[] { _targetName };
                 _started = DateTime.UtcNow;
                 _state = State.Lookup;
                 _movement.Halt(MovementOwner.WarpTravel);
@@ -76,17 +85,21 @@ namespace RKmission
                 _say($"Warp to playfield {_targetId} verified after zoning settled.");
                 return WarpResult.Succeeded;
             }
-            if (_state == State.Help && !_helpRetried && DateTime.UtcNow - _started > TimeSpan.FromSeconds(6))
+            if (_state == State.Help && !_helpRetried && _helpReplies == 0 &&
+                DateTime.UtcNow - _started > TimeSpan.FromSeconds(6))
             {
                 Chat.SendPrivateMessage(_botId, "help");
                 _helpRetried = true;
                 _started = DateTime.UtcNow;
             }
             TimeSpan timeout = _state == State.Warp ? TimeSpan.FromSeconds(35) :
-                _state == State.Invite ? TimeSpan.FromSeconds(20) : TimeSpan.FromSeconds(12);
+                _state == State.Invite ? TimeSpan.FromSeconds(20) :
+                _state == State.Help ? TimeSpan.FromSeconds(18) : TimeSpan.FromSeconds(12);
             if (DateTime.UtcNow - _started > timeout)
                 Fail(_state == State.Help
-                    ? "Scottyboi replied without a recognized destination command" +
+                    ? $"Scottyboi offered no recognized command for playfield {_targetId} ({_targetName}); " +
+                      $"menu pages seen: {(_menuPages.Count == 0 ? "none" : string.Join(",", _menuPages))}" +
+                      (_menuPageCount > 0 ? $" of {_menuPageCount}" : "") +
                       (_lastReply == null ? "." : $". Last reply: {_lastReply}")
                     : _state == State.Invite
                         ? "Scottyboi did not send a team invite after the destination command."
@@ -108,15 +121,17 @@ namespace RKmission
             if (_state != State.Help || !(message is PrivateMsgMessage reply) ||
                 reply.Sender != _botId || reply.Text == null)
                 return;
+            _helpReplies++;
+            Match page = Regex.Match(reply.Text,
+                @"Warp destinations\s*\((\d+)\s*/\s*(\d+)\)", RegexOptions.IgnoreCase);
+            if (page.Success && int.TryParse(page.Groups[1].Value, out int number) &&
+                int.TryParse(page.Groups[2].Value, out int count))
+            { _menuPages.Add(number); _menuPageCount = Math.Max(_menuPageCount, count); }
             _lastReply = Regex.Replace(reply.Text, "<[^>]+>", " ").Trim();
             if (_lastReply.Length > 180) _lastReply = _lastReply.Substring(0, 180) + "...";
-            if (TryParseMenuLine(reply.Text, _targetName, out string linkedCommand))
+            foreach (string alias in _targetAliases)
             {
-                RequestWarp(linkedCommand);
-            }
-            else foreach (string line in reply.Text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-            {
-                if (TryParseMenuLine(line, _targetName, out string command))
+                if (TryParseMenuMessage(reply.Text, alias, out string command))
                 { RequestWarp(command); return; }
             }
         }
@@ -173,24 +188,21 @@ namespace RKmission
                 RegexOptions.IgnoreCase | RegexOptions.Singleline))
             {
                 string url = WebUtility.HtmlDecode(Uri.UnescapeDataString(anchor.Groups["url"].Value));
-                Match tell = Regex.Match(url,
-                    @"(?:chatcmd:///tell|/tell)\s+Scottyboi\s+(?<command>!?[a-z][a-z0-9_-]{1,20})(?:\s|$)",
-                    RegexOptions.IgnoreCase);
                 string label = Regex.Replace(anchor.Groups["label"].Value, "<[^>]+>", " ");
-                if (tell.Success && Normalize(WebUtility.HtmlDecode(label)) == target)
-                { command = tell.Groups["command"].Value; return true; }
+                if (MatchesTarget(label, target) && TryCommandFromUrl(url, out command)) return true;
             }
             Match legacyLink = Regex.Match(line,
                 @"(?:chatcmd:///tell|/tell)\s+Scottyboi\s+(?<command>!?[a-z][a-z0-9_-]{1,20})[^>]*>(?<label>[^<]+)",
                 RegexOptions.IgnoreCase);
-            if (legacyLink.Success && Normalize(legacyLink.Groups["label"].Value) == target)
+            if (legacyLink.Success && MatchesTarget(legacyLink.Groups["label"].Value, target))
             { command = legacyLink.Groups["command"].Value; return true; }
+            if (line.IndexOf("<a", StringComparison.OrdinalIgnoreCase) >= 0) return false;
             string clean = Regex.Replace(WebUtility.HtmlDecode(line), "<[^>]+>", " ").Trim();
             string[] parts = Regex.Split(clean, @"\s*(?:=>|[-:=])\s*");
             if (parts.Length != 2) return false;
             for (int i = 0; i < 2; i++)
             {
-                if (Normalize(parts[i]) != target) continue;
+                if (!MatchesTarget(parts[i], target)) continue;
                 string candidate = parts[1 - i].Trim();
                 Match tell = Regex.Match(candidate,
                     @"^(?:/tell\s+Scottyboi\s+)?(?<command>!?[a-z][a-z0-9_-]{1,20})$",
@@ -200,6 +212,43 @@ namespace RKmission
                 return true;
             }
             return false;
+        }
+
+        private static bool TryParseMenuMessage(string message, string target, out string command)
+        {
+            command = null;
+            // Nadybot puts each menu page in the href of a text:// blob link.
+            // The visible label only says "Warp destinations (1 / 3)".
+            foreach (Match blob in Regex.Matches(message,
+                @"<a\b[^>]*?href\s*=\s*(['""])text://(?<body>.*?)\1[^>]*>.*?</a>",
+                RegexOptions.IgnoreCase | RegexOptions.Singleline))
+            {
+                string body = WebUtility.HtmlDecode(blob.Groups["body"].Value);
+                if (TryParseMenuLine(body, target, out command)) return true;
+                foreach (string line in body.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                    if (TryParseMenuLine(line, target, out command)) return true;
+            }
+            foreach (string line in message.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                if (TryParseMenuLine(line, target, out command)) return true;
+            return false;
+        }
+
+        private static bool TryCommandFromUrl(string url, out string command)
+        {
+            command = null;
+            Match tell = Regex.Match(url,
+                @"(?:chatcmd:///tell|/tell)\s+Scottyboi\s+(?<command>!?[a-z][a-z0-9_-]{0,20}(?:\s+[a-z0-9_-]{1,30}){0,3})\s*$",
+                RegexOptions.IgnoreCase);
+            if (!tell.Success) return false;
+            command = tell.Groups["command"].Value.Trim();
+            return !Regex.IsMatch(command, @"^!?help(?:\s|$)", RegexOptions.IgnoreCase);
+        }
+
+        private static bool MatchesTarget(string label, string target)
+        {
+            string normalized = Normalize(WebUtility.HtmlDecode(label));
+            return normalized == target || normalized == "warpto" + target ||
+                normalized == target + "warp";
         }
 
         private static string Normalize(string text) =>
@@ -212,6 +261,9 @@ namespace RKmission
             _state = State.Idle;
             _teleportStarted = _helpRetried = false;
             _lastReply = null;
+            _targetAliases = null;
+            _helpReplies = _menuPageCount = 0;
+            _menuPages.Clear();
             LastFailure = null;
             _movement.Release(MovementOwner.WarpTravel);
         }

@@ -129,8 +129,12 @@ namespace RKmission
                 if (_step == null)
                 {
                     string warpReason = _warp.LastFailure;
+                    bool needsReceptacle = !Inventory.Find(160978, out _) &&
+                        FirstLink(current, target, false) != null;
                     LastFailure = (string.IsNullOrEmpty(warpReason) ? "" : $"Scottyboi: {warpReason} ") +
-                        $"No mapped fallback path from playfield {current} to {target}.";
+                        (needsReceptacle
+                            ? $"Mapped fallback from playfield {current} to {target} needs a Data Receptacle for the Fixer Grid."
+                            : $"No mapped fallback path from playfield {current} to {target}.");
                     return TravelResult.Blocked;
                 }
                 _stepStarted = DateTime.UtcNow;
@@ -216,7 +220,7 @@ namespace RKmission
             _step = null;
         }
 
-        private Link FirstLink(int from, int to)
+        private Link FirstLink(int from, int to, bool requireReceptacle = true)
         {
             var queue = new Queue<int>();
             var parent = new Dictionary<int, Link>();
@@ -243,7 +247,8 @@ namespace RKmission
                 foreach (Link link in links)
                 {
                     if (_failedLinks.Contains(LinkKey(link))) continue;
-                    if ((link.Kind == "FixerGridTerminalLink" || link.Kind == "FixerGridExit") &&
+                    if (requireReceptacle &&
+                        (link.Kind == "FixerGridTerminalLink" || link.Kind == "FixerGridExit") &&
                         !Inventory.Find(160978, out _)) continue;
                     if (parent.ContainsKey(link.To)) continue;
                     parent[link.To] = link;
