@@ -18,6 +18,8 @@ namespace RKmission
         private readonly Action<string> _say;
         private readonly ManagerLoot.ManagerLoot _loot;
         private readonly MissionReadiness _readiness;
+        private readonly InventoryPolicy _inventory;
+        private readonly CombatDriver _combat;
         private readonly DungeonLiftController _lifts = new DungeonLiftController();
         private MovementOwner _requestedOwner = MovementOwner.DungeonRoom;
         private const float EngagementRange = 20f;
@@ -30,7 +32,6 @@ namespace RKmission
         private readonly Dictionary<string, DateTime> _reverseCooldown = new Dictionary<string, DateTime>();
         private NavMesh[] _meshes;
         private DungeonLayout _layout;
-        private Identity _combatTarget = Identity.None;
         private Identity _scanTarget = Identity.None;
         private DateTime _scanStarted, _scanProgress;
         private float _scanDistance;
@@ -44,7 +45,6 @@ namespace RKmission
         private int _currentRoom = -1;
         private Transition _transition;
         private Vector3? _destination;
-        private DateTime _actionAt;
         private DateTime _roomQuietAt;
         private DateTime _observedRoomAt;
         private int _observedRoom = -1;
@@ -78,15 +78,19 @@ namespace RKmission
         public bool IsRunning { get; private set; }
         public bool IsComplete { get; private set; }
         public MissionObjective Objective => _objective;
+        public int EntryRoom => _entryRoom;
+        public int Floor => _floor;
         public bool IsExiting => _exiting;
         public string Status => _exiting ? "returning to exit" : IsComplete ? "complete" : !IsRunning ? "idle" : _readiness.IsWaiting ? _readiness.Status :
             $"visited {_visitedRooms.Count}, cleared {_clearedRooms.Count} rooms";
 
-        public MissionDungeon(Action<string> say, ManagerLoot.ManagerLoot loot, MissionReadiness readiness)
+        public MissionDungeon(Action<string> say, ManagerLoot.ManagerLoot loot, MissionReadiness readiness, InventoryPolicy inventory)
         {
             _say = say;
             _loot = loot;
             _readiness = readiness;
+            _inventory = inventory;
+            _combat = new CombatDriver(say);
         }
 
         public void Start(AcceptedMission record)
@@ -102,10 +106,11 @@ namespace RKmission
             _enemyOwners.Clear();
             _edgeFailures.Clear();
             _reverseCooldown.Clear();
-            _combatTarget = Identity.None;
+            _combat.Reset();
             _scanTarget = Identity.None;
             _waitingForLoot = Identity.None;
             _loot.ResetMissionLootSkips();
+            _loot.IgnoreOrdinaryMissionLoot = false;
             _lifts.Reset();
             _activeLift = null;
             _liftStarted = DateTime.MinValue;
@@ -182,6 +187,7 @@ namespace RKmission
             _loot.MissionLootAllowed = null;
             _loot.MissionLootReserved = null;
             _loot.MissionItemProtected = null;
+            _loot.IgnoreOrdinaryMissionLoot = false;
             _loot.MissionObjectiveContainer = Identity.None;
             _destination = null;
             _transition = null;
@@ -205,6 +211,19 @@ namespace RKmission
             }
         }
 
+        public void RecoverFromStuck(int tier)
+        {
+            if (!IsRunning) return;
+            if (tier >= 3 && _transition != null)
+            {
+                FailTransition("repeated stuck/rubberband events during doorway crossing");
+                return;
+            }
+            if (tier >= 2)
+                MovementArbiter.Current.Halt(_requestedOwner);
+            InvalidatePath();
+        }
+
         private void LoadFloor()
         {
             if (_meshes != null && _floor >= 0 && _floor < _meshes.Length)
@@ -218,6 +237,8 @@ namespace RKmission
             _requestedOwner = MovementOwner.DungeonRoom;
 
             _readiness.ObserveCombat();
+            _inventory.Update(_say);
+            _loot.IgnoreOrdinaryMissionLoot = _inventory.SkipOptionalLoot;
             _objective.Refresh(_layout);
             if (_objective.Failure != null) { Stop(); _say(_objective.Failure); return; }
             _objective.ObserveAcknowledgement();
@@ -384,8 +405,7 @@ namespace RKmission
                     int? objectiveRoom = _objective.PendingRoom;
                     if (objectiveRoom.HasValue && objectiveRoom.Value != room.Instance)
                     {
-                        Room hop = RouteTo(room.Instance, id => id == objectiveRoom.Value, false);
-                        if (hop != null) { BeginTransition(room.Instance, hop.Instance); return; }
+                        if (RouteToRoom(objectiveRoom.Value)) return;
                         MovementArbiter.Current.Halt(_requestedOwner);
                         if (WaitingForRoute) return;
                         Stop();
@@ -400,9 +420,8 @@ namespace RKmission
                 Room occupied = Playfield.Rooms.FirstOrDefault(x => EnemiesInRoom(x).Any());
                 if (occupied != null)
                 {
-                    Room hop = RouteTo(room.Instance, id => id == occupied.Instance, false);
-                    if (hop != null) BeginTransition(room.Instance, hop.Instance);
-                    else if (occupied.Instance != room.Instance)
+                    if (RouteToRoom(occupied.Instance)) return;
+                    if (occupied.Instance != room.Instance)
                     {
                         MovementArbiter.Current.Halt(_requestedOwner);
                         if (WaitingForRoute) return;
@@ -497,42 +516,16 @@ namespace RKmission
                 .FirstOrDefault();
             if (enemy == null)
             {
-                _combatTarget = Identity.None;
+                _combat.Reset();
                 return false;
             }
             _scanTarget = Identity.None;
             _loot.MissionActionsPaused = true;
             _objective.ArmKill(enemy);
 
-            if (_combatTarget != enemy.Identity)
-            {
-                _combatTarget = enemy.Identity;
-                _actionAt = DateTime.UtcNow;
-                _waitingForLoot = Identity.None;
-                _destination = null;
-                MovementArbiter.Current.Halt(_requestedOwner);
-                _say($"Targeting {enemy.Name} ({enemy.Identity}) in room {room.Instance}" +
-                    $" at {enemy.DistanceFrom(player):0.0}m (new engagement range {EngagementRange:0}m)" +
-                    (enemy.IsPet ? " (spawned entity)." : "."));
-            }
-            if (DateTime.UtcNow - _actionAt > TimeSpan.FromSeconds(20))
-            {
+            if (!_combat.Tick(enemy, room.Instance, Navigate, () =>
+                { _waitingForLoot = Identity.None; _destination = null; }, EngagementRange))
                 Stop();
-                _say($"Enemy {enemy.Name} could not be reached; stopped in room {room.Instance}.");
-                return true;
-            }
-
-            if (enemy.IsInLineOfSight && enemy.IsInAttackRange(true))
-            {
-                _actionAt = DateTime.UtcNow;
-                MovementArbiter.Current.Halt(_requestedOwner);
-                if (!DynelManager.LocalPlayer.IsAttackPending &&
-                    (!DynelManager.LocalPlayer.IsAttacking ||
-                     DynelManager.LocalPlayer.FightingTarget?.Identity != enemy.Identity))
-                    DynelManager.LocalPlayer.Attack(enemy);
-            }
-            else
-                Navigate(enemy.Position);
 
             return true;
         }
@@ -623,6 +616,7 @@ namespace RKmission
         {
             _requestedOwner = MovementOwner.DungeonExit;
             if (!IsRunning || _layout == null || _exiting) return;
+            if (_transition != null) MovementArbiter.Current.Release(MovementOwner.DoorTransition);
             _exiting = true;
             _exitStarted = DateTime.UtcNow;
             _exitCrossingStarted = _exitLastUse = DateTime.MinValue;
@@ -631,6 +625,19 @@ namespace RKmission
             _loot.MissionActionsPaused = true;
             _loot.EndMissionRoom();
             _say("Returning through mapped rooms to the entry door; waiting for actual outdoor zoning before mission chaining.");
+        }
+
+        // All arbitrary room routes use the same failed-edge-aware graph and
+        // enter the existing stateful DoorTransition for each single hop.
+        public bool RouteToRoom(int targetRoom)
+        {
+            if (!IsRunning || _layout == null || _transition != null || _currentRoom < 0)
+                return false;
+            if (_currentRoom == targetRoom) return true;
+            Room hop = RouteTo(_currentRoom, id => id == targetRoom, false);
+            if (hop == null) return false;
+            BeginTransition(_currentRoom, hop.Instance);
+            return true;
         }
 
         private void TickLift(Room room)
@@ -647,9 +654,7 @@ namespace RKmission
             { Stop(); _say("Lift route or floor transition timed out; run held."); return; }
             if (room.Instance != _activeLift.RoomId)
             {
-                Room hop = RouteTo(room.Instance, id => id == _activeLift.RoomId, false);
-                if (hop != null) BeginTransition(room.Instance, hop.Instance);
-                else if (!WaitingForRoute)
+                if (!RouteToRoom(_activeLift.RoomId) && !WaitingForRoute)
                 { Stop(); _say("No mapped route to the discovered lift."); }
                 return;
             }
@@ -688,9 +693,7 @@ namespace RKmission
             }
             if (room.Instance != _entryRoom)
             {
-                Room hop = RouteTo(room.Instance, id => id == _entryRoom, false);
-                if (hop != null) BeginTransition(room.Instance, hop.Instance);
-                else if (!_edgeFailures.Values.Any(x => !x.Permanent && x.Until > now) &&
+                if (!RouteToRoom(_entryRoom) && !_edgeFailures.Values.Any(x => !x.Permanent && x.Until > now) &&
                     !_reverseCooldown.Values.Any(x => x > now))
                 {
                     Stop();
@@ -726,11 +729,6 @@ namespace RKmission
             // Manager.Loot owns the list, chest/lockpick handling and item moves.
             // RKMission approaches and can defer an unreachable object.
             Dynel next = _loot.NextMissionLoot(room.Instance);
-            if (next != null && Inventory.NumFreeSlots == 0)
-            {
-                Stop(); _say("Inventory is full; clear a slot before resuming this mission.");
-                return true;
-            }
             DateTime now = DateTime.UtcNow;
             Identity processingIdentity = _loot.ProcessingMissionLootIdentity;
             Identity waitingIdentity = processingIdentity != Identity.None ? processingIdentity : next?.Identity ?? Identity.None;
@@ -1125,6 +1123,7 @@ namespace RKmission
         private void ConfirmTransition()
         {
             DungeonLayout.Connection edge = _transition.Edge;
+            MovementArbiter.Current.Release(MovementOwner.DoorTransition);
             _currentRoom = edge.Target;
             _visitedRooms.Add(edge.Target);
             _edgeFailures.Remove(EdgeKey(edge.Source, edge.Target));
@@ -1144,6 +1143,7 @@ namespace RKmission
         private void FailTransition(string reason)
         {
             DungeonLayout.Connection edge = _transition.Edge;
+            MovementArbiter.Current.Release(MovementOwner.DoorTransition);
             string key = EdgeKey(edge.Source, edge.Target);
             if (!_edgeFailures.TryGetValue(key, out EdgeFailure failure))
                 _edgeFailures[key] = failure = new EdgeFailure();

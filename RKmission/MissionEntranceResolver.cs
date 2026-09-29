@@ -13,20 +13,28 @@ namespace RKmission
 {
     internal enum EntranceResult { Waiting, Fallback, Verified, Failed }
 
-    // Adapted from Neko KeyWarper. ACG IDs are candidates, never proof of entry.
+    // Neko's ACG candidate/feedback mechanism, bound to one exact accepted mission.
     internal sealed class MissionEntranceResolver : IDisposable
     {
         private const uint WrongKey = 0x0FCA6FF9;
         private const uint KeyAccepted = 0x0BC6E104;
         private readonly Action<string> _say;
         private readonly Dictionary<string, List<uint>> _entrances;
+        private readonly Dictionary<int, int> _successfulKeys;
+        private readonly string _cachePath;
+        private readonly List<KeyEntrance> _attempts = new List<KeyEntrance>();
         private Mission _mission;
-        private Item _key;
-        private List<uint> _candidates;
         private int _index;
-        private bool _sent;
-        private bool _accepted;
+        private bool _sent, _accepted;
+        private bool _loadedNear;
         private DateTime _sentAt;
+        public int ActiveEntranceIdentity => _index < _attempts.Count ? _attempts[_index].Entrance : 0;
+
+        private sealed class KeyEntrance
+        {
+            public Item Key;
+            public int Entrance;
+        }
 
         public MissionEntranceResolver(string pluginDir, Action<string> say)
         {
@@ -36,50 +44,92 @@ namespace RKmission
                 ? JsonConvert.DeserializeObject<Dictionary<string, List<uint>>>(File.ReadAllText(path))
                     ?? new Dictionary<string, List<uint>>()
                 : new Dictionary<string, List<uint>>();
+            _cachePath = Path.Combine(pluginDir, "RKMissionData", "successful-entrances.json");
+            try
+            {
+                _successfulKeys = File.Exists(_cachePath)
+                    ? JsonConvert.DeserializeObject<Dictionary<int, int>>(File.ReadAllText(_cachePath))
+                        ?? new Dictionary<int, int>()
+                    : new Dictionary<int, int>();
+            }
+            catch (Exception ex)
+            {
+                _successfulKeys = new Dictionary<int, int>();
+                _say("ACG entrance cache could not be read: " + ex.Message);
+            }
             Network.N3MessageReceived += OnN3Message;
         }
 
         public void Select(Mission mission)
         {
-            if (_mission?.Identity == mission?.Identity) return;
+            if (_mission?.Identity == mission?.Identity &&
+                (_loadedNear || _sent || mission?.Location == null ||
+                 Playfield.ModelIdentity.Instance != mission.Location.Playfield.Instance ||
+                 DynelManager.LocalPlayer == null ||
+                 HorizontalDistance(DynelManager.LocalPlayer.Position, mission.Location.Pos) > 15f))
+                return;
             Reset();
             _mission = mission;
-            if (mission == null) return;
-            var keys = Inventory.Items.Where(x => x.UniqueIdentity.Type == IdentityType.MissionKey &&
-                x.Name != null && x.Name.StartsWith("Mission key to ", StringComparison.OrdinalIgnoreCase)).ToList();
-            if (keys.Count > 1)
+            if (mission?.Location == null) return;
+            Vector3 anchor = mission.Location.Pos;
+            int playfield = mission.Location.Playfield.Instance;
+            _loadedNear = Playfield.ModelIdentity.Instance == playfield &&
+                DynelManager.LocalPlayer != null &&
+                HorizontalDistance(DynelManager.LocalPlayer.Position, anchor) <= 15f;
+            // Some ACG entrances are exposed as dynels; static Neko IDs remain fallback.
+            var live = Playfield.ModelIdentity.Instance == playfield
+                ? DynelManager.AllDynels.Where(x => x.Identity.Type == IdentityType.ACGEntrance &&
+                    HorizontalDistance(x.Position, anchor) <= 15f)
+                    .OrderBy(x => HorizontalDistance(x.Position, anchor))
+                    .Select(x => x.Identity.Instance).Distinct().ToList()
+                : new List<int>();
+            foreach (Item key in Inventory.Items.Where(x => x.UniqueIdentity.Type == IdentityType.MissionKey &&
+                x.Name != null && x.Name.StartsWith("Mission key to ", StringComparison.OrdinalIgnoreCase)))
             {
-                _say("Several mission keys are present; ACG key selection is ambiguous. Using nearby entrance fallback.");
-                return;
+                string name = key.Name.Substring("Mission key to ".Length);
+                var ids = new List<int>();
+                if (_successfulKeys.TryGetValue(key.UniqueIdentity.Instance, out int cached)) ids.Add(cached);
+                ids.AddRange(live);
+                if (_entrances.TryGetValue(name, out List<uint> known))
+                    ids.AddRange(known.Select(x => unchecked((int)x)));
+                foreach (int id in ids.Distinct())
+                    _attempts.Add(new KeyEntrance { Key = key, Entrance = id });
             }
-            _key = keys.FirstOrDefault();
-            if (_key == null) return;
-            string name = _key.Name.Substring("Mission key to ".Length);
-            _entrances.TryGetValue(name, out _candidates);
-            if (_candidates != null && _candidates.Count > 0)
-                _say($"Mission key maps to {_candidates.Count} ACG entrance candidate(s) for {name}.");
+            if (_attempts.Count > 0)
+                _say($"Selected mission has {_attempts.Count} ACG key/entrance candidate pairs across " +
+                    $"{_attempts.Select(x => x.Key.UniqueIdentity).Distinct().Count()} mission key(s).");
         }
 
         public EntranceResult Tick()
         {
             if (_mission == null) return EntranceResult.Failed;
             if (Playfield.IsDungeon)
-                return VerifyCurrentDungeon(_mission, out _) ? EntranceResult.Verified : EntranceResult.Failed;
-            if (_key == null || _candidates == null || _candidates.Count == 0)
-                return EntranceResult.Fallback;
+            {
+                if (!VerifyCurrentDungeon(_mission, out _)) return EntranceResult.Failed;
+                if ((_sent || _accepted) && _index < _attempts.Count) CacheSuccess(_attempts[_index]);
+                return EntranceResult.Verified;
+            }
+            MissionLocation location = _mission.Location;
+            if (location == null || Playfield.ModelIdentity.Instance != location.Playfield.Instance ||
+                DynelManager.LocalPlayer == null ||
+                HorizontalDistance(DynelManager.LocalPlayer.Position, location.Pos) > 15f)
+                return EntranceResult.Fallback; // LocalMissionTravel approaches first.
+            if (_attempts.Count == 0) return EntranceResult.Fallback;
             if (_accepted)
             {
                 if (DateTime.UtcNow - _sentAt < TimeSpan.FromSeconds(20)) return EntranceResult.Waiting;
-                _say("Mission key was accepted, but the dungeon transition was not verified.");
+                _say("ACG key was accepted, but exact dungeon zoning did not follow.");
                 return EntranceResult.Failed;
             }
             if (_sent && DateTime.UtcNow - _sentAt < TimeSpan.FromSeconds(3))
                 return EntranceResult.Waiting;
-            if (_sent) { _index++; _sent = false; }
-            if (_index >= _candidates.Count) return EntranceResult.Fallback;
-            uint candidate = _candidates[_index];
-            Item.UseItemOnItem(_key.Slot,
-                new Identity(IdentityType.ACGEntrance, unchecked((int)candidate)));
+            if (_sent) Advance();
+            if (_index >= _attempts.Count) return EntranceResult.Fallback;
+            KeyEntrance attempt = _attempts[_index];
+            if (!Inventory.Items.Any(x => x.UniqueIdentity == attempt.Key.UniqueIdentity))
+            { Advance(); return EntranceResult.Waiting; }
+            Item.UseItemOnItem(attempt.Key.Slot,
+                new Identity(IdentityType.ACGEntrance, attempt.Entrance));
             _sent = true;
             _sentAt = DateTime.UtcNow;
             return EntranceResult.Waiting;
@@ -90,34 +140,60 @@ namespace RKmission
             current = null;
             if (!Playfield.IsDungeon || !Mission.FindMissionForCurrentDungeon(out current))
                 return false;
-            return expected == null || current.Identity == expected.Identity;
+            return expected != null && current.Identity == expected.Identity;
+        }
+
+        public void RecordVerified(Mission current)
+        {
+            if ((_sent || _accepted) && _mission != null && current != null &&
+                current.Identity == _mission.Identity && _index < _attempts.Count)
+                CacheSuccess(_attempts[_index]);
         }
 
         private void OnN3Message(object sender, N3Message message)
         {
-            if (!_sent || message.Identity != DynelManager.LocalPlayer?.Identity ||
+            if (!_sent || DynelManager.LocalPlayer == null ||
+                message.Identity != DynelManager.LocalPlayer.Identity ||
                 !(message is FeedbackMessage feedback) || feedback.CategoryId != 0x6E)
                 return;
             if (feedback.MessageId == WrongKey)
             {
-                _index++;
-                _sent = false;
-                _say("Mission key rejected for this ACG entrance; trying the next candidate.");
+                Advance();
+                _say("ACG entrance rejected this key; trying the next key/entrance pair.");
             }
             else if (feedback.MessageId == KeyAccepted)
             {
                 _accepted = true;
-                _say("Mission key accepted; waiting for a verified dungeon transition.");
+                _say("ACG key accepted; waiting for exact mission-dungeon verification.");
             }
+        }
+
+        private void Advance() { _index++; _sent = false; }
+        private static float HorizontalDistance(Vector3 a, Vector3 b)
+        {
+            float x = a.X - b.X, z = a.Z - b.Z;
+            return (float)Math.Sqrt(x * x + z * z);
+        }
+
+        private void CacheSuccess(KeyEntrance attempt)
+        {
+            _successfulKeys[attempt.Key.UniqueIdentity.Instance] = attempt.Entrance;
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(_cachePath));
+                File.WriteAllText(_cachePath, JsonConvert.SerializeObject(_successfulKeys, Formatting.Indented));
+            }
+            catch (Exception ex) { _say("ACG association verified but cache write failed: " + ex.Message); }
+            _sent = _accepted = false;
         }
 
         public void Reset()
         {
             _mission = null;
-            _key = null;
-            _candidates = null;
+            _attempts.Clear();
             _index = 0;
             _sent = _accepted = false;
+            _loadedNear = false;
         }
 
         public void Dispose() => Network.N3MessageReceived -= OnN3Message;

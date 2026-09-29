@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using AOSharp.Common.GameData;
 using AOSharp.Core;
+using AOSharp.Core.Inventory;
 using Newtonsoft.Json.Linq;
 
 namespace RKmission
@@ -19,9 +20,11 @@ namespace RKmission
             public int From, To;
             public string Kind, TerminalName;
             public Vector3 Position;
+            public List<int> TerminalIds;
         }
 
         private readonly Dictionary<int, List<Link>> _graph = new Dictionary<int, List<Link>>();
+        private readonly HashSet<string> _failedLinks = new HashSet<string>();
         private readonly ScottyboiWarpProvider _warp;
         private readonly MovementArbiter _movement;
         private readonly Action<string> _say;
@@ -29,7 +32,9 @@ namespace RKmission
         private int _target;
         private bool _warpFailed;
         private DateTime _stepStarted, _lastUse;
+        private int _terminalAttempt;
         public bool IsActive => _target != 0;
+        public string CurrentProvider => _target == 0 ? "Local" : _warpFailed ? "PlayfieldGraph" : "Scottyboi";
         public string LastFailure { get; private set; }
 
         public RubiKaTravelPlanner(string pluginDir, ScottyboiWarpProvider warp,
@@ -47,7 +52,8 @@ namespace RKmission
                 var links = new List<Link>();
                 foreach (JToken raw in node.Value["Links"] ?? new JArray())
                 {
-                    int to = raw.Value<int?>("DstId") ?? 0;
+                    int to = raw.Value<int?>("DstId") ??
+                        (raw.Value<string>("$type") == "GridTerminalLink" ? (int)PlayfieldId.Grid : 0);
                     string kind = raw.Value<string>("$type");
                     JToken point = raw["TerminalPos"] ?? raw["TeleporterPos"] ??
                         raw["TransitionSpots"]?.FirstOrDefault();
@@ -61,6 +67,29 @@ namespace RKmission
                 }
                 _graph[from] = links;
             }
+            string gridPath = Path.Combine(pluginDir, "Data", "GridTerminals.json");
+            if (File.Exists(gridPath))
+            {
+                JObject exits = JObject.Parse(File.ReadAllText(gridPath));
+                int fixerGrid = (int)PlayfieldId.FixerGrid;
+                if (!_graph.TryGetValue(fixerGrid, out List<Link> fixerLinks))
+                    _graph[fixerGrid] = fixerLinks = new List<Link>();
+                foreach (JProperty destination in exits.Properties())
+                {
+                    if (!int.TryParse(destination.Name, out int to)) continue;
+                    List<int> ids = destination.Value.Values<uint>()
+                        .Select(x => unchecked((int)x)).ToList();
+                    if (ids.Count > 0)
+                        fixerLinks.Add(new Link { From = fixerGrid, To = to,
+                            Kind = "FixerGridExit", TerminalIds = ids });
+                }
+                foreach (List<Link> links in _graph.Values.ToList())
+                    foreach (Link gridEntry in links.Where(x => x.To == (int)PlayfieldId.Grid &&
+                        (x.Kind == "GridTerminalLink" || x.Kind == "TerminalLink")).ToList())
+                        links.Add(new Link { From = gridEntry.From, To = fixerGrid,
+                            Kind = "FixerGridTerminalLink", TerminalName = gridEntry.TerminalName,
+                            Position = gridEntry.Position });
+            }
         }
 
         public TravelResult Tick(int target)
@@ -68,6 +97,8 @@ namespace RKmission
             int current = Playfield.ModelIdentity.Instance;
             if (current == target)
             {
+                if (_target == target && !_warpFailed && _warp.Tick(target) == WarpResult.InProgress)
+                    return TravelResult.InProgress;
                 _movement.Release(MovementOwner.OutdoorTravel);
                 return TravelResult.Arrived;
             }
@@ -87,9 +118,10 @@ namespace RKmission
             }
             else if (_step != null && current != _step.From)
             {
-                LastFailure = $"Travel reached unexpected playfield {current}; expected {_step.To}.";
+                _say($"Travel reached playfield {current} instead of {_step.To}; replanning from the observed playfield.");
+                _failedLinks.Add(LinkKey(_step));
                 _movement.Release(MovementOwner.OutdoorTravel);
-                return TravelResult.Blocked;
+                _step = null;
             }
             if (_step == null)
             {
@@ -101,20 +133,36 @@ namespace RKmission
                 }
                 _stepStarted = DateTime.UtcNow;
                 _lastUse = DateTime.MinValue;
+                _terminalAttempt = 0;
                 _say($"Fallback travel: {_step.Kind} from {_step.From} to {_step.To}.");
             }
             if (DateTime.UtcNow - _stepStarted > TimeSpan.FromSeconds(90))
             {
-                LastFailure = $"Transition {_step.From}->{_step.To} timed out.";
-                _movement.Release(MovementOwner.OutdoorTravel);
-                return TravelResult.Blocked;
+                FailStep($"Transition {_step.From}->{_step.To} timed out");
+                return TravelResult.InProgress;
+            }
+            if (_step.Kind == "FixerGridExit")
+            {
+                if (_terminalAttempt >= _step.TerminalIds.Count &&
+                    DateTime.UtcNow - _lastUse > TimeSpan.FromSeconds(10))
+                { FailStep($"Fixer Grid exit to {_step.To} did not zone"); return TravelResult.InProgress; }
+                if (DateTime.UtcNow - _lastUse > TimeSpan.FromSeconds(5) &&
+                    Inventory.Items.FirstOrDefault(x => x.Name == "Data Receptacle") is Item receptacle &&
+                    _terminalAttempt < _step.TerminalIds.Count)
+                {
+                    Item.UseItemOnItem(receptacle.Slot,
+                        new Identity(IdentityType.Terminal, _step.TerminalIds[_terminalAttempt++]));
+                    _lastUse = DateTime.UtcNow;
+                }
+                return TravelResult.InProgress;
             }
             if (Vector3.Distance(DynelManager.LocalPlayer.Position, _step.Position) > 3f)
             {
                 if (!_movementIsNavigating()) _movement.SetDestination(MovementOwner.OutdoorTravel, _step.Position);
                 return TravelResult.InProgress;
             }
-            if (_step.Kind == "GridTerminalLink" || _step.Kind == "TerminalLink")
+            if (_step.Kind == "GridTerminalLink" || _step.Kind == "TerminalLink" ||
+                _step.Kind == "FixerGridTerminalLink")
             {
                 if (DateTime.UtcNow - _lastUse > TimeSpan.FromSeconds(3))
                 {
@@ -122,7 +170,12 @@ namespace RKmission
                         x.Name == _step.TerminalName &&
                         Vector3.Distance(x.Position, _step.Position) < 6f)
                         .OrderBy(x => Vector3.Distance(x.Position, _step.Position)).FirstOrDefault();
-                    terminal?.Use();
+                    if (_step.Kind == "FixerGridTerminalLink")
+                    {
+                        Item receptacle = Inventory.Items.FirstOrDefault(x => x.Name == "Data Receptacle");
+                        if (terminal != null && receptacle != null) receptacle.UseOn(terminal.Identity);
+                    }
+                    else terminal?.Use();
                     _lastUse = DateTime.UtcNow;
                 }
             }
@@ -137,6 +190,16 @@ namespace RKmission
         private bool _movementIsNavigating() =>
             _movement.Owner == MovementOwner.OutdoorTravel && AOSharp.Pathfinding.SMovementController.IsNavigating();
 
+        private static string LinkKey(Link link) => $"{link.From}:{link.To}:{link.Kind}";
+
+        private void FailStep(string reason)
+        {
+            _say(reason + "; blacklisting this link and replanning.");
+            _failedLinks.Add(LinkKey(_step));
+            _movement.Release(MovementOwner.OutdoorTravel);
+            _step = null;
+        }
+
         private Link FirstLink(int from, int to)
         {
             var queue = new Queue<int>();
@@ -149,6 +212,9 @@ namespace RKmission
                 if (!_graph.TryGetValue(node, out List<Link> links)) continue;
                 foreach (Link link in links)
                 {
+                    if (_failedLinks.Contains(LinkKey(link))) continue;
+                    if ((link.Kind == "FixerGridTerminalLink" || link.Kind == "FixerGridExit") &&
+                        !Inventory.Items.Any(x => x.Name == "Data Receptacle")) continue;
                     if (parent.ContainsKey(link.To)) continue;
                     parent[link.To] = link;
                     queue.Enqueue(link.To);
@@ -165,6 +231,7 @@ namespace RKmission
             _target = target;
             _step = null;
             _warpFailed = false;
+            _failedLinks.Clear();
             LastFailure = null;
             _movement.Release(MovementOwner.OutdoorTravel);
             _warp.Reset();

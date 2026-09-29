@@ -14,7 +14,7 @@ namespace RKmission
     // no destination aliases or bot availability are baked into the plugin.
     internal sealed class ScottyboiWarpProvider : IDisposable
     {
-        private enum State { Idle, Lookup, Help, Invite, Warp, Done, Failed }
+        private enum State { Idle, Lookup, Help, Invite, Warp, Settling, Done, Failed }
         private const string BotName = "Scottyboi";
         private readonly Action<string> _say;
         private readonly MovementArbiter _movement;
@@ -24,6 +24,8 @@ namespace RKmission
         private string _targetName;
         private DateTime _started;
         private DateTime _backoffUntil;
+        private DateTime _zonedAt;
+        private bool _helpRetried, _teleportStarted;
         private bool _joinedByProvider;
 
         public ScottyboiWarpProvider(Action<string> say, MovementArbiter movement)
@@ -32,18 +34,20 @@ namespace RKmission
             _movement = movement;
             Network.ChatMessageReceived += OnChatMessage;
             Team.TeamRequest += OnTeamRequest;
+            Game.TeleportStarted += OnTeleportStarted;
             Game.TeleportEnded += OnTeleportEnded;
         }
 
         public WarpResult Tick(int targetId)
         {
-            if (Playfield.ModelIdentity.Instance == targetId) return WarpResult.Succeeded;
+            if (Playfield.ModelIdentity.Instance == targetId && _state == State.Idle) return WarpResult.Succeeded;
             if (_state == State.Done && _targetId == targetId) return WarpResult.Succeeded;
             if (_state == State.Failed && _targetId == targetId) return WarpResult.Failed;
             if (_state == State.Idle || _targetId != targetId)
             {
                 if (DateTime.UtcNow < _backoffUntil || Team.IsInTeam) return WarpResult.Failed;
                 _targetId = targetId;
+                _helpRetried = _teleportStarted = false;
                 _targetName = Normalize(((PlayfieldId)targetId).ToString());
                 _started = DateTime.UtcNow;
                 _state = State.Lookup;
@@ -51,6 +55,24 @@ namespace RKmission
                 Network.Send(new LookupMessage { Id = 0, Name = BotName });
                 _say($"Asking {BotName} for its current warp menu for playfield {targetId}.");
                 return WarpResult.InProgress;
+            }
+            if (_state == State.Settling)
+            {
+                if (DateTime.UtcNow - _zonedAt < TimeSpan.FromSeconds(2)) return WarpResult.InProgress;
+                if (Playfield.ModelIdentity.Instance != _targetId)
+                { Fail($"Warp ended in playfield {Playfield.ModelIdentity.Instance}, not {_targetId}."); return WarpResult.Failed; }
+                _state = State.Done;
+                _movement.Release(MovementOwner.WarpTravel);
+                if (_joinedByProvider && Team.IsInTeam) Team.Leave();
+                _joinedByProvider = false;
+                _say($"Warp to playfield {_targetId} verified after zoning settled.");
+                return WarpResult.Succeeded;
+            }
+            if (_state == State.Help && !_helpRetried && DateTime.UtcNow - _started > TimeSpan.FromSeconds(6))
+            {
+                Chat.SendPrivateMessage(_botId, "help");
+                _helpRetried = true;
+                _started = DateTime.UtcNow;
             }
             TimeSpan timeout = _state == State.Warp ? TimeSpan.FromSeconds(35) :
                 _state == State.Invite ? TimeSpan.FromSeconds(20) : TimeSpan.FromSeconds(12);
@@ -95,19 +117,17 @@ namespace RKmission
             _started = DateTime.UtcNow;
         }
 
+        private void OnTeleportStarted(object sender, EventArgs args)
+        {
+            if (_state == State.Invite || _state == State.Warp)
+                _teleportStarted = true;
+        }
+
         private void OnTeleportEnded(object sender, EventArgs args)
         {
-            if (_state != State.Invite && _state != State.Warp) return;
-            if (Playfield.ModelIdentity.Instance != _targetId)
-            {
-                Fail($"Warp ended in playfield {Playfield.ModelIdentity.Instance}, not {_targetId}.");
-                return;
-            }
-            _state = State.Done;
-            _movement.Release(MovementOwner.WarpTravel);
-            if (_joinedByProvider && Team.IsInTeam) Team.Leave();
-            _joinedByProvider = false;
-            _say($"Warp to playfield {_targetId} verified.");
+            if ((_state != State.Invite && _state != State.Warp) || !_teleportStarted) return;
+            _state = State.Settling;
+            _zonedAt = DateTime.UtcNow;
         }
 
         private void Fail(string reason)
@@ -123,6 +143,13 @@ namespace RKmission
         private static bool TryParseMenuLine(string line, string target, out string command)
         {
             command = null;
+            // AO help messages may encode the command in a clickable chat link
+            // while displaying only the destination name to the player.
+            Match link = Regex.Match(line,
+                @"(?:chatcmd:///tell|/tell)\s+Scottyboi\s+(!?[a-z][a-z0-9_-]{1,20})[^>]*>([^<]+)",
+                RegexOptions.IgnoreCase);
+            if (link.Success && Normalize(link.Groups[2].Value) == target)
+            { command = link.Groups[1].Value; return true; }
             string clean = Regex.Replace(line, "<[^>]+>", " ").Trim();
             string[] parts = Regex.Split(clean, @"\s*(?:=>|[-:=])\s*");
             if (parts.Length != 2) return false;
@@ -146,6 +173,7 @@ namespace RKmission
             if (_joinedByProvider && Team.IsInTeam) Team.Leave();
             _joinedByProvider = false;
             _state = State.Idle;
+            _teleportStarted = _helpRetried = false;
             _movement.Release(MovementOwner.WarpTravel);
         }
 
@@ -154,6 +182,7 @@ namespace RKmission
             Reset();
             Network.ChatMessageReceived -= OnChatMessage;
             Team.TeamRequest -= OnTeamRequest;
+            Game.TeleportStarted -= OnTeleportStarted;
             Game.TeleportEnded -= OnTeleportEnded;
         }
     }

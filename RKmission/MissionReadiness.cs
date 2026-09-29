@@ -204,8 +204,12 @@ namespace RKmission
         {
             var player = DynelManager.LocalPlayer;
             var actions = new List<RecoveryAction>();
-            foreach (Item item in Inventory.Items.Where(x => x.Slot.Type == IdentityType.Inventory &&
-                x.UniqueIdentity.Type != IdentityType.Container))
+            // Shared.Kits also checks carried backpacks for usable recharge
+            // items; retain the effect and skill checks below before use.
+            var carried = Inventory.Items.Where(x => x.Slot.Type == IdentityType.Inventory)
+                .Concat(Inventory.Backpacks.SelectMany(bp => Inventory.GetContainerItems(bp.Identity)))
+                .Where(x => x.UniqueIdentity.Type != IdentityType.Container);
+            foreach (Item item in carried)
                 AddRecovery(actions, item, "item:" + item.Id + ":" + item.QualityLevel,
                     healthLow, nanoLow, now);
             foreach (PerkAction perk in PerkAction.List.Where(x => x.IsAvailable && !x.IsPending && !x.IsExecuting))

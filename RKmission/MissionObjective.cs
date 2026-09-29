@@ -26,7 +26,8 @@ namespace RKmission
         private readonly List<Step> _steps = new List<Step>();
         private readonly Dictionary<Identity, int> _rooms = new Dictionary<Identity, int>();
         private readonly HashSet<Identity> _pickedUpItems = new HashSet<Identity>();
-        private DateTime _absentSince, _acknowledgementStarted, _approachStarted;
+        private readonly MissionCompletionTracker _completion = new MissionCompletionTracker();
+        private DateTime _acknowledgementStarted, _approachStarted;
         private Identity _approaching = Identity.None;
         private bool _serverCompletion;
         public bool Finale { get; private set; }
@@ -142,15 +143,11 @@ namespace RKmission
             // target/use/kill, with no observed manual Delete command.
             bool ownedAction = _steps.Any(x => x.Sent &&
                 now - x.LastSent <= TimeSpan.FromSeconds(60));
-            bool objectiveProof = _serverCompletion || _steps.Any(x => x.Proof);
-            List<Mission> live = Mission.List;
-            if (!ownedAction || !objectiveProof || live == null || live.Any(x => x.Identity == _record.Id))
-            { _absentSince = DateTime.MinValue; return; }
-            if (_absentSince == DateTime.MinValue) { _absentSince = now; return; }
-            if (now - _absentSince < TimeSpan.FromSeconds(2)) return;
+            bool objectiveProof = _steps.Count > 0 && _steps.All(x => x.Proof || x.Done);
+            if (!_completion.Reconcile(_record.Id, ownedAction, objectiveProof,
+                _serverCompletion, _record.DeletedByUser, out string evidence)) return;
             RewardConfirmed = true;
-            Evidence = "Bound quest absent for 2 s after reserved objective action plus " +
-                (_serverCompletion ? "server completion text" : "observed objective state change") + "; no manual deletion observed";
+            Evidence = evidence;
             _say($"Mission {_record.Id.Instance}: objective acknowledged by removal of the bound quest after our finale action.");
         }
 

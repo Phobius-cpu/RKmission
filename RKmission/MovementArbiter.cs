@@ -1,3 +1,4 @@
+using System;
 using AOSharp.Common.GameData;
 using AOSharp.Pathfinding;
 
@@ -6,7 +7,7 @@ namespace RKmission
     internal enum MovementOwner
     {
         None, OutdoorTravel, WarpTravel, MissionEntrance, DungeonRoom, DoorTransition,
-        LiftTransition, CombatPosition, LootApproach, Objective, DungeonExit
+        LiftTransition, CombatPosition, LootApproach, Objective, DungeonExit, Recovery
     }
 
     // The only RKMission path to SMovementController. Ownership changes cancel
@@ -15,12 +16,27 @@ namespace RKmission
     {
         public static MovementArbiter Current { get; set; }
         public MovementOwner Owner { get; private set; }
+        private DateTime _lastDisplacement;
+        private int _displacements;
 
-        public void Claim(MovementOwner owner)
+        public int ObserveDisplacement()
         {
-            if (owner == MovementOwner.None || Owner == owner) return;
+            if (Owner == MovementOwner.None) return 0;
+            if (DateTime.UtcNow - _lastDisplacement > TimeSpan.FromSeconds(30)) _displacements = 0;
+            _lastDisplacement = DateTime.UtcNow;
+            return Math.Min(3, ++_displacements);
+        }
+
+        public bool Claim(MovementOwner owner)
+        {
+            if (owner == MovementOwner.None) return false;
+            if (Owner == owner) return true;
+            // An active doorway crossing is the only owner allowed to end its
+            // route. Reclaiming movement mid-crossing can strand the character.
+            if (Owner == MovementOwner.DoorTransition) return false;
             SMovementController.Halt();
             Owner = owner;
+            return true;
         }
 
         public void Navigate(MovementOwner owner, Vector3 destination)
@@ -29,18 +45,17 @@ namespace RKmission
         }
 
         public bool SetNavDestination(MovementOwner owner, Vector3 destination)
-        { Claim(owner); return SMovementController.SetNavDestination(destination); }
+        { return Claim(owner) && SMovementController.SetNavDestination(destination); }
 
         public bool SetDestination(MovementOwner owner, Vector3 destination)
-        { Claim(owner); return SMovementController.SetDestination(destination); }
+        { return Claim(owner) && SMovementController.SetDestination(destination); }
 
         public void SetMovement(MovementOwner owner, MovementAction action)
-        { Claim(owner); SMovementController.SetMovement(action); }
+        { if (Claim(owner)) SMovementController.SetMovement(action); }
 
         public void Halt(MovementOwner owner)
         {
-            Claim(owner);
-            SMovementController.Halt();
+            if (Claim(owner)) SMovementController.Halt();
         }
 
         public void Release(MovementOwner owner)
@@ -54,6 +69,7 @@ namespace RKmission
         {
             SMovementController.Halt();
             Owner = MovementOwner.None;
+            _displacements = 0;
         }
     }
 }

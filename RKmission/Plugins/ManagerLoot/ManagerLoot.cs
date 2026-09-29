@@ -98,8 +98,9 @@ namespace ManagerLoot
             CurrentProcess = ProcessState.Load_Backpacks;
         }
         private bool ReservedMissionLoot(MissionIdentity identity) => MissionLootReserved?.Invoke(identity) == true;
-        public int SkippedMissionLootCount => _unreachableMissionLoot.Count(x => !ReservedMissionLoot(x));
-        public int UnfinishedMissionLootCount => _seenMissionLoot.Count(x =>
+        public bool IgnoreOrdinaryMissionLoot { get; set; }
+        public int SkippedMissionLootCount => IgnoreOrdinaryMissionLoot ? 0 : _unreachableMissionLoot.Count(x => !ReservedMissionLoot(x));
+        public int UnfinishedMissionLootCount => IgnoreOrdinaryMissionLoot ? 0 : _seenMissionLoot.Count(x =>
             !_finishedMissionLoot.Contains(x) && !ReservedMissionLoot(x));
         public int ReservedPendingMissionLootCount => _seenMissionLoot.Count(x =>
             !_finishedMissionLoot.Contains(x) && ReservedMissionLoot(x));
@@ -114,7 +115,7 @@ namespace ManagerLoot
         private bool ProtectedMissionItem(Item item) =>
             _objectiveLootItems.Contains(item.UniqueIdentity) || (MissionItemProtected?.Invoke(item) ?? false);
         public bool HasUnprocessedMissionLoot(int roomId, Func<Dynel, bool> include = null) =>
-            (MissionRoomDynels?.Invoke(roomId) ?? DynelManager.AllDynels).Any(x =>
+            !IgnoreOrdinaryMissionLoot && (MissionRoomDynels?.Invoke(roomId) ?? DynelManager.AllDynels).Any(x =>
                 (x.Identity.Type == IdentityType.Corpse || x.Identity.Type == IdentityType.Container) &&
                 IsInMissionRoom(x, roomId) && !_finishedMissionLoot.Contains(x.Identity) &&
                 (include == null || include(x)));
@@ -132,6 +133,7 @@ namespace ManagerLoot
 
         public Dynel NextMissionLoot(int roomId)
         {
+            if (IgnoreOrdinaryMissionLoot) return null;
             var candidates = (MissionRoomDynels?.Invoke(roomId) ?? DynelManager.AllDynels)
             .Where(x => (x.Identity.Type == IdentityType.Corpse || x.Identity.Type == IdentityType.Container)
                 && IsInMissionRoom(x, roomId)

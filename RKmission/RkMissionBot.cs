@@ -18,17 +18,22 @@ namespace RKmission
         private ManagerLoot.ManagerLoot _loot;
         private MissionDungeon _dungeon;
         private MissionReadiness _readiness;
+        private InventoryPolicy _inventory;
+        private DeathRecoveryController _deathRecovery;
         private readonly AcceptedMissions _missions = new AcceptedMissions();
         private LocalMissionTravel _travel;
         private MovementArbiter _movement;
         private ScottyboiWarpProvider _warp;
         private RubiKaTravelPlanner _longTravel;
         private MissionEntranceResolver _entranceResolver;
+        private MissionCheckpoint _checkpoint;
+        private bool _pendingCheckpointResume;
+        private DateTime _checkpointResumeAfter;
         private AcceptedMission _selected;
         private bool _autoCycle, _autoRolling, _hasRollTerminal, _recoveringDeath;
         private int _autoZone, _autoRollCount, _maxAutoRolls = 100, _rollTerminalPlayfield;
         private Vector3 _rollTerminalPosition;
-        private DateTime _deathAt, _nextReturnMove, _returnStarted;
+        private DateTime _nextReturnMove, _returnStarted;
         private bool _running, _dungeonStarted, _clearanceReported, _verifiedRun, _travelInvalidated;
         private Identity _observedDungeon = Identity.None;
         private Identity _activeDungeon = Identity.None;
@@ -49,14 +54,23 @@ namespace RKmission
             _loot = new ManagerLoot.ManagerLoot();
             _loot.RunEmbedded(System.IO.Path.Combine(pluginDir, "Plugins", "ManagerLoot"));
             _readiness = new MissionReadiness(Say, MissionReadinessSettings.Load(pluginDir, Say));
-            _dungeon = new MissionDungeon(Say, _loot, _readiness);
+            _inventory = InventoryPolicy.Load(pluginDir, Say);
+            _dungeon = new MissionDungeon(Say, _loot, _readiness, _inventory);
+            _deathRecovery = new DeathRecoveryController(_readiness, _movement, Say);
             _travel = new LocalMissionTravel(Say, pluginDir);
             _warp = new ScottyboiWarpProvider(Say, _movement);
             _longTravel = new RubiKaTravelPlanner(pluginDir, _warp, _movement, Say);
             _entranceResolver = new MissionEntranceResolver(pluginDir, Say);
+            _checkpoint = MissionCheckpoint.Load(pluginDir, Say);
+            _pendingCheckpointResume = _checkpoint.Armed;
+            _checkpointResumeAfter = DateTime.UtcNow.AddSeconds(5);
             SMovementController.Set();
+            // The pinned SDK's default stuck action directly changes player
+            // position. Replace that action; our Stuck event handles replanning.
+            SMovementController.SetStuckLogic(() => { });
             SMovementController.AutoLoadNavmeshes($"{pluginDir}\\NavMeshes", (id, dungeon) => !dungeon);
             SMovementController.OnRubberband += OnRubberband;
+            SMovementController.Stuck += OnStuck;
             Chat.RegisterCommand("rkm", Command);
             Game.OnUpdate += Update;
             Game.TeleportStarted += ZoningStarted;
@@ -72,7 +86,7 @@ namespace RKmission
 
         public override void Teardown()
         {
-            Stop();
+            Stop(true);
             Game.OnUpdate -= Update;
             Game.TeleportStarted -= ZoningStarted;
             Game.TeleportEnded -= ZoningEnded;
@@ -83,6 +97,7 @@ namespace RKmission
             Mission.RollListChanged -= _missions.ObserveRoll;
             Mission.RollListChanged -= ObserveAutoRoll;
             SMovementController.OnRubberband -= OnRubberband;
+            SMovementController.Stuck -= OnStuck;
             _dungeon.Dispose();
             _entranceResolver.Dispose();
             _warp.Dispose();
@@ -159,6 +174,7 @@ namespace RKmission
         private void Start()
         {
             if (_running) return;
+            _pendingCheckpointResume = false;
             _running = true;
             _recoveringDeath = false;
             _dungeonStarted = false;
@@ -178,8 +194,11 @@ namespace RKmission
                 "Armed for local takeover. Rolling and inter-playfield travel remain under your control.");
         }
 
-        private void Stop()
+        private void Stop(bool preserveCheckpoint = false)
         {
+            if (preserveCheckpoint && _running && _checkpoint != null)
+            { SaveCheckpoint(); _checkpoint.Save(true, Say); }
+            if (!preserveCheckpoint) _pendingCheckpointResume = false;
             if (_autoRolling) MaliMissionRoller2.Main.Window?.StopZoneRolling();
             _autoRolling = false;
             _running = false;
@@ -191,6 +210,9 @@ namespace RKmission
             _movement?.StopAll();
             _autoCycle = false;
             _recoveringDeath = false;
+            _deathRecovery?.Stop();
+            if (!preserveCheckpoint && _checkpoint != null)
+            { _checkpoint.Armed = false; _checkpoint.Phase = "Idle"; _checkpoint.Save(true, Say); }
             // The embedded roller is independent: stopping travel must not stop user-owned rolling.
         }
 
@@ -199,6 +221,7 @@ namespace RKmission
             _handoffDoor = _travel.ActiveDoor;
             _mapMission = Identity.None; // Re-upload on the next outdoor selection after zoning.
             _travel.SuspendForZoning(); // Keep managed attempt until exact dungeon verification.
+            _longTravel.InvalidatePath();
             _observedDungeon = Identity.None;
             _handoffWaitStarted = DateTime.MinValue;
             _travelInvalidated = true;
@@ -243,6 +266,7 @@ namespace RKmission
             try
             {
                 _missions.Refresh(); // Track acceptance/removal even while local automation is disarmed.
+                if (_pendingCheckpointResume) TryResumeCheckpoint();
                 if (!_running) return;
                 if (!DynelManager.LocalPlayer.IsAlive)
                 {
@@ -250,17 +274,19 @@ namespace RKmission
                     if (!_recoveringDeath)
                     {
                         _recoveringDeath = true;
-                        _deathAt = DateTime.UtcNow;
                         _dungeon.Stop(); _dungeonStarted = false;
                         _travel.Reset(); _longTravel.Reset(); _movement.StopAll();
+                        _deathRecovery.Begin();
                         Say("Character died; waiting for reclaim, then replanning the accepted mission.");
                     }
                     return;
                 }
                 if (_recoveringDeath)
                 {
-                    if (DateTime.UtcNow - _deathAt > TimeSpan.FromMinutes(3))
-                    { Stop(); Say("Reclaim recovery timed out."); return; }
+                    DeathRecoveryResult recovery = _deathRecovery.Tick();
+                    if (recovery == DeathRecoveryResult.Waiting) return;
+                    if (recovery == DeathRecoveryResult.Failed)
+                    { Stop(); Say("Reclaim/readiness recovery timed out or could not complete."); return; }
                     _recoveringDeath = false;
                     _verifiedRun = false;
                     _selected = _selected != null && _selected.Present ? _selected : null;
@@ -384,6 +410,58 @@ namespace RKmission
             {
                 Stop(); Say("Stopped after an AO# error: " + ex);
             }
+            finally { SaveCheckpoint(); }
+        }
+
+        private void TryResumeCheckpoint()
+        {
+            if (DateTime.UtcNow < _checkpointResumeAfter) return;
+            if (Mission.List == null) return;
+            _pendingCheckpointResume = false;
+            AcceptedMission record = _missions.Records.FirstOrDefault(x =>
+                x.Present && x.Id.Instance == _checkpoint.MissionInstance &&
+                (int)x.Id.Type == _checkpoint.MissionType);
+            if (record == null || !record.IsRubiKaDestination)
+            {
+                _checkpoint.Armed = false;
+                _checkpoint.Save(true, Say);
+                Say("Saved run could not be matched to an accepted Rubi-Ka mission; restart remains disarmed.");
+                return;
+            }
+            _autoCycle = _checkpoint.AutoCycle;
+            Start();
+            _selected = record;
+            if (Playfield.IsDungeon && Playfield.ModelIdentity.Instance == _checkpoint.DungeonInstance &&
+                MissionEntranceResolver.VerifyCurrentDungeon(Mission.List.FirstOrDefault(x => x.Identity == record.Id), out _))
+            {
+                // Entry coordinates are useful only for the same exact live instance.
+                record.DungeonEntryRoom = _checkpoint.EntranceRoom;
+                record.DungeonEntryPosition = _checkpoint.EntrancePosition;
+            }
+            Say($"Reconciled saved mission {record.Id.Instance}; planning again from the actual playfield and room.");
+        }
+
+        private void SaveCheckpoint()
+        {
+            if (_checkpoint == null || _pendingCheckpointResume) return;
+            _checkpoint.Armed = _running;
+            _checkpoint.AutoCycle = _autoCycle;
+            _checkpoint.Phase = !_running ? "Idle" : _recoveringDeath ? "Recovery" :
+                _autoRolling ? "Rolling" : _selected == null ? "SelectingMission" :
+                Playfield.IsDungeon ? (_dungeon.IsExiting ? "Exit" : _selected.Completed ? "MissionComplete" : "Dungeon") :
+                _selected.PlayfieldId != Playfield.ModelIdentity.Instance ? "Travel" : "MissionEntry";
+            _checkpoint.MissionType = _selected == null ? 0 : (int)_selected.Id.Type;
+            _checkpoint.MissionInstance = _selected?.Id.Instance ?? 0;
+            _checkpoint.DestinationPlayfield = _selected?.PlayfieldId ?? 0;
+            _checkpoint.Destination = _selected?.Entrance ?? default(Vector3);
+            _checkpoint.EntranceIdentity = _entranceResolver?.ActiveEntranceIdentity ?? 0;
+            _checkpoint.DungeonInstance = _verifiedRun ? _activeDungeon.Instance : 0;
+            _checkpoint.EntranceRoom = _selected?.DungeonEntryRoom ?? 0;
+            _checkpoint.EntrancePosition = _selected?.DungeonEntryPosition;
+            _checkpoint.Floor = _dungeon?.Floor ?? 0;
+            _checkpoint.TravelProvider = _longTravel?.CurrentProvider ?? "Local";
+            _checkpoint.ObjectiveState = _dungeon?.Objective?.Evidence ?? _selected?.CompletionEvidence;
+            _checkpoint.Save(false, Say);
         }
 
         private bool PublishMissionDestination(AcceptedMission selected)
@@ -470,6 +548,7 @@ namespace RKmission
             _selected = record;
             _verifiedRun = true;
             _activeDungeon = Playfield.ModelIdentity;
+            _entranceResolver.RecordVerified(bound);
             if (record.Completed)
             {
                 Wait("This mission was already confirmed complete in this session. Exit to continue local travel."); return;
@@ -554,8 +633,26 @@ namespace RKmission
 
         private void OnRubberband(Vector3 position)
         {
-            _longTravel?.InvalidatePath();
-            _dungeon?.InvalidatePath();
+            RecoverMovement("rubberband");
+        }
+
+        private void OnStuck(Vector3 position, Vector3 destination)
+        {
+            RecoverMovement("stuck");
+        }
+
+        private void RecoverMovement(string signal)
+        {
+            int tier = _movement?.ObserveDisplacement() ?? 0;
+            if (tier == 0) return;
+            Say($"Movement {signal}: recovery tier {tier}, owner={_movement.Owner}.");
+            if (Playfield.IsDungeon) _dungeon?.RecoverFromStuck(tier);
+            else
+            {
+                _longTravel?.InvalidatePath();
+                if (tier >= 3 && _selected != null && !_travelInvalidated)
+                    _travel.Reset("repeated movement displacement; rebuilding local route");
+            }
         }
     }
 }
