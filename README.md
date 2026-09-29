@@ -279,10 +279,18 @@ bounded height hypotheses (up to six, retained across sectors), re-match height
 and then resume diagnostics. A previously verified height stays in use until all
 sectors at that height have been reached; a single unsuccessful crossing cannot
 replace it. Provisional supported plans try lower marker-local planes before
-bounded +2/+4/+6 m and small clearance corrections; unknown support uses bounded
-offsets. An associated live Door height
+clearance corrections based on each plane: 0.5 m above its support, then 2 m
+above its normal clearance height. Lower supports receive the remaining trials
+first, within the same six-candidate limit; corrections no longer all refer to
+the initial roof plane. Existing higher corrections fill any spare slots.
+Verified-height and unknown-support plans retain their existing bounded offsets.
+Logs list candidate heights and sources. An associated live Door height
 does not receive speculative alternatives. Sector changes never reset the height
 trial index. These hypotheses still require exact dungeon verification.
+The 11:25 mission 1442368811 excerpt showed an unverified lower-plane target
+Y=27.01, actual Y=27.11 and no associated Door. It ends with a manual reset,
+without the real doorway height or verified entry. The full pasted log remains
+local; project history records this analysis.
 The footprint rule protects side-to-side chords; a clear radial outward escape
 does not force another climb. Per-sector height-return loops have been removed.
 Only exact dungeon verification validates a learned entry height; roof/floor rays

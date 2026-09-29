@@ -327,6 +327,15 @@ namespace RKmission
                     if (supports.Count == 0)
                         foreach (float offset in new[] { 2f, 4f, -2f, -4f, -8f })
                             AddFlightHeight(height + offset, "bounded mission entrance height hypothesis; no local support");
+                    // Keep observed planes first, then correct their own clearance.
+                    // Offsets from the initial roof alone cannot refine a lower
+                    // doorway plane. Lowest local support gets the spare trials first.
+                    foreach (float support in supports.OrderBy(x => x))
+                    {
+                        AddFlightHeight(support + 0.5f, "mission-anchor supported plane plus 0.5 m clearance; provisional entrance height");
+                        AddFlightHeight(support + _settings.FlightFloorClearance + 2f,
+                            "mission-anchor supported plane plus clearance and 2 m; provisional entrance height");
+                    }
                 }
                 if (supports.Count > 0 || verified)
                 {
@@ -338,6 +347,8 @@ namespace RKmission
             else return;
             _say($"Fly mission entrance height resolved: mission={_missionId}, anchor=({LocalRoutePlanner.Coordinates(_anchor)}), " +
                 $"height={FlightEntryHeight:F2}, source={FlightEntryHeightSource}; match height before choosing approach sector, never use orbit terrain as doorway height.");
+            _say("Fly mission entrance height plan: " + string.Join("; ", _flightHeights.Select((x, i) =>
+                $"{i + 1}: Y={x.Height:F2} ({x.Source})")) + "; each candidate still requires verified entry.");
         }
         private void AddFlightHeight(float height, string source)
         {

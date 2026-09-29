@@ -1853,3 +1853,35 @@ onto the new architecture.
   return hand-ins, automatic exit/local chaining and /rkm complete. README and
   conversation history updated. Source/API/diff review only; no build, restore,
   automated tests or game run. User owns compilation and in-game validation.
+
+## Narrow entrance-height fallback correction (2026-09-29)
+
+- User reports incorrect height approaching another mission entrance and asks
+  for log analysis and a correction without significant code changes.
+- The full supplied 11:25 excerpt stays local; record its analysis here.
+  Mission 1442368811, no associated live Door, inferred target Y=27.01 from a
+  lower marker-local support; actual Y=27.11 during the bypass. Sector 6 exterior
+  was reached and final approach began, with a corridor hit hint near the marker.
+  The excerpt ends as incomplete due to local reset/interruption. Historical
+  16/16 coverage is not proof that every sector was tested at this trial height.
+  No raw initial height plan, actual doorway height or zoning proof is supplied.
+- Source review found that lower surfaces got one normal-clearance trial, but
+  every upward/small-clearance adjustment was based on the original highest
+  surface. That leaves a lower doorway plane without local refinement, and the
+  six-candidate cap can spend remaining slots on roof-relative heights.
+- Change only EntranceAcquisition's unverified supported fallback list: retain
+  all observed planes first, then add support+0.5 m and support+configured
+  clearance+2 m, lowest support first, using the existing six-candidate bound
+  and deduplication. Original higher offsets fill any spare slots. A single
+  support now tries reduced clearance before the larger upward corrections.
+  Log the ordered height/source list once when resolved. No hardcoded Y=27.01.
+- Keep live Door and exact previously verified height plans, missing-support
+  fallback, local ray sampling, retry triggers, sector progression, deadlines,
+  10 m gate, diagonal movement, obstacle planner, 6 m staging and 4.68 m final
+  legs unchanged. Preserve all accepted dungeon/loot/objective behavior.
+- This addresses a demonstrated code weakness; the supplied excerpt cannot
+  prove which candidate will fit this doorway. Source/diff review only, no
+  compile, restore, automated tests or game run. User validates in game.
+- Automatic approval review rejected exporting the full private gameplay log to
+  GitHub without explicit authorization for that payload. Publish the focused
+  source correction and concise analysis only; retain the original log locally.

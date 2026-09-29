@@ -1348,3 +1348,40 @@ Update README and PROJECT_MEMORY. Preserve previous room/range/recovery and
 objective-order changes, one-second reverse cooldown, manual return hand-ins,
 automatic exit/local chaining and /rkm complete. Source/API/diff review only;
 no compile, restore, automated tests or game execution. User validates in game.
+
+## 2026-09-29 - Incorrect height at a mission entrance
+
+### User supplied the 11:25 approach log
+
+"when getting in aproach this mission entrance it's not picking the correct
+height, analyze the logs but don't make significant changes to code but try to
+correct the issue"
+
+The excerpt for mission 1442368811 shows no associated live Door, a provisional
+lower-surface entrance target Y=27.01 and actual bypass Y=27.11. The exterior
+side is reached and final approach begins; near the marker, a corridor hit hint
+appears. The run ends with local reset/interruption, without verified entry.
+The actual doorway height and initial full height plan are absent. Keep the full
+pasted log local and record the concise analysis in GitHub project history.
+Asked whether the character was above or below the doorway; proceed with a
+bounded general fallback correction without assuming either direction.
+
+### Assistant made a narrow height-plan correction
+
+Source review found lower support planes had a nominal-clearance trial but all
+small/downward and upward clearance corrections used the original highest
+support as their base. Retain observed plane trials, then use each support's
+own 0.5 m clearance and normal-clearance+2 m alternatives, lower supports first,
+within the existing six-candidate limit. Original larger offsets fill spare
+slots. Add one ordered height/source plan log so later evidence identifies the
+available candidates. This does not establish the actual doorway height.
+
+Change one code file; keep live/verified height handling, ray sampling, movement,
+obstacle routing, diagonal elevation, side retries, deadlines, 10 m trigger,
+6 m staging and final-approach lengths. Preserve accepted dungeon changes.
+Update README and PROJECT_MEMORY. Source/diff review only; no compile, restore,
+automated tests or game execution. User owns build and in-game validation.
+
+Automatic approval review rejected uploading the full private gameplay log to
+GitHub without explicit payload-export authorization. Continue with the source
+correction and concise analysis; leave the original log local.
