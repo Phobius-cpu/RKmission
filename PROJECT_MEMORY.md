@@ -4,6 +4,15 @@ _Last updated: 2026-09-29_
 
 This file is a durable project-context summary for future RKMission development sessions.
 
+## 2026-09-29 architecture continuation
+
+The source state and decisions from the “Análise de plugins AO#” continuation
+are recorded in `docs/history/2026-09-29-rkmission-architecture-checkpoint.md`.
+That checkpoint was prepared against GitHub `main` at `3cd0ec3`, preserving
+its newer local travel, Fly entrance, objective, readiness, and exit work.
+The automatic cycle is opt-in through `/rkm auto`; `/rkm start` retains local
+takeover. No local build or game test was run.
+
 ## Project
 
 - **Name:** RKMission

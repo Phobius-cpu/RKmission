@@ -1,5 +1,18 @@
 # RKMission Conversation History
 
+## 2026-09-29 — AO# archive integration checkpoint
+
+The user asked to adapt proven ACG entry, warp, travel graph, lift, movement
+ownership, completion, recovery, inventory, and full-cycle ideas from the
+uploaded archives while preserving the existing RKMission coordinator,
+doorway crossing, Mali geometry, Manager.Loot, and exact mission verification.
+This work was rebased from the older local backup onto GitHub `main` at
+`3cd0ec3`, which already contained newer local travel, objective, readiness,
+and exit implementations. The dated architecture checkpoint records what this
+revision adds and what remains staged or unverified:
+`docs/history/2026-09-29-rkmission-architecture-checkpoint.md`.
+
+
 This log records user-visible RKMission conversation context. It intentionally excludes hidden system instructions, hidden chain-of-thought, credentials, and other private internal data.
 
 ## 2026-09-27

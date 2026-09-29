@@ -2,8 +2,10 @@ using System;
 using System.Linq;
 using AOSharp.Common.GameData;
 using AOSharp.Core;
+using AOSharp.Core.Inventory;
 using AOSharp.Core.UI;
 using AOSharp.Pathfinding;
+using MaliMissionRoller2;
 using MalisDungeonMap2;
 using SmokeLounge.AOtomation.Messaging.Messages;
 
@@ -18,7 +20,15 @@ namespace RKmission
         private MissionReadiness _readiness;
         private readonly AcceptedMissions _missions = new AcceptedMissions();
         private LocalMissionTravel _travel;
+        private MovementArbiter _movement;
+        private ScottyboiWarpProvider _warp;
+        private RubiKaTravelPlanner _longTravel;
+        private MissionEntranceResolver _entranceResolver;
         private AcceptedMission _selected;
+        private bool _autoCycle, _autoRolling, _hasRollTerminal, _recoveringDeath;
+        private int _autoZone, _autoRollCount, _maxAutoRolls = 100, _rollTerminalPlayfield;
+        private Vector3 _rollTerminalPosition;
+        private DateTime _deathAt, _nextReturnMove, _returnStarted;
         private bool _running, _dungeonStarted, _clearanceReported, _verifiedRun, _travelInvalidated;
         private Identity _observedDungeon = Identity.None;
         private Identity _activeDungeon = Identity.None;
@@ -30,6 +40,8 @@ namespace RKmission
 
         public override void Run(string pluginDir)
         {
+            _movement = MovementArbiter.Current = new MovementArbiter();
+            _autoZone = Playfield.ModelIdentity.Instance;
             _roller = new MaliMissionRoller2.Main();
             _roller.Run(System.IO.Path.Combine(pluginDir, "Plugins", "MaliMissionRoller2"));
             _map = new DungeonMap();
@@ -39,8 +51,12 @@ namespace RKmission
             _readiness = new MissionReadiness(Say, MissionReadinessSettings.Load(pluginDir, Say));
             _dungeon = new MissionDungeon(Say, _loot, _readiness);
             _travel = new LocalMissionTravel(Say, pluginDir);
+            _warp = new ScottyboiWarpProvider(Say, _movement);
+            _longTravel = new RubiKaTravelPlanner(pluginDir, _warp, _movement, Say);
+            _entranceResolver = new MissionEntranceResolver(pluginDir, Say);
             SMovementController.Set();
             SMovementController.AutoLoadNavmeshes($"{pluginDir}\\NavMeshes", (id, dungeon) => !dungeon);
+            SMovementController.OnRubberband += OnRubberband;
             Chat.RegisterCommand("rkm", Command);
             Game.OnUpdate += Update;
             Game.TeleportStarted += ZoningStarted;
@@ -50,7 +66,8 @@ namespace RKmission
             Network.N3MessageReceived += _missions.ObserveQuest;
             Network.N3MessageReceived += ObserveMissionMessage;
             Mission.RollListChanged += _missions.ObserveRoll;
-            Say("Loaded. Accept missions yourself, /rkm start, then travel to any mission playfield. /rkm travel auto|ground|flying; /rkm missions.");
+            Mission.RollListChanged += ObserveAutoRoll;
+            Say("Loaded. /rkm start keeps local takeover; /rkm auto enables automatic rolling and cross-playfield travel. /rkm missions shows accepted work.");
         }
 
         public override void Teardown()
@@ -64,7 +81,11 @@ namespace RKmission
             Network.N3MessageReceived -= _missions.ObserveQuest;
             Network.N3MessageReceived -= ObserveMissionMessage;
             Mission.RollListChanged -= _missions.ObserveRoll;
+            Mission.RollListChanged -= ObserveAutoRoll;
+            SMovementController.OnRubberband -= OnRubberband;
             _dungeon.Dispose();
+            _entranceResolver.Dispose();
+            _warp.Dispose();
             _roller.Teardown();
             _map.Teardown();
             _loot.Teardown();
@@ -83,13 +104,29 @@ namespace RKmission
             switch (verb)
             {
                 case "status":
-                    Say($"Armed={_running}, travel={_travel.Mode}/{_travel.Status}, " +
+                    Say($"Armed={_running}, cycle={(_autoCycle ? "automatic" : "local")}, roll zone={_autoZone}, travel={_travel.Mode}/{_travel.Status}, " +
                         $"accepted RK={_missions.Records.Count(x => x.Present && x.IsRubiKaDestination)}, " +
                         $"mission={_selected?.Name ?? "none"} [{_selected?.State.ToString() ?? "none"}], dungeon={_dungeon.Status}.");
                     if (_waitingReason != null) Say(_waitingReason);
                     break;
                 case "start": Start(); break;
-                case "stop": Stop(); Say("Stopped. Use /rkm start to arm local takeover again."); break;
+                case "auto": _autoCycle = true; Start(); Say("Automatic mission cycle armed."); break;
+                case "local":
+                    if (_autoRolling) MaliMissionRoller2.Main.Window?.StopZoneRolling();
+                    _autoRolling = _autoCycle = false;
+                    _longTravel.Reset();
+                    Start(); Say("Local mission takeover armed."); break;
+                case "stop": Stop(); Say("Stopped. Use /rkm start for local takeover or /rkm auto for the automatic cycle."); break;
+                case "zone":
+                    if (args.Length < 2 || !int.TryParse(args[1], out int zone) || zone <= 0)
+                        Say("Usage: /rkm zone <Rubi-Ka playfield id> (automatic rolling target).");
+                    else { _autoZone = zone; Say($"Automatic rolling zone set to {zone}."); }
+                    break;
+                case "rolls":
+                    if (args.Length > 1 && int.TryParse(args[1], out int count) && count > 0)
+                        _maxAutoRolls = count;
+                    Say($"Automatic roll limit: {_maxAutoRolls}.");
+                    break;
                 case "travel":
                     if (args.Length < 2 || !Enum.TryParse(args[1], true, out TravelMode mode) ||
                         !Enum.IsDefined(typeof(TravelMode), mode))
@@ -113,13 +150,9 @@ namespace RKmission
                     if (!_missions.Records.Any()) Say("No accepted Rubi-Ka mission destinations detected.");
                     break;
                 case "complete": ConfirmCompletion(args); break;
-                case "zone":
-                case "rolls":
-                    Say("RKMission now monitors all accepted Rubi-Ka missions. Roll/select in Mali's window and travel between playfields yourself.");
-                    break;
                 case "loot": Say("Use /ManagerLoot for the original item list and settings."); break;
                 case "map": _map.ToggleWindow(); break;
-                default: Say("Commands: start, stop, status, missions, travel auto|ground|flying, complete [mission id], loot, map."); break;
+                default: Say("Commands: start, auto, local, stop, status, missions, zone <id>, rolls <count>, travel auto|ground|flying, complete [mission id], loot, map."); break;
             }
         }
 
@@ -127,6 +160,7 @@ namespace RKmission
         {
             if (_running) return;
             _running = true;
+            _recoveringDeath = false;
             _dungeonStarted = false;
             _clearanceReported = false;
             _selected = null;
@@ -138,15 +172,25 @@ namespace RKmission
             _waitingReason = null;
             _nextSelection = DateTime.MinValue;
             _travel.Reset();
-            Say("Armed. Rolling, acceptance, and inter-playfield travel remain under your control.");
+            _longTravel.Reset();
+            _entranceResolver.Reset();
+            Say(_autoCycle ? "Armed for automatic rolling, travel and mission chaining." :
+                "Armed for local takeover. Rolling and inter-playfield travel remain under your control.");
         }
 
         private void Stop()
         {
+            if (_autoRolling) MaliMissionRoller2.Main.Window?.StopZoneRolling();
+            _autoRolling = false;
             _running = false;
             _dungeonStarted = false;
             _travel?.Reset();
+            _longTravel?.Reset();
+            _entranceResolver?.Reset();
             _dungeon?.Stop();
+            _movement?.StopAll();
+            _autoCycle = false;
+            _recoveringDeath = false;
             // The embedded roller is independent: stopping travel must not stop user-owned rolling.
         }
 
@@ -188,7 +232,8 @@ namespace RKmission
                 _dungeon.BeginExit();
             }
             Say($"Completion recorded for {_selected.Id.Instance}: {_selected.Name}. " +
-                "While armed, exit is automatic and the next closest accepted mission in this playfield will take over.");
+                (_autoCycle ? "While armed, exit is automatic and the automatic cycle continues." :
+                    "While armed, exit is automatic and the next closest accepted mission in this playfield will take over."));
         }
 
         private void Update(object sender, float elapsed)
@@ -201,7 +246,27 @@ namespace RKmission
                 if (!_running) return;
                 if (!DynelManager.LocalPlayer.IsAlive)
                 {
-                    Stop(); Say("Stopped because the character died."); return;
+                    if (!_autoCycle) { Stop(); Say("Stopped because the character died."); return; }
+                    if (!_recoveringDeath)
+                    {
+                        _recoveringDeath = true;
+                        _deathAt = DateTime.UtcNow;
+                        _dungeon.Stop(); _dungeonStarted = false;
+                        _travel.Reset(); _longTravel.Reset(); _movement.StopAll();
+                        Say("Character died; waiting for reclaim, then replanning the accepted mission.");
+                    }
+                    return;
+                }
+                if (_recoveringDeath)
+                {
+                    if (DateTime.UtcNow - _deathAt > TimeSpan.FromMinutes(3))
+                    { Stop(); Say("Reclaim recovery timed out."); return; }
+                    _recoveringDeath = false;
+                    _verifiedRun = false;
+                    _selected = _selected != null && _selected.Present ? _selected : null;
+                    _entranceResolver.Reset();
+                    _nextSelection = DateTime.MinValue;
+                    Say("Reclaim complete; replanning from the current playfield.");
                 }
                 if (Playfield.IsDungeon) { TickDungeon(); return; }
                 if (_travelInvalidated)
@@ -209,7 +274,8 @@ namespace RKmission
                     _travelInvalidated = false;
                     _travel.CompleteHandoff(false, "zoning ended outdoors; no selected mission dungeon entered");
                     _travel.Reset("outdoor zoning invalidated local route");
-                    if (!_verifiedRun) _selected = null;
+                    if (!_verifiedRun && (!_autoCycle || _selected == null || !_selected.Present))
+                        _selected = null;
                     _nextSelection = DateTime.MinValue;
                 }
                 if (_dungeonStarted)
@@ -234,11 +300,13 @@ namespace RKmission
                     if (Playfield.ModelIdentity.Instance != previousPlayfield ||
                         !_missions.Eligible(previousPlayfield).Any())
                     {
-                        Stop(); Say("Local mission chain finished. Travel to another mission playfield yourself, then /rkm start."); return;
+                        if (!_autoCycle)
+                        { Stop(); Say("Local mission chain finished. Travel to another mission playfield yourself, then /rkm start."); return; }
                     }
                 }
                 if (_selected != null && (!_selected.Present ||
-                    _selected.PlayfieldId != Playfield.ModelIdentity.Instance || !_travel.MatchesAnchor(_selected)))
+                    (!_autoCycle && _selected.PlayfieldId != Playfield.ModelIdentity.Instance) ||
+                    (!_autoCycle && _selected.PlayfieldId == Playfield.ModelIdentity.Instance && !_travel.MatchesAnchor(_selected))))
                 {
                     Say($"Mission destination invalidated: mission={_selected.Id.Instance}; acceptance/playfield/anchor changed; choose again from current origin.");
                     _selected = null;
@@ -252,16 +320,55 @@ namespace RKmission
                     var local = _missions.Eligible(Playfield.ModelIdentity.Instance).ToList();
                     if (local.Count == 0)
                     {
-                        Wait("Waiting for you to reach a playfield containing an accepted Rubi-Ka mission."); return;
+                        if (!_autoCycle)
+                        { Wait("Waiting for you to reach a playfield containing an accepted Rubi-Ka mission."); return; }
+                        _selected = _missions.Records.Where(x => x.Present && x.IsRubiKaDestination && !x.Completed)
+                            .OrderBy(x => x.PlayfieldId).ThenBy(x => x.Id.Instance).FirstOrDefault();
+                        if (_selected == null)
+                        {
+                            if (_autoRolling) return;
+                            if (ReturnToRollTerminal()) StartAutoRolling();
+                            return;
+                        }
+                        _waitingReason = null;
                     }
-                    _selected = _travel.SelectNearest(local);
-                    if (_selected == null)
+                    else
                     {
-                        Wait("No local estimate for the active movement state. Check world coordinates, vehicle state, and /rkm travel mode. Outdoor meshes and clearance probes do not gate a direct attempt; selection will retry.");
-                        return;
+                        _selected = _travel.SelectNearest(local);
+                        if (_selected == null)
+                        {
+                            Wait("No local estimate for the active movement state. Selection will retry.");
+                            return;
+                        }
+                        _waitingReason = null;
                     }
-                    _waitingReason = null;
                 }
+                if (_autoRolling)
+                { MaliMissionRoller2.Main.Window?.StopZoneRolling(); _autoRolling = false; }
+                if (_autoCycle)
+                {
+                    Mission live = Mission.List?.FirstOrDefault(x => x.Identity == _selected.Id);
+                    if (live == null)
+                    { Wait("Waiting for the selected accepted mission to appear in AO# before key entry or travel."); return; }
+                    _entranceResolver.Select(live);
+                    EntranceResult entrance = _entranceResolver.Tick();
+                    if (entrance == EntranceResult.Waiting)
+                    { _travel.Reset(); _movement.Halt(MovementOwner.MissionEntrance); return; }
+                    if (entrance == EntranceResult.Failed)
+                    { Stop(); Say("Mission-key entrance was accepted, but exact dungeon entry was not verified."); return; }
+                }
+                if (_selected.PlayfieldId != Playfield.ModelIdentity.Instance)
+                {
+                    _travel.Reset();
+                    TravelResult longResult = _longTravel.Tick(_selected.PlayfieldId);
+                    if (longResult == TravelResult.Blocked)
+                    { string reason = _longTravel.LastFailure; Stop(); Say(reason); }
+                    return;
+                }
+                if (_longTravel.IsActive) _longTravel.Reset();
+                if (_autoCycle && !_travel.MatchesAnchor(_selected) &&
+                    _travel.SelectNearest(new[] { _selected }) == null)
+                { Wait("Local route estimate is unavailable after cross-playfield travel; retrying."); return; }
                 if (!PublishMissionDestination(_selected))
                 {
                     _travel.Reset(); _selected = null; _mapMission = Identity.None;
@@ -385,6 +492,70 @@ namespace RKmission
             if (_waitingReason == reason) return;
             _waitingReason = reason;
             Say(reason);
+        }
+
+        private void ObserveAutoRoll(object sender, RollListChangedArgs args)
+        {
+            if (!_running || !_autoCycle || !_autoRolling) return;
+            if (++_autoRollCount < _maxAutoRolls) return;
+            MaliMissionRoller2.Main.Window?.StopZoneRolling();
+            _autoRolling = false;
+            Stop();
+            Say($"Automatic rolling stopped after {_maxAutoRolls} offers without an accepted target.");
+        }
+
+        private void StartAutoRolling()
+        {
+            if (!_running || !_autoCycle || _autoRolling || MaliMissionRoller2.Main.Window == null) return;
+            if (Inventory.NumFreeSlots < 2)
+            { Stop(); Say("Two free main-inventory slots are required before automatic rolling."); return; }
+            if (!AcceptedMissions.IsRubiKaPlayfield(_autoZone))
+            { Stop(); Say($"Rolling zone {_autoZone} is not a configured Rubi-Ka mission destination."); return; }
+            Dynel terminal = DynelManager.AllDynels.Where(x =>
+                x.Identity.Type == IdentityType.MissionTerminal &&
+                x.DistanceFrom(DynelManager.LocalPlayer) < 7.5f)
+                .OrderBy(x => x.DistanceFrom(DynelManager.LocalPlayer)).FirstOrDefault();
+            if (terminal == null)
+            { Stop(); Say("No mission terminal is in range for automatic rolling."); return; }
+            MaliMissionRoller2.Main.Window.UpdateTerminal(new MissionTerminal(terminal));
+            _hasRollTerminal = true;
+            _rollTerminalPlayfield = Playfield.ModelIdentity.Instance;
+            _rollTerminalPosition = terminal.Position;
+            _autoRollCount = 0;
+            _autoRolling = true;
+            _returnStarted = DateTime.MinValue;
+            MaliMissionRoller2.Main.Window.StartZoneRolling(_autoZone);
+            Say($"Mali Mission Roller is rolling for playfield {_autoZone}; limit {_maxAutoRolls}.");
+        }
+
+        private bool ReturnToRollTerminal()
+        {
+            if (!_hasRollTerminal) return true;
+            if (Playfield.ModelIdentity.Instance != _rollTerminalPlayfield)
+            {
+                TravelResult result = _longTravel.Tick(_rollTerminalPlayfield);
+                if (result == TravelResult.Blocked)
+                { string reason = _longTravel.LastFailure; Stop(); Say("Return to roller stopped: " + reason); }
+                return false;
+            }
+            if (_longTravel.IsActive) _longTravel.Reset();
+            if (_returnStarted == DateTime.MinValue) _returnStarted = DateTime.UtcNow;
+            if (DateTime.UtcNow - _returnStarted > TimeSpan.FromMinutes(3))
+            { Stop(); Say("Return to the mission terminal timed out."); return false; }
+            if (Vector3.Distance(DynelManager.LocalPlayer.Position, _rollTerminalPosition) <= 6f)
+            { _movement.Release(MovementOwner.OutdoorTravel); _returnStarted = DateTime.MinValue; return true; }
+            if (DateTime.UtcNow >= _nextReturnMove)
+            {
+                _movement.SetDestination(MovementOwner.OutdoorTravel, _rollTerminalPosition);
+                _nextReturnMove = DateTime.UtcNow.AddSeconds(3);
+            }
+            return false;
+        }
+
+        private void OnRubberband(Vector3 position)
+        {
+            _longTravel?.InvalidatePath();
+            _dungeon?.InvalidatePath();
         }
     }
 }

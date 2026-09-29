@@ -27,7 +27,8 @@ package restore, tests or game run were performed; the user compiles and validat
 - Compile `RKmission/RKmission.csproj` yourself. It targets .NET Framework 4.8
   with the existing AOSharpSDK, AOSharpSDK.SharpNav and Newtonsoft.Json packages.
 - Deploy the output/dependencies through AO#. Keep the embedded plugin folders
-  beside `RKmission.dll`; the project copies their required UI/assets.
+  and `Data` beside `RKmission.dll`; the project copies their required UI/assets
+  and entrance/travel reference data.
 - Outdoor `NavMeshes/<playfield id>.nav` files are optional. Complete meshes can
   improve Run estimates and coarse travel. Direct local movement works without
   a mesh; Fly never requires a mesh or a synthetic clearance certificate.
@@ -37,10 +38,10 @@ package restore, tests or game run were performed; the user compiles and validat
   creates settings/history there on load/use. A persistence error is logged;
   navigation continues with session observations. Runtime data is Git-ignored.
 
-## Quick start
+## Local takeover (existing workflow)
 
 1. Roll/select/accept any number of missions yourself in Mali's window or the
-   game UI. RKMission never auto-rolls, auto-accepts or deletes quests.
+   game UI. `/rkm start` does not auto-roll, auto-accept or delete quests.
 2. Inspect `/rkm missions`, configure loot and use `/rkm start` to arm takeover.
    Handle all inter-playfield transport yourself.
 3. In an outdoor playfield with accepted Rubi-Ka missions, RKMission captures
@@ -79,6 +80,24 @@ Starting inside a mission retains AO#'s exact dungeon-to-mission lookup.
 `/rkm stop` gives back control; stop/start abandons an unfinished run binding
 and allows retry. Quest disappearance alone never proves reward. `/rkm complete
 [bound id]` remains a manual completion override; automatic exit follows while armed.
+
+## Automatic cycle (new, source only)
+
+At a mission terminal, use `/rkm zone <Rubi-Ka playfield id>` to choose the
+rolling destination and optionally `/rkm rolls <count>` (default 100). Use
+`/rkm auto` to roll with Mali's original roller, accept a matching mission,
+travel, enter, clear, exit, return to the remembered terminal, and repeat.
+Already accepted missions take priority. `/rkm local` switches back to the
+previous local-only takeover; `/rkm stop` stops RKMission's automatic rolling
+and movement.
+
+Automatic travel tries an unambiguous mission key through the ACG candidate
+database, then asks Scottyboi for its current warp menu, then uses verified
+links from the included Navigator graph. The existing local Run/Fly entrance
+system takes over in the destination playfield. The graph is sparse, and no
+Whompa or Fixer Grid executor is included yet. Missing links or an unrecognized
+warp menu stop with a reason. This cycle has not been compiled or tested in game;
+see the [2026-09-29 checkpoint](docs/history/2026-09-29-rkmission-architecture-checkpoint.md).
 
 ## Outdoor navigation architecture
 
@@ -518,9 +537,11 @@ A stalled room scan stops without claiming clearance.
 | `/rkm missions` | List tracked mission IDs, entrances/playfields, objectives, acceptance, and completion state. |
 | `/rkm travel auto\|ground\|flying` | Set session travel mode; default auto uses the actual flight state. |
 | `/rkm start` | Arm accepted-mission monitoring/local takeover, or verify and resume the current dungeon. |
+| `/rkm auto` | Arm the new automatic roll, travel, clear, exit, and return cycle. |
+| `/rkm local` | Use the established local takeover workflow. |
 | `/rkm stop` | Stop RKMission movement and dungeon automation. User-owned roller controls remain independent. |
 | `/rkm complete [mission id]` | Manually mark the verified bound run completed; while armed, exit automatically and continue locally. |
-| `/rkm zone <id>` / `/rkm rolls <count>` | Retired commands: display the new manual rolling/all-missions boundary. |
+| `/rkm zone <id>` / `/rkm rolls <count>` | Set automatic rolling destination and offer limit. |
 | `/rkm loot` | Show guidance to use `/ManagerLoot`; does not open a window. |
 | `/ManagerLoot` | Open the original loot rule list and settings. |
 | `/lm` | Toggle Manager.Loot's independent enable state. |

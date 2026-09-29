@@ -39,7 +39,7 @@ namespace RKmission
         public void Halt()
         {
             if (_owns)
-            { SMovementController.Halt(); SMovementController.SetMovement(MovementAction.FullStop); }
+            { MovementArbiter.Current.Halt(MovementOwner.OutdoorTravel); MovementArbiter.Current.SetMovement(MovementOwner.OutdoorTravel, MovementAction.FullStop); }
             _owns = _active = false;
         }
 
@@ -124,11 +124,11 @@ namespace RKmission
                 if (now >= _nextSubmit)
                 {
                     _owns = true;
-                    bool accepted = _mesh ? SMovementController.SetNavDestination(_target) : SMovementController.SetDestination(_target);
+                    bool accepted = _mesh ? MovementArbiter.Current.SetNavDestination(MovementOwner.OutdoorTravel, _target) : MovementArbiter.Current.SetDestination(MovementOwner.OutdoorTravel, _target);
                     if (!accepted && _mesh)
                     {
-                        SMovementController.Halt(); _mesh = false;
-                        accepted = SMovementController.SetDestination(_target);
+                        MovementArbiter.Current.Halt(MovementOwner.OutdoorTravel); _mesh = false;
+                        accepted = MovementArbiter.Current.SetDestination(MovementOwner.OutdoorTravel, _target);
                         _say("Optional mesh submission failed; direct waypoint submitted under the same progress clock.");
                     }
                     if (!accepted) _say("AO# waypoint submission declined; retaining observed no-progress deadline.");
@@ -181,8 +181,8 @@ namespace RKmission
             }
             Vector3 up = Math.Abs(direction.X) + Math.Abs(direction.Z) < 0.05f ? new Vector3(0, 0, 1) : Vector3.Up;
             DynelManager.LocalPlayer.Rotation = Quaternion.LookRotation(direction, up);
-            SMovementController.SetMovement(MovementAction.ForwardStart);
-            SMovementController.SetMovement(MovementAction.Update);
+            MovementArbiter.Current.SetMovement(MovementOwner.OutdoorTravel, MovementAction.ForwardStart);
+            MovementArbiter.Current.SetMovement(MovementOwner.OutdoorTravel, MovementAction.Update);
             _owns = true;
             return MovementResult.Moving;
         }
@@ -190,7 +190,7 @@ namespace RKmission
         private void StopMotion()
         {
             if (!_owns) return;
-            SMovementController.Halt(); SMovementController.SetMovement(MovementAction.FullStop); _owns = false;
+            MovementArbiter.Current.Halt(MovementOwner.OutdoorTravel); MovementArbiter.Current.SetMovement(MovementOwner.OutdoorTravel, MovementAction.FullStop); _owns = false;
         }
 
         public Vector3 CoarseStep(Vector3 destination, int recovery)

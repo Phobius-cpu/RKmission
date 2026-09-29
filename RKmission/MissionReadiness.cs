@@ -130,7 +130,7 @@ namespace RKmission
                     return false;
                 }
                 IsWaiting = true;
-                SMovementController.Halt();
+                MovementArbiter.Current.Halt(MovementOwner.Objective);
                 _say($"Readiness pause ({_reason ?? "before next room action"}): " +
                     $"HP={player.HealthPercent:0.0}%, nano={(player.MaxNano > 0 ? player.NanoPercent : 100):0.0}%.");
             }
@@ -193,7 +193,7 @@ namespace RKmission
             {
                 // Sitting enables treatment kits and natural regeneration. Buffs
                 // and standing-only heals regain priority on the following tick.
-                SMovementController.SetMovement(MovementAction.SwitchToSit);
+                MovementArbiter.Current.SetMovement(MovementOwner.Objective, MovementAction.SwitchToSit);
                 _seated = true;
                 _nextAction = now.AddSeconds(1);
             }
@@ -322,7 +322,7 @@ namespace RKmission
             if (Game.IsZoning || DynelManager.LocalPlayer == null) { _seated = false; return false; }
             if (DynelManager.LocalPlayer.MovementState == MovementState.Sit)
             {
-                SMovementController.SetMovement(MovementAction.LeaveSit);
+                MovementArbiter.Current.SetMovement(MovementOwner.Objective, MovementAction.LeaveSit);
                 _nextAction = DateTime.UtcNow.AddSeconds(1);
                 return true;
             }

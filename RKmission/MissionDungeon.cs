@@ -18,6 +18,8 @@ namespace RKmission
         private readonly Action<string> _say;
         private readonly ManagerLoot.ManagerLoot _loot;
         private readonly MissionReadiness _readiness;
+        private readonly DungeonLiftController _lifts = new DungeonLiftController();
+        private MovementOwner _requestedOwner = MovementOwner.DungeonRoom;
         private const float EngagementRange = 20f;
         private const int ReverseEdgeCooldownSeconds = 1;
         private readonly HashSet<int> _clearedRooms = new HashSet<int>();
@@ -53,6 +55,8 @@ namespace RKmission
         private float _lootBestDistance;
         private int _lootApproachRetries;
         private int _floor;
+        private DungeonLiftController.Lift _activeLift;
+        private DateTime _liftStarted;
 
         private enum TransitionPhase { ApproachDoor, ProbeDoor, OpenDoor, CrossDoor }
         private sealed class Transition
@@ -91,6 +95,7 @@ namespace RKmission
                 return;
             if (!Playfield.IsDungeon || DynelManager.LocalPlayer?.Room == null)
                 return;
+            MovementArbiter.Current.StopAll();
             _clearedRooms.Clear();
             _visitedRooms.Clear();
             _surveyedRooms.Clear();
@@ -101,6 +106,9 @@ namespace RKmission
             _scanTarget = Identity.None;
             _waitingForLoot = Identity.None;
             _loot.ResetMissionLootSkips();
+            _lifts.Reset();
+            _activeLift = null;
+            _liftStarted = DateTime.MinValue;
             _record = record;
             _objective = new MissionObjective(record, _say);
             _exiting = false;
@@ -177,13 +185,24 @@ namespace RKmission
             _loot.MissionObjectiveContainer = Identity.None;
             _destination = null;
             _transition = null;
+            _activeLift = null;
             _layout = null;
-            SMovementController.Halt();
+            MovementArbiter.Current.StopAll();
         }
 
         public void Dispose()
         {
             Stop();
+        }
+
+        public void InvalidatePath()
+        {
+            _destination = null;
+            if (_transition != null)
+            {
+                _transition.LastProgress = DateTime.UtcNow;
+                _transition.BestDistance = float.MaxValue;
+            }
         }
 
         private void LoadFloor()
@@ -196,6 +215,7 @@ namespace RKmission
         {
             if (!IsRunning || !Playfield.IsDungeon || DynelManager.LocalPlayer.Room == null)
                 return;
+            _requestedOwner = MovementOwner.DungeonRoom;
 
             _readiness.ObserveCombat();
             _objective.Refresh(_layout);
@@ -216,12 +236,18 @@ namespace RKmission
             int floor = Math.Abs(DynelManager.LocalPlayer.Room.Floor);
             if (floor != _floor)
             {
+                MovementArbiter.Current.StopAll();
                 _floor = floor;
                 LoadFloor();
+                _activeLift = null;
+                _liftStarted = DateTime.MinValue;
+                _currentRoom = -1;
+                _destination = null;
                 _roomQuietAt = DateTime.MinValue;
             }
 
             Room room = DynelManager.LocalPlayer.Room;
+            _lifts.Discover();
             if (_transition != null)
             {
                 int arrivalRoom = _transition.Edge.Target;
@@ -255,12 +281,13 @@ namespace RKmission
                 _observedRoom = -1;
                 _roomQuietAt = DateTime.MinValue;
                 _say($"Confirmed room {_currentRoom} outside an active doorway crossing.");
-                if (!_clearedRooms.Contains(_currentRoom)) SMovementController.Halt();
+                if (!_clearedRooms.Contains(_currentRoom)) MovementArbiter.Current.Halt(_requestedOwner);
             }
             else
             {
                 _observedRoom = -1;
             }
+            if (_activeLift != null) { TickLift(room); return; }
             if (_exiting) { TickExit(room); return; }
             _loot.BeginMissionRoom(room.Instance);
             if (_surveyedRooms.Add(room.Instance))
@@ -281,15 +308,15 @@ namespace RKmission
                 // looting, room clearance and initiating another fight.
                 if (!FightInRoom(room))
                 {
-                    SMovementController.Halt();
+                    MovementArbiter.Current.Halt(_requestedOwner);
                     if (_objective.Finale && _objective.FinalActionsAllowed)
-                        _objective.Tick(room, _layout, Navigate, _loot);
+                        TickObjective(room);
                 }
                 _roomQuietAt = DateTime.MinValue;
                 return;
             }
             bool roomAction = FightInRoom(room) || ScanRemainingRoom(room) ||
-                (_objective.Finale && _objective.Tick(room, _layout, Navigate, _loot)) || LootInRoom(room);
+                (_objective.Finale && TickObjective(room)) || LootInRoom(room);
             if (_objective.Failure != null) { Stop(); _say(_objective.Failure); return; }
             if (roomAction)
             {
@@ -315,9 +342,20 @@ namespace RKmission
             Room next = NextRoom(room);
             if (next == null)
             {
+                int floorRooms = Playfield.Rooms.Count(x => Math.Abs(x.Floor) == _floor);
+                int clearedFloorRooms = _clearedRooms.Count(id =>
+                    _layout.Room(id) != null && Math.Abs(_layout.Room(id).Floor) == _floor);
+                if (_floor < Playfield.NumFloors - 1 && clearedFloorRooms == floorRooms)
+                {
+                    if (!_lifts.TryGet(_floor, true, out _activeLift))
+                    { Stop(); _say($"Floor {_floor} is clear, but no forward lift was discovered."); return; }
+                    _liftStarted = DateTime.UtcNow;
+                    _say($"Floor {_floor} is clear; routing through mapped rooms to its forward lift.");
+                    return;
+                }
                 if (_clearedRooms.Count < Playfield.Rooms.Count)
                 {
-                    SMovementController.Halt();
+                    MovementArbiter.Current.Halt(_requestedOwner);
                     if (WaitingForRoute) return;
                     Stop();
                     _say("No further reachable rooms; failed doors/routes or missing Mali room geometry remain.");
@@ -334,7 +372,7 @@ namespace RKmission
                 { Stop(); _say("No supported mission objective metadata is available; automatic completion is held."); return; }
                 if (!_objective.Finale)
                 {
-                    SMovementController.Halt();
+                    MovementArbiter.Current.Halt(_requestedOwner);
                     if (_loot.ReservedPendingMissionLootCount > 0)
                         _say($"{_loot.ReservedPendingMissionLootCount} reserved objective loot entries are final work, excluded from the ordinary-loot gate.");
                     _objective.BeginFinale();
@@ -348,14 +386,14 @@ namespace RKmission
                     {
                         Room hop = RouteTo(room.Instance, id => id == objectiveRoom.Value, false);
                         if (hop != null) { BeginTransition(room.Instance, hop.Instance); return; }
-                        SMovementController.Halt();
+                        MovementArbiter.Current.Halt(_requestedOwner);
                         if (WaitingForRoute) return;
                         Stop();
                         _say("No mapped route to the remaining objective room; automatic completion is held.");
                         return;
                     }
-                    SMovementController.Halt();
-                    _objective.Tick(room, _layout, Navigate, _loot);
+                    MovementArbiter.Current.Halt(_requestedOwner);
+                    TickObjective(room);
                     if (_objective.Failure != null) { Stop(); _say(_objective.Failure); }
                     return;
                 }
@@ -366,7 +404,7 @@ namespace RKmission
                     if (hop != null) BeginTransition(room.Instance, hop.Instance);
                     else if (occupied.Instance != room.Instance)
                     {
-                        SMovementController.Halt();
+                        MovementArbiter.Current.Halt(_requestedOwner);
                         if (WaitingForRoute) return;
                         Stop();
                         _say("A remaining enemy has no available room route; automatic exit is held.");
@@ -381,6 +419,12 @@ namespace RKmission
             }
 
             BeginTransition(room.Instance, next.Instance);
+        }
+
+        private bool TickObjective(Room room)
+        {
+            _requestedOwner = MovementOwner.Objective;
+            return _objective.Tick(room, _layout, Navigate, _loot);
         }
 
         private bool HoldForReadiness()
@@ -442,6 +486,7 @@ namespace RKmission
 
         private bool FightInRoom(Room room)
         {
+            _requestedOwner = MovementOwner.CombatPosition;
             SimpleChar player = DynelManager.LocalPlayer;
             SimpleChar enemy = EnemyCandidates(room)
                 .Where(x => x.DistanceFrom(player) <= EngagementRange ||
@@ -465,7 +510,7 @@ namespace RKmission
                 _actionAt = DateTime.UtcNow;
                 _waitingForLoot = Identity.None;
                 _destination = null;
-                SMovementController.Halt();
+                MovementArbiter.Current.Halt(_requestedOwner);
                 _say($"Targeting {enemy.Name} ({enemy.Identity}) in room {room.Instance}" +
                     $" at {enemy.DistanceFrom(player):0.0}m (new engagement range {EngagementRange:0}m)" +
                     (enemy.IsPet ? " (spawned entity)." : "."));
@@ -480,7 +525,7 @@ namespace RKmission
             if (enemy.IsInLineOfSight && enemy.IsInAttackRange(true))
             {
                 _actionAt = DateTime.UtcNow;
-                SMovementController.Halt();
+                MovementArbiter.Current.Halt(_requestedOwner);
                 if (!DynelManager.LocalPlayer.IsAttackPending &&
                     (!DynelManager.LocalPlayer.IsAttacking ||
                      DynelManager.LocalPlayer.FightingTarget?.Identity != enemy.Identity))
@@ -494,6 +539,7 @@ namespace RKmission
 
         private bool ScanRemainingRoom(Room room)
         {
+            _requestedOwner = MovementOwner.DungeonRoom;
             // A range limit must not turn a large occupied room into a cleared
             // room. Move within its mapped outline; do not Target/Attack/send
             // pets until the ordinary engagement filter admits an enemy.
@@ -575,6 +621,7 @@ namespace RKmission
 
         public void BeginExit()
         {
+            _requestedOwner = MovementOwner.DungeonExit;
             if (!IsRunning || _layout == null || _exiting) return;
             _exiting = true;
             _exitStarted = DateTime.UtcNow;
@@ -586,12 +633,47 @@ namespace RKmission
             _say("Returning through mapped rooms to the entry door; waiting for actual outdoor zoning before mission chaining.");
         }
 
+        private void TickLift(Room room)
+        {
+            if (_readiness.InCombat || EnemyCandidates(room).Any())
+            {
+                _activeLift = null;
+                _clearedRooms.Remove(room.Instance);
+                if (_exiting)
+                { _exiting = false; IsComplete = false; _record.RoomsCleared = false; }
+                return;
+            }
+            if (DateTime.UtcNow - _liftStarted > TimeSpan.FromSeconds(90))
+            { Stop(); _say("Lift route or floor transition timed out; run held."); return; }
+            if (room.Instance != _activeLift.RoomId)
+            {
+                Room hop = RouteTo(room.Instance, id => id == _activeLift.RoomId, false);
+                if (hop != null) BeginTransition(room.Instance, hop.Instance);
+                else if (!WaitingForRoute)
+                { Stop(); _say("No mapped route to the discovered lift."); }
+                return;
+            }
+            _requestedOwner = MovementOwner.LiftTransition;
+            if (Vector3.Distance(DynelManager.LocalPlayer.Position, _activeLift.Position) > 1.5f)
+            { Navigate(_activeLift.Position); return; }
+            MovementArbiter.Current.Halt(_requestedOwner);
+            _lifts.Use(_activeLift);
+        }
+
         private void TickExit(Room room)
         {
+            _requestedOwner = MovementOwner.DungeonExit;
             _loot.MissionActionsPaused = true;
             DateTime now = DateTime.UtcNow;
             if (now - _exitStarted > TimeSpan.FromMinutes(5))
             { Stop(); _say("Automatic exit route exceeded five minutes; exit manually to continue the local chain."); return; }
+            if (_floor > 0)
+            {
+                if (!_lifts.TryGet(_floor, false, out _activeLift))
+                { Stop(); _say($"Backward lift on floor {_floor} was not discovered; exit held."); return; }
+                _liftStarted = now;
+                return;
+            }
             if (_readiness.InCombat || (_record.State != MissionProgress.CompletedByUser &&
                 (EnemyCandidates(room).Any() || _loot.HasUnprocessedMissionLoot(room.Instance,
                     dynel => !_objective.IsNonLootObjective(dynel.Identity)))))
@@ -635,14 +717,20 @@ namespace RKmission
                 _exitLastUse = now;
             }
             // The destination crosses the external threshold, outside the dungeon mesh.
-            SMovementController.SetDestination(_exitAcross);
+            MovementArbiter.Current.SetDestination(_requestedOwner, _exitAcross);
         }
 
         private bool LootInRoom(Room room)
         {
+            _requestedOwner = MovementOwner.LootApproach;
             // Manager.Loot owns the list, chest/lockpick handling and item moves.
             // RKMission approaches and can defer an unreachable object.
             Dynel next = _loot.NextMissionLoot(room.Instance);
+            if (next != null && Inventory.NumFreeSlots == 0)
+            {
+                Stop(); _say("Inventory is full; clear a slot before resuming this mission.");
+                return true;
+            }
             DateTime now = DateTime.UtcNow;
             Identity processingIdentity = _loot.ProcessingMissionLootIdentity;
             Identity waitingIdentity = processingIdentity != Identity.None ? processingIdentity : next?.Identity ?? Identity.None;
@@ -661,7 +749,7 @@ namespace RKmission
             }
             if (_loot.IsProcessingMissionLoot)
             {
-                SMovementController.Halt();
+                MovementArbiter.Current.Halt(_requestedOwner);
                 if (_waitingForLoot != Identity.None && now - _lootWaitStarted > TimeSpan.FromSeconds(60))
                 {
                     string blockers = _loot.MissionLootBlockers;
@@ -703,7 +791,7 @@ namespace RKmission
                 Navigate(_lootApproachPoint);
                 return true;
             }
-            SMovementController.Halt();
+            MovementArbiter.Current.Halt(_requestedOwner);
             if (now - _lootWaitStarted > TimeSpan.FromSeconds(30))
                 SkipLoot(next, room.Instance, "Manager.Loot did not finish within 30 seconds");
             return true;
@@ -733,7 +821,7 @@ namespace RKmission
             _say($"Skipping unreachable loot {loot.Identity} in room {roomId}: {reason}. Exploration continues.");
             _waitingForLoot = Identity.None;
             _destination = null;
-            SMovementController.Halt();
+            MovementArbiter.Current.Halt(_requestedOwner);
         }
         private Room NextRoom(Room current)
         {
@@ -793,6 +881,7 @@ namespace RKmission
 
         private void BeginTransition(int source, int target)
         {
+            _requestedOwner = MovementOwner.DoorTransition;
             DungeonLayout.Connection edge = _layout.Edge(source, target);
             if (edge == null) return;
             Door door = _layout.DoorAt(edge);
@@ -812,6 +901,7 @@ namespace RKmission
 
         private void TickTransition(Room detectedRoom)
         {
+            _requestedOwner = MovementOwner.DoorTransition;
             Transition crossing = _transition;
             DungeonLayout.Connection edge = crossing.Edge;
             Door door = _layout.DoorAt(edge);
@@ -892,7 +982,7 @@ namespace RKmission
                 crossing.LastProgress = now;
                 crossing.BestDistance = float.MaxValue;
                 _destination = null;
-                if (door != null && !door.IsOpen) SMovementController.Halt();
+                if (door != null && !door.IsOpen) MovementArbiter.Current.Halt(_requestedOwner);
                 if (crossing.Phase == TransitionPhase.ProbeDoor)
                     _say($"Transition {edge.Source}->{edge.Target}: door flags say locked and closed; probing passage before lockpicking.");
             }
@@ -906,7 +996,7 @@ namespace RKmission
                     crossing.LastProgress = now;
                     crossing.BestDistance = float.MaxValue;
                     _destination = null;
-                    if (door != null && !door.IsOpen) SMovementController.Halt();
+                    if (door != null && !door.IsOpen) MovementArbiter.Current.Halt(_requestedOwner);
                 }
                 else if (now - crossing.PhaseStarted < TimeSpan.FromSeconds(3))
                 {
@@ -920,7 +1010,7 @@ namespace RKmission
                     crossing.LastProgress = now;
                     crossing.BestDistance = float.MaxValue;
                     _destination = null;
-                    SMovementController.Halt();
+                    MovementArbiter.Current.Halt(_requestedOwner);
                     _say($"Transition {edge.Source}->{edge.Target}: passage blocked; trying Lock Pick on door {door.Identity}.");
                 }
             }
@@ -1048,7 +1138,7 @@ namespace RKmission
             _roomQuietAt = DateTime.MinValue;
             if (!_clearedRooms.Contains(_currentRoom) || _readiness.InCombat ||
                 _loot.IsProcessingMissionLoot)
-                SMovementController.Halt();
+                MovementArbiter.Current.Halt(_requestedOwner);
         }
 
         private void FailTransition(string reason)
@@ -1067,7 +1157,7 @@ namespace RKmission
             _destination = null;
             _observedRoom = -1;
             _roomQuietAt = DateTime.MinValue;
-            SMovementController.Halt();
+            MovementArbiter.Current.Halt(_requestedOwner);
         }
 
         private bool IsUnavailable(int source, int target)
@@ -1084,10 +1174,11 @@ namespace RKmission
 
         private void Navigate(Vector3 destination)
         {
-            if (!_destination.HasValue || Vector3.Distance(_destination.Value, destination) > 1f ||
+            if (MovementArbiter.Current.Owner != _requestedOwner || !_destination.HasValue ||
+                Vector3.Distance(_destination.Value, destination) > 1f ||
                 !SMovementController.IsNavigating())
             {
-                SMovementController.SetNavDestination(destination);
+                MovementArbiter.Current.SetNavDestination(_requestedOwner, destination);
                 _destination = destination;
             }
         }

@@ -1,0 +1,130 @@
+{
+  "152": {
+    "Links": [
+      {
+        "$type": "TeleporterLink",
+        "DstId": 540,
+        "TeleporterPos": [ 214.6, 4.3, 172.7 ]
+      },
+      {
+        "$type": "TeleporterLink",
+        "DstId": 640,
+        "TeleporterPos": [ 150.8, 4.5, 184.7 ]
+      },
+      {
+        "$type": "TeleporterLink",
+        "DstId": 656,
+        "TeleporterPos": [ 219.2, 4.3, 252.3 ]
+      },
+      {
+        "$type": "TeleporterLink",
+        "DstId": 800,
+        "TeleporterPos": [ 242.2, 4.3, 199.1 ]
+      },
+      {
+        "$type": "TeleporterLink",
+        "DstId": 6007,
+        "TeleporterPos": [ 208.4, 4.3, 217.5 ]
+      }
+    ]
+  },
+  "540": {
+    "Links": [
+      {
+        "$type": "TerminalLink",
+        "DstId": 152,
+        "TerminalName": "Enter The Grid",
+        "TerminalPos": [ 512, 8.0, 572 ]
+      },
+      {
+        "$type": "ZoneBorderLink",
+        "DstId": 586,
+        "TransitionSpots": [
+          [ 603, 10.7, 395 ]
+        ]
+      }
+    ]
+  },
+  "585": {
+    "Links": [
+      {
+        "$type": "ZoneBorderLink",
+        "DstId": 586,
+        "TransitionSpots": [
+          [ 975, 10.7, 1431 ]
+        ]
+      }
+    ]
+  },
+  "586": {
+    "Links": [
+      {
+        "$type": "ZoneBorderLink",
+        "DstId": 585,
+        "TransitionSpots": [
+          [ 982, 9.5, 506 ]
+        ]
+      }
+    ]
+  },
+  "640": {
+    "Links": [
+      {
+        "$type": "TeleporterLink",
+        "DstId": 646,
+        "TeleporterPos": [ 458, 4.4, 296 ]
+      }
+    ]
+  },
+  "646": {
+    "Links": []
+  },
+  "656": {
+    "Links": [
+      {
+        "$type": "GridTerminalLink",
+        "TerminalPos": [ 1583.3, 46.7, 1646.5 ]
+      }
+    ]
+  },
+  "791": {
+    "Links": [
+      {
+        "$type": "ZoneBorderLink",
+        "DstId": 800,
+        "TransitionSpots": [
+          [ 140, 0.1, 752.4 ]
+        ]
+      }
+    ]
+  },
+  "800": {
+    "Links": [
+      {
+        "$type": "TerminalLink",
+        "DstId": 152,
+        "TerminalName": "Enter The Grid",
+        "TerminalPos": [ 636.5, 66.8, 727.8 ]
+      },
+      {
+        "$type": "ZoneBorderLink",
+        "DstId": 791,
+        "TransitionSpots": [
+          [ 925, 0, 129 ]
+        ]
+      }
+    ]
+  },
+  "4107": {
+    "Links": [
+      {
+        "$type": "TeleporterLink",
+        "DstId": 791,
+        "TeleporterPos": [ 292.5, 21.9, 60.2 ]
+      }
+    ]
+  },
+  "6007": {
+    "Links": []
+  }
+}

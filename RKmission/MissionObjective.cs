@@ -197,7 +197,7 @@ namespace RKmission
                 { Failure = $"Objective {step.Target} did not complete within 60 s; /rkm complete remains available after checking in game."; return true; }
                 if (target.DistanceFrom(DynelManager.LocalPlayer) > 4f)
                 { navigate(target.Position); return true; }
-                AOSharp.Pathfinding.SMovementController.Halt();
+                MovementArbiter.Current.Halt(MovementOwner.Objective);
                 if (Spell.HasPendingCast || Item.HasPendingUse || loot.IsProcessingMissionLoot) return true;
                 if (DateTime.UtcNow - step.LastSent < TimeSpan.FromSeconds(3)) return true;
                 if (step.Action is UseItemOnItemAction use && !step.Pickup)

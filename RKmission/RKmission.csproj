@@ -13,6 +13,7 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
   <ItemGroup>
+    <None Update="Data\*.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Plugins\MaliMissionRoller2\JSON\**\*;Plugins\MaliMissionRoller2\UI\**\*;Plugins\MaliMissionRoller2\Sound\**\*;Plugins\MalisDungeonMap2\UI\**\*;Plugins\ManagerLoot\UI\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
