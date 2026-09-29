@@ -14,6 +14,7 @@ namespace RKmission
         private DungeonMap _map;
         private ManagerLoot.ManagerLoot _loot;
         private MissionDungeon _dungeon;
+        private MissionReadiness _readiness;
         private readonly AcceptedMissions _missions = new AcceptedMissions();
         private LocalMissionTravel _travel;
         private AcceptedMission _selected;
@@ -34,7 +35,8 @@ namespace RKmission
             _map.Run(System.IO.Path.Combine(pluginDir, "Plugins", "MalisDungeonMap2"));
             _loot = new ManagerLoot.ManagerLoot();
             _loot.RunEmbedded(System.IO.Path.Combine(pluginDir, "Plugins", "ManagerLoot"));
-            _dungeon = new MissionDungeon(Say, _loot);
+            _readiness = new MissionReadiness(Say, MissionReadinessSettings.Load(pluginDir, Say));
+            _dungeon = new MissionDungeon(Say, _loot, _readiness);
             _travel = new LocalMissionTravel(Say, pluginDir);
             SMovementController.Set();
             SMovementController.AutoLoadNavmeshes($"{pluginDir}\\NavMeshes", (id, dungeon) => !dungeon);
@@ -42,6 +44,7 @@ namespace RKmission
             Game.OnUpdate += Update;
             Game.TeleportStarted += ZoningStarted;
             Game.TeleportEnded += ZoningEnded;
+            Network.N3MessageSent += _readiness.ObserveAction;
             Say("Loaded. Accept missions yourself, /rkm start, then travel to any mission playfield. /rkm travel auto|ground|flying; /rkm missions.");
         }
 
@@ -51,6 +54,7 @@ namespace RKmission
             Game.OnUpdate -= Update;
             Game.TeleportStarted -= ZoningStarted;
             Game.TeleportEnded -= ZoningEnded;
+            Network.N3MessageSent -= _readiness.ObserveAction;
             _dungeon.Dispose();
             _roller.Teardown();
             _map.Teardown();

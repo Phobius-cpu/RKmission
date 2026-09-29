@@ -1,6 +1,6 @@
 # RKMission Project Memory
 
-_Last updated: 2026-09-28_
+_Last updated: 2026-09-29_
 
 This file is a durable project-context summary for future RKMission development sessions.
 
@@ -54,9 +54,11 @@ implementations below; keep that chronology as evidence of earlier outcomes.
    ring radius, traveled angular span and successful sector. Keep requested sector
    separate from wall-bearing sector and retain failures. Revalidate on later visits.
 7. The existing stable exact mission/dungeon/room check gates `MissionDungeon`.
-   Dungeon exploration, room navigation, combat, door/lockpick, loot and objective
-   code are untouched. The only coordinator integration is retaining managed
-   navigation evidence through zoning and recording that existing verification.
+   Dungeon entry/post-combat readiness now gates new room actions and enemy
+   acquisition starts within 20 m. Preserve exploration, room/door crossing,
+   lockpick, loot rules and objective behavior behind that gate. The outdoor
+   coordinator retains managed navigation evidence through zoning and records
+   the existing exact verification.
 8. Room clearance/removal is not reward. `/rkm complete [bound id]` records user
    confirmation; after user exit, select another local accepted mission from the
    new origin. Stop when none remains and leave further transport to the user.
@@ -1649,3 +1651,45 @@ onto the new architecture.
 - Update this file, CONVERSATION_LOG and README, commit/push main, then copy that
   saved revision. Verify copied file contents and Git revision. Do not compile,
   restore packages, run tests or launch the game for this checkpoint/backup task.
+
+## Mission readiness and 20 m engagement request (2026-09-29)
+
+- Recovered GitHub memory/conversation summaries and prior chats read-only first,
+  as requested. Confirmed main and the dated Desktop backup at checkpoint
+  0350491; last outdoor code change is 965003e, accepted by the user. No new
+  outdoor tuning is requested or included in this change.
+- User testing feedback: pause at mission start if buffs/HP/nano are needed;
+  use available healing/nano recovery after combat before proceeding to another
+  fight, provided combat has not already resumed; narrow engagement to 20 m.
+- Add MissionReadiness before new dungeon room actions, including while initial
+  mesh generation is pending. Track player/pet combat and incoming aggro without
+  using the engagement radius as a combat-state test. Aggro interrupts recovery;
+  an established crossing retains ownership until safe room arrival.
+- Default ready targets are 95% HP/nano, adjustable up to 100. Observe an existing
+  CombatHandler for 3 seconds stationary at entry/after combat, then wait for
+  pending spell/item/perk actions, observed outgoing cast/recharge horizons and
+  a 2-second quiet gap. Preserve its configured profession buffs; never replace
+  the handler or guess a buff loadout. Optional explicit BuffNanoIds requires
+  actual active buffs (or stronger same-nanoline replacements).
+- Recovery uses positive HP/nano effects exposed by usable main-inventory items,
+  learned spells and available perks, following CastNano metadata to bounded depth.
+  Check native self-use requirements, skill locks, cast state and action cooldowns;
+  target self, serialize actions and avoid repeated active HoTs/health-damaging
+  drains. Sit for treatment kits/passive regeneration and confirm standing before
+  continuing. Unrecognized effect metadata remains with the combat handler.
+- Readiness settings live in deployed RKMissionData/readiness-settings.json.
+  No-progress (45 s) or total (180 s) exhaustion stops with diagnostic resource/
+  buff state; it does not waive readiness or start the next fight. No new commands.
+- A narrow Manager.Loot pause flag preserves its original process and settings
+  while suspending updates during readiness/combat. Existing loot rules, room
+  transitions, lockpicking, objectives and outdoor learning are preserved.
+- All new enemy acquisition is within 20 m, including ordinary room NPCs that
+  previously had no range gate. Retain an already active fight beyond that range.
+  Large-room scanning moves within mapped room geometry before new acquisition,
+  without targeting/attacking/sending pets early or declaring distant enemies clear.
+- Asked which combat/buff plugin the user runs; no answer was supplied during
+  implementation, so use the existing AOSharp handler and observable action state
+  with an optional explicit buff list rather than plugin-specific private hooks.
+- Source/API metadata and diff review only. No compilation, package restore,
+  automated tests or game execution; user pulls main, compiles and validates.
+  No new in-game success is claimed. Prior backup remains the previous checkpoint.

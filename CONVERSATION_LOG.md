@@ -1165,3 +1165,43 @@ RKmission-backup-2026-09-28 folder there after committing/pushing these records 
 main. Copy the complete repository, including .git, preserving the older files.
 Verify file contents and the saved Git revision. No compilation, package restore,
 tests or game execution requested or performed.
+
+## 2026-09-29
+
+### User requested recovery before further code changes
+
+User asked to retrieve the GitHub memories/conversations for RKMission, report
+the remembered context and stopping point, and not change code yet. Read the
+repository records, navigation evidence/commit chronology and prior Codex chats.
+Confirmed the last accepted outdoor checkpoint (965003e), the saved-history
+commit 0350491, and the dated complete Desktop backup at that same revision.
+Reported the working navigation sequence and user's source-only validation
+workflow. No code was changed during this recovery request.
+
+### User reported readiness and target-range issues from testing
+
+User requests a small conditional pause at mission beginning if the character
+needs buffs and/or HP/nano; after combat, use available healing/nano recovery
+before the next fight if not already in combat; restrict enemy engagement to 20 m.
+Asked which AOSharp combat/buff plugin is used. No reply was supplied during the
+implementation, so preparation cooperates with the existing handler through
+observable actions rather than assuming a particular profession/plugin.
+
+### Assistant added readiness and restricted new engagements
+
+Add a stationary gate before new dungeon room actions at entry and after combat.
+Default readiness is 95% HP and nano, with a short handler observation window,
+serialized self-recovery actions, pending cast/item/perk monitoring, cast/recharge
+timing and quiet completion. Sitting supports treatment kits and regeneration;
+aggro against player or owned pets interrupts recovery. Optional configured buff
+IDs require actual active buff presence; profession buff choice stays with the
+user's existing CombatHandler. Add editable deployed readiness settings and clear
+failure diagnostics if recovery stalls rather than fighting unprepared.
+
+Pause Manager.Loot updates during readiness/combat without changing its rules or
+process state. Enforce 20 m for all new combat acquisition, preserving existing
+active fights. Large rooms still require scanning remaining occupied space before
+clearance; movement does not target/attack/send pets outside the new range.
+Preserve the confirmed outdoor navigation and existing room crossing/objectives.
+Update README and PROJECT_MEMORY. Source/API/diff review only; no compilation,
+restore, automated tests or game run. User owns compilation and in-game validation.

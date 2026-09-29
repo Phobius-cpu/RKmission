@@ -4,13 +4,17 @@ AO# plugin for solo Rubi-Ka missions in Anarchy Online. It combines the original
 Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
 local mission travel, room exploration, combat, door handling and looting.
 
-**Status (2026-09-28):** outdoor travel/entrance navigation has been consolidated
+**Status (2026-09-29):** mission entry and post-combat room actions now wait for
+buff preparation and HP/nano recovery when needed; new enemy engagements are
+limited to 20 m. The user-confirmed outdoor navigation is preserved.
+Outdoor travel/entrance navigation has been consolidated
 into one state machine with Run/Fly movement and persistent entrance diagnostics.
 Fly gains cruise clearance, travels toward the selected mission while avoiding
 obstacles, matches mission entrance height when within 10 m, then diagnoses the
 approach side and enters. Ground retains observed perimeter recovery.
-Dungeon exploration, room navigation, combat,
-interior doors/lockpicking, loot and objectives are unchanged. The coordinator
+Dungeon exploration, room navigation,
+interior doors/lockpicking, loot and objectives retain their implementations behind
+the new readiness gate and enemy acquisition range. The coordinator
 only adds diagnostics at the existing verified dungeon handoff. No local build,
 package restore, tests or game run were performed; the user compiles and validates.
 
@@ -394,6 +398,67 @@ The native mission-map API is confirmed in embedded
 and [Playfield](https://github.com/anarchydevs/aosp.knows-aosharp-mods/blob/master/AOSharp.Core/Playfield/Playfield.cs)
 reference sources explain rotation and surface-ray APIs. Surface/rotation evidence
 cannot certify all client scene geometry; observed movement and in-game logs decide.
+
+## Mission preparation, recovery and engagement range
+
+On verified dungeon startup and after combat, RKMission holds new room actions
+when HP/nano need recovery or preparation is still active. Default ready targets
+are **95% HP and 95% nano**. A healthy character with no combat handler, pending
+action or configured missing buff proceeds immediately. When an AOSharp combat
+handler is installed, allow a short 3-second stationary observation window for its
+configured buffs/recovery, then wait for casts, recharge and a 2-second quiet gap.
+The handler keeps its own profession-specific buff choices and combat rules.
+Outgoing nano casts retain their base cast/recharge horizon, because AOSharp's
+short pending-send flag alone does not describe the whole cast.
+
+Recovery considers usable inventory items, learned spells and available perks
+whose exposed effects restore HP/nano, including programs applied by kits/perks.
+Actions target self, respect native use requirements and skill locks, serialize
+with pending actions, and avoid repeating an active heal-over-time spell. Sitting
+allows treatment kits and natural regeneration; standing is confirmed before
+movement or casting resumes. Keep consumables in the main inventory. Actions with
+unrecognized effect metadata remain the responsibility of your combat handler.
+
+The pause never starts while the character or owned pets are fighting or being
+attacked. Aggro interrupts recovery and resumes combat; recovery is reconsidered
+once it ends. Manager.Loot's original process/settings are retained but its update
+is suspended during combat/preparation, preventing loot actions from competing
+with recovery. An already active doorway crossing finishes under its original
+ownership before the next safe-room readiness check.
+
+If recovery makes no progress for 45 seconds, or preparation lasts 180 seconds,
+stop with the actual HP/nano and missing configured buffs instead of starting the
+next fight unprepared. Check supplies, skills, cooldowns, NCU and handler settings,
+then use `/rkm start` to retry. This is source-only pending your in-game validation.
+
+`RKMissionData/readiness-settings.json` is created on plugin load. Edit while the
+plugin is unloaded, then reload. Defaults:
+
+```json
+{
+  "HealthPercent": 95,
+  "NanoPercent": 95,
+  "HandlerStartSeconds": 3,
+  "QuietSeconds": 2,
+  "NoProgressSeconds": 45,
+  "TimeoutSeconds": 180,
+  "BuffNanoIds": []
+}
+```
+
+Set the percentages to 100 if you want completely full bars. `BuffNanoIds` is an
+optional explicit list of required self-buff nano IDs, for example when no combat
+handler manages them. The bot casts only configured buffs from its learned list,
+accepts a stronger active nano in the same nonzero nanoline, and waits for actual
+buff presence. An empty list does not invent a profession buff loadout; enable
+your handler's own auto-buffing. RKMission never replaces `CombatHandler.Instance`.
+
+**20 m limits new Target/Attack/pet engagements**, including ordinary mapped-room
+enemies, spawned entities and Alarm Sentries. An existing fight is not canceled
+just because its target moves beyond 20 m. For a large room with distant enemies,
+continue moving within its mapped outline before acquiring a target in range;
+do not claim the room is cleared merely because no enemy is currently within 20 m.
+A stalled room scan stops without claiming clearance.
 
 ## Commands
 

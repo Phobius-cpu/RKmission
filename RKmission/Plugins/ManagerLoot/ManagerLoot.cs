@@ -46,6 +46,9 @@ namespace ManagerLoot
         public int MissionRoomId { get; private set; } = -1;
         public Func<Dynel, int, bool> MissionRoomContains { get; set; }
         public Func<int, IEnumerable<Dynel>> MissionRoomDynels { get; set; }
+        // RKMission temporarily owns the stationary recovery window. Preserve
+        // original settings/process state and resume it after preparation.
+        public bool MissionActionsPaused { get; set; }
         private bool _enabledForMission;
 
         public void BeginMissionRoom(int roomId)
@@ -364,6 +367,7 @@ namespace ManagerLoot
             {
                 if (Game.IsZoning) return;
                 if (Time.AONormalTime < ZoneDelay) return;
+                if (MissionActionsPaused) return;
 
                 if (MissionRoomId < 0 && _settings["DisableIfEmptyList"].AsBool() &&
                     Rules != null && Rules.Count == 0 && _settings["Enable"].AsBool())

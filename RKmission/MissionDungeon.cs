@@ -17,6 +17,8 @@ namespace RKmission
     {
         private readonly Action<string> _say;
         private readonly ManagerLoot.ManagerLoot _loot;
+        private readonly MissionReadiness _readiness;
+        private const float EngagementRange = 20f;
         private readonly HashSet<int> _clearedRooms = new HashSet<int>();
         private readonly HashSet<int> _visitedRooms = new HashSet<int>();
         private readonly HashSet<int> _surveyedRooms = new HashSet<int>();
@@ -25,6 +27,9 @@ namespace RKmission
         private NavMesh[] _meshes;
         private DungeonLayout _layout;
         private Identity _combatTarget = Identity.None;
+        private Identity _scanTarget = Identity.None;
+        private DateTime _scanStarted, _scanProgress;
+        private float _scanDistance;
         private Mission _mission;
         private bool _objectiveAttempted;
         private int _currentRoom = -1;
@@ -61,13 +66,14 @@ namespace RKmission
 
         public bool IsRunning { get; private set; }
         public bool IsComplete { get; private set; }
-        public string Status => IsComplete ? "complete" : !IsRunning ? "idle" :
+        public string Status => IsComplete ? "complete" : !IsRunning ? "idle" : _readiness.IsWaiting ? _readiness.Status :
             $"visited {_visitedRooms.Count}, cleared {_clearedRooms.Count} rooms";
 
-        public MissionDungeon(Action<string> say, ManagerLoot.ManagerLoot loot)
+        public MissionDungeon(Action<string> say, ManagerLoot.ManagerLoot loot, MissionReadiness readiness)
         {
             _say = say;
             _loot = loot;
+            _readiness = readiness;
         }
 
         public void Start(Mission mission)
@@ -82,6 +88,7 @@ namespace RKmission
             _edgeFailures.Clear();
             _reverseCooldown.Clear();
             _combatTarget = Identity.None;
+            _scanTarget = Identity.None;
             _waitingForLoot = Identity.None;
             _loot.ResetMissionLootSkips();
             _mission = (Mission.List ?? new List<Mission>())
@@ -100,6 +107,8 @@ namespace RKmission
                 _say($"Mali map has no safe interior point for {_layout.MissingConnections} room connections; those routes are unavailable.");
             IsComplete = false;
             IsRunning = true;
+            _readiness.Start();
+            _loot.MissionActionsPaused = true;
             _roomQuietAt = DateTime.MinValue;
             _observedRoom = -1;
             _floor = Math.Abs(DynelManager.LocalPlayer.Room.Floor);
@@ -122,6 +131,8 @@ namespace RKmission
         public void Stop()
         {
             IsRunning = false;
+            _readiness.Stop();
+            _loot.MissionActionsPaused = false;
             _loot.EndMissionRoom();
             _loot.MissionRoomContains = null;
             _loot.MissionRoomDynels = null;
@@ -151,9 +162,27 @@ namespace RKmission
 
         public void Tick()
         {
-            if (!IsRunning || !Playfield.IsDungeon || DynelManager.LocalPlayer.Room == null ||
-                _meshes == null)
+            if (!IsRunning || !Playfield.IsDungeon || DynelManager.LocalPlayer.Room == null)
                 return;
+
+            _readiness.ObserveCombat();
+            _loot.MissionActionsPaused = _readiness.InCombat;
+            // An established doorway crossing retains its existing ownership and
+            // deadlines. Defer recovery until safe room arrival, observing aggro
+            // throughout; every new room action still passes this gate.
+            if (_transition == null && _readiness.Hold())
+            {
+                _loot.MissionActionsPaused = true;
+                _destination = null;
+                _roomQuietAt = DateTime.MinValue;
+                if (_readiness.Failure != null)
+                {
+                    _say(_readiness.Failure);
+                    Stop();
+                }
+                return;
+            }
+            if (_meshes == null) return;
 
             int floor = Math.Abs(DynelManager.LocalPlayer.Room.Floor);
             if (floor != _floor)
@@ -211,8 +240,16 @@ namespace RKmission
                 _say($"Mali room {room.Instance}: {characters} live enemy candidates, " +
                     $"{containers} containers, {corpses} corpses currently visible.");
             }
+            if (_readiness.InCombat)
+            {
+                // Aggro outside the new-target range still prevents sitting,
+                // looting, room clearance and initiating another fight.
+                if (!FightInRoom(room)) SMovementController.Halt();
+                _roomQuietAt = DateTime.MinValue;
+                return;
+            }
             if (HandleObjective(room, false) || FightInRoom(room) ||
-                HandleObjective(room, true) || LootInRoom(room))
+                HandleObjective(room, true) || LootInRoom(room) || ScanRemainingRoom(room))
             {
                 _roomQuietAt = DateTime.MinValue;
                 return;
@@ -257,7 +294,7 @@ namespace RKmission
             BeginTransition(room.Instance, next.Instance);
         }
 
-        private bool FightInRoom(Room room)
+        private IEnumerable<SimpleChar> EnemyCandidates(Room room)
         {
             SimpleChar player = DynelManager.LocalPlayer;
             var players = new HashSet<Identity>(DynelManager.Players.Select(x => x.Identity));
@@ -268,7 +305,7 @@ namespace RKmission
                 .Concat(DynelManager.NPCs)
                 .Where(x => x.IsNpc && !x.IsPet && _layout.ContainsDynel(room.Instance, x))
                 .Select(x => x.Identity.Instance));
-            SimpleChar enemy = mappedCharacters
+            return mappedCharacters
                 .Concat(DynelManager.NPCs)
                 .GroupBy(x => x.Identity).Select(group => group.First())
                 .Where(x =>
@@ -283,12 +320,21 @@ namespace RKmission
                         x.Name.IndexOf("Alarm Sentry", StringComparison.OrdinalIgnoreCase) >= 0;
                     bool spawnedByEnemy = x.IsPet && hostileOwners.Contains(x.PetOwnerId);
                     bool inRoom = _layout.ContainsDynel(room.Instance, x);
-                    bool near = x.DistanceFrom(player) < 25f;
-                    return (!x.IsPet && inRoom) ||
+                    bool near = x.DistanceFrom(player) <= EngagementRange;
+                    bool currentFight = player.IsAttacking && player.FightingTarget?.Identity == x.Identity;
+                    return currentFight || (!x.IsPet && inRoom) ||
                         (near && attackingPlayer) ||
                         (near && spawnedByEnemy) ||
                         (near && alarmSentry && (inRoom || x.Room == null));
-                })
+                });
+        }
+
+        private bool FightInRoom(Room room)
+        {
+            SimpleChar player = DynelManager.LocalPlayer;
+            SimpleChar enemy = EnemyCandidates(room)
+                .Where(x => x.DistanceFrom(player) <= EngagementRange ||
+                    (player.IsAttacking && player.FightingTarget?.Identity == x.Identity))
                 .OrderByDescending(x => x.IsAttacking &&
                     x.FightingTarget?.Identity == player.Identity)
                 .ThenBy(x => x.DistanceFrom(player))
@@ -298,6 +344,8 @@ namespace RKmission
                 _combatTarget = Identity.None;
                 return false;
             }
+            _scanTarget = Identity.None;
+            _loot.MissionActionsPaused = true;
 
             if (_combatTarget != enemy.Identity)
             {
@@ -307,6 +355,7 @@ namespace RKmission
                 _destination = null;
                 SMovementController.Halt();
                 _say($"Targeting {enemy.Name} ({enemy.Identity}) in room {room.Instance}" +
+                    $" at {enemy.DistanceFrom(player):0.0}m (new engagement range {EngagementRange:0}m)" +
                     (enemy.IsPet ? " (spawned entity)." : "."));
             }
             if (DateTime.UtcNow - _actionAt > TimeSpan.FromSeconds(20))
@@ -328,6 +377,45 @@ namespace RKmission
             else
                 Navigate(enemy.Position);
 
+            return true;
+        }
+
+        private bool ScanRemainingRoom(Room room)
+        {
+            // A range limit must not turn a large occupied room into a cleared
+            // room. Move within its mapped outline; do not Target/Attack/send
+            // pets until the ordinary engagement filter admits an enemy.
+            var player = DynelManager.LocalPlayer;
+            SimpleChar distant = EnemyCandidates(room).Where(x => !x.IsPet &&
+                _layout.ContainsDynel(room.Instance, x) && x.DistanceFrom(player) > EngagementRange)
+                .OrderBy(x => x.DistanceFrom(player)).FirstOrDefault();
+            if (distant == null) { _scanTarget = Identity.None; return false; }
+            DateTime now = DateTime.UtcNow;
+            float distance = distant.DistanceFrom(player);
+            if (_scanTarget != distant.Identity)
+            {
+                _scanTarget = distant.Identity;
+                _scanStarted = _scanProgress = now;
+                _scanDistance = distance;
+                _destination = null;
+                _say($"Room {room.Instance} still has an enemy {distance:0.0}m away; " +
+                    "moving within the room before the 20m engagement check.");
+            }
+            if (distance + 0.5f < _scanDistance)
+            {
+                _scanDistance = distance;
+                _scanProgress = now;
+            }
+            if (now - _scanProgress > TimeSpan.FromSeconds(10) || now - _scanStarted > TimeSpan.FromSeconds(30))
+            {
+                Stop();
+                _say($"Room {room.Instance} scan could not reach engagement range; room is not marked cleared.");
+                return true;
+            }
+            Vector3 point = player.Position + (distant.Position - player.Position) *
+                ((distance - 18f) / distance);
+            if (!_layout.IsInside(room.Instance, point, 0.5f)) point = distant.Position;
+            Navigate(point);
             return true;
         }
 
