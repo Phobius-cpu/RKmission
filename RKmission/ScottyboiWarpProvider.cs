@@ -285,16 +285,29 @@ namespace RKmission
 
         private static string[] MenuAliasesFor(int playfieldId, string enumName)
         {
-            // The section parser applies to every playfield. Only names that
-            // differ from AOSharp's enum need additional menu spellings.
+            // The section parser applies to every playfield. Add menu names
+            // that differ from AOSharp's enum or name a known location within it.
             switch ((PlayfieldId)playfieldId)
             {
+                case PlayfieldId.AthenWest:
+                    return new[] { enumName, "westathen" };
+                case PlayfieldId.Andromeda:
+                    return new[] { enumName, "uturn" };
+                case PlayfieldId.BorealisCity:
+                    return new[] { enumName, "borealis" };
                 case PlayfieldId.Mort:
                     return new[] { enumName, "sentinels", "sentinelsmort", "mortsentinels" };
                 case PlayfieldId.OmniTrade:
                     return new[] { enumName, "omni1trade" };
                 case PlayfieldId.GreaterOmniForest:
                     return new[] { enumName, "omnigreaterforest" };
+                case PlayfieldId.RomeBluedistrict:
+                    return new[] { enumName, "romeblue" };
+                case PlayfieldId.UnicornDefenceHub:
+                    return new[] { enumName, "unicorndefensehub" };
+                // AOSharp's enum omits the outdoor Unicorn Outpost (4364).
+                case (PlayfieldId)4364:
+                    return new[] { enumName, "unicornoutpost" };
                 default:
                     return new[] { enumName };
             }
