@@ -19,6 +19,7 @@ namespace RKmission
         private readonly ManagerLoot.ManagerLoot _loot;
         private readonly MissionReadiness _readiness;
         private const float EngagementRange = 20f;
+        private const int ReverseEdgeCooldownSeconds = 1;
         private readonly HashSet<int> _clearedRooms = new HashSet<int>();
         private readonly HashSet<int> _visitedRooms = new HashSet<int>();
         private readonly HashSet<int> _surveyedRooms = new HashSet<int>();
@@ -353,7 +354,7 @@ namespace RKmission
                     if (_objective.Failure != null) { Stop(); _say(_objective.Failure); }
                     return;
                 }
-                Room occupied = Playfield.Rooms.FirstOrDefault(x => EnemyCandidates(x).Any());
+                Room occupied = Playfield.Rooms.FirstOrDefault(x => EnemiesInRoom(x).Any());
                 if (occupied != null)
                 {
                     Room hop = RouteTo(room.Instance, id => id == occupied.Instance, false);
@@ -428,6 +429,11 @@ namespace RKmission
                         (alarmSentry && (inRoom || (near && x.Room == null)));
                 });
         }
+
+        // Combat candidates also include our current target and nearby
+        // attackers outside this room. Clearance and routing need membership.
+        private IEnumerable<SimpleChar> EnemiesInRoom(Room room) =>
+            EnemyCandidates(room).Where(enemy => _layout.ContainsDynel(room.Instance, enemy));
 
         private bool FightInRoom(Room room)
         {
@@ -550,10 +556,15 @@ namespace RKmission
             foreach (int id in _clearedRooms.ToList())
             {
                 Room room = _layout.Room(id);
-                Dynel pendingLoot = room == null ? null : _loot.NextMissionLoot(id);
-                if (room != null && (EnemyCandidates(room).Any(enemy => !_objective.IsObjective(enemy.Identity)) ||
-                    (pendingLoot != null && !_objective.IsObjective(pendingLoot.Identity))))
-                    _clearedRooms.Remove(id);
+                if (room == null) continue;
+                SimpleChar enemy = EnemiesInRoom(room).FirstOrDefault(x => !_objective.IsObjective(x.Identity));
+                Dynel pendingLoot = _loot.NextMissionLoot(id);
+                bool unfinishedLoot = pendingLoot != null && !_objective.IsObjective(pendingLoot.Identity);
+                if (enemy == null && !unfinishedLoot) continue;
+                _clearedRooms.Remove(id);
+                _say($"Reopening cleared room {id}: " + (enemy != null
+                    ? $"live enemy {enemy.Identity} is inside this room."
+                    : $"unfinished loot {pendingLoot.Identity} is inside this room."));
             }
         }
 
@@ -1016,10 +1027,10 @@ namespace RKmission
             _currentRoom = edge.Target;
             _visitedRooms.Add(edge.Target);
             _edgeFailures.Remove(EdgeKey(edge.Source, edge.Target));
-            _reverseCooldown[EdgeKey(edge.Source, edge.Target)] = DateTime.UtcNow.AddSeconds(8);
+            _reverseCooldown[EdgeKey(edge.Source, edge.Target)] = DateTime.UtcNow.AddSeconds(ReverseEdgeCooldownSeconds);
             _say($"Transition {edge.Source}->{edge.Target}: confirmed in " +
                 (_clearedRooms.Contains(edge.Target) ? "previously cleared room; no repeat clearance pause" : "target room") +
-                "; reverse edge on 8-second cooldown.");
+                $"; reverse edge on {ReverseEdgeCooldownSeconds}-second cooldown.");
             _transition = null;
             _destination = null;
             _observedRoom = -1;

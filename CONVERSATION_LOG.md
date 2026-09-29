@@ -1282,3 +1282,34 @@ cooldown; a genuinely blocked objective route remains held or stops diagnostical
 Updated README and PROJECT_MEMORY. Source/API/diff review only; no compilation,
 package restoration, automated tests or game execution. Build and in-game
 validation remain with the user; no successful game result is claimed.
+
+## 2026-09-29 - Inspect and fix repeated cleared-room exploration
+
+### User requested inspection of the last two iterations
+
+The character keeps visiting previously cleared rooms. The assistant inspected
+2555399 and c807bb8 and found that the new cleared-room recheck reused the broad
+combat query. A current fight/nearby attacker could match for every room, removing
+unrelated rooms from the cleared set. The latest iteration removed entry pauses
+but retained this regression. The eight-second reverse cooldown could also force
+longer routes. This inspection changed no code.
+
+### User authorized the correction and a one-second cooldown
+
+"make the necessary changes and also reduce the reverse edge cooldown to 1s"
+
+### Assistant implemented room-specific clearance checks
+
+Filter combat candidates by actual membership in the specific mapped room for
+cleared-room invalidation and remaining-enemy room selection. Keep broad defense
+and ongoing-fight targeting intact. Only actual ordinary enemies or unfinished
+loot in a room reopen its clearance; log the room and responsible identity.
+Reduce the confirmed reverse-edge cooldown to one second, with a shared constant
+for expiry and diagnostic text. Keep room-entry confirmation, failure blacklists,
+continuous cleared-room passage and necessary mapped backtracking.
+
+Preserve preparation/recovery, objective-last ordering, find-item selection,
+manual return-item hand-ins, 20 m engagement, automatic exit/local chaining and
+/rkm complete. Updated README and PROJECT_MEMORY. Source/API/diff review only;
+no compilation, package restore, automated tests or game execution. The user
+owns build and in-game validation; no successful game result is claimed.

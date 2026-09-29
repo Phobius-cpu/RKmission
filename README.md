@@ -513,7 +513,10 @@ them. If the room is a required passage, enter/pass through it while holding
 the objective. A room whose objective has not loaded cannot be reserved in
 advance; the exact target/item identities remain protected. Every room must
 finish its ordinary enemies and loot before the final objective action. Recheck
-already cleared rooms for loaded new enemies/loot. Early objective aggression
+already cleared rooms for loaded new enemies/loot. Only an enemy mapped inside
+that specific room can reopen its enemy clearance; a fight or nearby attacker
+elsewhere cannot reset unrelated cleared rooms. Reopening logs the room and
+enemy/loot identity. Early objective aggression
 or player/pet attacks stop the bot and recall pets rather than waive the order.
 An independent combat plugin or manual action can still act outside RKMission;
 the guard reports the conflict when observed.
@@ -558,7 +561,7 @@ new position. Inter-playfield travel and return hand-ins remain manual.
   flags first trigger a passage probe; a distant door identity cannot redirect it.
 - Entry requires 500 ms of stable target-room detection and a safe interior
   position. Combat, loot, and normal room selection resume after confirmation.
-  The reverse connection has an eight-second cooldown.
+  The reverse connection has a one-second cooldown after confirmed arrival.
 - Previously cleared rooms are passages when they still have no work: keep
   movement active during entry confirmation, skip the repeated two-second
   clearance wait and route onward in the same update. Open doorways do not

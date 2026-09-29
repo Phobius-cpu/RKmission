@@ -56,7 +56,9 @@ implementations below; keep that chronology as evidence of earlier outcomes.
 7. The existing stable exact mission/dungeon/room check gates `MissionDungeon`.
    Dungeon entry/post-combat readiness now gates new room actions and enemy
    acquisition starts within 20 m. Preserve exploration, room/door crossing,
-   lockpick and ordinary loot rules behind that gate. Objective ordering now
+   lockpick and ordinary loot rules behind that gate. Cleared-room enemy checks
+   require membership in that specific room; confirmed reverse edges wait only
+   one second. Objective ordering now
    reserves known objective rooms when possible and always defers completion
    until every other enemy is dead and ordinary rooms/loot are cleared. The outdoor
    coordinator retains managed navigation evidence through zoning and records
@@ -1788,3 +1790,30 @@ onto the new architecture.
 - Source/API/diff review only; no compile, package restore, automated tests or
   game run. Update README and conversation history and publish coherent main
   changes. User owns build/in-game validation; this is not a confirmed game run.
+
+## Fix cleared-room invalidation and shorten reverse cooldown (2026-09-29)
+
+- User asks to inspect the last two exploration iterations because cleared rooms
+  keep being visited. Source review finds a regression introduced in 2555399 and
+  retained by c807bb8: ReopenOccupiedRooms reused the broad combat-candidate
+  query. That query admits the current fight, nearby attackers and hostile
+  summons independently of room membership, so one fight could remove every
+  cleared room from the clearance set. The previous pause fix missed this cause.
+- User authorizes the necessary changes and explicitly requests a one-second
+  reverse-edge cooldown. Introduce EnemiesInRoom as the existing combat query
+  filtered by DungeonLayout.ContainsDynel for the specific room. Use it for
+  cleared-room invalidation and remaining-enemy room selection. Keep the broad
+  combat acquisition/defense query intact, including ongoing fights, nearby
+  attackers, pets/sentries and the existing 20 m new-acquisition limit.
+- Reopen only rooms containing an actual ordinary enemy or unfinished ordinary
+  loot; log the room and enemy/loot identity when that happens. A fight in room 5
+  must not mark already cleared rooms 1 and 2 uncleared solely because it is the
+  current fight. Required mapped passage/backtracking remains allowed.
+- Set ReverseEdgeCooldownSeconds=1 and derive both the expiry and log from that
+  constant. Retain stable room-entry confirmation, exclusive crossing ownership,
+  failed-edge blacklists and continuous cleared-room traversal. This supersedes
+  the historical eight-second reverse-edge choice, not outdoor movement timers.
+- Preserve readiness/recovery, objective-last completion, find-item targeting,
+  manual return hand-ins, automatic exit/chaining and /rkm complete. Update README
+  and CONVERSATION_LOG and publish coherent main changes. Source/API/diff review
+  only; no build, restore, automated tests or game run. User validates in game.
