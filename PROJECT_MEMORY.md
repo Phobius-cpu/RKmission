@@ -2,6 +2,17 @@
 
 _Last updated: 2026-09-29_
 
+## 2026-09-29 implementation continuation
+
+Branch `feature/rkmission-architecture-2026-09-29` now includes integrated
+multi-key/local ACG resolution with exact verified cache, protected doorway
+movement ownership and stuck/rubberband recovery, Scotty post-zone settlement,
+Fixer Grid links and failed-link replanning, a separate combat driver, exact
+mission completion tracking, reclaim/readiness recovery, optional-loot inventory
+policy, and reconciled restart checkpoints. Source-build succeeded with zero
+errors; the user will validate game behavior. Full details and limits are in
+`docs/history/2026-09-29-rkmission-implementation-checkpoint.md`.
+
 This file is a durable project-context summary for future RKMission development sessions.
 
 ## 2026-09-29 architecture continuation

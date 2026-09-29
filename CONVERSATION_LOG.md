@@ -1,5 +1,21 @@
 # RKMission Conversation History
 
+## 2026-09-29 — implementation continuation
+
+The user requested implementation of the missing autonomous mission pieces on
+the existing RKMission feature branch while preserving its accepted dungeon,
+door, geometry, loot and mission-identity behavior. This continuation added
+multi-key ACG entry, movement arbitration and recovery, Scotty zoning settle,
+Fixer Grid fallback links, combat/completion/reclaim controllers, durable
+checkpoint reconciliation and low-inventory optional-loot policy. A source
+build passed with zero errors; in-game behavior is unverified. See
+`docs/history/2026-09-29-rkmission-implementation-checkpoint.md` for source
+provenance, limits and deferred work. The newly referenced
+`/mnt/data/knows-helpers.zip` was unavailable in this Windows workspace.
+The user then supplied an accessible local path for that ZIP;
+the source was inspected directly, and generic reclaim, readiness, team, chat,
+stuck and navmesh patterns were folded into the implementation checkpoint.
+
 ## 2026-09-29 — AO# archive integration checkpoint
 
 The user asked to adapt proven ACG entry, warp, travel graph, lift, movement

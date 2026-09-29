@@ -1,5 +1,10 @@
 # RKMission architecture checkpoint — 2026-09-29
 
+Continuation: [implementation checkpoint](2026-09-29-rkmission-implementation-checkpoint.md)
+records the later integrated source changes, local build result and remaining
+in-game checks. The implementation checkpoint supersedes the table below where
+their states differ.
+
 This is the timeline anchor for the user's continuation from “Análise de plugins AO#”. It summarizes visible decisions, current source, and unverified work. The current GitHub `main` at the start of this revision was `3cd0ec3`, 35 commits ahead of the 2026-09-28 local backup; those newer entrance, Fly, objective, readiness, and exit improvements were preserved.
 
 ## Source and design decisions

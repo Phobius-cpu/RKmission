@@ -4,6 +4,18 @@ AO# plugin for solo Rubi-Ka missions in Anarchy Online. It combines the original
 Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
 local mission travel, room exploration, combat, door handling and looting.
 
+**2026-09-29 implementation continuation:** Automatic mode now combines nearby
+live/static ACG entrance candidates across multiple mission keys, exact
+post-zone mission verification, Scotty menu discovery and settled warp checks,
+Grid/Fixer Grid and mapped zone-link fallback, floor lifts, room routes and
+automatic exit. Doorway crossing retains exclusive movement ownership;
+stuck/rubberband events replan without moving the player position directly.
+Combat approach, mission completion, reclaim readiness and durable checkpoint
+reconciliation have separate controllers. Optional corpse/chest loot pauses
+below the free-slot threshold in `RKMissionData/inventory-policy.json`
+(default 3); objective interactions continue. The imported outdoor link graph
+is sparse, and all new travel/reclaim flows still need in-game validation.
+
 **Status (2026-09-29):** mission entry and post-combat room actions now wait for
 buff preparation and HP/nano recovery when needed; new enemy engagements are
 limited to 20 m. Every flying approach now starts above its resolved entry target,
