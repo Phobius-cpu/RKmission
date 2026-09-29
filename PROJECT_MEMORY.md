@@ -1817,3 +1817,39 @@ onto the new architecture.
   manual return hand-ins, automatic exit/chaining and /rkm complete. Update README
   and CONVERSATION_LOG and publish coherent main changes. Source/API/diff review
   only; no build, restore, automated tests or game run. User validates in game.
+
+## Reserved-objective loot gate and pending corpse responses (2026-09-29)
+
+- User reports room 23 corpse Corpse:103480D, 3366 credits received and a
+  "Loot remains skipped or unfinished" stop after all rooms/enemies/ordinary
+  loot were done. The character did not proceed to the final objective.
+  User is unsure about prior skip messages and believes the sole unlooted item
+  is the actual mission objective. The old generic message cannot identify which
+  ledger entry blocked this particular run; do not claim a proven corpse failure.
+- The historical discovered-loot ledger did not reclassify entries when later
+  metadata identified them as reserved objectives. Filter ordinary skipped and
+  unfinished counts through a separate MissionLootReserved identity callback,
+  independent of combat/current-room/finale permissions. Exact reserved targets
+  never block their own finale, including metadata that arrives after discovery.
+  Keep their actual objective action, acknowledgement and collection checks.
+- BeginMissionObjectiveLoot clears prior ordinary skip/finished/opened flags only
+  once when a return objective container is first assigned for its finale, so it
+  gets a fresh objective-item collection attempt with existing bounded waits.
+  Non-loot objectives (find-item selection or repair/item-use targets) are held
+  out of ordinary Manager.Loot and exit's unfinished-container check. Objective
+  NPC corpses remain ordinary loot because their identities differ from NPCs.
+- Preserve an exact managed pending loot identity through world-corpse despawn
+  and opening-phase timeout. Set ownership/state before Use/lockpick and accept
+  only its matching response, even if late. Keep unknown contents pending; finish
+  on an empty contents response or the existing rule-processing close path.
+  Start the existing 60-second processing wait from that identity even if its
+  world dynel is already absent; release pending ownership on explicit stop/exit.
+  Do not mark every missing corpse finished or treat received credits as proof.
+- Blocker diagnostics include ordinary skipped/unfinished counts, reserved count,
+  processing state and pending identity plus up to eight unresolved ordinary
+  identities with their last mapped rooms/visibility. Log successful processing.
+- Preserve room-local reopening, one-second reverse cooldown, continuous cleared
+  passages, readiness/recovery, 20 m engagement, objective-last order, manual
+  return hand-ins, automatic exit/local chaining and /rkm complete. README and
+  conversation history updated. Source/API/diff review only; no build, restore,
+  automated tests or game run. User owns compilation and in-game validation.

@@ -130,6 +130,7 @@ namespace RKmission
             _loot.MissionRoomContains = (dynel, roomId) =>
                 _layout != null && _layout.ContainsDynel(roomId, dynel);
             _loot.MissionRoomDynels = _layout.VisibleRoomDynels;
+            _loot.MissionLootReserved = _objective.IsObjective;
             _loot.MissionLootAllowed = dynel => !_exiting && _currentRoom >= 0 &&
                 !_objective.HoldLoot(dynel) && !_readiness.InCombat &&
                 (!_objective.IsObjective(dynel.Identity) || _loot.MissionObjectiveContainer == dynel.Identity);
@@ -171,6 +172,7 @@ namespace RKmission
             _loot.MissionRoomContains = null;
             _loot.MissionRoomDynels = null;
             _loot.MissionLootAllowed = null;
+            _loot.MissionLootReserved = null;
             _loot.MissionItemProtected = null;
             _loot.MissionObjectiveContainer = Identity.None;
             _destination = null;
@@ -323,8 +325,9 @@ namespace RKmission
                 }
                 if (_loot.SkippedMissionLootCount > 0 || _loot.UnfinishedMissionLootCount > 0)
                 {
+                    string blockers = _loot.MissionLootBlockers;
                     Stop();
-                    _say("Loot remains skipped or unfinished; objective completion and automatic exit are held. Check loot logs, rules and free space.");
+                    _say($"Ordinary loot remains skipped or unfinished; objective completion and automatic exit are held. {blockers}. Check loot logs, rules and free space.");
                     return;
                 }
                 if (!_objective.HasSteps)
@@ -332,6 +335,8 @@ namespace RKmission
                 if (!_objective.Finale)
                 {
                     SMovementController.Halt();
+                    if (_loot.ReservedPendingMissionLootCount > 0)
+                        _say($"{_loot.ReservedPendingMissionLootCount} reserved objective loot entries are final work, excluded from the ordinary-loot gate.");
                     _objective.BeginFinale();
                     _roomQuietAt = DateTime.MinValue;
                     return;
@@ -589,7 +594,7 @@ namespace RKmission
             { Stop(); _say("Automatic exit route exceeded five minutes; exit manually to continue the local chain."); return; }
             if (_readiness.InCombat || (_record.State != MissionProgress.CompletedByUser &&
                 (EnemyCandidates(room).Any() || _loot.HasUnprocessedMissionLoot(room.Instance,
-                    dynel => !_objective.IsObservationItem(dynel.Identity)))))
+                    dynel => !_objective.IsNonLootObjective(dynel.Identity)))))
             {
                 // New arrivals invalidate automatic all-enemies-cleared evidence.
                 IsComplete = false;
@@ -639,23 +644,29 @@ namespace RKmission
             // RKMission approaches and can defer an unreachable object.
             Dynel next = _loot.NextMissionLoot(room.Instance);
             DateTime now = DateTime.UtcNow;
-            if (next != null && _waitingForLoot != next.Identity)
+            Identity processingIdentity = _loot.ProcessingMissionLootIdentity;
+            Identity waitingIdentity = processingIdentity != Identity.None ? processingIdentity : next?.Identity ?? Identity.None;
+            if (waitingIdentity != Identity.None && _waitingForLoot != waitingIdentity)
             {
-                _waitingForLoot = next.Identity;
+                _waitingForLoot = waitingIdentity;
                 _lootWaitStarted = now;
                 _lootLastProgress = _lootWaitStarted;
-                _lootBestDistance = next.DistanceFrom(DynelManager.LocalPlayer);
+                _lootBestDistance = next?.DistanceFrom(DynelManager.LocalPlayer) ?? 0f;
                 _lootApproachRetries = 0;
-                _lootApproachPoint = LootApproach(room, next.Position, false);
-                _say($"Loot candidate {next.Identity.Type} {next.Identity} in room {room.Instance}; approaching Manager.Loot range.");
+                _lootApproachPoint = next == null ? DynelManager.LocalPlayer.Position : LootApproach(room, next.Position, false);
+                if (next != null && next.Identity == waitingIdentity)
+                    _say($"Loot candidate {next.Identity.Type} {next.Identity} in room {room.Instance}; approaching Manager.Loot range.");
+                else
+                    _say($"Waiting for Manager.Loot contents/finish response for {waitingIdentity} in room {room.Instance}.");
             }
             if (_loot.IsProcessingMissionLoot)
             {
                 SMovementController.Halt();
                 if (_waitingForLoot != Identity.None && now - _lootWaitStarted > TimeSpan.FromSeconds(60))
                 {
+                    string blockers = _loot.MissionLootBlockers;
                     Stop();
-                    _say($"Loot processing for {_waitingForLoot} did not finish within 60 seconds; room clearance/completion held. Check free slots, bags and locks.");
+                    _say($"Loot processing for {_waitingForLoot} did not finish within 60 seconds; room clearance/completion held. {blockers}. Check free slots, bags and locks.");
                 }
                 return true;
             }

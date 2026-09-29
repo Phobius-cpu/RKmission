@@ -534,6 +534,11 @@ loaded plugin session.
 
 Manager.Loot must finish opening/transferring/closing every discovered normal
 container/corpse according to its existing rules; merely opening it is insufficient.
+The ordinary-loot gate excludes exact reserved objective identities, including
+entries seen before their objective metadata arrived. Those entries cannot block
+the finale that handles them. Late-identified return containers get one fresh
+finale attempt with objective-item pickup rules. Find/repair targets that only
+require targeting or item use do not need opening/looting to permit exit.
 Return-item objective containers are held separately and their contents bypass
 the normal allowlist so the required item is collected. Find-item observation
 objects remain protected from opening/looting even after selection and do not
@@ -541,6 +546,10 @@ count as unfinished loot during exit. Quest items stay protected from
 automatic bag/reverse transfers. Unreachable/skipped or unfinished loot and
 unreachable rooms hold automatic completion/exit. This does not enable Loot All
 for ordinary chests or change the user's normal delete/reverse/quantity rules.
+Opening retains a managed pending identity until the matching contents have
+finished processing, even when the corpse disappears or its response is late.
+Unknown/unavailable contents remain pending; received credits or disappearance
+alone never mark an ordinary container finished.
 
 After clearance, return through the same mapped crossings to the saved entry
 room and cross verified external-door geometry. Starting inside can recover an
@@ -603,6 +612,8 @@ settings remain in their deployed plugin folders.
 - **Persistence failed:** read the logged file/path error; give the deployed data
   folder normal write access before reloading. Malformed history is preserved.
 - **Objective/exit held:** inspect reserved-objective, loot and exit diagnostics.
+  Loot blockers now show ordinary skipped/unfinished counts, reserved entries,
+  processing state and up to eight blocking identities with room/visibility.
   Resolve aggro, missing items/free space or locked routes. After checking the
   objective in game, `/rkm complete` can override completion while keeping automatic
   exit available when armed. Return-item hand-ins are always manual.

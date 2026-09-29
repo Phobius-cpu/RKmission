@@ -45,11 +45,16 @@ namespace ManagerLoot
         private readonly HashSet<MissionIdentity> _seenMissionLoot = new HashSet<MissionIdentity>();
         private readonly HashSet<MissionIdentity> _finishedMissionLoot = new HashSet<MissionIdentity>();
         private readonly HashSet<MissionIdentity> _objectiveLootItems = new HashSet<MissionIdentity>();
+        private readonly Dictionary<MissionIdentity, int> _missionLootRooms = new Dictionary<MissionIdentity, int>();
+        private MissionIdentity _pendingMissionLoot = MissionIdentity.None;
         // RKMission limits the original loot state machine to the room being cleared.
         public int MissionRoomId { get; private set; } = -1;
         public Func<Dynel, int, bool> MissionRoomContains { get; set; }
         public Func<int, IEnumerable<Dynel>> MissionRoomDynels { get; set; }
         public Func<Dynel, bool> MissionLootAllowed { get; set; }
+        // Independent of combat/phase permissions: an objective is final work,
+        // even if it entered the discovery ledger before its metadata arrived.
+        public Func<MissionIdentity, bool> MissionLootReserved { get; set; }
         public Func<Item, bool> MissionItemProtected { get; set; }
         public MissionIdentity MissionObjectiveContainer { get; set; } = MissionIdentity.None;
         // RKMission temporarily owns the stationary recovery window. Preserve
@@ -72,6 +77,7 @@ namespace ManagerLoot
         public void EndMissionRoom()
         {
             MissionRoomId = -1;
+            _pendingMissionLoot = MissionIdentity.None; // Explicitly release ownership on stop/exit.
             if (_enabledForMission && _settings != null && _settings["Enable"].AsBool())
                 Helper_Enable();
             _enabledForMission = false;
@@ -83,14 +89,27 @@ namespace ManagerLoot
             _seenMissionLoot.Clear();
             _finishedMissionLoot.Clear();
             _objectiveLootItems.Clear();
+            _missionLootRooms.Clear();
+            _pendingMissionLoot = MissionIdentity.None;
             openedContainers.Clear();
             MissionObjectiveContainer = MissionIdentity.None;
             CurrentCorpse = null;
             CorpseContainer = null;
             CurrentProcess = ProcessState.Load_Backpacks;
         }
-        public int SkippedMissionLootCount => _unreachableMissionLoot.Count;
-        public int UnfinishedMissionLootCount => _seenMissionLoot.Count(x => !_finishedMissionLoot.Contains(x));
+        private bool ReservedMissionLoot(MissionIdentity identity) => MissionLootReserved?.Invoke(identity) == true;
+        public int SkippedMissionLootCount => _unreachableMissionLoot.Count(x => !ReservedMissionLoot(x));
+        public int UnfinishedMissionLootCount => _seenMissionLoot.Count(x =>
+            !_finishedMissionLoot.Contains(x) && !ReservedMissionLoot(x));
+        public int ReservedPendingMissionLootCount => _seenMissionLoot.Count(x =>
+            !_finishedMissionLoot.Contains(x) && ReservedMissionLoot(x));
+        public string MissionLootBlockers => $"ordinary skipped={SkippedMissionLootCount}, ordinary unfinished={UnfinishedMissionLootCount}, " +
+            $"reserved objective entries={ReservedPendingMissionLootCount}, process={CurrentProcess}, pending={_pendingMissionLoot}; " +
+            string.Join("; ", _seenMissionLoot.Union(_unreachableMissionLoot).Where(x =>
+                !_finishedMissionLoot.Contains(x) && !ReservedMissionLoot(x)).Take(8).Select(x =>
+                $"{x} room={(_missionLootRooms.TryGetValue(x, out int room) ? room.ToString() : "unknown")} " +
+                (_unreachableMissionLoot.Contains(x) ? "skipped " : "") +
+                (DynelManager.GetDynel(x) == null ? "not currently visible" : "still visible")));
         public IEnumerable<MissionIdentity> MissionObjectiveItems => _objectiveLootItems;
         private bool ProtectedMissionItem(Item item) =>
             _objectiveLootItems.Contains(item.UniqueIdentity) || (MissionItemProtected?.Invoke(item) ?? false);
@@ -108,6 +127,7 @@ namespace ManagerLoot
                 CurrentCorpse = null;
                 CurrentProcess = ProcessState.Open_Corpse;
             }
+            if (_pendingMissionLoot == identity && CorpseContainer == null) _pendingMissionLoot = MissionIdentity.None;
         }
 
         public Dynel NextMissionLoot(int roomId)
@@ -116,7 +136,7 @@ namespace ManagerLoot
             .Where(x => (x.Identity.Type == IdentityType.Corpse || x.Identity.Type == IdentityType.Container)
                 && IsInMissionRoom(x, roomId)
                 && (MissionLootAllowed?.Invoke(x) ?? true)).ToList();
-            foreach (Dynel candidate in candidates) _seenMissionLoot.Add(candidate.Identity);
+            foreach (Dynel candidate in candidates) TrackMissionLoot(candidate.Identity, roomId);
             return candidates.Where(x =>
                 !_unreachableMissionLoot.Contains(x.Identity)
                 && !_finishedMissionLoot.Contains(x.Identity))
@@ -126,20 +146,51 @@ namespace ManagerLoot
         private void FinishMissionContainer()
         {
             if (MissionRoomId >= 0 && CorpseContainer != null)
-                _finishedMissionLoot.Add(CorpseContainer.Identity);
+            {
+                _unreachableMissionLoot.Remove(CorpseContainer.Identity);
+                if (_finishedMissionLoot.Add(CorpseContainer.Identity))
+                    Chat.WriteLine($"RKMission: Loot processing finished {CorpseContainer.Identity}.");
+                if (_pendingMissionLoot == CorpseContainer.Identity) _pendingMissionLoot = MissionIdentity.None;
+            }
+        }
+
+        private void TrackMissionLoot(MissionIdentity identity, int roomId)
+        {
+            _seenMissionLoot.Add(identity);
+            _missionLootRooms[identity] = roomId;
+        }
+
+        private void BindMissionLoot(Dynel dynel)
+        {
+            if (MissionRoomId < 0) return;
+            _pendingMissionLoot = dynel.Identity;
+            TrackMissionLoot(dynel.Identity, MissionRoomId);
+        }
+
+        public void BeginMissionObjectiveLoot(MissionIdentity identity)
+        {
+            if (MissionObjectiveContainer == identity) return;
+            MissionObjectiveContainer = identity;
+            // Earlier ordinary rules may have skipped it or left the quest
+            // item behind before objective metadata arrived. Retry once as final work.
+            _unreachableMissionLoot.Remove(identity);
+            _finishedMissionLoot.Remove(identity);
+            openedContainers.Remove(identity.Instance);
         }
 
         private bool IsInMissionRoom(Dynel dynel, int roomId) =>
             dynel.Room?.Instance == roomId ||
             MissionRoomContains?.Invoke(dynel, roomId) == true;
 
-        public bool IsProcessingMissionLoot => CorpseContainer != null ||
+        public bool IsProcessingMissionLoot => _pendingMissionLoot != MissionIdentity.None || CorpseContainer != null ||
             CurrentProcess == ProcessState.Opening || CurrentProcess == ProcessState.PickingLock ||
             CurrentProcess == ProcessState.Move_To_Inventory || CurrentProcess == ProcessState.Move_To_BackPack ||
             CurrentProcess == ProcessState.Close_Corpse;
+        public MissionIdentity ProcessingMissionLootIdentity => _pendingMissionLoot != MissionIdentity.None
+            ? _pendingMissionLoot : CorpseContainer?.Identity ?? MissionIdentity.None;
         public MissionIdentity WaitingMissionLootIdentity =>
             MissionRoomId >= 0 && CurrentProcess == ProcessState.Opening &&
-            CorpseContainer == null ? CurrentCorpse?.Identity ?? MissionIdentity.None : MissionIdentity.None;
+            CorpseContainer == null ? _pendingMissionLoot : MissionIdentity.None;
         private Dynel CurrentCorpse;
 
         private readonly List<string> ErrorMessages = new List<string>();
@@ -365,8 +416,13 @@ namespace ManagerLoot
                     }
                 }
 
-            if (CurrentProcess != ProcessState.Opening) return;
-            if (MissionRoomId >= 0 && CurrentCorpse?.Identity != container.Identity) return;
+            if (MissionRoomId >= 0)
+            {
+                // A late response still belongs to this exact pending identity,
+                // even after timeout or the world corpse disappearing.
+                if (_pendingMissionLoot != container.Identity) return;
+            }
+            else if (CurrentProcess != ProcessState.Opening) return;
 
             if (Inventory.Backpacks.Any(b => b.Identity == container.Identity)) return;
 
@@ -376,7 +432,7 @@ namespace ManagerLoot
                 openedContainers[container.Identity.Instance] = Time.AONormalTime;
 
             CorpseContainer = container;
-            CurrentCorpse = DynelManager.AllDynels.FirstOrDefault(x => x.Identity.Instance == container.Identity.Instance);
+            CurrentCorpse = DynelManager.GetDynel(container.Identity);
 
             if (_settings["Print"].AsBool())
                 foreach (var item in container.Items)
@@ -454,6 +510,7 @@ namespace ManagerLoot
                             ? MissionRoomDynels?.Invoke(MissionRoomId) ?? DynelManager.AllDynels
                             : DynelManager.AllDynels;
                         var dynel = roomDynels.Where(c => !openedContainers.ContainsKey(c.Identity.Instance)
+                        && (_pendingMissionLoot == MissionIdentity.None || c.Identity == _pendingMissionLoot)
                         && !_unreachableMissionLoot.Contains(c.Identity)
                         && (c.Identity.Type == IdentityType.Container || c.Identity.Type == IdentityType.Corpse)
                         && (MissionLootAllowed?.Invoke(c) ?? true)
@@ -467,10 +524,11 @@ namespace ManagerLoot
                         if (dynel.Identity.Type == IdentityType.Corpse)
                         {
                             CurrentCorpse = dynel;
-                            new Corpse(dynel).Use();
-                            //Chat.WriteLine($"Opening corpse: {dynel.Name}", ChatColor.Yellow);
+                            BindMissionLoot(dynel);
                             Timeout = Time.AONormalTime + 2;
                             CurrentProcess = ProcessState.Opening;
+                            new Corpse(dynel).Use();
+                            //Chat.WriteLine($"Opening corpse: {dynel.Name}", ChatColor.Yellow);
                         }
                         else if (dynel.Identity.Type == IdentityType.Container)
                         {
@@ -479,20 +537,20 @@ namespace ManagerLoot
 
                             var chest = new Chest(dynel);
                             CurrentCorpse = dynel;
+                            BindMissionLoot(dynel);
+                            Timeout = Time.AONormalTime + 2;
                             if (chest.IsLocked)
                             {
                                 var lockPick = Inventory.Items.FirstOrDefault(p => p.Name == "Lock Pick");
+                                CurrentProcess = ProcessState.PickingLock;
                                 lockPick?.UseOn(chest);
                                 //Chat.WriteLine($"Picking lock on chest: {chest.Name}", ChatColor.Yellow);
-                                Timeout = Time.AONormalTime + 2;
-                                CurrentProcess = ProcessState.PickingLock;
                             }
                             else
                             {
+                                CurrentProcess = ProcessState.Opening;
                                 chest.Use();
                                 //Chat.WriteLine($"Opening chest: {chest.Name}", ChatColor.Yellow);
-                                Timeout = Time.AONormalTime + 2;
-                                CurrentProcess = ProcessState.Opening;
                             }
                         }
                         break;
@@ -505,9 +563,12 @@ namespace ManagerLoot
 
                     case ProcessState.Move_To_Inventory:
                         if (Spell.HasPendingCast || Item.HasPendingUse || PerkAction.List.Any(perk => perk.IsExecuting)) return;
-                        if (CorpseContainer == null || CorpseContainer.Items == null || CorpseContainer.Items.Count == 0)
+                        if (CorpseContainer == null) { CurrentProcess = ProcessState.Open_Corpse; break; }
+                        var contents = CorpseContainer.Items;
+                        if (contents == null) return; // Keep pending ownership until data is available.
+                        if (contents.Count == 0)
                         {
-                            if (CorpseContainer?.Items != null) FinishMissionContainer();
+                            FinishMissionContainer();
                             CurrentCorpse = null;
                             CorpseContainer = null;
                             CurrentProcess = ProcessState.Open_Corpse;
@@ -592,14 +653,12 @@ namespace ManagerLoot
                         if (Item.HasPendingUse) return;
                         FinishMissionContainer();
                         //Chat.WriteLine("Closing corpse and clearing references.", ChatColor.Yellow);
-                        if (CurrentCorpse != null && CurrentCorpse.Position.DistanceFrom(DynelManager.LocalPlayer.Position) < 6)
-                        {
-                            CurrentCorpse?.Use();
-                            CurrentCorpse = null;
-                            CorpseContainer = null;
-                        }
-
+                        Dynel closingCorpse = CurrentCorpse;
+                        CurrentCorpse = null;
+                        CorpseContainer = null;
                         CurrentProcess = ProcessState.Open_Corpse;
+                        if (closingCorpse != null && closingCorpse.Position.DistanceFrom(DynelManager.LocalPlayer.Position) < 6)
+                            closingCorpse.Use();
                         break;
                 }
             }

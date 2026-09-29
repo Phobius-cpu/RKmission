@@ -96,13 +96,13 @@ namespace RKmission
         }
 
         public bool IsObjective(Identity identity) => _steps.Any(x => x.Target == identity);
-        public bool IsObservationItem(Identity identity) => _steps.Any(x =>
-            x.Target == identity && x.Action is FindItemAction && !x.Pickup);
+        public bool IsNonLootObjective(Identity identity) => _steps.Any(x =>
+            x.Target == identity && !x.Pickup);
         public bool HoldEnemy(Identity identity) => _record.State != MissionProgress.CompletedByUser && _steps.Any(step => step.Target == identity &&
             (step.Action is KillPersonAction ? !(Finale && FinalActionsAllowed) :
                 step.Action is FindPersonAction && (!RewardConfirmed || !FinalActionsAllowed)));
         public bool HoldLoot(Dynel dynel) => IsObjective(dynel.Identity) &&
-            (IsObservationItem(dynel.Identity) || !(Finale && FinalActionsAllowed) ||
+            (IsNonLootObjective(dynel.Identity) || !(Finale && FinalActionsAllowed) ||
                 dynel.Identity.Type == IdentityType.SimpleChar);
 
         public void BeginFinale()
@@ -213,7 +213,7 @@ namespace RKmission
                     { Failure = "Free inventory space is needed for the objective item."; return true; }
                     if (target.Identity.Type == IdentityType.Container)
                     {
-                        loot.MissionObjectiveContainer = target.Identity;
+                        loot.BeginMissionObjectiveLoot(target.Identity);
                         MarkSent(step);
                         return false; // Manager.Loot opens/picks and transfers the objective contents.
                     }

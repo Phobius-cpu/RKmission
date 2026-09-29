@@ -1313,3 +1313,38 @@ manual return-item hand-ins, 20 m engagement, automatic exit/local chaining and
 /rkm complete. Updated README and PROJECT_MEMORY. Source/API/diff review only;
 no compilation, package restore, automated tests or game execution. The user
 owns build and in-game validation; no successful game result is claimed.
+
+## 2026-09-29 - Loot gate stopped before the reserved objective
+
+### User supplied the in-game stop log
+
+Room 23 loot candidate Corpse:103480D was approached, 3366 credits were received
+and "Container = Corpse" appeared. RKMission then reported skipped/unfinished
+loot and held completion/exit. User says the mission was fully explored, all
+enemies dead and everything looted, but the bot never proceeded to its objective.
+
+Asked whether earlier unreachable-loot messages appeared; user replied "i don't
+think so" and selected "Not sure". User then clarified: "i believe the only
+unlooted item is the actual mission objective". The old generic log does not
+prove which identity blocked completion; this clarification guides the fix.
+
+### Assistant separated reserved objectives from ordinary loot
+
+Exclude exact reserved objective identities from the ordinary skipped/unfinished
+gate even if they were registered before objective metadata arrived. Preserve
+their final targeting/use/collection and acknowledgement requirements. Return
+objective containers get one fresh finale attempt when prior ordinary rules had
+marked them skipped/processed. Find/repair targets requiring selection or item
+use remain outside ordinary opening/looting and exit's unfinished-content check.
+
+Keep managed pending corpse/container identity and opening state before use,
+accept its matching late response even after world-corpse disappearance, and
+retain pending ownership when contents are unavailable. Finish only through
+the existing empty-content or rule-processing close path; credits/disappearance
+alone do not count. Add identity/room/state/count diagnostics to real ordinary
+loot blockers so another stop identifies its cause.
+
+Update README and PROJECT_MEMORY. Preserve previous room/range/recovery and
+objective-order changes, one-second reverse cooldown, manual return hand-ins,
+automatic exit/local chaining and /rkm complete. Source/API/diff review only;
+no compile, restore, automated tests or game execution. User validates in game.
