@@ -122,6 +122,8 @@ namespace RKmission
                     Say($"Armed={_running}, cycle={(_autoCycle ? "automatic" : "local")}, roll zone={_autoZone}, travel={_travel.Mode}/{_travel.Status}, " +
                         $"accepted RK={_missions.Records.Count(x => x.Present && x.IsRubiKaDestination)}, " +
                         $"mission={_selected?.Name ?? "none"} [{_selected?.State.ToString() ?? "none"}], dungeon={_dungeon.Status}.");
+                    if (_longTravel.IsActive)
+                        Say($"Cross-playfield provider={_longTravel.CurrentProvider}; last issue={_longTravel.LastFailure ?? _warp.LastFailure ?? "none"}.");
                     if (_waitingReason != null) Say(_waitingReason);
                     break;
                 case "start": Start(); break;

@@ -128,7 +128,9 @@ namespace RKmission
                 _step = FirstLink(current, target);
                 if (_step == null)
                 {
-                    LastFailure = $"No verified fallback link path from {current} to {target}.";
+                    string warpReason = _warp.LastFailure;
+                    LastFailure = (string.IsNullOrEmpty(warpReason) ? "" : $"Scottyboi: {warpReason} ") +
+                        $"No mapped fallback path from playfield {current} to {target}.";
                     return TravelResult.Blocked;
                 }
                 _stepStarted = DateTime.UtcNow;
@@ -143,11 +145,12 @@ namespace RKmission
             }
             if (_step.Kind == "FixerGridExit")
             {
+                if (!Inventory.Find(160978, out Item receptacle))
+                { FailStep("Data Receptacle is unavailable for the Fixer Grid exit"); return TravelResult.InProgress; }
                 if (_terminalAttempt >= _step.TerminalIds.Count &&
                     DateTime.UtcNow - _lastUse > TimeSpan.FromSeconds(10))
                 { FailStep($"Fixer Grid exit to {_step.To} did not zone"); return TravelResult.InProgress; }
                 if (DateTime.UtcNow - _lastUse > TimeSpan.FromSeconds(5) &&
-                    Inventory.Items.FirstOrDefault(x => x.Name == "Data Receptacle") is Item receptacle &&
                     _terminalAttempt < _step.TerminalIds.Count)
                 {
                     Item.UseItemOnItem(receptacle.Slot,
@@ -156,7 +159,9 @@ namespace RKmission
                 }
                 return TravelResult.InProgress;
             }
-            if (Vector3.Distance(DynelManager.LocalPlayer.Position, _step.Position) > 3f)
+            float arrivalRadius = _step.Kind == "ZoneBorderLink" ? 0.75f :
+                _step.Kind == "TeleporterLink" ? 2f : 3f;
+            if (Vector3.Distance(DynelManager.LocalPlayer.Position, _step.Position) > arrivalRadius)
             {
                 if (!_movementIsNavigating()) _movement.SetDestination(MovementOwner.OutdoorTravel, _step.Position);
                 return TravelResult.InProgress;
@@ -164,20 +169,31 @@ namespace RKmission
             if (_step.Kind == "GridTerminalLink" || _step.Kind == "TerminalLink" ||
                 _step.Kind == "FixerGridTerminalLink")
             {
+                _movement.Release(MovementOwner.OutdoorTravel);
                 if (DateTime.UtcNow - _lastUse > TimeSpan.FromSeconds(3))
                 {
                     SimpleItem terminal = DynelManager.Terminals.Where(x =>
-                        x.Name == _step.TerminalName &&
-                        Vector3.Distance(x.Position, _step.Position) < 6f)
+                        string.Equals(x.Name, _step.TerminalName, StringComparison.OrdinalIgnoreCase) &&
+                        Vector3.Distance(x.Position, _step.Position) < 12f)
                         .OrderBy(x => Vector3.Distance(x.Position, _step.Position)).FirstOrDefault();
                     if (_step.Kind == "FixerGridTerminalLink")
                     {
-                        Item receptacle = Inventory.Items.FirstOrDefault(x => x.Name == "Data Receptacle");
-                        if (terminal != null && receptacle != null) receptacle.UseOn(terminal.Identity);
+                        if (terminal != null && Inventory.Find(160978, out Item receptacle))
+                            receptacle.UseOn(terminal.Identity);
                     }
                     else terminal?.Use();
                     _lastUse = DateTime.UtcNow;
                 }
+            }
+            else if (_step.Kind == "TeleporterLink" && DateTime.UtcNow - _lastUse > TimeSpan.FromSeconds(3))
+            {
+                // Some Grid exits are interactable terminals; others zone on
+                // crossing. Try a terminal only when it is at the mapped exit.
+                SimpleItem teleporter = DynelManager.Terminals
+                    .Where(x => Vector3.Distance(x.Position, _step.Position) < 5f)
+                    .OrderBy(x => Vector3.Distance(x.Position, _step.Position)).FirstOrDefault();
+                teleporter?.Use();
+                _lastUse = DateTime.UtcNow;
             }
             else if (_step.Kind != "TeleporterLink" && _step.Kind != "ZoneBorderLink")
             {
@@ -209,12 +225,26 @@ namespace RKmission
             while (queue.Count > 0 && !parent.ContainsKey(to))
             {
                 int node = queue.Dequeue();
-                if (!_graph.TryGetValue(node, out List<Link> links)) continue;
+                _graph.TryGetValue(node, out List<Link> links);
+                if (node == from)
+                {
+                    SimpleItem grid = DynelManager.Terminals.Where(x =>
+                            string.Equals(x.Name, "Enter The Grid", StringComparison.OrdinalIgnoreCase))
+                        .OrderBy(x => Vector3.Distance(x.Position, DynelManager.LocalPlayer.Position))
+                        .FirstOrDefault();
+                    if (grid != null)
+                    {
+                        links = links == null ? new List<Link>() : new List<Link>(links);
+                        links.Add(new Link { From = from, To = (int)PlayfieldId.Grid,
+                            Kind = "GridTerminalLink", TerminalName = grid.Name, Position = grid.Position });
+                    }
+                }
+                if (links == null) continue;
                 foreach (Link link in links)
                 {
                     if (_failedLinks.Contains(LinkKey(link))) continue;
                     if ((link.Kind == "FixerGridTerminalLink" || link.Kind == "FixerGridExit") &&
-                        !Inventory.Items.Any(x => x.Name == "Data Receptacle")) continue;
+                        !Inventory.Find(160978, out _)) continue;
                     if (parent.ContainsKey(link.To)) continue;
                     parent[link.To] = link;
                     queue.Enqueue(link.To);

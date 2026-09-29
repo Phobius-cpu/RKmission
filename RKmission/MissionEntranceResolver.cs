@@ -16,6 +16,8 @@ namespace RKmission
     // Neko's ACG candidate/feedback mechanism, bound to one exact accepted mission.
     internal sealed class MissionEntranceResolver : IDisposable
     {
+        private const int MaxCandidateAttempts = 16;
+        private const int MaxUnlocatedEntrancesPerName = 16;
         private const uint WrongKey = 0x0FCA6FF9;
         private const uint KeyAccepted = 0x0BC6E104;
         private readonly Action<string> _say;
@@ -66,7 +68,7 @@ namespace RKmission
                 (_loadedNear || _sent || mission?.Location == null ||
                  Playfield.ModelIdentity.Instance != mission.Location.Playfield.Instance ||
                  DynelManager.LocalPlayer == null ||
-                 HorizontalDistance(DynelManager.LocalPlayer.Position, mission.Location.Pos) > 15f))
+                 HorizontalDistance(DynelManager.LocalPlayer.Position, mission.Location.Pos) > 8f))
                 return;
             Reset();
             _mission = mission;
@@ -75,11 +77,11 @@ namespace RKmission
             int playfield = mission.Location.Playfield.Instance;
             _loadedNear = Playfield.ModelIdentity.Instance == playfield &&
                 DynelManager.LocalPlayer != null &&
-                HorizontalDistance(DynelManager.LocalPlayer.Position, anchor) <= 15f;
+                HorizontalDistance(DynelManager.LocalPlayer.Position, anchor) <= 8f;
             // Some ACG entrances are exposed as dynels; static Neko IDs remain fallback.
             var live = Playfield.ModelIdentity.Instance == playfield
                 ? DynelManager.AllDynels.Where(x => x.Identity.Type == IdentityType.ACGEntrance &&
-                    HorizontalDistance(x.Position, anchor) <= 15f)
+                    HorizontalDistance(x.Position, anchor) <= 8f)
                     .OrderBy(x => HorizontalDistance(x.Position, anchor))
                     .Select(x => x.Identity.Instance).Distinct().ToList()
                 : new List<int>();
@@ -91,13 +93,26 @@ namespace RKmission
                 if (_successfulKeys.TryGetValue(key.UniqueIdentity.Instance, out int cached)) ids.Add(cached);
                 ids.AddRange(live);
                 if (_entrances.TryGetValue(name, out List<uint> known))
-                    ids.AddRange(known.Select(x => unchecked((int)x)));
+                {
+                    // Common labels such as "a house" map to hundreds of unrelated
+                    // entrances. Without a live entrance or a verified cache entry,
+                    // guessing through them can hold the character indefinitely.
+                    if (known.Count <= MaxUnlocatedEntrancesPerName)
+                        ids.AddRange(known.Select(x => unchecked((int)x)));
+                    else if (ids.Count == 0)
+                        _say($"ACG label '{name}' has {known.Count} unlocated entrances; using the local mission-door approach.");
+                }
                 foreach (int id in ids.Distinct())
+                {
+                    if (_attempts.Count >= MaxCandidateAttempts) break;
                     _attempts.Add(new KeyEntrance { Key = key, Entrance = id });
+                }
             }
             if (_attempts.Count > 0)
                 _say($"Selected mission has {_attempts.Count} ACG key/entrance candidate pairs across " +
                     $"{_attempts.Select(x => x.Key.UniqueIdentity).Distinct().Count()} mission key(s).");
+            else if (_loadedNear)
+                _say("No nearby or bounded ACG key/entrance candidate; using the local mission-door approach.");
         }
 
         public EntranceResult Tick()
@@ -112,7 +127,7 @@ namespace RKmission
             MissionLocation location = _mission.Location;
             if (location == null || Playfield.ModelIdentity.Instance != location.Playfield.Instance ||
                 DynelManager.LocalPlayer == null ||
-                HorizontalDistance(DynelManager.LocalPlayer.Position, location.Pos) > 15f)
+                HorizontalDistance(DynelManager.LocalPlayer.Position, location.Pos) > 8f)
                 return EntranceResult.Fallback; // LocalMissionTravel approaches first.
             if (_attempts.Count == 0) return EntranceResult.Fallback;
             if (_accepted)
@@ -121,7 +136,7 @@ namespace RKmission
                 _say("ACG key was accepted, but exact dungeon zoning did not follow.");
                 return EntranceResult.Failed;
             }
-            if (_sent && DateTime.UtcNow - _sentAt < TimeSpan.FromSeconds(3))
+            if (_sent && DateTime.UtcNow - _sentAt < TimeSpan.FromSeconds(2))
                 return EntranceResult.Waiting;
             if (_sent) Advance();
             if (_index >= _attempts.Count) return EntranceResult.Fallback;

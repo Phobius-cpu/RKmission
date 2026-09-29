@@ -103,12 +103,17 @@ Already accepted missions take priority. `/rkm local` switches back to the
 previous local-only takeover; `/rkm stop` stops RKMission's automatic rolling
 and movement.
 
-Automatic travel tries an unambiguous mission key through the ACG candidate
-database, then asks Scottyboi for its current warp menu, then uses verified
-links from the included Navigator graph. The existing local Run/Fly entrance
-system takes over in the destination playfield. The graph is sparse, and no
-Whompa or Fixer Grid executor is included yet. Missing links or an unrecognized
-warp menu stop with a reason. This cycle has not been compiled or tested in game;
+Automatic travel approaches the selected mission playfield, then tries nearby
+ACG key/entrance candidates. Broad, unlocated Neko candidate lists yield to the
+local Run/Fly mission-door approach after a bounded search. For longer travel,
+the bot asks Scottyboi for its current menu, sends a command only when it can
+match the destination, and waits for that character's team invite. A character
+already in a team cannot receive Scottyboi's invite. If the warp fails, travel
+uses mapped Grid, Fixer Grid (with a Data Receptacle), border, and teleporter
+links; a visible Grid terminal can also supply an entry link. The graph is
+sparse, so some terminal-to-mission routes still have no mapped path. `/rkm status`
+shows the current provider and last travel issue. The automatic cycle still
+needs in-game validation;
 see the [2026-09-29 checkpoint](docs/history/2026-09-29-rkmission-architecture-checkpoint.md).
 
 ## Outdoor navigation architecture
