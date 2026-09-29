@@ -63,9 +63,7 @@ namespace RKmission
                 _menuPages.Clear();
                 LastFailure = null;
                 _targetName = Normalize(((PlayfieldId)targetId).ToString());
-                _targetAliases = targetId == (int)PlayfieldId.Mort
-                    ? new[] { _targetName, "sentinels", "sentinelsmort", "mortsentinels" }
-                    : new[] { _targetName };
+                _targetAliases = MenuAliasesFor(targetId, _targetName);
                 _started = DateTime.UtcNow;
                 _state = State.Lookup;
                 _movement.Halt(MovementOwner.WarpTravel);
@@ -85,12 +83,14 @@ namespace RKmission
                 _say($"Warp to playfield {_targetId} verified after zoning settled.");
                 return WarpResult.Succeeded;
             }
-            if (_state == State.Help && !_helpRetried && _helpReplies == 0 &&
-                DateTime.UtcNow - _started > TimeSpan.FromSeconds(6))
+            if (_state == State.Help && !_helpRetried &&
+                DateTime.UtcNow - _started > TimeSpan.FromSeconds(10) &&
+                (_helpReplies == 0 || _menuPageCount > _menuPages.Count))
             {
-                Chat.SendPrivateMessage(_botId, "help");
+                Chat.SendPrivateMessage(_botId, "!help");
                 _helpRetried = true;
                 _started = DateTime.UtcNow;
+                _say("Scottyboi's warp menu is incomplete; requesting its pages once more.");
             }
             TimeSpan timeout = _state == State.Warp ? TimeSpan.FromSeconds(35) :
                 _state == State.Invite ? TimeSpan.FromSeconds(20) :
@@ -122,11 +122,11 @@ namespace RKmission
                 reply.Sender != _botId || reply.Text == null)
                 return;
             _helpReplies++;
-            Match page = Regex.Match(reply.Text,
-                @"Warp destinations\s*\((\d+)\s*/\s*(\d+)\)", RegexOptions.IgnoreCase);
-            if (page.Success && int.TryParse(page.Groups[1].Value, out int number) &&
-                int.TryParse(page.Groups[2].Value, out int count))
-            { _menuPages.Add(number); _menuPageCount = Math.Max(_menuPageCount, count); }
+            foreach (Match page in Regex.Matches(reply.Text,
+                @"Warp destinations\s*\((\d+)\s*/\s*(\d+)\)", RegexOptions.IgnoreCase))
+                if (int.TryParse(page.Groups[1].Value, out int number) &&
+                    int.TryParse(page.Groups[2].Value, out int count))
+                { _menuPages.Add(number); _menuPageCount = Math.Max(_menuPageCount, count); }
             _lastReply = Regex.Replace(reply.Text, "<[^>]+>", " ").Trim();
             if (_lastReply.Length > 180) _lastReply = _lastReply.Substring(0, 180) + "...";
             foreach (string alias in _targetAliases)
@@ -225,11 +225,40 @@ namespace RKmission
             {
                 string body = WebUtility.HtmlDecode(blob.Groups["body"].Value);
                 if (TryParseMenuLine(body, target, out command)) return true;
+                if (TryParseMenuSection(body, target, out command)) return true;
                 foreach (string line in body.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
                     if (TryParseMenuLine(line, target, out command)) return true;
             }
+            if (TryParseMenuSection(message, target, out command)) return true;
             foreach (string line in message.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
                 if (TryParseMenuLine(line, target, out command)) return true;
+            return false;
+        }
+
+        private static bool TryParseMenuSection(string body, string target, out string command)
+        {
+            command = null;
+            bool inSection = false;
+            foreach (string line in Regex.Split(body, @"\r\n|\r|\n|<br\s*/?>", RegexOptions.IgnoreCase))
+            {
+                int firstLink = line.IndexOf("<a", StringComparison.OrdinalIgnoreCase);
+                string prefix = firstLink < 0 ? line : line.Substring(0, firstLink);
+                string heading = Regex.Replace(WebUtility.HtmlDecode(prefix), "<[^>]+>", " ").Trim();
+                if (MatchesTarget(heading, target)) inSection = true;
+                else if (inSection && heading.Length > 0 &&
+                    !heading.StartsWith("•") && !heading.StartsWith("-"))
+                    inSection = false;
+                if (!inSection) continue;
+                foreach (Match anchor in Regex.Matches(line,
+                    @"<a\b[^>]*?href\s*=\s*(['""])(?<url>.*?)\1[^>]*>(?<label>.*?)</a>",
+                    RegexOptions.IgnoreCase | RegexOptions.Singleline))
+                {
+                    string label = Regex.Replace(anchor.Groups["label"].Value, "<[^>]+>", " ");
+                    if (Normalize(label) == "wp" || Normalize(label) == "waypoint") continue;
+                    string url = WebUtility.HtmlDecode(Uri.UnescapeDataString(anchor.Groups["url"].Value));
+                    if (TryCommandFromUrl(url, out command)) return true;
+                }
+            }
             return false;
         }
 
@@ -253,6 +282,23 @@ namespace RKmission
 
         private static string Normalize(string text) =>
             Regex.Replace(text ?? "", "[^a-z0-9]", "", RegexOptions.IgnoreCase).ToLowerInvariant();
+
+        private static string[] MenuAliasesFor(int playfieldId, string enumName)
+        {
+            // The section parser applies to every playfield. Only names that
+            // differ from AOSharp's enum need additional menu spellings.
+            switch ((PlayfieldId)playfieldId)
+            {
+                case PlayfieldId.Mort:
+                    return new[] { enumName, "sentinels", "sentinelsmort", "mortsentinels" };
+                case PlayfieldId.OmniTrade:
+                    return new[] { enumName, "omni1trade" };
+                case PlayfieldId.GreaterOmniForest:
+                    return new[] { enumName, "omnigreaterforest" };
+                default:
+                    return new[] { enumName };
+            }
+        }
 
         public void Reset()
         {

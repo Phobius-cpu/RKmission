@@ -106,15 +106,17 @@ and movement.
 Automatic travel approaches the selected mission playfield, then tries nearby
 ACG key/entrance candidates. Broad, unlocated Neko candidate lists yield to the
 local Run/Fly mission-door approach after a bounded search. For longer travel,
-the bot asks Scottyboi for its current paged menu, reads destination commands
-from its text links, and waits for that character's team invite. A character
-already in a team cannot receive Scottyboi's invite. If the warp fails, travel
-uses mapped Grid, Fixer Grid (with a Data Receptacle), border, and teleporter
-links; a visible Grid terminal can also supply an entry link. The graph is
-sparse, so some terminal-to-mission routes still have no mapped path. If a
-Fixer Grid route is mapped but the Data Receptacle is missing, the travel error
-names the missing item. `/rkm status` shows the current provider and last travel
-issue. The automatic cycle still needs in-game validation;
+the bot asks Scottyboi for its current paged menu, reads a location command
+under the destination playfield's heading for any zone, and waits for
+Scottyboi's team invite. If some menu pages are missing, it requests the menu
+once more. A character already in a team cannot receive Scottyboi's invite.
+If the warp fails, travel uses mapped Grid, Fixer Grid (with a Data
+Receptacle), border, and teleporter links; a visible Grid terminal can also
+supply an entry link.
+The graph is sparse, so some terminal-to-mission routes still have no mapped
+path. If a Fixer Grid route is mapped but the Data Receptacle is missing, the
+travel error names the missing item. `/rkm status` shows the current provider
+and last travel issue. The automatic cycle still needs in-game validation;
 see the [2026-09-29 checkpoint](docs/history/2026-09-29-rkmission-architecture-checkpoint.md).
 
 ## Outdoor navigation architecture
