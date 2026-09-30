@@ -16,8 +16,8 @@ namespace RKmission
     // Neko's ACG candidate/feedback mechanism, bound to one exact accepted mission.
     internal sealed class MissionEntranceResolver : IDisposable
     {
-        private const int MaxCandidateAttempts = 16;
-        private const int MaxUnlocatedEntrancesPerName = 16;
+        private const int MaxCandidateAttempts = 64;
+        private const int MaxUnlocatedEntrancesPerName = 64;
         private const uint WrongKey = 0x0FCA6FF9;
         private const uint KeyAccepted = 0x0BC6E104;
         private readonly Action<string> _say;
@@ -85,22 +85,21 @@ namespace RKmission
                     .OrderBy(x => HorizontalDistance(x.Position, anchor))
                     .Select(x => x.Identity.Instance).Distinct().ToList()
                 : new List<int>();
-            foreach (Item key in Inventory.Items.Where(x => x.UniqueIdentity.Type == IdentityType.MissionKey &&
-                x.Name != null && x.Name.StartsWith("Mission key to ", StringComparison.OrdinalIgnoreCase)))
+            foreach (Item key in Inventory.Items)
             {
-                string name = key.Name.Substring("Mission key to ".Length);
+                if (!TryMissionKeyLabel(key.Name, out string name)) continue;
                 var ids = new List<int>();
                 if (_successfulKeys.TryGetValue(key.UniqueIdentity.Instance, out int cached)) ids.Add(cached);
                 ids.AddRange(live);
                 if (_entrances.TryGetValue(name, out List<uint> known))
                 {
-                    // Common labels such as "a house" map to hundreds of unrelated
-                    // entrances. Without a live entrance or a verified cache entry,
-                    // guessing through them can hold the character indefinitely.
+                    // Try bounded Neko candidates before physical travel, including
+                    // common labels such as "a woodshack". Larger unlocated lists
+                    // still need a live entrance or a verified cache entry.
                     if (known.Count <= MaxUnlocatedEntrancesPerName)
                         ids.AddRange(known.Select(x => unchecked((int)x)));
                     else if (ids.Count == 0)
-                        _say($"ACG label '{name}' has {known.Count} unlocated entrances; using the local mission-door approach.");
+                        _say($"ACG label '{name}' has {known.Count} unlocated entrances, above the {MaxUnlocatedEntrancesPerName} candidate limit; using normal travel.");
                 }
                 foreach (int id in ids.Distinct())
                 {
@@ -109,10 +108,10 @@ namespace RKmission
                 }
             }
             if (_attempts.Count > 0)
-                _say($"Selected mission has {_attempts.Count} ACG key/entrance candidate pairs across " +
-                    $"{_attempts.Select(x => x.Key.UniqueIdentity).Distinct().Count()} mission key(s).");
-            else if (_loadedNear)
-                _say("No nearby or bounded ACG key/entrance candidate; using the local mission-door approach.");
+                _say($"Selected mission has {_attempts.Count} Neko ACG key/entrance candidate pairs across " +
+                    $"{_attempts.Select(x => x.Key.UniqueIdentity).Distinct().Count()} mission key(s); trying key warp before normal travel.");
+            else
+                _say("No bounded Neko ACG key/entrance candidate is available; using normal travel.");
         }
 
         public EntranceResult Tick()
@@ -125,10 +124,8 @@ namespace RKmission
                 return EntranceResult.Verified;
             }
             MissionLocation location = _mission.Location;
-            if (location == null || Playfield.ModelIdentity.Instance != location.Playfield.Instance ||
-                DynelManager.LocalPlayer == null ||
-                HorizontalDistance(DynelManager.LocalPlayer.Position, location.Pos) > 8f)
-                return EntranceResult.Fallback; // LocalMissionTravel approaches first.
+            if (location == null || DynelManager.LocalPlayer == null)
+                return EntranceResult.Fallback;
             if (_attempts.Count == 0) return EntranceResult.Fallback;
             if (_accepted)
             {
@@ -143,6 +140,9 @@ namespace RKmission
             KeyEntrance attempt = _attempts[_index];
             if (!Inventory.Items.Any(x => x.UniqueIdentity == attempt.Key.UniqueIdentity))
             { Advance(); return EntranceResult.Waiting; }
+            if (_index == 0 || _index % 10 == 0)
+                _say($"Neko ACG key warp: candidate {_index + 1}/{_attempts.Count}, key='{attempt.Key.Name}', " +
+                    $"entrance={unchecked((uint)attempt.Entrance)}, current playfield={Playfield.ModelIdentity.Instance}.");
             Item.UseItemOnItem(attempt.Key.Slot,
                 new Identity(IdentityType.ACGEntrance, attempt.Entrance));
             _sent = true;
@@ -183,7 +183,27 @@ namespace RKmission
             }
         }
 
-        private void Advance() { _index++; _sent = false; }
+        private void Advance()
+        {
+            _index++;
+            _sent = false;
+            if (_index == _attempts.Count)
+                _say("Neko ACG key warp candidates were exhausted; using normal travel.");
+        }
+        private static bool TryMissionKeyLabel(string itemName, out string label)
+        {
+            label = null;
+            if (string.IsNullOrWhiteSpace(itemName)) return false;
+            string name = itemName.Trim();
+            const string temporary = "Temporary:";
+            if (name.StartsWith(temporary, StringComparison.OrdinalIgnoreCase))
+                name = name.Substring(temporary.Length).TrimStart();
+            const string prefix = "Mission key to ";
+            if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return false;
+            label = name.Substring(prefix.Length).Trim();
+            return label.Length > 0;
+        }
+
         private static float HorizontalDistance(Vector3 a, Vector3 b)
         {
             float x = a.X - b.X, z = a.Z - b.Z;

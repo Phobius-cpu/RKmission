@@ -128,9 +128,12 @@ Already accepted missions take priority. `/rkm local` switches back to the
 previous local-only takeover; `/rkm stop` stops RKMission's automatic rolling
 and movement.
 
-Automatic travel approaches the selected mission playfield, then tries nearby
-ACG key/entrance candidates. Broad, unlocated Neko candidate lists yield to the
-local Run/Fly mission-door approach after a bounded search. For longer travel,
+Automatic travel tries bounded Neko ACG key/entrance candidates before
+cross-playfield and local Run/Fly travel, even when the mission entrance is not
+nearby. It verifies the exact selected mission after zoning. Unlocated labels
+with more than 64 entrances yield to normal travel; smaller lists are tried
+one candidate at a time before fallback. Mission keys with the displayed
+`Temporary:` prefix are recognized. For longer travel,
 the bot asks Scottyboi for its current paged menu, reads a location command
 under the destination playfield's heading for any zone, and waits for
 the assigned warper's team invite. For other zones, if some menu pages are missing, it
