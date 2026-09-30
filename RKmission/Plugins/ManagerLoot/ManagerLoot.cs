@@ -45,6 +45,18 @@ namespace ManagerLoot
         private readonly HashSet<MissionIdentity> _seenMissionLoot = new HashSet<MissionIdentity>();
         private readonly HashSet<MissionIdentity> _finishedMissionLoot = new HashSet<MissionIdentity>();
         private readonly HashSet<MissionIdentity> _objectiveLootItems = new HashSet<MissionIdentity>();
+        private const int MaxMissionLockpickAttempts = 3;
+        private const double LockpickRetryDelaySeconds = 1;
+        private readonly Dictionary<MissionIdentity, LockpickAttempt> _missionLockpicks = new Dictionary<MissionIdentity, LockpickAttempt>();
+        private enum LockpickOutcome { None, Success, NotLocked, NoLockPick, InsufficientSkill, TemporaryFailure, RepeatedFailure }
+        private sealed class LockpickAttempt
+        {
+            public int Attempts;
+            public double FirstAttempt;
+            public double LastAttempt;
+            public LockpickOutcome Outcome;
+            public bool CriticalBlocked;
+        }
         private readonly Dictionary<MissionIdentity, int> _missionLootRooms = new Dictionary<MissionIdentity, int>();
         private MissionIdentity _pendingMissionLoot = MissionIdentity.None;
         // RKMission limits the original loot state machine to the room being cleared.
@@ -89,6 +101,7 @@ namespace ManagerLoot
             _seenMissionLoot.Clear();
             _finishedMissionLoot.Clear();
             _objectiveLootItems.Clear();
+            _missionLockpicks.Clear();
             _missionLootRooms.Clear();
             _pendingMissionLoot = MissionIdentity.None;
             openedContainers.Clear();
@@ -99,7 +112,8 @@ namespace ManagerLoot
         }
         private bool ReservedMissionLoot(MissionIdentity identity) => MissionLootReserved?.Invoke(identity) == true;
         public bool IgnoreOrdinaryMissionLoot { get; set; }
-        public int SkippedMissionLootCount => IgnoreOrdinaryMissionLoot ? 0 : _unreachableMissionLoot.Count(x => !ReservedMissionLoot(x));
+        public int SkippedMissionLootCount => IgnoreOrdinaryMissionLoot ? 0 : _unreachableMissionLoot.Count(x =>
+            !_finishedMissionLoot.Contains(x) && !ReservedMissionLoot(x));
         public int UnfinishedMissionLootCount => IgnoreOrdinaryMissionLoot ? 0 : _seenMissionLoot.Count(x =>
             !_finishedMissionLoot.Contains(x) && !ReservedMissionLoot(x));
         public int ReservedPendingMissionLootCount => _seenMissionLoot.Count(x =>
@@ -129,6 +143,57 @@ namespace ManagerLoot
                 CurrentProcess = ProcessState.Open_Corpse;
             }
             if (_pendingMissionLoot == identity && CorpseContainer == null) _pendingMissionLoot = MissionIdentity.None;
+        }
+
+        private LockpickAttempt MissionLockpick(MissionIdentity identity)
+        {
+            if (!_missionLockpicks.TryGetValue(identity, out LockpickAttempt attempt))
+                _missionLockpicks[identity] = attempt = new LockpickAttempt();
+            return attempt;
+        }
+
+        private bool LockpickReady(MissionIdentity identity) =>
+            !_missionLockpicks.TryGetValue(identity, out LockpickAttempt attempt) ||
+            (!attempt.CriticalBlocked && Time.AONormalTime >= attempt.LastAttempt + LockpickRetryDelaySeconds);
+
+        private void FinishLockpickFailure(MissionIdentity identity, LockpickOutcome reason)
+        {
+            LockpickAttempt attempt = MissionLockpick(identity);
+            attempt.Outcome = reason;
+            if (ReservedMissionLoot(identity) || MissionObjectiveContainer == identity)
+            {
+                attempt.CriticalBlocked = true;
+                Chat.WriteLine($"RKMission: Objective container {identity} cannot be lockpicked ({reason}); mission recovery required.");
+                // Keep pending ownership so RKMission's existing loot watchdog stops
+                // the mission instead of treating this objective as ordinary loot.
+                CurrentProcess = ProcessState.PickingLock;
+                Timeout = double.MaxValue;
+                return;
+            }
+            SkipUnreachableMissionLoot(identity);
+            // A known unpickable ordinary chest is settled for room and final
+            // clearance, unlike an unreachable chest that still needs review.
+            _finishedMissionLoot.Add(identity);
+            Chat.WriteLine($"RKMission: Skipping locked loot {identity}: {reason} after {attempt.Attempts} attempt(s).");
+            CurrentCorpse = null;
+            CurrentProcess = ProcessState.Open_Corpse;
+        }
+
+        private void ObserveLockpickFeedback(string message)
+        {
+            if (MissionRoomId < 0 || CurrentProcess != ProcessState.PickingLock ||
+                _pendingMissionLoot == MissionIdentity.None || string.IsNullOrWhiteSpace(message)) return;
+            LockpickAttempt attempt = MissionLockpick(_pendingMissionLoot);
+            if (attempt.CriticalBlocked || Time.AONormalTime - attempt.LastAttempt > 2.5) return;
+            string text = message.ToLowerInvariant();
+            bool lockContext = text.Contains("lock") || text.Contains("pick") ||
+                text.Contains("breaking and entering") || text.Contains("breaking & entering");
+            bool skillFailure = text.Contains("skill") &&
+                (text.Contains("not enough") || text.Contains("too low") || text.Contains("insufficient") ||
+                 text.Contains("lack") || (text.Contains("need") && text.Contains("more")) ||
+                 text.Contains("not high enough"));
+            if (lockContext && skillFailure)
+                FinishLockpickFailure(_pendingMissionLoot, LockpickOutcome.InsufficientSkill);
         }
 
         public Dynel NextMissionLoot(int roomId)
@@ -178,6 +243,7 @@ namespace ManagerLoot
             _unreachableMissionLoot.Remove(identity);
             _finishedMissionLoot.Remove(identity);
             openedContainers.Remove(identity.Instance);
+            _missionLockpicks.Remove(identity);
         }
 
         private bool IsInMissionRoom(Dynel dynel, int roomId) =>
@@ -344,6 +410,11 @@ namespace ManagerLoot
         {
             if (!_settings["Enable"].AsBool()) return;
 
+            // AO# exposes rendered server text through these existing N3 messages.
+            // Numeric FeedbackMessage ids have no verified lockpick mapping here.
+            if (e is ChatTextMessage chat) ObserveLockpickFeedback(chat.Text);
+            else if (e is FormatFeedbackMessage feedback) ObserveLockpickFeedback(feedback.Message);
+
             switch (e.N3MessageType)
             {
                 case N3MessageType.ContainerAddItem:
@@ -435,6 +506,8 @@ namespace ManagerLoot
 
             CorpseContainer = container;
             CurrentCorpse = DynelManager.GetDynel(container.Identity);
+            if (_missionLockpicks.TryGetValue(container.Identity, out LockpickAttempt lockpick))
+                lockpick.Outcome = LockpickOutcome.Success;
 
             if (_settings["Print"].AsBool())
                 foreach (var item in container.Items)
@@ -493,6 +566,20 @@ namespace ManagerLoot
                     LastProcess = CurrentProcess;
                 }
 
+                if (MissionRoomId >= 0 && CurrentProcess == ProcessState.Open_Corpse)
+                {
+                    // A stuck pending-use flag must not strand ordinary loot forever.
+                    var expired = _missionLockpicks.FirstOrDefault(x => x.Value.Attempts > 0 &&
+                        x.Value.Outcome == LockpickOutcome.TemporaryFailure &&
+                        Time.AONormalTime - x.Value.FirstAttempt > 12 &&
+                        !_finishedMissionLoot.Contains(x.Key));
+                    if (expired.Value != null)
+                    {
+                        FinishLockpickFailure(expired.Key, LockpickOutcome.RepeatedFailure);
+                        return;
+                    }
+                }
+
                 switch (CurrentProcess)
                 {
                     case ProcessState.Load_Backpacks:
@@ -514,6 +601,7 @@ namespace ManagerLoot
                         var dynel = roomDynels.Where(c => !openedContainers.ContainsKey(c.Identity.Instance)
                         && (_pendingMissionLoot == MissionIdentity.None || c.Identity == _pendingMissionLoot)
                         && !_unreachableMissionLoot.Contains(c.Identity)
+                        && (MissionRoomId < 0 || LockpickReady(c.Identity))
                         && (c.Identity.Type == IdentityType.Container || c.Identity.Type == IdentityType.Corpse)
                         && (MissionLootAllowed?.Invoke(c) ?? true)
                         && (MissionRoomId < 0 || !_finishedMissionLoot.Contains(c.Identity))
@@ -544,12 +632,30 @@ namespace ManagerLoot
                             if (chest.IsLocked)
                             {
                                 var lockPick = Inventory.Items.FirstOrDefault(p => p.Name == "Lock Pick");
+                                if (MissionRoomId >= 0)
+                                {
+                                    if (lockPick == null)
+                                    {
+                                        FinishLockpickFailure(chest.Identity, LockpickOutcome.NoLockPick);
+                                        return;
+                                    }
+                                    LockpickAttempt attempt = MissionLockpick(chest.Identity);
+                                    if (attempt.Attempts == 0) attempt.FirstAttempt = Time.AONormalTime;
+                                    attempt.Attempts++;
+                                    attempt.LastAttempt = Time.AONormalTime;
+                                    attempt.Outcome = LockpickOutcome.None;
+                                }
                                 CurrentProcess = ProcessState.PickingLock;
                                 lockPick?.UseOn(chest);
                                 //Chat.WriteLine($"Picking lock on chest: {chest.Name}", ChatColor.Yellow);
                             }
                             else
                             {
+                                if (MissionRoomId >= 0)
+                                {
+                                    LockpickAttempt attempt = MissionLockpick(chest.Identity);
+                                    attempt.Outcome = attempt.Attempts > 0 ? LockpickOutcome.Success : LockpickOutcome.NotLocked;
+                                }
                                 CurrentProcess = ProcessState.Opening;
                                 chest.Use();
                                 //Chat.WriteLine($"Opening chest: {chest.Name}", ChatColor.Yellow);
@@ -557,8 +663,29 @@ namespace ManagerLoot
                         }
                         break;
 
-                    case ProcessState.Opening:
                     case ProcessState.PickingLock:
+                        if (MissionRoomId >= 0 && Time.AONormalTime > Timeout &&
+                            _pendingMissionLoot != MissionIdentity.None &&
+                            _missionLockpicks.TryGetValue(_pendingMissionLoot, out LockpickAttempt current))
+                        {
+                            MissionIdentity identity = _pendingMissionLoot;
+                            Dynel pending = DynelManager.GetDynel(identity);
+                            if (pending != null && !new Chest(pending).IsLocked)
+                                current.Outcome = LockpickOutcome.Success;
+                            else if (current.Attempts >= MaxMissionLockpickAttempts ||
+                                Time.AONormalTime - current.FirstAttempt > 12)
+                            {
+                                FinishLockpickFailure(identity, LockpickOutcome.RepeatedFailure);
+                                break;
+                            }
+                            else
+                                current.Outcome = LockpickOutcome.TemporaryFailure;
+                            _pendingMissionLoot = MissionIdentity.None;
+                            CurrentCorpse = null;
+                            CurrentProcess = ProcessState.Open_Corpse;
+                        }
+                        break;
+                    case ProcessState.Opening:
                         if (Spell.HasPendingCast || Item.HasPendingUse || PerkAction.List.Any(perk => perk.IsExecuting)) return;
                         if (Time.AONormalTime > Timeout) CurrentProcess = ProcessState.Open_Corpse;
                         break;

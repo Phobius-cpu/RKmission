@@ -2026,3 +2026,22 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 - README and CONVERSATION_LOG record the comparison and correction. Source/API/diff
   review only, including independent backup provenance and boundary review; no build,
   package restore, automated tests or game execution. User validates in game.
+## Bounded ordinary chest lockpicking (2026-09-30)
+
+- Manager.Loot retains ownership of chest interactions and RKMission retains
+  room selection. Lockpick attempts are tracked by container Identity for one
+  mission, with attempt count, timestamps and outcome; reset on dungeon start.
+- Ordinary locked containers without a Lock Pick are settled immediately. A
+  rendered AO server message that clearly combines lock/pick context with
+  insufficient skill settles that chest immediately. Otherwise allow three
+  attempts with a one-second retry delay; repeated failure or a stalled pending
+  use settles it. Log the identity and reason once.
+- Settled lockpick failures use the existing mission loot skip path and are
+  marked finished for room and final ordinary-loot clearance. Objective
+  containers remain pending/blocking and report a recovery requirement; locked
+  mission doors continue through the separate RKMission doorway logic.
+- AO# supplies ChatTextMessage and FormatFeedbackMessage through the existing
+  N3MessageReceived subscription. Numeric FeedbackMessage lockpick IDs were not
+  established, so unrecognized replies use the bounded retry fallback.
+- `dotnet build RKmission/RKmission.csproj` succeeded on integrated main with
+  zero errors and 413 compiler warnings. Game behavior still needs user validation.
