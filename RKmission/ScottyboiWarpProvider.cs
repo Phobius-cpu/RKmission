@@ -240,7 +240,7 @@ namespace RKmission
             if (_state == State.Invite &&
                 Regex.IsMatch(text, @"\bis offline\b|\bneeds to log on\b", RegexOptions.IgnoreCase))
             {
-                Fail($"Scottyboi queued '{_pendingCommand?.Text}', but warper {_warperName} is offline.");
+                Fail($"Scottyboi queued '{_pendingCommand?.Text}', but warper {_warperName} is offline.", false);
                 return;
             }
             Network.Send(new LookupMessage { Id = 0, Name = _warperName });
@@ -275,11 +275,12 @@ namespace RKmission
             _zonedAt = DateTime.UtcNow;
         }
 
-        private void Fail(string reason)
+        private void Fail(string reason, bool applyBackoff = true)
         {
             LastFailure = reason;
             _state = State.Failed;
-            _backoffUntil = DateTime.UtcNow.AddMinutes(2);
+            if (applyBackoff)
+                _backoffUntil = DateTime.UtcNow.AddMinutes(2);
             _movement.Release(MovementOwner.WarpTravel);
             if (_joinedByProvider && Team.IsInTeam) Team.Leave();
             _joinedByProvider = false;
