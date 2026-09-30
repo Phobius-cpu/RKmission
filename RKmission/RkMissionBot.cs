@@ -170,9 +170,12 @@ namespace RKmission
                     if (!_missions.Records.Any()) Say("No accepted Rubi-Ka mission destinations detected.");
                     break;
                 case "complete": ConfirmCompletion(args); break;
+                case "fgrid":
+                    Say($"FGrid service configured={_fgrid.IsConfigured}, active={_fgrid.IsActive}, last issue={_fgrid.LastFailure ?? "none"}.");
+                    break;
                 case "loot": Say("Use /ManagerLoot for the original item list and settings."); break;
                 case "map": _map.ToggleWindow(); break;
-                default: Say("Commands: start, auto, local, stop, status, missions, zone <id>, rolls <count>, travel auto|ground|flying, complete [mission id], loot, map."); break;
+                default: Say("Commands: start, auto, local, stop, status, missions, zone <id>, rolls <count>, travel auto|ground|flying, fgrid, complete [mission id], loot, map."); break;
             }
         }
 
