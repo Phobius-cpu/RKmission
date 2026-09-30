@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using AOSharp.Common.GameData;
+using AOSharp.Common.Unmanaged.Interfaces;
 using AOSharp.Core;
 using AOSharp.Core.Inventory;
 using Newtonsoft.Json;
@@ -28,13 +29,15 @@ namespace RKmission
         private Mission _mission;
         private int _index;
         private bool _sent, _accepted;
-        private bool _loadedNear;
-        private DateTime _sentAt;
+        private DateTime _sentAt, _lastScanAt, _lastNoCandidateLogAt;
+        private string _lastNoCandidateReason;
         public int ActiveEntranceIdentity => _index < _attempts.Count ? _attempts[_index].Entrance : 0;
 
         private sealed class KeyEntrance
         {
             public Item Key;
+            public int KeyDynelInstance;
+            public string KeyName;
             public int Entrance;
         }
 
@@ -42,10 +45,18 @@ namespace RKmission
         {
             _say = say;
             string path = Path.Combine(pluginDir, "Data", "ACGEntrances.json");
-            _entrances = File.Exists(path)
+            var loadedEntrances = File.Exists(path)
                 ? JsonConvert.DeserializeObject<Dictionary<string, List<uint>>>(File.ReadAllText(path))
-                    ?? new Dictionary<string, List<uint>>()
-                : new Dictionary<string, List<uint>>();
+                : null;
+            _entrances = new Dictionary<string, List<uint>>(StringComparer.OrdinalIgnoreCase);
+            if (loadedEntrances != null)
+                foreach (var entry in loadedEntrances)
+                {
+                    if (_entrances.TryGetValue(entry.Key, out List<uint> existing))
+                        existing.AddRange(entry.Value);
+                    else
+                        _entrances[entry.Key] = new List<uint>(entry.Value);
+                }
             _cachePath = Path.Combine(pluginDir, "RKMissionData", "successful-entrances.json");
             try
             {
@@ -64,54 +75,96 @@ namespace RKmission
 
         public void Select(Mission mission)
         {
-            if (_mission?.Identity == mission?.Identity &&
-                (_loadedNear || _sent || mission?.Location == null ||
-                 Playfield.ModelIdentity.Instance != mission.Location.Playfield.Instance ||
-                 DynelManager.LocalPlayer == null ||
-                 HorizontalDistance(DynelManager.LocalPlayer.Position, mission.Location.Pos) > 8f))
+            bool sameMission = _mission != null && mission != null && _mission.Identity == mission.Identity;
+            if (sameMission && (_attempts.Count > 0 || _sent || _accepted ||
+                DateTime.UtcNow - _lastScanAt < TimeSpan.FromSeconds(2)))
                 return;
+            if (!sameMission) _lastNoCandidateReason = null;
             Reset();
             _mission = mission;
+            _lastScanAt = DateTime.UtcNow;
             if (mission?.Location == null) return;
             Vector3 anchor = mission.Location.Pos;
             int playfield = mission.Location.Playfield.Instance;
-            _loadedNear = Playfield.ModelIdentity.Instance == playfield &&
-                DynelManager.LocalPlayer != null &&
-                HorizontalDistance(DynelManager.LocalPlayer.Position, anchor) <= 8f;
-            // Some ACG entrances are exposed as dynels; static Neko IDs remain fallback.
+            // Live entrances near the anchor take priority over static Neko IDs.
             var live = Playfield.ModelIdentity.Instance == playfield
                 ? DynelManager.AllDynels.Where(x => x.Identity.Type == IdentityType.ACGEntrance &&
                     HorizontalDistance(x.Position, anchor) <= 8f)
                     .OrderBy(x => HorizontalDistance(x.Position, anchor))
                     .Select(x => x.Identity.Instance).Distinct().ToList()
                 : new List<int>();
-            foreach (Item key in Inventory.Items)
+            int missionKeys = 0, namedKeys = 0, mappedKeys = 0;
+            string firstUnmappedLabel = null;
+            List<Item> inventory = Inventory.Items;
+            string firstUnreadableName = null;
+            foreach (Item key in inventory)
             {
-                if (!TryMissionKeyLabel(key.Name, out string name)) continue;
+                // Neko reads the name from the key's dynel identity. Item.Name
+                // is a template name and can omit the mission's dynamic label.
+                Identity keyDynel = N3EngineClientAnarchy.TemplateIDToDynelID(key.Slot);
+                bool templateMatches = TryMissionKeyLabel(key.Name, out string templateLabel);
+                if (keyDynel.Type != IdentityType.MissionKey &&
+                    key.UniqueIdentity.Type != IdentityType.MissionKey && !templateMatches)
+                    continue;
+                missionKeys++;
+                string keyName = keyDynel.Type == IdentityType.MissionKey
+                    ? N3EngineClientAnarchy.GetName(keyDynel) : null;
+                if (!TryMissionKeyLabel(keyName, out string name))
+                {
+                    if (!templateMatches)
+                    {
+                        if (firstUnreadableName == null)
+                            firstUnreadableName = $"dynel='{keyName}', template='{key.Name}'";
+                        continue;
+                    }
+                    name = templateLabel;
+                }
+                namedKeys++;
                 var ids = new List<int>();
-                if (_successfulKeys.TryGetValue(key.UniqueIdentity.Instance, out int cached)) ids.Add(cached);
+                int keyDynelInstance = keyDynel.Type == IdentityType.MissionKey
+                    ? keyDynel.Instance : key.UniqueIdentity.Instance;
+                if (_successfulKeys.TryGetValue(keyDynelInstance, out int cached)) ids.Add(cached);
                 ids.AddRange(live);
                 if (_entrances.TryGetValue(name, out List<uint> known))
                 {
-                    // Try bounded Neko candidates before physical travel, including
-                    // common labels such as "a woodshack". Larger unlocated lists
-                    // still need a live entrance or a verified cache entry.
                     if (known.Count <= MaxUnlocatedEntrancesPerName)
+                    {
+                        mappedKeys++;
                         ids.AddRange(known.Select(x => unchecked((int)x)));
+                    }
                     else if (ids.Count == 0)
                         _say($"ACG label '{name}' has {known.Count} unlocated entrances, above the {MaxUnlocatedEntrancesPerName} candidate limit; using normal travel.");
                 }
+                else if (firstUnmappedLabel == null) firstUnmappedLabel = name;
                 foreach (int id in ids.Distinct())
                 {
                     if (_attempts.Count >= MaxCandidateAttempts) break;
-                    _attempts.Add(new KeyEntrance { Key = key, Entrance = id });
+                    _attempts.Add(new KeyEntrance { Key = key, KeyDynelInstance = keyDynelInstance, KeyName = keyName ?? key.Name, Entrance = id });
                 }
             }
             if (_attempts.Count > 0)
                 _say($"Selected mission has {_attempts.Count} Neko ACG key/entrance candidate pairs across " +
-                    $"{_attempts.Select(x => x.Key.UniqueIdentity).Distinct().Count()} mission key(s); trying key warp before normal travel.");
+                    $"{_attempts.Select(x => x.KeyDynelInstance).Distinct().Count()} mission key(s); trying key warp before normal travel.");
             else
-                _say("No bounded Neko ACG key/entrance candidate is available; using normal travel.");
+            {
+                string reason = _entrances.Count == 0
+                    ? "ACGEntrances.json was not loaded or has no entries"
+                    : missionKeys == 0
+                        ? "no mission-key dynel found in inventory"
+                        : namedKeys == 0
+                            ? $"mission-key dynels have no readable destination label ({firstUnreadableName})"
+                            : mappedKeys == 0 && firstUnmappedLabel != null
+                                ? $"key label '{firstUnmappedLabel}' is not in ACGEntrances.json"
+                                : "no bounded entrance IDs for the available key";
+                if (reason != _lastNoCandidateReason ||
+                    DateTime.UtcNow - _lastNoCandidateLogAt > TimeSpan.FromSeconds(30))
+                {
+                    _say($"No bounded Neko ACG key/entrance candidate: {reason}; " +
+                        $"inventory items={inventory.Count}, keys={missionKeys}, named={namedKeys}, entrance labels={_entrances.Count}. Using normal travel.");
+                    _lastNoCandidateReason = reason;
+                    _lastNoCandidateLogAt = DateTime.UtcNow;
+                }
+            }
         }
 
         public EntranceResult Tick()
@@ -141,7 +194,7 @@ namespace RKmission
             if (!Inventory.Items.Any(x => x.UniqueIdentity == attempt.Key.UniqueIdentity))
             { Advance(); return EntranceResult.Waiting; }
             if (_index == 0 || _index % 10 == 0)
-                _say($"Neko ACG key warp: candidate {_index + 1}/{_attempts.Count}, key='{attempt.Key.Name}', " +
+                _say($"Neko ACG key warp: candidate {_index + 1}/{_attempts.Count}, key='{attempt.KeyName}', " +
                     $"entrance={unchecked((uint)attempt.Entrance)}, current playfield={Playfield.ModelIdentity.Instance}.");
             Item.UseItemOnItem(attempt.Key.Slot,
                 new Identity(IdentityType.ACGEntrance, attempt.Entrance));
@@ -212,7 +265,7 @@ namespace RKmission
 
         private void CacheSuccess(KeyEntrance attempt)
         {
-            _successfulKeys[attempt.Key.UniqueIdentity.Instance] = attempt.Entrance;
+            _successfulKeys[attempt.KeyDynelInstance] = attempt.Entrance;
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(_cachePath));
@@ -228,7 +281,6 @@ namespace RKmission
             _attempts.Clear();
             _index = 0;
             _sent = _accepted = false;
-            _loadedNear = false;
         }
 
         public void Dispose() => Network.N3MessageReceived -= OnN3Message;
