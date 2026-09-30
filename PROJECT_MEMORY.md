@@ -2,6 +2,24 @@
 
 _Last updated: 2026-09-30_
 
+## 2026-09-30 doorway ownership after combat approach refusal
+
+- A live 22:46 run targeted Important Techrejecter in room 1 at 15.2 m.
+  Every mapped combat approach was immediately reported as having no route,
+  then the plugin stopped and Manager.Loot logged corpse openings outside
+  RKMission room ownership. In the AOSharp SDK, `SetNavDestination` returns
+  false when movement cannot be claimed or the controller is absent; it does
+  not use that return value to report an unreachable navmesh path.
+- `ConfirmTransition` and `FailTransition` released `DoorTransition`, then
+  called `Halt(_requestedOwner)` while `_requestedOwner` still equaled
+  `DoorTransition`. This reacquired the exclusive doorway owner after the
+  crossing had ended and refused subsequent combat approach commands. Both
+  paths now switch to `DungeonRoom` before any post-crossing halt. Doorway
+  crossing itself remains exclusively owned until confirmation or failure.
+  Rejected movement logs now include the owner and controller state.
+- The .NET Framework 4.8 build passes; the user will verify the room-1 fight
+  and Manager.Loot ownership in game.
+
 ## 2026-09-30 Fixer Grid generic exit discovery
 
 - A live 22:27 run obtained Team Fixer Grid, entered Fixer Grid and traversed

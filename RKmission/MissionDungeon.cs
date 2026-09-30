@@ -621,7 +621,8 @@ namespace RKmission
                     _say($"Combat approach {_combatApproachIndex + 1}/{_combatApproaches.Count} to {enemy.Identity}: {point}.");
                     break;
                 }
-                _say($"Combat approach {_combatApproachIndex + 1} to {enemy.Identity} has no navigation route.");
+                _say($"Combat approach {_combatApproachIndex + 1} to {enemy.Identity} could not claim navigation " +
+                    $"(owner={MovementArbiter.Current.Owner}, controller loaded={SMovementController.IsLoaded()}).");
                 _combatApproachIndex++;
             }
             return _destination.HasValue;
@@ -715,7 +716,8 @@ namespace RKmission
                             $"{point}, enemy {distance:0.0}m away.");
                         break;
                     }
-                    _say($"Room {room.Instance} scan approach {_scanWaypointIndex + 1} had no navigation route.");
+                    _say($"Room {room.Instance} scan approach {_scanWaypointIndex + 1} could not claim navigation " +
+                        $"(owner={MovementArbiter.Current.Owner}, controller loaded={SMovementController.IsLoaded()}).");
                     _scanWaypointIndex++;
                 }
             }
@@ -1374,6 +1376,7 @@ namespace RKmission
         {
             DungeonLayout.Connection edge = _transition.Edge;
             MovementArbiter.Current.Release(MovementOwner.DoorTransition);
+            _requestedOwner = MovementOwner.DungeonRoom;
             _currentRoom = edge.Target;
             _visitedRooms.Add(edge.Target);
             _edgeFailures.Remove(EdgeKey(edge.Source, edge.Target));
@@ -1394,6 +1397,7 @@ namespace RKmission
         {
             DungeonLayout.Connection edge = _transition.Edge;
             MovementArbiter.Current.Release(MovementOwner.DoorTransition);
+            _requestedOwner = MovementOwner.DungeonRoom;
             string key = EdgeKey(edge.Source, edge.Target);
             if (!_edgeFailures.TryGetValue(key, out EdgeFailure failure))
                 _edgeFailures[key] = failure = new EdgeFailure();

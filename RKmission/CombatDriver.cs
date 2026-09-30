@@ -65,9 +65,9 @@ namespace RKmission
             }
             else if (!approach(enemy))
             {
-                _say($"Enemy {enemy.Name} {enemy.Identity} has no reachable mapped combat approach in room {roomId}: " +
+                _say($"Enemy {enemy.Name} {enemy.Identity} could not establish a mapped combat approach in room {roomId}: " +
                     $"distance={enemy.DistanceFrom(player):0.0}m, line of sight={inSight}, weapon range={inRange}, " +
-                    $"player={player.Position}, enemy={enemy.Position}.");
+                    $"movement owner={MovementArbiter.Current.Owner}, player={player.Position}, enemy={enemy.Position}.");
                 return false;
             }
             return true;
