@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using AOSharp.Common.GameData;
+using AOSharp.Common.Unmanaged.Imports;
 using AOSharp.Core;
 using AOSharp.Core.Inventory;
 using AOSharp.Pathfinding;
@@ -23,6 +24,7 @@ namespace RKmission
         private readonly DungeonLiftController _lifts = new DungeonLiftController();
         private MovementOwner _requestedOwner = MovementOwner.DungeonRoom;
         private const float EngagementRange = 20f;
+        private const float DoorUseRange = 2f;
         private const int ReverseEdgeCooldownSeconds = 1;
         private readonly HashSet<int> _clearedRooms = new HashSet<int>();
         private readonly HashSet<int> _visitedRooms = new HashSet<int>();
@@ -63,7 +65,7 @@ namespace RKmission
         {
             public DungeonLayout.Connection Edge;
             public TransitionPhase Phase;
-            public DateTime Started, PhaseStarted, LastAction, LastProgress;
+            public DateTime Started, PhaseStarted, LastAction, LastProgress, LastApproachCommand;
             public float BestDistance;
             public int DoorAttempts, CrossingRetries;
             public bool PushingDeeper, DoorApproachLogged;
@@ -903,6 +905,7 @@ namespace RKmission
             Transition crossing = _transition;
             DungeonLayout.Connection edge = crossing.Edge;
             Door door = _layout.DoorAt(edge);
+            bool passageOpen = IsPassageOpen(edge, door);
             DateTime now = DateTime.UtcNow;
             Vector3 position = DynelManager.LocalPlayer.Position;
             bool targetDetected = detectedRoom.Instance == edge.Target;
@@ -973,28 +976,29 @@ namespace RKmission
                     $"{door.DistanceFrom(DynelManager.LocalPlayer):0.0}m";
                 _say($"Transition {edge.Source}->{edge.Target}: door reached " +
                     $"(threshold {Vector3.Distance(position, edge.Threshold):0.0}m, " +
-                    $"door {liveDoorRange}, AO# range {aoDoorRange}).");
-                crossing.Phase = door != null && door.IsLocked && !door.IsOpen
+                    $"door {liveDoorRange}, AO# range {aoDoorRange}, " +
+                    $"flag open={door?.IsOpen}, locked={door?.IsLocked}, passage open={passageOpen}).");
+                crossing.Phase = door != null && !passageOpen
                     ? TransitionPhase.ProbeDoor : TransitionPhase.OpenDoor;
                 crossing.PhaseStarted = now;
                 crossing.LastProgress = now;
                 crossing.BestDistance = float.MaxValue;
                 _destination = null;
-                if (door != null && !door.IsOpen) MovementArbiter.Current.Halt(_requestedOwner);
+                if (door != null && !passageOpen) MovementArbiter.Current.Halt(_requestedOwner);
                 if (crossing.Phase == TransitionPhase.ProbeDoor)
-                    _say($"Transition {edge.Source}->{edge.Target}: door flags say locked and closed; probing passage before lockpicking.");
+                    _say($"Transition {edge.Source}->{edge.Target}: passage reported closed; probing crossing before door interaction.");
             }
 
             if (crossing.Phase == TransitionPhase.ProbeDoor)
             {
-                if (door == null || door.IsOpen || !door.IsLocked)
+                if (door == null || passageOpen)
                 {
                     crossing.Phase = TransitionPhase.OpenDoor;
                     crossing.PhaseStarted = now;
                     crossing.LastProgress = now;
                     crossing.BestDistance = float.MaxValue;
                     _destination = null;
-                    if (door != null && !door.IsOpen) MovementArbiter.Current.Halt(_requestedOwner);
+                    if (door != null && !passageOpen) MovementArbiter.Current.Halt(_requestedOwner);
                 }
                 else if (now - crossing.PhaseStarted < TimeSpan.FromSeconds(3))
                 {
@@ -1009,13 +1013,13 @@ namespace RKmission
                     crossing.BestDistance = float.MaxValue;
                     _destination = null;
                     MovementArbiter.Current.Halt(_requestedOwner);
-                    _say($"Transition {edge.Source}->{edge.Target}: passage blocked; trying Lock Pick on door {door.Identity}.");
+                    _say($"Transition {edge.Source}->{edge.Target}: passage not crossed; approaching door {door.Identity} for {(door.IsLocked ? "Lock Pick" : "open")} interaction.");
                 }
             }
 
             if (crossing.Phase == TransitionPhase.OpenDoor)
             {
-                if (door == null || door.IsOpen)
+                if (door == null || passageOpen)
                 {
                     _say($"Transition {edge.Source}->{edge.Target}: doorway open; crossing.");
                     crossing.Phase = TransitionPhase.CrossDoor;
@@ -1027,7 +1031,8 @@ namespace RKmission
                     return;
                 }
                 float doorDistance = Vector3.Distance(position, door.Position);
-                if (doorDistance > 4.5f)
+                float aoDoorDistance = door.DistanceFrom(DynelManager.LocalPlayer);
+                if (doorDistance > DoorUseRange || aoDoorDistance > DoorUseRange)
                 {
                     if (doorDistance + 0.5f < crossing.BestDistance)
                     {
@@ -1037,18 +1042,24 @@ namespace RKmission
                     if (!crossing.DoorApproachLogged)
                     {
                         crossing.DoorApproachLogged = true;
-                        _say($"Transition {edge.Source}->{edge.Target}: closing {doorDistance:0.0}m to door {door.Identity} before interaction.");
+                        _say($"Transition {edge.Source}->{edge.Target}: closing to within {DoorUseRange:0.0}m of door {door.Identity} before interaction (door {doorDistance:0.0}m, AO# {aoDoorDistance:0.0}m).");
                     }
                     if (now - crossing.LastProgress > TimeSpan.FromSeconds(6))
                     {
-                        FailTransition($"could not reach door {door.Identity} for interaction ({doorDistance:0.0}m away)");
+                        FailTransition($"could not reach door {door.Identity} for interaction (door {doorDistance:0.0}m, AO# {aoDoorDistance:0.0}m)");
                         return;
                     }
-                    Navigate(door.Position);
+                    if (now - crossing.LastApproachCommand >= TimeSpan.FromSeconds(1))
+                    {
+                        MovementArbiter.Current.SetDestination(_requestedOwner, door.Position);
+                        crossing.LastApproachCommand = now;
+                        _destination = door.Position;
+                    }
                     return;
                 }
                 if (now - crossing.LastAction < TimeSpan.FromSeconds(2))
                     return;
+                MovementArbiter.Current.Halt(_requestedOwner);
                 if (++crossing.DoorAttempts > 5)
                 {
                     FailTransition("door did not open after five attempts");
@@ -1062,12 +1073,12 @@ namespace RKmission
                         return;
                     }
                     pick.UseOn(door);
-                    _say($"Transition {edge.Source}->{edge.Target}: lockpick attempt {crossing.DoorAttempts} on {door.Identity} (open={door.IsOpen}, locked={door.IsLocked}).");
+                    _say($"Transition {edge.Source}->{edge.Target}: lockpick attempt {crossing.DoorAttempts} on {door.Identity} (open={door.IsOpen}, locked={door.IsLocked}, door {doorDistance:0.0}m, AO# {aoDoorDistance:0.0}m).");
                 }
                 else
                 {
                     door.Use();
-                    _say($"Transition {edge.Source}->{edge.Target}: open attempt {crossing.DoorAttempts}.");
+                    _say($"Transition {edge.Source}->{edge.Target}: open attempt {crossing.DoorAttempts} on {door.Identity} (door {doorDistance:0.0}m, AO# {aoDoorDistance:0.0}m, passage open={passageOpen}).");
                 }
                 crossing.LastAction = now;
                 return;
@@ -1171,6 +1182,17 @@ namespace RKmission
         private bool WaitingForRoute =>
             _edgeFailures.Values.Any(x => !x.Permanent && x.Until > DateTime.UtcNow) ||
             _reverseCooldown.Values.Any(x => x > DateTime.UtcNow);
+
+        private static bool IsPassageOpen(DungeonLayout.Connection edge, Door door)
+        {
+            if (door?.IsOpen == true) return true;
+            if (edge.Source < 0 || edge.Source > short.MaxValue ||
+                edge.Target < 0 || edge.Target > short.MaxValue)
+                return false;
+            IntPtr playfield = N3EngineClient_t.GetPlayfield();
+            return playfield != IntPtr.Zero &&
+                N3Playfield_t.IsDoorOpenBetweenRooms(playfield, (short)edge.Source, (short)edge.Target);
+        }
 
         private void Navigate(Vector3 destination)
         {
