@@ -1,6 +1,20 @@
 # RKMission Project Memory
 
-_Last updated: 2026-09-29_
+_Last updated: 2026-09-30_
+
+## 2026-09-30 public FGrid service fallback
+
+Automatic travel can now use a configured player-run Team Fixer Grid service
+after Scottyboi fails/unavailable. `FGridServiceProvider` moves to the configured
+normal Grid terminal before sending a tell, accepts only expected invite
+identities, waits for temporary Data Receptacle template 160978, then uses the
+confirmed destination terminal identities in `Data/GridTerminals.json` using
+the previously extracted Neko FgridWarper pattern. Zoning is verified against
+the requested playfield before local mission travel resumes. Live service bot
+names/commands are deliberately data-driven in `Data/FGridServices.json` and
+must be populated from in-game observations. An explicitly offline Scotty
+warper now falls through immediately without the normal two-minute failure
+cooldown. Details: `docs/history/2026-09-30-fgrid-service-fallback.md`.
 
 ## 2026-09-29 implementation continuation
 
