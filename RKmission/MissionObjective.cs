@@ -110,7 +110,7 @@ namespace RKmission
         {
             if (Finale) return;
             Finale = true;
-            _say("Other rooms, enemies and ordinary loot cleared; starting the reserved objective finale.");
+            _say("Other rooms and enemies cleared; ordinary loot processed or skipped. Starting the reserved objective finale.");
         }
 
         public void ObserveAcknowledgement()

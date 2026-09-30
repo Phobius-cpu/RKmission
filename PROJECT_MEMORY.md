@@ -2,6 +2,17 @@
 
 _Last updated: 2026-09-30_
 
+## 2026-09-30 skipped ordinary loot and mission completion
+
+- A live finale log reported three ordinary containers skipped in rooms 3, 4,
+  and 5, but also counted the same three as unfinished and stopped objective
+  completion. The room skip was honored by `NextMissionLoot`, yet the final
+  action gate and exit check still treated visible skipped containers as work.
+- Skipped ordinary identities remain recorded and logged, but are excluded
+  from unfinished loot and exit checks. The finale logs their count once and
+  proceeds when rooms, enemies, and genuinely unfinished loot are clear.
+  Mission-critical loot stays reserved and cannot use this skip path.
+
 ## 2026-09-30 U-shaped room loot navigation
 
 - The user clarified that `(Container:BB8CFAD)` was behind an interior wall
@@ -15,7 +26,7 @@ _Last updated: 2026-09-30_
   route cost when available. It observes navigation acceptance and can probe
   another side if the chest is geometrically near but does not open. Attempts
   remain bounded by a 75-second approach budget; skipped loot still uses the
-  existing Manager.Loot mission skip path and completion gate.
+  existing Manager.Loot mission skip path.
 - A pending chest-use response previously halted all RKMission loot movement,
   even when Manager.Loot still owned an ordinary chest across the wall. The
   pending identity now stays first in the room's loot selection, and RKMission

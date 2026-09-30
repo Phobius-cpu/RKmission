@@ -115,17 +115,16 @@ namespace ManagerLoot
             ReservedMissionLoot(identity) || MissionObjectiveContainer == identity;
         public bool IgnoreOrdinaryMissionLoot { get; set; }
         public int SkippedMissionLootCount => IgnoreOrdinaryMissionLoot ? 0 : _unreachableMissionLoot.Count(x =>
-            !_finishedMissionLoot.Contains(x) && !ReservedMissionLoot(x));
+            !IsMissionCriticalLoot(x));
         public int UnfinishedMissionLootCount => IgnoreOrdinaryMissionLoot ? 0 : _seenMissionLoot.Count(x =>
-            !_finishedMissionLoot.Contains(x) && !ReservedMissionLoot(x));
+            !_finishedMissionLoot.Contains(x) && !_unreachableMissionLoot.Contains(x) && !IsMissionCriticalLoot(x));
         public int ReservedPendingMissionLootCount => _seenMissionLoot.Count(x =>
             !_finishedMissionLoot.Contains(x) && ReservedMissionLoot(x));
         public string MissionLootBlockers => $"ordinary skipped={SkippedMissionLootCount}, ordinary unfinished={UnfinishedMissionLootCount}, " +
             $"reserved objective entries={ReservedPendingMissionLootCount}, process={CurrentProcess}, pending={_pendingMissionLoot}; " +
-            string.Join("; ", _seenMissionLoot.Union(_unreachableMissionLoot).Where(x =>
-                !_finishedMissionLoot.Contains(x) && !ReservedMissionLoot(x)).Take(8).Select(x =>
+            string.Join("; ", _seenMissionLoot.Where(x =>
+                !_finishedMissionLoot.Contains(x) && !_unreachableMissionLoot.Contains(x) && !IsMissionCriticalLoot(x)).Take(8).Select(x =>
                 $"{x} room={(_missionLootRooms.TryGetValue(x, out int room) ? room.ToString() : "unknown")} " +
-                (_unreachableMissionLoot.Contains(x) ? "skipped " : "") +
                 (DynelManager.GetDynel(x) == null ? "not currently visible" : "still visible")));
         public IEnumerable<MissionIdentity> MissionObjectiveItems => _objectiveLootItems;
         private bool ProtectedMissionItem(Item item) =>
@@ -134,6 +133,7 @@ namespace ManagerLoot
             !IgnoreOrdinaryMissionLoot && (MissionRoomDynels?.Invoke(roomId) ?? DynelManager.AllDynels).Any(x =>
                 (x.Identity.Type == IdentityType.Corpse || x.Identity.Type == IdentityType.Container) &&
                 IsInMissionRoom(x, roomId) && !_finishedMissionLoot.Contains(x.Identity) &&
+                !_unreachableMissionLoot.Contains(x.Identity) &&
                 (include == null || include(x)));
 
         public void SkipUnreachableMissionLoot(MissionIdentity identity)

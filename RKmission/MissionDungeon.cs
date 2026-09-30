@@ -260,7 +260,7 @@ namespace RKmission
             ReopenOccupiedRooms();
             _objective.FinalActionsAllowed = _clearedRooms.Count == Playfield.Rooms.Count &&
                 !Playfield.Rooms.Any(x => EnemyCandidates(x).Any(enemy => !_objective.IsObjective(enemy.Identity))) &&
-                _loot.SkippedMissionLootCount == 0 && _loot.UnfinishedMissionLootCount == 0;
+                _loot.UnfinishedMissionLootCount == 0;
             if (GuardReservedEnemy()) return;
             _loot.MissionActionsPaused = _readiness.InCombat;
             // An established doorway crossing retains its existing ownership and
@@ -397,11 +397,11 @@ namespace RKmission
                     _say("No further reachable rooms; failed doors/routes or missing Mali room geometry remain.");
                     return;
                 }
-                if (_loot.SkippedMissionLootCount > 0 || _loot.UnfinishedMissionLootCount > 0)
+                if (_loot.UnfinishedMissionLootCount > 0)
                 {
                     string blockers = _loot.MissionLootBlockers;
                     Stop();
-                    _say($"Ordinary loot remains skipped or unfinished; objective completion and automatic exit are held. {blockers}. Check loot logs, rules and free space.");
+                    _say($"Ordinary loot remains unfinished; objective completion and automatic exit are held. {blockers}. Check loot logs, rules and free space.");
                     return;
                 }
                 if (!_objective.HasSteps)
@@ -409,6 +409,8 @@ namespace RKmission
                 if (!_objective.Finale)
                 {
                     MovementArbiter.Current.Halt(_requestedOwner);
+                    if (_loot.SkippedMissionLootCount > 0)
+                        _say($"{_loot.SkippedMissionLootCount} ordinary loot source(s) skipped this mission; continuing to the reserved objective.");
                     if (_loot.ReservedPendingMissionLootCount > 0)
                         _say($"{_loot.ReservedPendingMissionLootCount} reserved objective loot entries are final work, excluded from the ordinary-loot gate.");
                     _objective.BeginFinale();
