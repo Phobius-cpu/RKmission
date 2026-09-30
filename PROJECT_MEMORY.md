@@ -2,6 +2,22 @@
 
 _Last updated: 2026-09-30_
 
+## 2026-09-30 Scottyboi assigned-warper invites
+
+- Scottyboi already autoaccepted invites from resolved bot/warper identities.
+  An assigned warper could invite before its asynchronous name lookup returned;
+  that invite fell through to the game's manual prompt. RKMission now holds a
+  small bounded set of such invites, verifies the returned warper identity,
+  and accepts only the matching request while a Scotty warp is active.
+- Queue replies are accepted only from the selected Scotty command recipient
+  or a resolved Scotty alias. Destination confirmation can match the selected
+  menu location (for example `Comm. Relay Tower`) as well as the playfield
+  name; unrelated destinations are rejected. Final zoning must still verify
+  the requested playfield, and RKMission leaves only teams it joined itself.
+- The AOSharp `TeamRequestEventArgs.Accept()` method sends the real team reply;
+  local synthetic menu/reply checks and build passed. Invite timing and zoning
+  need in-game validation.
+
 ## 2026-09-30 Scottyboi menu sections across zones
 
 - A live `!help` reply contained all three menu pages and visibly listed

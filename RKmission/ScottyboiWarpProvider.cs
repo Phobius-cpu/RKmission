@@ -20,9 +20,9 @@ namespace RKmission
         private enum State { Idle, Lookup, Help, CommandLookup, Invite, Warp, Settling, Done, Failed }
         private sealed class WarpCommand
         {
-            public string Recipient, Text;
-            public WarpCommand(string recipient, string text)
-            { Recipient = recipient; Text = text; }
+            public string Recipient, Text, Destination;
+            public WarpCommand(string recipient, string text, string? destination = null)
+            { Recipient = recipient; Text = text; Destination = Normalize(destination); }
         }
         private const string BotName = "Scottyboi";
         private const string MenuName = "scty";
@@ -45,6 +45,7 @@ namespace RKmission
         private DateTime _zonedAt;
         private bool _helpRetried, _teleportStarted;
         private bool _joinedByProvider;
+        private readonly List<TeamRequestEventArgs> _pendingWarperInvites = new List<TeamRequestEventArgs>();
         private string _lastReply;
         private int _helpReplies, _menuPageCount;
         private readonly HashSet<int> _menuPages = new HashSet<int>();
@@ -76,6 +77,7 @@ namespace RKmission
                 _lastReply = null;
                 _botId = _menuId = _replyId = _helpId = _recipientId = _warperId = 0;
                 _warperName = null;
+                _pendingWarperInvites.Clear();
                 _pendingCommand = null;
                 _helpReplies = _menuPageCount = 0;
                 _menuPages.Clear();
@@ -106,6 +108,7 @@ namespace RKmission
                 if (Playfield.ModelIdentity.Instance != _targetId)
                 { Fail($"Warp ended in playfield {Playfield.ModelIdentity.Instance}, not {_targetId}."); return WarpResult.Failed; }
                 _state = State.Done;
+                _pendingWarperInvites.Clear();
                 _movement.Release(MovementOwner.WarpTravel);
                 if (_joinedByProvider && Team.IsInTeam) Team.Leave();
                 _joinedByProvider = false;
@@ -116,7 +119,7 @@ namespace RKmission
                 DateTime.UtcNow - _started > TimeSpan.FromSeconds(10))
             {
                 _say("Mort's menu page is missing; using the confirmed Hope command.");
-                RequestWarp(new WarpCommand(MenuName, "hope"));
+                RequestWarp(new WarpCommand(MenuName, "hope", "hope"));
             }
             if (_state == State.Help && !_helpRetried &&
                 DateTime.UtcNow - _started > TimeSpan.FromSeconds(10) &&
@@ -175,7 +178,18 @@ namespace RKmission
                 }
                 else if (_warperName != null &&
                     string.Equals(lookup.Name, _warperName, StringComparison.OrdinalIgnoreCase))
+                {
                     _warperId = lookup.Id;
+                    if (_pendingWarperInvites.Count > 0)
+                    {
+                        TeamRequestEventArgs? pending = _pendingWarperInvites.FirstOrDefault(x =>
+                            _warperId != 0 && _warperId == unchecked((uint)x.Requester.Instance));
+                        _pendingWarperInvites.Clear();
+                        if (pending != null && !pending.Responded && !Team.IsInTeam &&
+                            (_state == State.Invite || _state == State.Warp))
+                            AcceptWarpInvite(pending, _warperId);
+                    }
+                }
                 if (_state == State.CommandLookup && _pendingCommand != null &&
                     (string.Equals(lookup.Name, _pendingCommand.Recipient, StringComparison.OrdinalIgnoreCase) ||
                      (string.Equals(_pendingCommand.Recipient, MenuName, StringComparison.OrdinalIgnoreCase) &&
@@ -246,14 +260,15 @@ namespace RKmission
 
         private void HandleWarpReply(PrivateMsgMessage reply)
         {
+            // Only the account that received the selected command (or a
+            // resolved Scotty alias) may assign an automatic team inviter.
+            if (reply.Sender == 0 ||
+                (reply.Sender != _recipientId && reply.Sender != _botId &&
+                 reply.Sender != _menuId && reply.Sender != _replyId)) return;
             string text = Regex.Replace(WebUtility.HtmlDecode(reply.Text), "<[^>]+>", " ");
             if (text.IndexOf("queue to get warped to", StringComparison.OrdinalIgnoreCase) < 0)
                 return;
-            Match destination = Regex.Match(text,
-                @"queue to get warped to\s+(?<zone>[^,.]+)", RegexOptions.IgnoreCase);
-            if (!destination.Success ||
-                Array.FindIndex(_targetAliases, alias =>
-                    Normalize(destination.Groups["zone"].Value) == alias) < 0) return;
+            if (!MatchesQueuedDestination(text, _targetAliases, _pendingCommand?.Destination ?? "")) return;
             Match warper = Regex.Match(text, @"warper\s*\((?<name>[a-z][a-z0-9_-]{2,24})\)",
                 RegexOptions.IgnoreCase);
             if (!warper.Success) return;
@@ -263,6 +278,8 @@ namespace RKmission
             if (!string.Equals(_warperName, assignedWarper, StringComparison.OrdinalIgnoreCase))
             {
                 _warperName = assignedWarper;
+                _warperId = 0;
+                _pendingWarperInvites.Clear();
                 if (!offline)
                 {
                     _started = DateTime.UtcNow;
@@ -277,18 +294,41 @@ namespace RKmission
             Network.Send(new LookupMessage { Id = 0, Name = _warperName });
         }
 
+        private static bool MatchesQueuedDestination(string text, string[] aliases, string expectedLocation)
+        {
+            Match destination = Regex.Match(text,
+                @"queue to get warped to\s+(?<zone>.+)", RegexOptions.IgnoreCase);
+            if (!destination.Success) return false;
+            string queued = Normalize(destination.Groups["zone"].Value);
+            return aliases.Any(alias => queued.StartsWith(alias, StringComparison.Ordinal)) ||
+                (expectedLocation.Length > 0 && queued.StartsWith(expectedLocation, StringComparison.Ordinal));
+        }
+
         private void OnTeamRequest(object sender, TeamRequestEventArgs request)
         {
             uint requesterId = unchecked((uint)request.Requester.Instance);
-            if ((_state != State.Invite && _state != State.Warp) ||
-                Team.IsInTeam ||
-                (requesterId != _botId &&
-                 requesterId != _recipientId &&
-                 requesterId != _menuId &&
-                 requesterId != _replyId &&
-                 requesterId != _warperId))
+            if ((_state != State.Invite && _state != State.Warp) || Team.IsInTeam || requesterId == 0) return;
+            if (requesterId == _botId || requesterId == _recipientId ||
+                requesterId == _menuId || requesterId == _replyId ||
+                (_warperId != 0 && requesterId == _warperId))
+            {
+                AcceptWarpInvite(request, requesterId);
                 return;
+            }
+            if (_warperName != null && _warperId == 0 && _pendingWarperInvites.Count < 4 &&
+                !_pendingWarperInvites.Any(x => x.Requester == request.Requester))
+            {
+                bool firstInvite = _pendingWarperInvites.Count == 0;
+                _pendingWarperInvites.Add(request);
+                if (firstInvite) Network.Send(new LookupMessage { Id = 0, Name = _warperName });
+                _say($"Scottyboi warper invite from identity {requesterId} is waiting for the assigned name lookup.");
+            }
+        }
+
+        private void AcceptWarpInvite(TeamRequestEventArgs request, uint requesterId)
+        {
             request.Accept();
+            _pendingWarperInvites.Clear();
             _joinedByProvider = true;
             _state = State.Warp;
             _started = DateTime.UtcNow;
@@ -317,6 +357,7 @@ namespace RKmission
         {
             LastFailure = reason;
             _state = State.Failed;
+            _pendingWarperInvites.Clear();
             if (applyBackoff)
                 _backoffUntil = DateTime.UtcNow.AddMinutes(2);
             _movement.Release(MovementOwner.WarpTravel);
@@ -335,7 +376,8 @@ namespace RKmission
             {
                 string url = WebUtility.HtmlDecode(Uri.UnescapeDataString(anchor.Groups["url"].Value));
                 string label = Regex.Replace(anchor.Groups["label"].Value, "<[^>]+>", " ");
-                if (MatchesTarget(label, target) && TryCommandFromUrl(url, out command)) return true;
+                if (MatchesTarget(label, target) && TryCommandFromUrl(url, out command))
+                { command.Destination = Normalize(label); return true; }
             }
             Match legacyLink = Regex.Match(line,
                 @"(?:chatcmd:///tell|/tell)\s+(?<recipient>Scottyboi\d*|scty)\s+(?<command>!?[a-z][a-z0-9_-]{1,20})[^>]*>(?<label>[^<]+)",
@@ -343,7 +385,7 @@ namespace RKmission
             if (legacyLink.Success && MatchesTarget(legacyLink.Groups["label"].Value, target))
             {
                 command = new WarpCommand(legacyLink.Groups["recipient"].Value,
-                    legacyLink.Groups["command"].Value);
+                    legacyLink.Groups["command"].Value, legacyLink.Groups["label"].Value);
                 return true;
             }
             if (line.IndexOf("<a", StringComparison.OrdinalIgnoreCase) >= 0) return false;
@@ -359,7 +401,7 @@ namespace RKmission
                     RegexOptions.IgnoreCase);
                 if (!tell.Success) continue;
                 command = new WarpCommand(tell.Groups["recipient"].Success
-                    ? tell.Groups["recipient"].Value : BotName, tell.Groups["command"].Value);
+                    ? tell.Groups["recipient"].Value : BotName, tell.Groups["command"].Value, parts[i]);
                 return true;
             }
             return false;
@@ -413,7 +455,14 @@ namespace RKmission
                     string label = Regex.Replace(anchor.Groups["label"].Value, "<[^>]+>", " ");
                     if (Normalize(label) == "wp" || Normalize(label) == "waypoint") continue;
                     string url = WebUtility.HtmlDecode(Uri.UnescapeDataString(anchor.Groups["url"].Value));
-                    if (TryCommandFromUrl(url, out command)) return true;
+                    if (TryCommandFromUrl(url, out command))
+                    {
+                        string location = Normalize(label);
+                        if (location == "warp" || location == "go" || location == "travel")
+                            location = Normalize(heading);
+                        command.Destination = location;
+                        return true;
+                    }
                 }
             }
             return false;
@@ -439,7 +488,7 @@ namespace RKmission
                 normalized == target + "warp";
         }
 
-        private static string Normalize(string text) =>
+        private static string Normalize(string? text) =>
             Regex.Replace(text ?? "", "[^a-z0-9]", "", RegexOptions.IgnoreCase).ToLowerInvariant();
 
         private static string[] MenuAliasesFor(int playfieldId, string enumName)
@@ -481,6 +530,7 @@ namespace RKmission
             _lastReply = null;
             _botId = _menuId = _replyId = _helpId = _recipientId = _warperId = 0;
             _warperName = null;
+            _pendingWarperInvites.Clear();
             _pendingCommand = null;
             _targetAliases = null;
             _helpReplies = _menuPageCount = 0;

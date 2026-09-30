@@ -139,6 +139,8 @@ under the destination playfield's heading for any zone, and waits for
 the assigned warper's team invite. For other zones, if some menu pages are missing, it
 requests the menu once more. A character already in a team cannot receive
 Scottyboi's invite.
+Expected Scottyboi or assigned-warper team invites are accepted automatically;
+an early warper invite waits briefly for its name lookup before acceptance.
 For Mort, the confirmed `scty` command `hope` is used when the Mort menu page
 does not arrive. An offline warper reply ends that request and reports why no
 team invite can follow.
