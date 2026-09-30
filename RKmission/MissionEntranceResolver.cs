@@ -41,6 +41,14 @@ namespace RKmission
             public int Entrance;
         }
 
+        private sealed class MissionKeyCandidate
+        {
+            public Item Key;
+            public int DynelInstance;
+            public string Name;
+            public string Label;
+        }
+
         public MissionEntranceResolver(string pluginDir, Action<string> say)
         {
             _say = say;
@@ -86,21 +94,19 @@ namespace RKmission
             if (mission?.Location == null) return;
             Vector3 anchor = mission.Location.Pos;
             int playfield = mission.Location.Playfield.Instance;
-            // Live entrances near the anchor take priority over static Neko IDs.
             var live = Playfield.ModelIdentity.Instance == playfield
                 ? DynelManager.AllDynels.Where(x => x.Identity.Type == IdentityType.ACGEntrance &&
                     HorizontalDistance(x.Position, anchor) <= 8f)
                     .OrderBy(x => HorizontalDistance(x.Position, anchor))
                     .Select(x => x.Identity.Instance).Distinct().ToList()
                 : new List<int>();
-            int missionKeys = 0, namedKeys = 0, mappedKeys = 0;
-            string firstUnmappedLabel = null;
-            List<Item> inventory = Inventory.Items;
+            var keys = new List<MissionKeyCandidate>();
+            int missionKeys = 0;
             string firstUnreadableName = null;
+            List<Item> inventory = Inventory.Items;
             foreach (Item key in inventory)
             {
-                // Neko reads the name from the key's dynel identity. Item.Name
-                // is a template name and can omit the mission's dynamic label.
+                // Neko reads the dynamic name through the key's dynel identity.
                 Identity keyDynel = N3EngineClientAnarchy.TemplateIDToDynelID(key.Slot);
                 bool templateMatches = TryMissionKeyLabel(key.Name, out string templateLabel);
                 if (keyDynel.Type != IdentityType.MissionKey &&
@@ -109,7 +115,7 @@ namespace RKmission
                 missionKeys++;
                 string keyName = keyDynel.Type == IdentityType.MissionKey
                     ? N3EngineClientAnarchy.GetName(keyDynel) : null;
-                if (!TryMissionKeyLabel(keyName, out string name))
+                if (!TryMissionKeyLabel(keyName, out string label))
                 {
                     if (!templateMatches)
                     {
@@ -117,50 +123,79 @@ namespace RKmission
                             firstUnreadableName = $"dynel='{keyName}', template='{key.Name}'";
                         continue;
                     }
-                    name = templateLabel;
+                    label = templateLabel;
                 }
-                namedKeys++;
-                var ids = new List<int>();
-                int keyDynelInstance = keyDynel.Type == IdentityType.MissionKey
-                    ? keyDynel.Instance : key.UniqueIdentity.Instance;
-                if (_successfulKeys.TryGetValue(keyDynelInstance, out int cached)) ids.Add(cached);
-                ids.AddRange(live);
-                if (_entrances.TryGetValue(name, out List<uint> known))
+                keys.Add(new MissionKeyCandidate
                 {
-                    if (known.Count <= MaxUnlocatedEntrancesPerName)
-                    {
-                        mappedKeys++;
-                        ids.AddRange(known.Select(x => unchecked((int)x)));
-                    }
-                    else if (ids.Count == 0)
-                        _say($"ACG label '{name}' has {known.Count} unlocated entrances, above the {MaxUnlocatedEntrancesPerName} candidate limit; using normal travel.");
+                    Key = key,
+                    DynelInstance = keyDynel.Type == IdentityType.MissionKey
+                        ? keyDynel.Instance : key.UniqueIdentity.Instance,
+                    Name = keyName ?? key.Name,
+                    Label = label
+                });
+            }
+
+            // A nearby ACG entrance is tied to the mission anchor. Prefer only
+            // keys whose label actually contains that entrance ID in Neko data.
+            // With several keys and no live match, static brute force can open
+            // another accepted mission's dungeon, so travel to the anchor.
+            int matchingLiveKeys = live.Count == 0 ? 0 : keys.Count(key =>
+                _entrances.TryGetValue(key.Label, out List<uint> known) &&
+                live.Any(id => known.Contains(unchecked((uint)id))));
+            foreach (MissionKeyCandidate key in keys)
+            {
+                var ids = new List<int>();
+                bool hasKnownLabel = _entrances.TryGetValue(key.Label, out List<uint> known);
+                if (live.Count > 0 && matchingLiveKeys <= 1)
+                {
+                    if (hasKnownLabel)
+                        ids.AddRange(live.Where(id => known.Contains(unchecked((uint)id))));
+                    else if (keys.Count == 1)
+                        ids.AddRange(live);
                 }
-                else if (firstUnmappedLabel == null) firstUnmappedLabel = name;
+                else if (keys.Count == 1)
+                {
+                    if (_successfulKeys.TryGetValue(key.DynelInstance, out int cached))
+                        ids.Add(cached);
+                    if (hasKnownLabel && known.Count <= MaxUnlocatedEntrancesPerName)
+                        ids.AddRange(known.Select(x => unchecked((int)x)));
+                    else if (hasKnownLabel && known.Count > MaxUnlocatedEntrancesPerName)
+                        _say($"ACG label '{key.Label}' has {known.Count} unlocated entrances, above the {MaxUnlocatedEntrancesPerName} candidate limit; using normal travel.");
+                }
                 foreach (int id in ids.Distinct())
                 {
                     if (_attempts.Count >= MaxCandidateAttempts) break;
-                    _attempts.Add(new KeyEntrance { Key = key, KeyDynelInstance = keyDynelInstance, KeyName = keyName ?? key.Name, Entrance = id });
+                    _attempts.Add(new KeyEntrance
+                    {
+                        Key = key.Key, KeyDynelInstance = key.DynelInstance,
+                        KeyName = key.Name, Entrance = id
+                    });
                 }
             }
             if (_attempts.Count > 0)
                 _say($"Selected mission has {_attempts.Count} Neko ACG key/entrance candidate pairs across " +
-                    $"{_attempts.Select(x => x.KeyDynelInstance).Distinct().Count()} mission key(s); trying key warp before normal travel.");
+                    $"{_attempts.Select(x => x.KeyDynelInstance).Distinct().Count()} mission key(s), " +
+                    $"mode={(live.Count > 0 ? "nearby entrance" : "single-key static")}; trying key warp before normal travel.");
             else
             {
                 string reason = _entrances.Count == 0
                     ? "ACGEntrances.json was not loaded or has no entries"
                     : missionKeys == 0
                         ? "no mission-key dynel found in inventory"
-                        : namedKeys == 0
+                        : keys.Count == 0
                             ? $"mission-key dynels have no readable destination label ({firstUnreadableName})"
-                            : mappedKeys == 0 && firstUnmappedLabel != null
-                                ? $"key label '{firstUnmappedLabel}' is not in ACGEntrances.json"
-                                : "no bounded entrance IDs for the available key";
+                            : live.Count == 0 && keys.Count > 1
+                                ? "several mission keys and no nearby entrance to identify the selected mission"
+                                : matchingLiveKeys > 1
+                                    ? "several mission keys match nearby entrance IDs"
+                                    : live.Count > 0
+                                        ? "no mission-key label matches the nearby entrance IDs"
+                                    : $"key label '{keys[0].Label}' has no bounded entrance IDs";
                 if (reason != _lastNoCandidateReason ||
                     DateTime.UtcNow - _lastNoCandidateLogAt > TimeSpan.FromSeconds(30))
                 {
                     _say($"No bounded Neko ACG key/entrance candidate: {reason}; " +
-                        $"inventory items={inventory.Count}, keys={missionKeys}, named={namedKeys}, entrance labels={_entrances.Count}. Using normal travel.");
+                        $"inventory items={inventory.Count}, keys={missionKeys}, named={keys.Count}, nearby entrances={live.Count}, entrance labels={_entrances.Count}. Using normal travel.");
                     _lastNoCandidateReason = reason;
                     _lastNoCandidateLogAt = DateTime.UtcNow;
                 }
@@ -193,7 +228,7 @@ namespace RKmission
             KeyEntrance attempt = _attempts[_index];
             if (!Inventory.Items.Any(x => x.UniqueIdentity == attempt.Key.UniqueIdentity))
             { Advance(); return EntranceResult.Waiting; }
-            if (_index == 0 || _index % 10 == 0)
+            if (_attempts.Count <= 10 || _index == 0 || _index % 10 == 0)
                 _say($"Neko ACG key warp: candidate {_index + 1}/{_attempts.Count}, key='{attempt.KeyName}', " +
                     $"entrance={unchecked((uint)attempt.Entrance)}, current playfield={Playfield.ModelIdentity.Instance}.");
             Item.UseItemOnItem(attempt.Key.Slot,
