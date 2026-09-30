@@ -65,13 +65,19 @@ the temporary Data Receptacle (template 160978), and uses it on the nearby
 Grid entrance to enter Fixer Grid. `FixerGridExits.json` maps supported
 destinations to floors and exit names. The first route is Perpetual Wastelands
 (570), floor 10; RKMission traverses the lifts, chooses an exit by its live
-terminal name, and verifies the destination after zoning. The previous
+terminal name, or by a nearby destination-labelled dynel that identifies one
+generic `Exit the Grid` portal unambiguously, and verifies the destination
+after zoning. If AO# exposes only generic portal names with no destination
+label, the attempt stops on floor 10 and logs visible portal identities and
+positions. A manual trip through a generic portal learns its destination only
+after zoning confirms a configured playfield; future runs can use that saved
+portal position from `RKMissionData/fixer-grid-exits.json`. The previous
 `GridTerminals.json` lists *entrances by source playfield*, not destination
 exits; it is no longer used to select an FGrid destination. A missing/offline
 service, invite timeout, missing receptacle, unknown exit or wrong destination
 stops the FGrid attempt and records the cause. Use `/rkm fgrid` to inspect
 configuration, mapped destinations, activity, and the last failure. Lift and
-exit selection still need in-game validation. AO# reports Fixer Grid as a
+exit selection still needs in-game validation. AO# reports Fixer Grid as a
 dungeon, but RKMission keeps its travel provider active there and can resume
 the mapped exit route after `/rkm auto` is restarted inside it.
 

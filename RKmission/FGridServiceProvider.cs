@@ -46,6 +46,13 @@ namespace RKmission
             public int Floor { get; set; }
             public List<string> Names { get; set; } = new List<string>();
         }
+        private sealed class LearnedExit
+        {
+            public int Floor { get; set; }
+            public int Identity { get; set; }
+            public float X { get; set; }
+            public float Z { get; set; }
+        }
         // Lift coordinates from AOSharp.Navigator's FixerGridElevators.
         private static readonly Vector3[] UpLifts =
         {
@@ -63,6 +70,8 @@ namespace RKmission
         private readonly List<ServiceConfig> _services = new List<ServiceConfig>();
         private readonly List<ServiceConfig> _candidates = new List<ServiceConfig>();
         private readonly Dictionary<int, ExitRoute> _exitRoutes = new Dictionary<int, ExitRoute>();
+        private readonly Dictionary<int, LearnedExit> _learnedExits = new Dictionary<int, LearnedExit>();
+        private readonly string _learnedExitPath;
         private readonly Dictionary<int, Vector3> _entrancePositions = new Dictionary<int, Vector3>();
         private readonly HashSet<uint> _expectedInviters = new HashSet<uint>();
         private readonly Action<string> _say;
@@ -82,6 +91,9 @@ namespace RKmission
         private DateTime _lastUse;
         private DateTime _zonedAt;
         private DateTime _backoffUntil;
+        private LearnedExit _observedExit;
+        private DateTime _observedExitZoneEnded;
+        private bool _learnedExitsWritable = true;
 
         public string LastFailure { get; private set; }
         public bool IsConfigured => _services.Count > 0;
@@ -94,12 +106,15 @@ namespace RKmission
         {
             _say = say;
             _movement = movement;
+            _learnedExitPath = System.IO.Path.Combine(pluginDir, "RKMissionData", "fixer-grid-exits.json");
             Load(System.IO.Path.Combine(pluginDir, "Data", "FGridServices.json"));
             LoadRoutes(pluginDir);
+            LoadLearnedExits();
             Network.ChatMessageReceived += OnChatMessage;
             Team.TeamRequest += OnTeamRequest;
             Game.TeleportStarted += OnTeleportStarted;
             Game.TeleportEnded += OnTeleportEnded;
+            Game.OnUpdate += OnUpdate;
         }
 
         private void LoadRoutes(string pluginDir)
@@ -139,6 +154,48 @@ namespace RKmission
             catch (Exception ex)
             {
                 _say("Could not load Fixer Grid route data: " + ex.Message);
+            }
+        }
+
+        private void LoadLearnedExits()
+        {
+            try
+            {
+                if (!File.Exists(_learnedExitPath)) return;
+                var saved = JsonConvert.DeserializeObject<Dictionary<int, LearnedExit>>(
+                    File.ReadAllText(_learnedExitPath));
+                if (saved == null) throw new InvalidDataException("empty Fixer Grid exit learning file");
+                foreach (var entry in saved)
+                    if (_exitRoutes.TryGetValue(entry.Key, out ExitRoute route) &&
+                        entry.Value != null && entry.Value.Floor == route.Floor &&
+                        !float.IsNaN(entry.Value.X) && !float.IsNaN(entry.Value.Z) &&
+                        !float.IsInfinity(entry.Value.X) && !float.IsInfinity(entry.Value.Z))
+                        _learnedExits[entry.Key] = entry.Value;
+                if (_learnedExits.Count > 0)
+                    _say($"Loaded {_learnedExits.Count} learned Fixer Grid exit route(s).");
+            }
+            catch (Exception ex)
+            {
+                _learnedExits.Clear();
+                _learnedExitsWritable = false;
+                _say("Fixer Grid exit learning file could not be read; file preserved: " + ex.Message);
+            }
+        }
+
+        private void SaveLearnedExits()
+        {
+            if (!_learnedExitsWritable) return;
+            try
+            {
+                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(_learnedExitPath));
+                string temp = _learnedExitPath + ".new";
+                File.WriteAllText(temp, JsonConvert.SerializeObject(_learnedExits, Formatting.Indented));
+                if (File.Exists(_learnedExitPath)) File.Replace(temp, _learnedExitPath, null);
+                else File.Move(temp, _learnedExitPath);
+            }
+            catch (Exception ex)
+            {
+                _say("Fixer Grid exit learning could not be saved: " + ex.Message);
             }
         }
 
@@ -389,12 +446,9 @@ namespace RKmission
                 {
                     if (DateTime.UtcNow - _started > TimeSpan.FromSeconds(20))
                     {
-                        string seen = string.Join(", ", DynelManager.Terminals
-                            .Where(x => Math.Abs(x.Position.Y - DynelManager.LocalPlayer.Position.Y) < 4f)
-                            .Select(x => x.Name).Where(x => !string.IsNullOrWhiteSpace(x))
-                            .Distinct().Take(8));
-                        Fail($"No named Fixer Grid exit for playfield {_targetId} was visible on floor {_route.Floor}" +
-                            (seen.Length == 0 ? "." : $"; nearby terminal names: {seen}."));
+                        string seen = DescribeFloorExits();
+                        Fail($"No verified Fixer Grid exit for playfield {_targetId} was found on floor {_route.Floor}" +
+                            (seen.Length == 0 ? "." : $"; {seen}."));
                         return FGridServiceResult.Failed;
                     }
                     return FGridServiceResult.InProgress;
@@ -455,12 +509,76 @@ namespace RKmission
         {
             if (_route == null) return null;
             float height = DynelManager.LocalPlayer.Position.Y;
-            return DynelManager.Terminals.Where(x =>
+            if (_learnedExits.TryGetValue(_targetId, out LearnedExit learned) &&
+                learned.Floor == _route.Floor)
+            {
+                SimpleItem mapped = DynelManager.Terminals.FirstOrDefault(x =>
+                    Math.Abs(x.Position.Y - height) < 4f &&
+                    string.Equals(x.Name, "Exit the Grid", StringComparison.OrdinalIgnoreCase) &&
+                    Math.Abs(x.Position.X - learned.X) < 1.5f &&
+                    Math.Abs(x.Position.Z - learned.Z) < 1.5f);
+                if (mapped != null) return mapped;
+            }
+            SimpleItem named = DynelManager.Terminals.Where(x =>
                     Math.Abs(x.Position.Y - height) < 4f &&
                     _route.Names.Any(name => x.Name != null &&
                         x.Name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0))
                 .OrderBy(x => Vector3.Distance(x.Position, DynelManager.LocalPlayer.Position))
                 .FirstOrDefault();
+            if (named != null) return named;
+
+            // FGrid portals can all be named "Exit the Grid". Match a portal
+            // only when another live dynel labels its destination nearby.
+            var labels = DynelManager.AllDynels.Where(x =>
+                    Math.Abs(x.Position.Y - height) < 4f && x.Name != null &&
+                    _route.Names.Any(name => x.Name.IndexOf(name,
+                        StringComparison.OrdinalIgnoreCase) >= 0)).ToList();
+            var portals = DynelManager.Terminals.Where(x =>
+                    Math.Abs(x.Position.Y - height) < 4f &&
+                    string.Equals(x.Name, "Exit the Grid", StringComparison.OrdinalIgnoreCase)).ToList();
+            var verified = new List<SimpleItem>();
+            foreach (Dynel label in labels)
+            {
+                var closest = portals.OrderBy(portal =>
+                    Vector3.Distance(label.Position, portal.Position)).Take(2).ToList();
+                if (closest.Count == 0) continue;
+                float firstDistance = Vector3.Distance(label.Position, closest[0].Position);
+                float secondDistance = closest.Count > 1
+                    ? Vector3.Distance(label.Position, closest[1].Position) : float.MaxValue;
+                if (firstDistance <= 5f && secondDistance - firstDistance >= 3f)
+                    verified.Add(closest[0]);
+            }
+            return verified
+                .OrderBy(x => Vector3.Distance(x.Position, DynelManager.LocalPlayer.Position))
+                .FirstOrDefault();
+        }
+
+        private string DescribeFloorExits()
+        {
+            float height = DynelManager.LocalPlayer.Position.Y;
+            var dynels = DynelManager.AllDynels.Where(x =>
+                Math.Abs(x.Position.Y - height) < 4f &&
+                !string.IsNullOrWhiteSpace(x.Name)).ToList();
+            var portals = DynelManager.Terminals.Where(x =>
+                    Math.Abs(x.Position.Y - height) < 4f &&
+                    string.Equals(x.Name, "Exit the Grid", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(x => x.Position.X).ThenBy(x => x.Position.Z).Take(8).ToList();
+            if (portals.Count == 0)
+                return "no Exit the Grid terminals were visible";
+            string candidates = "portal candidates: " + string.Join("; ", portals.Select(portal =>
+            {
+                string labels = string.Join("/", dynels.Where(x =>
+                        x.Identity != portal.Identity &&
+                        !string.Equals(x.Name, "Exit the Grid", StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(x.Name, "Elevator", StringComparison.OrdinalIgnoreCase) &&
+                        Vector3.Distance(x.Position, portal.Position) <= 12f)
+                    .OrderBy(x => Vector3.Distance(x.Position, portal.Position))
+                    .Select(x => x.Name).Distinct().Take(3));
+                return $"{portal.Identity} at ({portal.Position.X:0.0},{portal.Position.Z:0.0})" +
+                    (labels.Length == 0 ? "" : $" labels={labels}");
+            }));
+            return candidates + $"; scan position ({DynelManager.LocalPlayer.Position.X:0.0}," +
+                $"{DynelManager.LocalPlayer.Position.Z:0.0})";
         }
 
         private void BeginLookup()
@@ -550,12 +668,34 @@ namespace RKmission
 
         private void OnTeleportStarted(object sender, EventArgs args)
         {
+            _observedExit = null;
+            _observedExitZoneEnded = DateTime.MinValue;
+            if (Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid &&
+                DynelManager.LocalPlayer != null)
+            {
+                Vector3 playerPosition = DynelManager.LocalPlayer.Position;
+                var nearest = DynelManager.Terminals.Where(x =>
+                        Math.Abs(x.Position.Y - playerPosition.Y) < 4f &&
+                        string.Equals(x.Name, "Exit the Grid", StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(x => Vector3.Distance(x.Position, playerPosition)).Take(2).ToList();
+                if (nearest.Count > 0 && Vector3.Distance(nearest[0].Position, playerPosition) <= 3f &&
+                    (nearest.Count == 1 || Vector3.Distance(nearest[1].Position, playerPosition) > 5f))
+                    _observedExit = new LearnedExit
+                    {
+                        Floor = Math.Max(0, (int)(playerPosition.Y / 10f)),
+                        Identity = nearest[0].Identity.Instance,
+                        X = nearest[0].Position.X,
+                        Z = nearest[0].Position.Z
+                    };
+            }
             if (_state == State.Entering || _state == State.Exit)
                 _teleportStarted = true;
         }
 
         private void OnTeleportEnded(object sender, EventArgs args)
         {
+            if (_observedExit != null)
+                _observedExitZoneEnded = DateTime.UtcNow;
             if (!_teleportStarted) return;
             if (_state == State.Entering)
             {
@@ -568,6 +708,27 @@ namespace RKmission
                 _zonedAt = DateTime.UtcNow;
                 _teleportStarted = false;
             }
+        }
+
+        private void OnUpdate(object sender, float deltaTime)
+        {
+            if (_observedExit == null || _observedExitZoneEnded == DateTime.MinValue) return;
+            int destination = Playfield.ModelIdentity.Instance;
+            if (destination > 0 && destination != (int)PlayfieldId.FixerGrid)
+            {
+                if (_exitRoutes.TryGetValue(destination, out ExitRoute route) &&
+                    route.Floor == _observedExit.Floor)
+                {
+                    _learnedExits[destination] = _observedExit;
+                    SaveLearnedExits();
+                    _say($"Learned Fixer Grid floor {route.Floor} portal {_observedExit.Identity} " +
+                        $"at ({_observedExit.X:0.0},{_observedExit.Z:0.0}) for playfield {destination} " +
+                        "from verified zoning.");
+                }
+                _observedExit = null;
+            }
+            else if (DateTime.UtcNow - _observedExitZoneEnded > TimeSpan.FromSeconds(5))
+                _observedExit = null;
         }
 
         private void TryNextService(string reason)
@@ -656,6 +817,7 @@ namespace RKmission
             Team.TeamRequest -= OnTeamRequest;
             Game.TeleportStarted -= OnTeleportStarted;
             Game.TeleportEnded -= OnTeleportEnded;
+            Game.OnUpdate -= OnUpdate;
         }
     }
 }

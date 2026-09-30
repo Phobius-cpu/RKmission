@@ -2,6 +2,26 @@
 
 _Last updated: 2026-09-30_
 
+## 2026-09-30 Fixer Grid generic exit discovery
+
+- A live 22:27 run obtained Team Fixer Grid, entered Fixer Grid and traversed
+  every lift through floor 10 for playfield 570. The exit scan then saw only
+  `Elevator` and generic `Exit the Grid` terminal names. The earlier assumption
+  that the portal terminal itself would be named `Perpetual Wastelands` was
+  disproved by this run. AOSharp's `GridDestinationSelectMessage` API is for a
+  destination-selection response; the physical portal scan did not provide a
+  destination-to-portal mapping.
+- Exit discovery now also checks live dynel destination labels on the same
+  floor and uses a generic portal only when its nearest label pairing is
+  spatially unambiguous. If AO# exposes no usable label, the timeout logs
+  portal identities, coordinates and nearby names rather than choosing an
+  arbitrary portal. A manual exit from Fixer Grid is now associated with a
+  nearby unique generic portal only after zoning confirms a configured
+  destination on the correct floor. That portal position is saved under
+  `RKMissionData/fixer-grid-exits.json` and can be reused in later runs.
+  The final destination is still verified after zoning. The next live run
+  must establish whether labels are exposed or one manual trip is needed.
+
 ## 2026-09-30 Scotty warper name spacing
 
 - A live 22:26 run verified queue sender `Scottyboi5` (identity
