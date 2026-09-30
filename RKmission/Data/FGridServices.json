@@ -1,5 +1,24 @@
 {
-  "Services": [],
+  "Services": [
+    {
+      "Name": "Fgridgirl",
+      "Command": "fgrid",
+      "InviteFrom": [],
+      "PlayfieldId": 0
+    },
+    {
+      "Name": "Fgridder",
+      "Command": "fgrid",
+      "InviteFrom": [],
+      "PlayfieldId": 0
+    },
+    {
+      "Name": "Chewysfgrid",
+      "Command": "cast fgrid",
+      "InviteFrom": [],
+      "PlayfieldId": 0
+    }
+  ],
   "Example": {
     "Name": "ReplaceWithLiveFGridBotName",
     "Command": "ReplaceWithLiveTellCommand",
