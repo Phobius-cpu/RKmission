@@ -309,7 +309,8 @@ namespace RKmission
 
         private void OnChatMessage(object sender, ChatMessageBody message)
         {
-            if (!(message is LookupMessage lookup) || _state != State.Lookup || CurrentService == null)
+            if (!(message is LookupMessage lookup) || CurrentService == null ||
+                (_state != State.Lookup && _state != State.Invite && _state != State.Receptacle))
                 return;
 
             if (string.Equals(lookup.Name, CurrentService.Name, StringComparison.OrdinalIgnoreCase))
