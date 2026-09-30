@@ -24,6 +24,7 @@ namespace RKmission
         private LocalMissionTravel _travel;
         private MovementArbiter _movement;
         private ScottyboiWarpProvider _warp;
+        private FGridServiceProvider _fgrid;
         private RubiKaTravelPlanner _longTravel;
         private MissionEntranceResolver _entranceResolver;
         private MissionCheckpoint _checkpoint;
@@ -59,7 +60,8 @@ namespace RKmission
             _deathRecovery = new DeathRecoveryController(_readiness, _movement, Say);
             _travel = new LocalMissionTravel(Say, pluginDir);
             _warp = new ScottyboiWarpProvider(Say, _movement);
-            _longTravel = new RubiKaTravelPlanner(pluginDir, _warp, _movement, Say);
+            _fgrid = new FGridServiceProvider(pluginDir, Say, _movement);
+            _longTravel = new RubiKaTravelPlanner(pluginDir, _warp, _fgrid, _movement, Say);
             _entranceResolver = new MissionEntranceResolver(pluginDir, Say);
             _checkpoint = MissionCheckpoint.Load(pluginDir, Say);
             _pendingCheckpointResume = _checkpoint.Armed;
@@ -100,6 +102,7 @@ namespace RKmission
             SMovementController.Stuck -= OnStuck;
             _dungeon.Dispose();
             _entranceResolver.Dispose();
+            _fgrid.Dispose();
             _warp.Dispose();
             _roller.Teardown();
             _map.Teardown();
