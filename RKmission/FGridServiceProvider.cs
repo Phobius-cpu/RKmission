@@ -12,17 +12,16 @@ using SmokeLounge.AOtomation.Messaging.Messages.ChatMessages;
 
 namespace RKmission
 {
-    internal enum FGridServiceResult { InProgress, Entered, Failed, Unavailable }
+    internal enum FGridServiceResult { InProgress, Succeeded, Failed, Unavailable }
 
-    // Requests a public Team Fixer Grid service only after RKMission is already
-    // standing beside a normal Grid terminal. The temporary Data Receptacle is
-    // then consumed on that terminal and success is accepted only after zoning
-    // into the actual Fixer Grid playfield.
+    // Requests Team Fixer Grid only after RKMission is beside a normal Grid
+    // terminal. Once the temporary Data Receptacle appears, the destination
+    // terminal identity from Neko's confirmed GridTerminals data is invoked.
     internal sealed class FGridServiceProvider : IDisposable
     {
         private enum State
         {
-            Idle, ApproachTerminal, Lookup, Invite, Receptacle, Zone, Settling, Done, Failed
+            Idle, ApproachTerminal, Lookup, Invite, Receptacle, Destination, Settling, Done, Failed
         }
 
         private sealed class ServiceFile
@@ -44,11 +43,13 @@ namespace RKmission
         private readonly MovementArbiter _movement;
         private State _state;
         private SimpleItem _terminal;
+        private IReadOnlyList<int> _destinationTerminals;
+        private int _targetId;
         private int _serviceIndex;
+        private int _destinationAttempt;
         private uint _botId;
         private bool _joinedByProvider;
         private bool _teleportStarted;
-        private int _useAttempts;
         private DateTime _started;
         private DateTime _lastUse;
         private DateTime _zonedAt;
@@ -107,32 +108,44 @@ namespace RKmission
                 _say($"Loaded {_services.Count} FGrid service bot configuration(s).");
         }
 
-        public FGridServiceResult Tick()
+        public FGridServiceResult Tick(int targetId, IReadOnlyList<int> destinationTerminals)
         {
-            if (Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid)
+            if (Playfield.ModelIdentity.Instance == targetId)
             {
                 Complete();
-                return FGridServiceResult.Entered;
+                return FGridServiceResult.Succeeded;
             }
 
-            if (_state == State.Done) return FGridServiceResult.Entered;
-            if (_state == State.Failed) return FGridServiceResult.Failed;
+            if (_state == State.Done && _targetId == targetId)
+                return FGridServiceResult.Succeeded;
+            if (_state == State.Failed && _targetId == targetId)
+                return FGridServiceResult.Failed;
             if (!IsConfigured)
             {
                 LastFailure = "No FGrid service bots are configured.";
                 return FGridServiceResult.Unavailable;
             }
-
-            if (_state == State.Idle)
+            if (destinationTerminals == null || destinationTerminals.Count == 0)
             {
+                LastFailure = $"No confirmed Fixer Grid destination terminal is mapped for playfield {targetId}.";
+                return FGridServiceResult.Unavailable;
+            }
+
+            if (_state == State.Idle || _targetId != targetId)
+            {
+                ResetAttempt();
+                _targetId = targetId;
+                _destinationTerminals = destinationTerminals;
                 if (DateTime.UtcNow < _backoffUntil)
                 {
                     LastFailure = "FGrid service bots are temporarily in cooldown after an unsuccessful request.";
+                    _state = State.Failed;
                     return FGridServiceResult.Failed;
                 }
                 if (Team.IsInTeam)
                 {
                     LastFailure = "Already in a team; RKMission will not disrupt it for public FGrid service.";
+                    _state = State.Failed;
                     return FGridServiceResult.Unavailable;
                 }
 
@@ -140,18 +153,13 @@ namespace RKmission
                 if (_terminal == null)
                 {
                     LastFailure = "No normal Grid terminal is visible in the current playfield.";
+                    _state = State.Failed;
                     return FGridServiceResult.Unavailable;
                 }
 
-                _serviceIndex = 0;
-                _botId = 0;
-                _expectedInviters.Clear();
-                _teleportStarted = false;
-                _useAttempts = 0;
-                LastFailure = null;
                 _started = DateTime.UtcNow;
                 _state = State.ApproachTerminal;
-                _say("FGrid fallback selected; positioning beside a normal Grid terminal before requesting service.");
+                _say($"FGrid service fallback selected for playfield {targetId}; positioning beside the Grid terminal before requesting service.");
             }
 
             if (_state == State.ApproachTerminal)
@@ -183,7 +191,7 @@ namespace RKmission
             if ((_state == State.Invite || _state == State.Receptacle) &&
                 Inventory.Find(DataReceptacleTemplateId, out Item receptacle))
             {
-                UseReceptacle(receptacle);
+                UseDestination(receptacle);
                 return FGridServiceResult.InProgress;
             }
 
@@ -199,18 +207,19 @@ namespace RKmission
                 return _state == State.Failed ? FGridServiceResult.Failed : FGridServiceResult.InProgress;
             }
 
-            if (_state == State.Zone)
+            if (_state == State.Destination)
             {
-                if (!_teleportStarted && DateTime.UtcNow - _lastUse > TimeSpan.FromSeconds(2) &&
-                    _useAttempts < 2 && Inventory.Find(DataReceptacleTemplateId, out Item retry))
+                if (!_teleportStarted && DateTime.UtcNow - _lastUse > TimeSpan.FromSeconds(4) &&
+                    Inventory.Find(DataReceptacleTemplateId, out Item retry) &&
+                    _destinationAttempt < _destinationTerminals.Count)
                 {
-                    UseReceptacle(retry);
+                    UseDestination(retry);
                     return FGridServiceResult.InProgress;
                 }
 
-                if (DateTime.UtcNow - _started > TimeSpan.FromSeconds(10))
+                if (DateTime.UtcNow - _started > TimeSpan.FromSeconds(12))
                 {
-                    Fail("The Data Receptacle was used but Fixer Grid zoning was not observed.");
+                    Fail($"Data Receptacle use did not zone to playfield {_targetId}.");
                     return FGridServiceResult.Failed;
                 }
             }
@@ -220,14 +229,14 @@ namespace RKmission
                 if (DateTime.UtcNow - _zonedAt < TimeSpan.FromSeconds(2))
                     return FGridServiceResult.InProgress;
 
-                if (Playfield.ModelIdentity.Instance != (int)PlayfieldId.FixerGrid)
+                if (Playfield.ModelIdentity.Instance != _targetId)
                 {
-                    Fail($"FGrid service zoning ended in playfield {Playfield.ModelIdentity.Instance}, not the Fixer Grid.");
+                    Fail($"FGrid destination ended in playfield {Playfield.ModelIdentity.Instance}, not {_targetId}.");
                     return FGridServiceResult.Failed;
                 }
 
                 Complete();
-                return FGridServiceResult.Entered;
+                return FGridServiceResult.Succeeded;
             }
 
             return _state == State.Failed ? FGridServiceResult.Failed : FGridServiceResult.InProgress;
@@ -309,33 +318,34 @@ namespace RKmission
             _say($"Accepted expected FGrid service invite from identity {request.Requester.Instance}; waiting for Data Receptacle.");
         }
 
-        private void UseReceptacle(Item receptacle)
+        private void UseDestination(Item receptacle)
         {
-            if (_terminal == null)
+            if (_destinationTerminals == null || _destinationAttempt >= _destinationTerminals.Count)
             {
-                Fail("The Grid terminal disappeared before the Data Receptacle could be used.");
+                Fail($"All mapped Fixer Grid terminal identities for playfield {_targetId} were tried without zoning.");
                 return;
             }
 
             _movement.Halt(MovementOwner.FGridTravel);
-            receptacle.UseOn(_terminal.Identity);
-            _useAttempts++;
+            int terminalId = _destinationTerminals[_destinationAttempt++];
+            Item.UseItemOnItem(receptacle.Slot,
+                new Identity(IdentityType.Terminal, terminalId));
             _lastUse = DateTime.UtcNow;
             _started = DateTime.UtcNow;
             _teleportStarted = false;
-            _state = State.Zone;
-            _say($"Data Receptacle detected and used on Grid terminal {_terminal.Identity.Instance}; waiting for Fixer Grid zoning.");
+            _state = State.Destination;
+            _say($"Data Receptacle detected; using mapped Fixer Grid destination terminal {unchecked((uint)terminalId)} for playfield {_targetId}.");
         }
 
         private void OnTeleportStarted(object sender, EventArgs args)
         {
-            if (_state == State.Zone)
+            if (_state == State.Destination)
                 _teleportStarted = true;
         }
 
         private void OnTeleportEnded(object sender, EventArgs args)
         {
-            if (_state != State.Zone || !_teleportStarted) return;
+            if (_state != State.Destination || !_teleportStarted) return;
             _state = State.Settling;
             _zonedAt = DateTime.UtcNow;
         }
@@ -365,7 +375,7 @@ namespace RKmission
             if (_joinedByProvider && Team.IsInTeam)
                 Team.Leave();
             _joinedByProvider = false;
-            _say("Fixer Grid entry verified after zoning settled.");
+            _say($"Fixer Grid service route to playfield {_targetId} verified after zoning settled.");
         }
 
         private void Fail(string reason, bool applyBackoff = true)
@@ -381,20 +391,27 @@ namespace RKmission
             _say(reason + " Travel planner will try another verified provider if one exists.");
         }
 
-        public void Reset()
+        private void ResetAttempt()
         {
             if (_joinedByProvider && Team.IsInTeam)
                 Team.Leave();
             _joinedByProvider = false;
             _state = State.Idle;
             _terminal = null;
+            _destinationTerminals = null;
+            _targetId = 0;
             _serviceIndex = 0;
+            _destinationAttempt = 0;
             _botId = 0;
             _expectedInviters.Clear();
             _teleportStarted = false;
-            _useAttempts = 0;
             LastFailure = null;
             _movement.Release(MovementOwner.FGridTravel);
+        }
+
+        public void Reset()
+        {
+            ResetAttempt();
         }
 
         public void Dispose()
