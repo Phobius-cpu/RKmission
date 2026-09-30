@@ -90,6 +90,12 @@ namespace ManagerLoot
         {
             MissionRoomId = -1;
             _pendingMissionLoot = MissionIdentity.None; // Explicitly release ownership on stop/exit.
+            if (CorpseContainer == null &&
+                (CurrentProcess == ProcessState.Opening || CurrentProcess == ProcessState.PickingLock))
+            {
+                CurrentCorpse = null;
+                CurrentProcess = ProcessState.Open_Corpse;
+            }
             if (_enabledForMission && _settings != null && _settings["Enable"].AsBool())
                 Helper_Enable();
             _enabledForMission = false;
@@ -478,26 +484,43 @@ namespace ManagerLoot
             if (container.Identity.Type != IdentityType.Corpse && container.Identity.Type != IdentityType.Container) return;
             if (Inventory.Items.Any(i => i.UniqueIdentity == container.Identity)) return;
 
-            Chat.WriteLine($"Container = {container.Identity.Type} ");
-
-            if (_settings["Print"].AsBool())
-                if (container.Identity.Type == IdentityType.Container)
-                {
-                    foreach (var item in container.Items)
-                    {
-                        Chat.WriteLine($"{item.Name}, {item.Id}, {item.QualityLevel}, {item.UniqueIdentity}");
-                    }
-                }
-
             if (MissionRoomId >= 0)
             {
-                // A late response still belongs to this exact pending identity,
-                // even after timeout or the world corpse disappearing.
-                if (_pendingMissionLoot != container.Identity) return;
+                if (_pendingMissionLoot != container.Identity)
+                {
+                    Dynel visible = DynelManager.GetDynel(container.Identity);
+                    bool reopenedSkipped = _pendingMissionLoot == MissionIdentity.None &&
+                        CorpseContainer == null && _unreachableMissionLoot.Contains(container.Identity) &&
+                        visible != null && IsInMissionRoom(visible, MissionRoomId);
+                    if (!reopenedSkipped || visible == null)
+                    {
+                        Chat.WriteLine($"RKMission: Ignoring late ContainerOpened {container.Identity} " +
+                            $"in room {MissionRoomId}; pending={_pendingMissionLoot}.");
+                        return;
+                    }
+                    // A response that arrives while this room is still owned is
+                    // stronger evidence than the earlier unreachable timeout.
+                    _unreachableMissionLoot.Remove(container.Identity);
+                    _finishedMissionLoot.Remove(container.Identity);
+                    BindMissionLoot(visible);
+                    Chat.WriteLine($"RKMission: Previously skipped loot {container.Identity} opened in room {MissionRoomId}; processing contents.");
+                }
             }
-            else if (CurrentProcess != ProcessState.Opening) return;
+            else if (MissionLootAllowed != null || CurrentProcess != ProcessState.Opening)
+            {
+                if (MissionLootAllowed != null || _unreachableMissionLoot.Contains(container.Identity))
+                    Chat.WriteLine($"RKMission: Ignoring late ContainerOpened {container.Identity} after room ownership ended.");
+                return;
+            }
 
             if (Inventory.Backpacks.Any(b => b.Identity == container.Identity)) return;
+
+            Chat.WriteLine($"ManagerLoot: ContainerOpened {container.Identity} " +
+                (MissionRoomId >= 0 ? $"in RKMission room {MissionRoomId}." : "outside RKMission room ownership."));
+
+            if (_settings["Print"].AsBool() && container.Identity.Type == IdentityType.Container)
+                foreach (var item in container.Items)
+                    Chat.WriteLine($"{item.Name}, {item.Id}, {item.QualityLevel}, {item.UniqueIdentity}");
 
             if (!openedContainers.ContainsKey(container.Identity.Instance))
                 openedContainers.Add(container.Identity.Instance, Time.AONormalTime);

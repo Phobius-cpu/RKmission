@@ -2,6 +2,26 @@
 
 _Last updated: 2026-09-30_
 
+## 2026-09-30 late container event and room rebound
+
+- A run skipped `(Container:BB8CFAD)` in room 3 as unreachable at 14.8 m,
+  confirmed 3→1, then timed out approaching 1→0. Only after that stop did
+  `Container = Container` appear. That old Manager.Loot line omitted identity
+  and printed before mission ownership checks, so it did not prove which chest
+  was accepted for loot processing.
+- ContainerOpened logging now includes identity and room/standalone context.
+  A late open for a skipped identity is accepted only while RKMission still
+  owns that same room, no other container is pending, and the visible dynel is
+  in the room; the skip is then removed and contents processed. Other late
+  replies are explicitly ignored. Ending room ownership also cancels an
+  unfinished opening/lockpick wait, so a late response cannot resume mission
+  loot processing during a doorway crossing. Manager.Loot's standalone
+  enabled state is preserved after RKMission stops.
+- During a 1→0 transition, a stable, geometry-confirmed return to room 3 now
+  cancels the stale transition and reroutes from room 3 without blacklisting
+  1→0. Ordinary doorway crossing and its existing confirmation checks remain
+  unchanged. The exact cause of the observed rebound needs in-game evidence.
+
 ## 2026-09-30 close-combat approach after first kill
 
 - The room-2 log selected Important Techrejecter (SimpleChar:7AB1FD10) at

@@ -78,6 +78,8 @@ namespace RKmission
             public float BestDistance;
             public int DoorAttempts, CrossingRetries;
             public bool PushingDeeper, DoorApproachLogged;
+            public int UnexpectedRoom = -1;
+            public DateTime UnexpectedSince;
         }
         private sealed class EdgeFailure
         {
@@ -1061,6 +1063,33 @@ namespace RKmission
             bool passageOpen = IsPassageOpen(edge, door);
             DateTime now = DateTime.UtcNow;
             Vector3 position = DynelManager.LocalPlayer.Position;
+            bool unexpectedRoom = detectedRoom.Instance != edge.Source &&
+                detectedRoom.Instance != edge.Target &&
+                _layout.IsInside(detectedRoom.Instance, position, 0.5f);
+            if (unexpectedRoom)
+            {
+                if (crossing.UnexpectedRoom != detectedRoom.Instance)
+                {
+                    crossing.UnexpectedRoom = detectedRoom.Instance;
+                    crossing.UnexpectedSince = now;
+                    MovementArbiter.Current.Halt(_requestedOwner);
+                    _destination = null;
+                }
+                else if (now - crossing.UnexpectedSince >= TimeSpan.FromSeconds(1))
+                {
+                    MovementArbiter.Current.Release(MovementOwner.DoorTransition);
+                    _transition = null;
+                    _destination = null;
+                    _currentRoom = detectedRoom.Instance;
+                    _visitedRooms.Add(_currentRoom);
+                    _observedRoom = -1;
+                    _roomQuietAt = DateTime.MinValue;
+                    _say($"Transition {edge.Source}->{edge.Target}: confirmed rebound into room {_currentRoom}; " +
+                        "rerouting from the actual room without marking this edge failed.");
+                }
+                return;
+            }
+            crossing.UnexpectedRoom = -1;
             bool targetDetected = detectedRoom.Instance == edge.Target;
             bool safelyInsideTarget = targetDetected &&
                 Vector3.Distance(position, edge.Threshold) > 1.5f &&
