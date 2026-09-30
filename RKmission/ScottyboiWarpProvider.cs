@@ -43,7 +43,7 @@ namespace RKmission
         private DateTime _started;
         private DateTime _backoffUntil;
         private DateTime _zonedAt;
-        private bool _helpRetried, _teleportStarted;
+        private bool _helpRetried, _teleportStarted, _queueReplySeen, _unverifiedQueueReplySeen;
         private bool _joinedByProvider;
         private readonly List<TeamRequestEventArgs> _pendingWarperInvites = new List<TeamRequestEventArgs>();
         private string _lastReply;
@@ -73,7 +73,7 @@ namespace RKmission
                 if (Team.IsInTeam)
                 { LastFailure = "Already in a team; Scottyboi cannot invite this character."; _say(LastFailure); return WarpResult.Failed; }
                 _targetId = targetId;
-                _helpRetried = _teleportStarted = false;
+                _helpRetried = _teleportStarted = _queueReplySeen = _unverifiedQueueReplySeen = false;
                 _lastReply = null;
                 _botId = _menuId = _replyId = _helpId = _recipientId = _warperId = 0;
                 _warperName = null;
@@ -150,8 +150,11 @@ namespace RKmission
                       (_menuPageCount > 0 ? $" of {_menuPageCount}" : "") +
                       (_lastReply == null ? "." : $". Last reply: {_lastReply}")
                     : _state == State.Invite
-                        ? $"Scottyboi did not send a team invite after '{_pendingCommand?.Text}'" +
-                          (_warperName == null ? "." : $" from {_warperName}.")
+                        ? $"Scottyboi warp request '{_pendingCommand?.Text}' timed out: " +
+                          (_warperName != null ? $"no accepted invite from assigned warper {_warperName}." :
+                           _queueReplySeen ? "queue reply did not identify an assigned warper."
+                               : _unverifiedQueueReplySeen ? "queue-like reply came from an unverified sender."
+                               : "no confirmed queue reply or recognized team invite.")
                         : _state == State.CommandLookup
                             ? $"Could not resolve Scottyboi menu recipient {_pendingCommand?.Recipient}."
                         : "Warp bot did not complete the current step in time.");
@@ -251,9 +254,9 @@ namespace RKmission
         private void SendWarpCommand(uint recipientId)
         {
             _recipientId = recipientId;
-            Chat.SendPrivateMessage(recipientId, _pendingCommand.Text);
             _state = State.Invite;
             _started = DateTime.UtcNow;
+            Chat.SendPrivateMessage(recipientId, _pendingCommand.Text);
             _say($"Sent Scottyboi command '{_pendingCommand.Text}' to {_pendingCommand.Recipient} " +
                 $"for playfield {_targetId}; waiting for a team invite and zoning.");
         }
@@ -264,14 +267,38 @@ namespace RKmission
             // resolved Scotty alias) may assign an automatic team inviter.
             if (reply.Sender == 0 ||
                 (reply.Sender != _recipientId && reply.Sender != _botId &&
-                 reply.Sender != _menuId && reply.Sender != _replyId)) return;
+                 reply.Sender != _menuId && reply.Sender != _replyId))
+            {
+                if (!_unverifiedQueueReplySeen && reply.Text.IndexOf("queue to get warped to",
+                    StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    _unverifiedQueueReplySeen = true;
+                    _say($"Scottyboi-like queue reply from unverified sender {reply.Sender} ignored; " +
+                        "automatic invites require a verified bot assignment.");
+                }
+                return;
+            }
             string text = Regex.Replace(WebUtility.HtmlDecode(reply.Text), "<[^>]+>", " ");
             if (text.IndexOf("queue to get warped to", StringComparison.OrdinalIgnoreCase) < 0)
                 return;
-            if (!MatchesQueuedDestination(text, _targetAliases, _pendingCommand?.Destination ?? "")) return;
+            bool firstQueueReply = !_queueReplySeen;
+            _queueReplySeen = true;
+            if (!MatchesQueuedDestination(text, _targetAliases, _pendingCommand?.Destination ?? ""))
+            {
+                if (firstQueueReply)
+                    _say($"Scottyboi queue reply did not match selected destination for playfield {_targetId}: " +
+                        ShortReply(text));
+                return;
+            }
             Match warper = Regex.Match(text, @"warper\s*\((?<name>[a-z][a-z0-9_-]{2,24})\)",
                 RegexOptions.IgnoreCase);
-            if (!warper.Success) return;
+            if (!warper.Success)
+            {
+                if (firstQueueReply)
+                    _say("Scottyboi confirmed a queue but did not name a warper in the expected format: " +
+                        ShortReply(text));
+                return;
+            }
             bool offline = Regex.IsMatch(text, @"\bis offline\b|\bneeds to log on\b",
                 RegexOptions.IgnoreCase);
             string assignedWarper = warper.Groups["name"].Value;
@@ -279,7 +306,6 @@ namespace RKmission
             {
                 _warperName = assignedWarper;
                 _warperId = 0;
-                _pendingWarperInvites.Clear();
                 if (!offline)
                 {
                     _started = DateTime.UtcNow;
@@ -292,6 +318,12 @@ namespace RKmission
                 return;
             }
             Network.Send(new LookupMessage { Id = 0, Name = _warperName });
+        }
+
+        private static string ShortReply(string text)
+        {
+            string clean = Regex.Replace(text, @"\s+", " ").Trim();
+            return clean.Length <= 160 ? clean : clean.Substring(0, 160) + "...";
         }
 
         private static bool MatchesQueuedDestination(string text, string[] aliases, string expectedLocation)
@@ -315,13 +347,17 @@ namespace RKmission
                 AcceptWarpInvite(request, requesterId);
                 return;
             }
-            if (_warperName != null && _warperId == 0 && _pendingWarperInvites.Count < 4 &&
+            // The team request can arrive before Scottyboi's queue response.
+            // Buffer only during this request, then accept it only if the
+            // subsequently verified warper-name lookup matches its identity.
+            if (_warperId == 0 && _pendingWarperInvites.Count < 4 &&
                 !_pendingWarperInvites.Any(x => x.Requester == request.Requester))
             {
                 bool firstInvite = _pendingWarperInvites.Count == 0;
                 _pendingWarperInvites.Add(request);
-                if (firstInvite) Network.Send(new LookupMessage { Id = 0, Name = _warperName });
-                _say($"Scottyboi warper invite from identity {requesterId} is waiting for the assigned name lookup.");
+                if (firstInvite && _warperName != null)
+                    Network.Send(new LookupMessage { Id = 0, Name = _warperName });
+                _say($"Team invite from identity {requesterId} is pending Scottyboi warper verification.");
             }
         }
 
@@ -526,7 +562,7 @@ namespace RKmission
             if (_joinedByProvider && Team.IsInTeam) Team.Leave();
             _joinedByProvider = false;
             _state = State.Idle;
-            _teleportStarted = _helpRetried = false;
+            _teleportStarted = _helpRetried = _queueReplySeen = _unverifiedQueueReplySeen = false;
             _lastReply = null;
             _botId = _menuId = _replyId = _helpId = _recipientId = _warperId = 0;
             _warperName = null;

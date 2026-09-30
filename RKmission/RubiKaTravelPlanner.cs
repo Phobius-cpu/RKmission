@@ -22,8 +22,6 @@ namespace RKmission
         }
 
         private readonly Dictionary<int, List<Link>> _graph = new Dictionary<int, List<Link>>();
-        private readonly Dictionary<int, List<int>> _fixerDestinations =
-            new Dictionary<int, List<int>>();
         private readonly HashSet<string> _failedLinks = new HashSet<string>();
         private readonly ScottyboiWarpProvider _warp;
         private readonly FGridServiceProvider _fgrid;
@@ -42,8 +40,7 @@ namespace RKmission
             {
                 if (_target == 0) return "Local";
                 if (!_warpFailed) return "Scottyboi";
-                if (!_fgridFailed && _fgrid.IsConfigured &&
-                    _fixerDestinations.ContainsKey(_target))
+                if (!_fgridFailed && _fgrid.IsConfigured && _fgrid.CanRoute(_target))
                     return "FGridService";
                 return "PlayfieldGraph";
             }
@@ -89,21 +86,6 @@ namespace RKmission
                 }
             }
 
-            // These are the confirmed destination terminal identities copied
-            // from Neko's GridTerminals data. The public FGrid service provider
-            // obtains the temporary receptacle; it does not invent exit IDs.
-            string gridPath = Path.Combine(pluginDir, "Data", "GridTerminals.json");
-            if (File.Exists(gridPath))
-            {
-                JObject exits = JObject.Parse(File.ReadAllText(gridPath));
-                foreach (JProperty destination in exits.Properties())
-                {
-                    if (!int.TryParse(destination.Name, out int to)) continue;
-                    List<int> ids = destination.Value.Values<uint>()
-                        .Select(x => unchecked((int)x)).ToList();
-                    if (ids.Count > 0) _fixerDestinations[to] = ids;
-                }
-            }
         }
 
         public TravelResult Tick(int target)
@@ -121,10 +103,9 @@ namespace RKmission
                     if (warpAtDestination == WarpResult.InProgress)
                         return TravelResult.InProgress;
                 }
-                else if (!_fgridFailed && _fixerDestinations.TryGetValue(target,
-                    out List<int> arrivedIds))
+                else if (!_fgridFailed && _fgrid.CanRoute(target))
                 {
-                    FGridServiceResult fgridAtDestination = _fgrid.Tick(target, arrivedIds);
+                    FGridServiceResult fgridAtDestination = _fgrid.Tick(target);
                     if (fgridAtDestination == FGridServiceResult.InProgress)
                         return TravelResult.InProgress;
                 }
@@ -142,10 +123,9 @@ namespace RKmission
                 _warpFailed = true;
             }
 
-            if (!_fgridFailed && _fixerDestinations.TryGetValue(target,
-                out List<int> destinationTerminals))
+            if (!_fgridFailed && _fgrid.CanRoute(target))
             {
-                FGridServiceResult result = _fgrid.Tick(target, destinationTerminals);
+                FGridServiceResult result = _fgrid.Tick(target);
                 if (result == FGridServiceResult.InProgress) return TravelResult.InProgress;
                 if (result == FGridServiceResult.Succeeded) return TravelResult.Arrived;
                 _fgridFailed = true;
@@ -171,9 +151,9 @@ namespace RKmission
                 if (_step == null)
                 {
                     string warpReason = _warp.LastFailure;
-                    string fgridReason = _fixerDestinations.ContainsKey(target)
+                    string fgridReason = _fgrid.CanRoute(target)
                         ? _fgrid.LastFailure
-                        : $"No confirmed Fixer Grid destination is mapped for playfield {target}.";
+                        : $"No verified Fixer Grid exit route is mapped for playfield {target}.";
                     LastFailure =
                         (string.IsNullOrEmpty(warpReason) ? "" : $"Scottyboi: {warpReason} ") +
                         (string.IsNullOrEmpty(fgridReason) ? "" : $"FGrid: {fgridReason} ") +
@@ -311,7 +291,7 @@ namespace RKmission
                     Vector3.Distance(DynelManager.LocalPlayer.Position, x.Position) <= 300f);
 
             _warpFailed = directNearby;
-            _fgridFailed = directNearby || !_fixerDestinations.ContainsKey(target);
+            _fgridFailed = directNearby || !_fgrid.CanRoute(target);
             _failedLinks.Clear();
             LastFailure = null;
             _movement.Release(MovementOwner.OutdoorTravel);

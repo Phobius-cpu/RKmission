@@ -171,7 +171,8 @@ namespace RKmission
                     break;
                 case "complete": ConfirmCompletion(args); break;
                 case "fgrid":
-                    Say($"FGrid service configured={_fgrid.IsConfigured}, active={_fgrid.IsActive}, last issue={_fgrid.LastFailure ?? "none"}.");
+                    Say($"FGrid service configured={_fgrid.IsConfigured}, mapped destinations={_fgrid.MappedDestinations}, " +
+                        $"active={_fgrid.IsActive}, last issue={_fgrid.LastFailure ?? "none"}.");
                     break;
                 case "loot": Say("Use /ManagerLoot for the original item list and settings."); break;
                 case "map": _map.ToggleWindow(); break;

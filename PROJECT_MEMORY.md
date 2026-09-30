@@ -2,6 +2,32 @@
 
 _Last updated: 2026-09-30_
 
+## 2026-09-30 Scottyboi invite ordering and FGrid correction
+
+- A new playfield-570 run sent `cumtower2` to `scty` but timed out without a
+  recognized invite or queue confirmation. RKMission already autoaccepted
+  verified Scottyboi/assigned-warper requests. An invite arriving before the
+  bot's queue reply was still lost because buffering started only after the
+  assigned name was known; active requests now buffer up to four early invites
+  and accept only the identity that matches the later warper name lookup.
+  Timeout logs distinguish absent queue confirmation from a named warper that
+  never invited. Malformed/mismatched queue replies log a bounded excerpt.
+- `Data/GridTerminals.json` came from Neko FgridWarper, which prioritizes a
+  terminal in the *current* playfield as an entrance. Treating those IDs as
+  destination exits made FGrid unavailable for playfield 570 and could send a
+  Data Receptacle to the wrong terminal elsewhere. The provider now uses the
+  visible normal Grid entrance's Identity, verifies entry into Fixer Grid,
+  traverses AOSharp.Navigator lift positions to floor 10, selects a live
+  terminal named for Perpetual Wastelands, and verifies the final zone. The
+  new `Data/FixerGridExits.json` explicitly maps only playfield 570. Unknown
+  destinations remain unavailable until an exit floor/name is mapped.
+- Timeouts bound entrance, each lift, exit discovery, and exit zoning. The
+  `/rkm fgrid` status now shows mapped destinations. The .NET 4.8 build passes;
+  Scotty invite ordering, lift crossing, exit names and service availability
+  need in-game validation. If the exit name is not exposed as a terminal in
+  AOSharp, the route stops on floor 10 and logs nearby terminal names for a
+  data correction.
+
 ## 2026-09-30 Scottyboi assigned-warper invites
 
 - Scottyboi already autoaccepted invites from resolved bot/warper identities.
@@ -108,9 +134,9 @@ _Last updated: 2026-09-30_
 Automatic travel can now use a configured player-run Team Fixer Grid service
 after Scottyboi fails/unavailable. `FGridServiceProvider` moves to the configured
 normal Grid terminal before sending a tell, accepts only expected invite
-identities, waits for temporary Data Receptacle template 160978, then uses the
-confirmed destination terminal identities in `Data/GridTerminals.json` using
-the previously extracted Neko FgridWarper pattern. Zoning is verified against
+identities, waits for temporary Data Receptacle template 160978, then used
+`Data/GridTerminals.json` as destination IDs. The later entry above corrects
+that source/destination interpretation. Zoning is verified against
 the requested playfield before local mission travel resumes. Live service bot names/commands are data-driven in `Data/FGridServices.json`.
 Current user-observed commands are `Fgridgirl: fgrid`, `Fgridder: fgrid`, and
 `Chewysfgrid: cast fgrid`; all are presently globally eligible (`PlayfieldId: 0`)

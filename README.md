@@ -53,25 +53,27 @@ package restore, tests or game run were performed; the user compiles and validat
 ### Public FGrid service fallback
 
 Automatic cross-playfield travel can optionally request Team Fixer Grid from
-player-run service bots. Configure only bots you have verified in-game in
-`RKmission/Data/FGridServices.json`; the shipped file intentionally contains no
-live bot names or commands. Each service can be scoped to a playfield and a
+player-run service bots. Check the bot names and commands in
+`RKmission/Data/FGridServices.json` against current in-game service. Each
+service can be scoped to a playfield and a
 specific nearby Grid terminal position, and can list alternate expected inviter
 characters.
 
 RKMission moves beside that normal Grid terminal *before* sending the tell. It
 accepts a team invite only from the configured/expected identities, waits for
-the temporary Data Receptacle (template 160978), and uses the confirmed
-Fixer-Grid destination terminal identities in `GridTerminals.json` following the
-existing Neko FgridWarper pattern. Zoning must end in the requested destination
-playfield before travel succeeds. A missing/offline service, invite timeout,
-missing/expired receptacle or wrong destination releases movement/team state
-and returns immediately to the next verified travel provider. Use `/rkm fgrid`
-to inspect configuration/activity/last failure.
+the temporary Data Receptacle (template 160978), and uses it on the nearby
+Grid entrance to enter Fixer Grid. `FixerGridExits.json` maps supported
+destinations to floors and exit names. The first route is Perpetual Wastelands
+(570), floor 10; RKMission traverses the lifts, chooses an exit by its live
+terminal name, and verifies the destination after zoning. The previous
+`GridTerminals.json` lists *entrances by source playfield*, not destination
+exits; it is no longer used to select an FGrid destination. A missing/offline
+service, invite timeout, missing receptacle, unknown exit or wrong destination
+stops the FGrid attempt and records the cause. Use `/rkm fgrid` to inspect
+configuration, mapped destinations, activity, and the last failure. Lift and
+exit selection still need in-game validation.
 
-This means destinations such as Mort no longer require the character to own a
-pre-filled Data Receptacle container when a configured public FGrid service bot
-is available. Normal Grid/mapped travel remains the fallback. Scotty warpers
+Normal Grid/mapped travel remains the fallback. Scotty warpers
 reported offline are also treated as expected availability failures and no
 longer impose the normal two-minute integration-error cooldown.
 
