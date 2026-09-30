@@ -2,6 +2,20 @@
 
 _Last updated: 2026-09-30_
 
+## 2026-09-30 large-room scan recovery
+
+- A live mission log showed exact key warp and dungeon entry succeeding, then
+  room 1 stopping with an ordinary enemy 46.6 m away because the one scan
+  approach made no progress. This is separate from the chest lockpick fix.
+- Before any new attack, the scan now tries bounded alternate destinations
+  within the mapped room near that enemy. Rejected routes, stopped navigation
+  and stalled/reached points advance to the next candidate; the whole scan
+  retains a 60-second deadline even if the enemy moves or a different distant
+  enemy becomes nearest. No candidate permits new engagement beyond 20 m.
+- If no mapped route works, the run still stops without marking the room clear
+  and logs the enemy identity, remaining distance and attempted point count.
+  The user's in-game run is needed to verify the specific cave geometry.
+
 ## 2026-09-30 public FGrid service fallback
 
 Automatic travel can now use a configured player-run Team Fixer Grid service

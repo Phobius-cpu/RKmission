@@ -36,7 +36,10 @@ namespace RKmission
         private DungeonLayout _layout;
         private Identity _scanTarget = Identity.None;
         private DateTime _scanStarted, _scanProgress;
-        private float _scanDistance;
+        private readonly List<Vector3> _scanWaypoints = new List<Vector3>();
+        private int _scanWaypointIndex;
+        private float _scanWaypointBestDistance;
+        private Vector3 _scanEnemyPosition;
         private AcceptedMission _record;
         private MissionObjective _objective;
         private bool _exiting;
@@ -110,6 +113,7 @@ namespace RKmission
             _reverseCooldown.Clear();
             _combat.Reset();
             _scanTarget = Identity.None;
+            _scanWaypoints.Clear();
             _waitingForLoot = Identity.None;
             _loot.ResetMissionLootSkips();
             _loot.IgnoreOrdinaryMissionLoot = false;
@@ -522,6 +526,7 @@ namespace RKmission
                 return false;
             }
             _scanTarget = Identity.None;
+            _scanWaypoints.Clear();
             _loot.MissionActionsPaused = true;
             _objective.ArmKill(enemy);
 
@@ -542,34 +547,89 @@ namespace RKmission
             SimpleChar distant = EnemyCandidates(room).Where(x =>
                 _layout.ContainsDynel(room.Instance, x) && x.DistanceFrom(player) > EngagementRange)
                 .OrderBy(x => x.DistanceFrom(player)).FirstOrDefault();
-            if (distant == null) { _scanTarget = Identity.None; return false; }
+            if (distant == null) { _scanTarget = Identity.None; _scanWaypoints.Clear(); return false; }
             DateTime now = DateTime.UtcNow;
             float distance = distant.DistanceFrom(player);
-            if (_scanTarget != distant.Identity)
+            bool newTarget = _scanTarget != distant.Identity;
+            if (newTarget || Vector3.Distance(_scanEnemyPosition, distant.Position) > 5f)
             {
+                if (_scanTarget == Identity.None) _scanStarted = now;
                 _scanTarget = distant.Identity;
-                _scanStarted = _scanProgress = now;
-                _scanDistance = distance;
+                _scanProgress = now;
+                _scanEnemyPosition = distant.Position;
+                _scanWaypoints.Clear();
+                _scanWaypointIndex = 0;
+                AddScanWaypoint(room.Instance, player.Position + (distant.Position - player.Position) *
+                    ((distance - 18f) / distance));
+                Vector3 toward = player.Position - distant.Position;
+                toward.Y = 0;
+                if (toward.Magnitude > 0.1)
+                {
+                    toward = toward.Normalize();
+                    Vector3 side = new Vector3(-toward.Z, 0, toward.X);
+                    foreach (float radius in new[] { 14f, 8f })
+                        foreach (Vector3 direction in new[] { toward, side, -side, -toward })
+                            AddScanWaypoint(room.Instance, distant.Position + direction * radius);
+                }
+                AddScanWaypoint(room.Instance, distant.Position);
                 _destination = null;
                 _say($"Room {room.Instance} still has an enemy {distance:0.0}m away; " +
-                    "moving within the room before the 20m engagement check.");
+                    $"trying {_scanWaypoints.Count} mapped approach point(s) before the 20m engagement check.");
             }
-            if (distance + 0.5f < _scanDistance)
+            if (now - _scanStarted > TimeSpan.FromSeconds(60) || _scanWaypointIndex >= _scanWaypoints.Count)
             {
-                _scanDistance = distance;
-                _scanProgress = now;
-            }
-            if (now - _scanProgress > TimeSpan.FromSeconds(10) || now - _scanStarted > TimeSpan.FromSeconds(30))
-            {
+                int tried = Math.Min(_scanWaypoints.Count, _scanWaypointIndex + (_destination.HasValue ? 1 : 0));
                 Stop();
-                _say($"Room {room.Instance} scan could not reach engagement range; room is not marked cleared.");
+                _say($"Room {room.Instance} scan could not reach enemy {distant.Identity} within 20m " +
+                    $"(remaining {distance:0.0}m, tried {tried}/{_scanWaypoints.Count} mapped points, " +
+                    $"player={player.Position}, enemy={distant.Position}); room is not marked cleared.");
                 return true;
             }
-            Vector3 point = player.Position + (distant.Position - player.Position) *
-                ((distance - 18f) / distance);
-            if (!_layout.IsInside(room.Instance, point, 0.5f)) point = distant.Position;
-            Navigate(point);
+            Vector3 point = _scanWaypoints[_scanWaypointIndex];
+            float waypointDistance = Vector3.Distance(player.Position, point);
+            if (waypointDistance + 0.5f < _scanWaypointBestDistance)
+            {
+                _scanWaypointBestDistance = waypointDistance;
+                _scanProgress = now;
+            }
+            if (_destination.HasValue &&
+                (waypointDistance < 1.5f || now - _scanProgress > TimeSpan.FromSeconds(10) ||
+                 (!SMovementController.IsNavigating() && now - _scanProgress > TimeSpan.FromSeconds(2))))
+            {
+                string reason = waypointDistance < 1.5f ? "reached without engagement" :
+                    !SMovementController.IsNavigating() ? "navigation stopped" : "no route progress";
+                _say($"Room {room.Instance} scan approach {_scanWaypointIndex + 1} {reason}; trying another mapped point.");
+                _scanWaypointIndex++;
+                _destination = null;
+                if (_scanWaypointIndex >= _scanWaypoints.Count) return true;
+                point = _scanWaypoints[_scanWaypointIndex];
+            }
+            if (!_destination.HasValue)
+            {
+                while (_scanWaypointIndex < _scanWaypoints.Count)
+                {
+                    point = _scanWaypoints[_scanWaypointIndex];
+                    _scanWaypointBestDistance = Vector3.Distance(player.Position, point);
+                    _scanProgress = now;
+                    if (MovementArbiter.Current.SetNavDestination(_requestedOwner, point))
+                    {
+                        _destination = point;
+                        _say($"Room {room.Instance} scan approach {_scanWaypointIndex + 1}/{_scanWaypoints.Count}: " +
+                            $"{point}, enemy {distance:0.0}m away.");
+                        break;
+                    }
+                    _say($"Room {room.Instance} scan approach {_scanWaypointIndex + 1} had no navigation route.");
+                    _scanWaypointIndex++;
+                }
+            }
             return true;
+        }
+
+        private void AddScanWaypoint(int roomId, Vector3 point)
+        {
+            if (_layout.IsInside(roomId, point, 0.5f) &&
+                !_scanWaypoints.Any(existing => Vector3.Distance(existing, point) < 2f))
+                _scanWaypoints.Add(point);
         }
 
         private bool GuardReservedEnemy()
