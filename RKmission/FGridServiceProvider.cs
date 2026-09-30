@@ -200,14 +200,25 @@ namespace RKmission
                 return FGridServiceResult.Succeeded;
             if (_state == State.Failed && _targetId == targetId)
                 return FGridServiceResult.Failed;
-            if (!IsConfigured)
-            {
-                LastFailure = "No FGrid service bots are configured.";
-                return FGridServiceResult.Unavailable;
-            }
             if (!_exitRoutes.TryGetValue(targetId, out ExitRoute exitRoute))
             {
                 LastFailure = $"No verified Fixer Grid exit route is mapped for playfield {targetId}.";
+                return FGridServiceResult.Unavailable;
+            }
+
+            if (Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid &&
+                (_state == State.Idle || _targetId != targetId))
+            {
+                ResetAttempt();
+                _targetId = targetId;
+                _route = exitRoute;
+                _state = State.Ascending;
+                _started = DateTime.UtcNow;
+                _say($"Resuming Fixer Grid travel toward playfield {targetId} from the current floor.");
+            }
+            if (!IsConfigured && _state == State.Idle)
+            {
+                LastFailure = "No FGrid service bots are configured.";
                 return FGridServiceResult.Unavailable;
             }
 

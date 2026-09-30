@@ -71,7 +71,9 @@ exits; it is no longer used to select an FGrid destination. A missing/offline
 service, invite timeout, missing receptacle, unknown exit or wrong destination
 stops the FGrid attempt and records the cause. Use `/rkm fgrid` to inspect
 configuration, mapped destinations, activity, and the last failure. Lift and
-exit selection still need in-game validation.
+exit selection still need in-game validation. AO# reports Fixer Grid as a
+dungeon, but RKMission keeps its travel provider active there and can resume
+the mapped exit route after `/rkm auto` is restarted inside it.
 
 Normal Grid/mapped travel remains the fallback. Scotty warpers
 reported offline are also treated as expected availability failures and no
@@ -143,6 +145,8 @@ requests the menu once more. A character already in a team cannot receive
 Scottyboi's invite.
 Expected Scottyboi or assigned-warper team invites are accepted automatically;
 an early warper invite waits briefly for its name lookup before acceptance.
+When a numbered Scottyboi account sends the queue response, RKMission checks
+its identity through the game chat server before trusting the assigned warper.
 For Mort, the confirmed `scty` command `hope` is used when the Mort menu page
 does not arrive. An offline warper reply ends that request and reports why no
 team invite can follow.

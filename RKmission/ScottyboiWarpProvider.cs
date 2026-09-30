@@ -46,6 +46,8 @@ namespace RKmission
         private bool _helpRetried, _teleportStarted, _queueReplySeen, _unverifiedQueueReplySeen;
         private bool _joinedByProvider;
         private readonly List<TeamRequestEventArgs> _pendingWarperInvites = new List<TeamRequestEventArgs>();
+        private readonly HashSet<uint> _verifiedNumberedBotIds = new HashSet<uint>();
+        private PrivateMsgMessage? _pendingQueueReply;
         private string _lastReply;
         private int _helpReplies, _menuPageCount;
         private readonly HashSet<int> _menuPages = new HashSet<int>();
@@ -78,6 +80,8 @@ namespace RKmission
                 _botId = _menuId = _replyId = _helpId = _recipientId = _warperId = 0;
                 _warperName = null;
                 _pendingWarperInvites.Clear();
+                _verifiedNumberedBotIds.Clear();
+                _pendingQueueReply = null;
                 _pendingCommand = null;
                 _helpReplies = _menuPageCount = 0;
                 _menuPages.Clear();
@@ -165,6 +169,19 @@ namespace RKmission
         {
             if (message is LookupMessage lookup)
             {
+                if (lookup.Id != 0 && Regex.IsMatch(lookup.Name ?? "",
+                    @"^Scottyboi(?:[1-9]|1[0-2])$", RegexOptions.IgnoreCase))
+                {
+                    _verifiedNumberedBotIds.Add(lookup.Id);
+                    if (_pendingQueueReply != null && _pendingQueueReply.Sender == lookup.Id &&
+                        (_state == State.Invite || _state == State.Warp))
+                    {
+                        PrivateMsgMessage pendingReply = _pendingQueueReply;
+                        _pendingQueueReply = null;
+                        _say($"Verified Scottyboi queue sender {lookup.Name} ({lookup.Id}); checking its assigned warper.");
+                        HandleWarpReply(pendingReply);
+                    }
+                }
                 if (string.Equals(lookup.Name, BotName, StringComparison.OrdinalIgnoreCase))
                     _botId = lookup.Id;
                 else if (string.Equals(lookup.Name, MenuName, StringComparison.OrdinalIgnoreCase))
@@ -187,6 +204,9 @@ namespace RKmission
                     {
                         TeamRequestEventArgs? pending = _pendingWarperInvites.FirstOrDefault(x =>
                             _warperId != 0 && _warperId == unchecked((uint)x.Requester.Instance));
+                        if (pending == null && _warperId != 0)
+                            _say($"Assigned warper {_warperName} resolved to identity {_warperId}; " +
+                                "pending team invite identities did not match.");
                         _pendingWarperInvites.Clear();
                         if (pending != null && !pending.Responded && !Team.IsInTeam &&
                             (_state == State.Invite || _state == State.Warp))
@@ -263,18 +283,23 @@ namespace RKmission
 
         private void HandleWarpReply(PrivateMsgMessage reply)
         {
-            // Only the account that received the selected command (or a
-            // resolved Scotty alias) may assign an automatic team inviter.
+            // A numbered Scottyboi bot may answer for the menu recipient.
+            // Verify that name through the chat server before trusting its
+            // assignment of a team inviter.
             if (reply.Sender == 0 ||
                 (reply.Sender != _recipientId && reply.Sender != _botId &&
-                 reply.Sender != _menuId && reply.Sender != _replyId))
+                 reply.Sender != _menuId && reply.Sender != _replyId &&
+                 !_verifiedNumberedBotIds.Contains(reply.Sender)))
             {
                 if (!_unverifiedQueueReplySeen && reply.Text.IndexOf("queue to get warped to",
                     StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     _unverifiedQueueReplySeen = true;
-                    _say($"Scottyboi-like queue reply from unverified sender {reply.Sender} ignored; " +
-                        "automatic invites require a verified bot assignment.");
+                    _pendingQueueReply = reply;
+                    for (int index = 2; index <= 12; index++)
+                        Network.Send(new LookupMessage { Id = 0, Name = $"Scottyboi{index}" });
+                    _say($"Scottyboi-like queue reply from sender {reply.Sender}; " +
+                        "checking numbered bot identities before accepting its warper assignment.");
                 }
                 return;
             }
@@ -365,6 +390,7 @@ namespace RKmission
         {
             request.Accept();
             _pendingWarperInvites.Clear();
+            _pendingQueueReply = null;
             _joinedByProvider = true;
             _state = State.Warp;
             _started = DateTime.UtcNow;
@@ -394,6 +420,7 @@ namespace RKmission
             LastFailure = reason;
             _state = State.Failed;
             _pendingWarperInvites.Clear();
+            _pendingQueueReply = null;
             if (applyBackoff)
                 _backoffUntil = DateTime.UtcNow.AddMinutes(2);
             _movement.Release(MovementOwner.WarpTravel);
@@ -567,6 +594,8 @@ namespace RKmission
             _botId = _menuId = _replyId = _helpId = _recipientId = _warperId = 0;
             _warperName = null;
             _pendingWarperInvites.Clear();
+            _verifiedNumberedBotIds.Clear();
+            _pendingQueueReply = null;
             _pendingCommand = null;
             _targetAliases = null;
             _helpReplies = _menuPageCount = 0;

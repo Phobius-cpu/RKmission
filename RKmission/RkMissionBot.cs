@@ -303,7 +303,10 @@ namespace RKmission
                     _nextSelection = DateTime.MinValue;
                     Say("Reclaim complete; replanning from the current playfield.");
                 }
-                if (Playfield.IsDungeon) { TickDungeon(); return; }
+                // AO# classifies Fixer Grid as a dungeon, but it is a travel
+                // playfield. Actual mission dungeons still need exact binding.
+                bool inFixerGrid = Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid;
+                if (Playfield.IsDungeon && !inFixerGrid) { TickDungeon(); return; }
                 if (_travelInvalidated)
                 {
                     _travelInvalidated = false;
@@ -348,6 +351,16 @@ namespace RKmission
                     _travel.Reset();
                     _nextSelection = DateTime.MinValue;
                 }
+                if (_selected == null && inFixerGrid && _checkpoint != null &&
+                    _checkpoint.MissionInstance != 0)
+                {
+                    _selected = _missions.Records.FirstOrDefault(x => x.Present &&
+                        x.IsRubiKaDestination && !x.Completed &&
+                        x.Id.Instance == _checkpoint.MissionInstance &&
+                        x.PlayfieldId == _checkpoint.DestinationPlayfield);
+                    if (_selected != null)
+                        Say($"Resuming accepted mission {_selected.Id.Instance} toward playfield {_selected.PlayfieldId} from Fixer Grid.");
+                }
                 if (_selected == null)
                 {
                     if (DateTime.UtcNow < _nextSelection) return;
@@ -380,7 +393,7 @@ namespace RKmission
                 }
                 if (_autoRolling)
                 { MaliMissionRoller2.Main.Window?.StopZoneRolling(); _autoRolling = false; }
-                if (_autoCycle)
+                if (_autoCycle && !inFixerGrid)
                 {
                     Mission live = Mission.List?.FirstOrDefault(x => x.Identity == _selected.Id);
                     if (live == null)
@@ -457,6 +470,7 @@ namespace RKmission
             _checkpoint.AutoCycle = _autoCycle;
             _checkpoint.Phase = !_running ? "Idle" : _recoveringDeath ? "Recovery" :
                 _autoRolling ? "Rolling" : _selected == null ? "SelectingMission" :
+                Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid ? "Travel" :
                 Playfield.IsDungeon ? (_dungeon.IsExiting ? "Exit" : _selected.Completed ? "MissionComplete" : "Dungeon") :
                 _selected.PlayfieldId != Playfield.ModelIdentity.Instance ? "Travel" : "MissionEntry";
             _checkpoint.MissionType = _selected == null ? 0 : (int)_selected.Id.Type;
@@ -655,7 +669,9 @@ namespace RKmission
             int tier = _movement?.ObserveDisplacement() ?? 0;
             if (tier == 0) return;
             Say($"Movement {signal}: recovery tier {tier}, owner={_movement.Owner}.");
-            if (Playfield.IsDungeon) _dungeon?.RecoverFromStuck(tier);
+            if (Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid)
+                _longTravel?.InvalidatePath();
+            else if (Playfield.IsDungeon) _dungeon?.RecoverFromStuck(tier);
             else
             {
                 _longTravel?.InvalidatePath();

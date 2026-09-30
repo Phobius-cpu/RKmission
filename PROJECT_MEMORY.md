@@ -2,6 +2,30 @@
 
 _Last updated: 2026-09-30_
 
+## 2026-09-30 Scotty numbered reply and Fixer Grid travel handoff
+
+- A live 22:13 run received a queue reply from identity `1854422176` and a
+  team request from identity `1624483346`. The request was buffered, but the
+  reply sender was outside the three resolved Scottyboi identities, so no
+  assigned warper was parsed and the invite could not be accepted. The
+  provider now holds that queue reply, resolves numbered Scottyboi account
+  names (2 through 12) through AOSharp's real `LookupMessage` path, and
+  processes the reply only if the chat server maps the sender identity to one
+  of those accounts. The existing destination check and assigned-warper name
+  lookup must then match the buffered team request before autoaccepting it.
+- The same run obtained a Data Receptacle from Fgridgirl and entered Fixer
+  Grid (`0x100B` = AOSharp `PlayfieldId.FixerGrid`, 4107), but AO# classified
+  that playfield as a dungeon. RKMission called its
+  exact mission-dungeon verifier and stopped after 20 seconds. The coordinator
+  now treats only `PlayfieldId.FixerGrid` as a travel playfield, continues the
+  FGrid state machine there, and keeps exact mission verification for actual
+  dungeons. A restarted `/rkm auto` inside Fixer Grid can select the accepted
+  destination (preferring the saved accepted mission identity) and resume its
+  floor route without requesting Scottyboi again.
+- The .NET Framework 4.8 build passes. The next in-game run must confirm the
+  numbered bot name lookup, delayed invite acceptance, lift traversal, and
+  visibility/name of the Perpetual Wastelands exit.
+
 ## 2026-09-30 Scottyboi invite ordering and FGrid correction
 
 - A new playfield-570 run sent `cumtower2` to `scty` but timed out without a

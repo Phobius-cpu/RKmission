@@ -290,7 +290,9 @@ namespace RKmission
                     x.To == target &&
                     Vector3.Distance(DynelManager.LocalPlayer.Position, x.Position) <= 300f);
 
-            _warpFailed = directNearby;
+            // A run restarted inside Fixer Grid should continue its exit route
+            // directly instead of asking an outdoor Scottyboi warper again.
+            _warpFailed = directNearby || current == (int)PlayfieldId.FixerGrid;
             _fgridFailed = directNearby || !_fgrid.CanRoute(target);
             _failedLinks.Clear();
             LastFailure = null;
