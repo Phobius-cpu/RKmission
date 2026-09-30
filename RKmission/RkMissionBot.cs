@@ -24,6 +24,7 @@ namespace RKmission
         private LocalMissionTravel _travel;
         private MovementArbiter _movement;
         private ScottyboiWarpProvider _warp;
+        private FGridServiceProvider _fgrid;
         private RubiKaTravelPlanner _longTravel;
         private MissionEntranceResolver _entranceResolver;
         private MissionCheckpoint _checkpoint;
@@ -59,7 +60,8 @@ namespace RKmission
             _deathRecovery = new DeathRecoveryController(_readiness, _movement, Say);
             _travel = new LocalMissionTravel(Say, pluginDir);
             _warp = new ScottyboiWarpProvider(Say, _movement);
-            _longTravel = new RubiKaTravelPlanner(pluginDir, _warp, _movement, Say);
+            _fgrid = new FGridServiceProvider(pluginDir, Say, _movement);
+            _longTravel = new RubiKaTravelPlanner(pluginDir, _warp, _fgrid, _movement, Say);
             _entranceResolver = new MissionEntranceResolver(pluginDir, Say);
             _checkpoint = MissionCheckpoint.Load(pluginDir, Say);
             _pendingCheckpointResume = _checkpoint.Armed;
@@ -100,6 +102,7 @@ namespace RKmission
             SMovementController.Stuck -= OnStuck;
             _dungeon.Dispose();
             _entranceResolver.Dispose();
+            _fgrid.Dispose();
             _warp.Dispose();
             _roller.Teardown();
             _map.Teardown();
@@ -167,9 +170,12 @@ namespace RKmission
                     if (!_missions.Records.Any()) Say("No accepted Rubi-Ka mission destinations detected.");
                     break;
                 case "complete": ConfirmCompletion(args); break;
+                case "fgrid":
+                    Say($"FGrid service configured={_fgrid.IsConfigured}, active={_fgrid.IsActive}, last issue={_fgrid.LastFailure ?? "none"}.");
+                    break;
                 case "loot": Say("Use /ManagerLoot for the original item list and settings."); break;
                 case "map": _map.ToggleWindow(); break;
-                default: Say("Commands: start, auto, local, stop, status, missions, zone <id>, rolls <count>, travel auto|ground|flying, complete [mission id], loot, map."); break;
+                default: Say("Commands: start, auto, local, stop, status, missions, zone <id>, rolls <count>, travel auto|ground|flying, fgrid, complete [mission id], loot, map."); break;
             }
         }
 
