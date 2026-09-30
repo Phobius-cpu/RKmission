@@ -2,6 +2,17 @@
 
 _Last updated: 2026-09-30_
 
+## 2026-09-30 Scotty warper name spacing
+
+- A live 22:26 run verified queue sender `Scottyboi5` (identity
+  `1835871573`) and buffered warper invite `1624483346`. The destination
+  matched, but the reply named `warper ( Warpdude32 )` with spaces inside
+  the parentheses. The parser required the name to touch both parentheses,
+  so it never resolved the assigned warper and timed out. It now accepts
+  optional spaces around the name while preserving the exact sender,
+  destination and inviter identity checks. A focused parse of the supplied
+  reply extracts `Warpdude32`; live autoaccept still needs confirmation.
+
 ## 2026-09-30 Scotty numbered reply and Fixer Grid travel handoff
 
 - A live 22:13 run received a queue reply from identity `1854422176` and a

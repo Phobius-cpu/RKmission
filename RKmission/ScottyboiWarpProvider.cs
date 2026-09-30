@@ -315,7 +315,7 @@ namespace RKmission
                         ShortReply(text));
                 return;
             }
-            Match warper = Regex.Match(text, @"warper\s*\((?<name>[a-z][a-z0-9_-]{2,24})\)",
+            Match warper = Regex.Match(text, @"warper\s*\(\s*(?<name>[a-z][a-z0-9_-]{2,24})\s*\)",
                 RegexOptions.IgnoreCase);
             if (!warper.Success)
             {
