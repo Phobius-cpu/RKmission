@@ -2,6 +2,26 @@
 
 _Last updated: 2026-09-30_
 
+## 2026-09-30 close-combat approach after first kill
+
+- The room-2 log selected Important Techrejecter (SimpleChar:7AB1FD10) at
+  11.3 m, then stopped with "could not be reached" after a corpse/credits
+  message. The corpse log has no target identity, so it does not prove which
+  Techrejecter died. CombatDriver's old 20-second clock only reset when both
+  line of sight and weapon range were true; it continued through readiness.
+- CombatDriver now counts only active combat updates (45-second bound) and
+  pauses that clock during stationary readiness. It reports target identity,
+  distance, line of sight, weapon range, health and both positions on failure.
+- For an in-room target that is not yet in weapon range/line of sight, try
+  bounded nearby navigation points inside the mapped room before stopping.
+  AO room assignment remains the fallback if Mali geometry has no point.
+  Active attackers outside the room retain the prior direct defensive pursuit.
+- A corpse with the matching instance identity excludes a stale living dynel
+  from ordinary enemy selection. The 20 m new-engagement gate, objective hold,
+  room clearance rules, doorway crossing and movement arbiter are unchanged.
+  `dotnet build RKmission/RKmission.csproj` passed with zero errors; the user
+  will validate the specific cave encounter in game.
+
 ## 2026-09-30 large-room scan recovery
 
 - A live mission log showed exact key warp and dungeon entry succeeding, then

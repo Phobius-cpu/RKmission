@@ -11,40 +11,65 @@ namespace RKmission
     {
         private readonly Action<string> _say;
         private Identity _target = Identity.None;
-        private DateTime _lastAttackOpportunity;
+        private DateTime _lastCombatTick;
+        private TimeSpan _withoutAttackOpportunity;
 
         public CombatDriver(Action<string> say) { _say = say; }
-        public void Reset() { _target = Identity.None; _lastAttackOpportunity = DateTime.MinValue; }
+        public void Reset()
+        {
+            _target = Identity.None;
+            _lastCombatTick = DateTime.MinValue;
+            _withoutAttackOpportunity = TimeSpan.Zero;
+        }
+        public void Pause() { if (_target != Identity.None) _lastCombatTick = DateTime.UtcNow; }
 
-        public bool Tick(SimpleChar enemy, int roomId, Action<Vector3> navigate,
+        public bool Tick(SimpleChar enemy, int roomId, Func<SimpleChar, bool> approach,
             Action onTargetChanged, float engagementRange)
         {
-            if (enemy == null) { Reset(); return true; }
+            if (enemy == null || !enemy.IsValid || !enemy.IsAlive) { Reset(); return true; }
             var player = DynelManager.LocalPlayer;
+            DateTime now = DateTime.UtcNow;
             if (_target != enemy.Identity)
             {
                 _target = enemy.Identity;
-                _lastAttackOpportunity = DateTime.UtcNow;
+                _lastCombatTick = now;
+                _withoutAttackOpportunity = TimeSpan.Zero;
                 onTargetChanged();
                 MovementArbiter.Current.Halt(MovementOwner.CombatPosition);
                 _say($"Targeting {enemy.Name} ({enemy.Identity}) in room {roomId} at " +
                     $"{enemy.DistanceFrom(player):0.0}m (new engagement range {engagementRange:0}m)" +
                     (enemy.IsPet ? " (spawned entity)." : "."));
             }
-            if (DateTime.UtcNow - _lastAttackOpportunity > TimeSpan.FromSeconds(20))
+            // Count active combat updates, excluding post-combat readiness holds.
+            TimeSpan elapsed = now - _lastCombatTick;
+            if (elapsed > TimeSpan.Zero)
+                _withoutAttackOpportunity += elapsed > TimeSpan.FromSeconds(1)
+                    ? TimeSpan.FromSeconds(1) : elapsed;
+            _lastCombatTick = now;
+            bool inSight = enemy.IsInLineOfSight;
+            bool inRange = enemy.IsInAttackRange(true);
+            if (inSight && inRange)
             {
-                _say($"Enemy {enemy.Name} could not be reached in room {roomId}.");
-                return false;
-            }
-            if (enemy.IsInLineOfSight && enemy.IsInAttackRange(true))
-            {
-                _lastAttackOpportunity = DateTime.UtcNow;
+                _withoutAttackOpportunity = TimeSpan.Zero;
                 MovementArbiter.Current.Halt(MovementOwner.CombatPosition);
                 if (!player.IsAttackPending &&
                     (!player.IsAttacking || player.FightingTarget?.Identity != enemy.Identity))
                     player.Attack(enemy);
             }
-            else navigate(enemy.Position);
+            else if (_withoutAttackOpportunity > TimeSpan.FromSeconds(45))
+            {
+                _say($"Enemy {enemy.Name} {enemy.Identity} could not be reached in room {roomId}: " +
+                    $"distance={enemy.DistanceFrom(player):0.0}m, line of sight={inSight}, weapon range={inRange}, " +
+                    $"health={enemy.Health}, player={player.Position}, enemy={enemy.Position}.");
+                return false;
+            }
+            else if (!approach(enemy))
+            {
+                _say($"Enemy {enemy.Name} {enemy.Identity} has no reachable mapped combat approach in room {roomId}: " +
+                    $"distance={enemy.DistanceFrom(player):0.0}m, line of sight={inSight}, weapon range={inRange}, " +
+                    $"player={player.Position}, enemy={enemy.Position}.");
+                return false;
+            }
             return true;
         }
     }

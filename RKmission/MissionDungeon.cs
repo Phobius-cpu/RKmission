@@ -40,6 +40,12 @@ namespace RKmission
         private int _scanWaypointIndex;
         private float _scanWaypointBestDistance;
         private Vector3 _scanEnemyPosition;
+        private Identity _combatApproachTarget = Identity.None;
+        private readonly List<Vector3> _combatApproaches = new List<Vector3>();
+        private int _combatApproachIndex;
+        private DateTime _combatApproachProgress;
+        private float _combatApproachBestDistance;
+        private Vector3 _combatApproachEnemyPosition;
         private AcceptedMission _record;
         private MissionObjective _objective;
         private bool _exiting;
@@ -112,6 +118,7 @@ namespace RKmission
             _edgeFailures.Clear();
             _reverseCooldown.Clear();
             _combat.Reset();
+            ResetCombatApproach();
             _scanTarget = Identity.None;
             _scanWaypoints.Clear();
             _waitingForLoot = Identity.None;
@@ -455,6 +462,7 @@ namespace RKmission
         private bool HoldForReadiness()
         {
             if (!_readiness.Hold()) return false;
+            _combat.Pause();
             _loot.MissionActionsPaused = true;
             _destination = null;
             _roomQuietAt = DateTime.MinValue;
@@ -473,6 +481,7 @@ namespace RKmission
             var mappedCharacters = _layout.VisibleRoomDynels(room.Instance)
                 .Where(x => x.Identity.Type == IdentityType.SimpleChar)
                 .Select(x => new SimpleChar(x)).ToList();
+            var corpseIds = new HashSet<int>(DynelManager.Corpses.Select(x => x.Identity.Instance));
             var hostileOwners = new HashSet<int>(mappedCharacters
                 .Concat(DynelManager.NPCs)
                 .Where(x => x.IsNpc && !x.IsPet && _layout.ContainsDynel(room.Instance, x))
@@ -483,7 +492,8 @@ namespace RKmission
                 .GroupBy(x => x.Identity).Select(group => group.First())
                 .Where(x =>
                 {
-                    if (!x.IsAlive || x.IsPlayer || players.Contains(x.Identity) ||
+                    if (!x.IsAlive || corpseIds.Contains(x.Identity.Instance) ||
+                        x.IsPlayer || players.Contains(x.Identity) ||
                         x.Identity == player.Identity ||
                         _objective.HoldEnemy(x.Identity) ||
                         (x.IsPet && players.Any(id => id.Instance == x.PetOwnerId)) ||
@@ -523,6 +533,7 @@ namespace RKmission
             if (enemy == null)
             {
                 _combat.Reset();
+                ResetCombatApproach();
                 return false;
             }
             _scanTarget = Identity.None;
@@ -530,11 +541,93 @@ namespace RKmission
             _loot.MissionActionsPaused = true;
             _objective.ArmKill(enemy);
 
-            if (!_combat.Tick(enemy, room.Instance, Navigate, () =>
-                { _waitingForLoot = Identity.None; _destination = null; }, EngagementRange))
+            if (enemy.IsInLineOfSight && enemy.IsInAttackRange(true))
+                ResetCombatApproach();
+
+            if (!_combat.Tick(enemy, room.Instance, target => ApproachCombatEnemy(target, room.Instance), () =>
+                { _waitingForLoot = Identity.None; ResetCombatApproach(); }, EngagementRange))
                 Stop();
 
             return true;
+        }
+
+        private void ResetCombatApproach()
+        {
+            _combatApproachTarget = Identity.None;
+            _combatApproaches.Clear();
+            _combatApproachIndex = 0;
+            _destination = null;
+        }
+
+        private bool ApproachCombatEnemy(SimpleChar enemy, int roomId)
+        {
+            if (!_layout.ContainsDynel(roomId, enemy))
+            {
+                // Preserve the existing defensive pursuit of an active attacker
+                // just outside this room; mapped alternatives apply in-room.
+                Navigate(enemy.Position);
+                return true;
+            }
+            DateTime now = DateTime.UtcNow;
+            SimpleChar player = DynelManager.LocalPlayer;
+            if (_combatApproachTarget != enemy.Identity ||
+                Vector3.Distance(_combatApproachEnemyPosition, enemy.Position) > 3f)
+            {
+                _combatApproachTarget = enemy.Identity;
+                _combatApproachEnemyPosition = enemy.Position;
+                _combatApproaches.Clear();
+                _combatApproachIndex = 0;
+                Vector3 toward = player.Position - enemy.Position;
+                toward.Y = 0;
+                toward = toward.Magnitude > 0.1 ? toward.Normalize() : Vector3.Forward;
+                Vector3 side = new Vector3(-toward.Z, 0, toward.X);
+                foreach (float radius in new[] { 2f, 4f })
+                    foreach (Vector3 direction in new[] { toward, side, -side, -toward })
+                        AddCombatApproach(roomId, enemy.Position + direction * radius);
+                AddCombatApproach(roomId, enemy.Position);
+                if (_combatApproaches.Count == 0 && enemy.Room?.Instance == roomId)
+                    _combatApproaches.Add(enemy.Position); // Preserve AO's room assignment when Mali geometry is incomplete.
+                _destination = null;
+                _say($"Combat approach to {enemy.Identity} in room {roomId}: " +
+                    $"{_combatApproaches.Count} mapped point(s), distance={enemy.DistanceFrom(player):0.0}m.");
+            }
+            if (_combatApproachIndex >= _combatApproaches.Count) return false;
+            Vector3 point = _combatApproaches[_combatApproachIndex];
+            float distance = Vector3.Distance(player.Position, point);
+            if (distance + 0.3f < _combatApproachBestDistance)
+            {
+                _combatApproachBestDistance = distance;
+                _combatApproachProgress = now;
+            }
+            if (_destination.HasValue &&
+                (distance < 1.1f || now - _combatApproachProgress > TimeSpan.FromSeconds(7) ||
+                 (!SMovementController.IsNavigating() && now - _combatApproachProgress > TimeSpan.FromSeconds(2))))
+            {
+                _combatApproachIndex++;
+                _destination = null;
+            }
+            while (!_destination.HasValue && _combatApproachIndex < _combatApproaches.Count)
+            {
+                point = _combatApproaches[_combatApproachIndex];
+                _combatApproachBestDistance = Vector3.Distance(player.Position, point);
+                _combatApproachProgress = now;
+                if (MovementArbiter.Current.SetNavDestination(_requestedOwner, point))
+                {
+                    _destination = point;
+                    _say($"Combat approach {_combatApproachIndex + 1}/{_combatApproaches.Count} to {enemy.Identity}: {point}.");
+                    break;
+                }
+                _say($"Combat approach {_combatApproachIndex + 1} to {enemy.Identity} has no navigation route.");
+                _combatApproachIndex++;
+            }
+            return _destination.HasValue;
+        }
+
+        private void AddCombatApproach(int roomId, Vector3 point)
+        {
+            if (_layout.IsInside(roomId, point, 0.2f) &&
+                !_combatApproaches.Any(existing => Vector3.Distance(existing, point) < 1f))
+                _combatApproaches.Add(point);
         }
 
         private bool ScanRemainingRoom(Room room)
