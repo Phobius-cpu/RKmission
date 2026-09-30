@@ -2,6 +2,25 @@
 
 _Last updated: 2026-09-30_
 
+## 2026-09-30 return-item finale pickup
+
+- A live 23:07 finale reached a `UseItemOnItem` objective with target
+  `(Terminal:583D3CFD)`, but the item lying on the floor was not collected;
+  the objective timed out after 60 seconds. The user confirmed the missing
+  item was on the floor. For a return-item pickup step, RKMission previously
+  called the world dynel's generic `Use()` action. AOSharp's real
+  `PickUpMessage` has an exact `Target` identity for collecting a ground item.
+- Return-item and other explicit pickup steps now send `PickUpMessage` only
+  for the exact reserved ground target; containers still go through
+  Manager.Loot's objective container path. Pickup and item-use interaction
+  distance is reduced from 4 m to 2 m; find-item/person selection retains
+  its range. The first action log now includes the native
+  source/destination identities and whether the step is collection, and a
+  timeout reports distance and source inventory presence. Inventory
+  confirmation and manual return hand-in policy remain in place.
+- The user will compile and verify pickup in game; the packet/result and any
+  identity change on pickup have not been observed in this session.
+
 ## 2026-09-30 doorway ownership after combat approach refusal
 
 - A live 22:46 run targeted Important Techrejecter in room 1 at 15.2 m.

@@ -635,7 +635,7 @@ holds completion rather than guessing an objective from a name.
 | Type | Reserved final action |
 | --- | --- |
 | Find item | Target/select the exact quest item and wait for completion acknowledgement; do not use, open or pick it up. |
-| Return item | Pick up the quest item, then mark the bot run completed with `manual return hand-in pending=true`. No terminal travel or hand-in is performed. |
+| Return item | Pick up the exact ground quest item with AO's pickup action, then mark the bot run completed with `manual return hand-in pending=true` after inventory confirmation. No terminal travel or hand-in is performed. |
 | Repair/use item | Use the native source item on the exact destination. |
 | Find person | Observe/target the exact NPC after ordinary clearance; wait for acknowledgement, then kill it last and process its corpse. |
 | Kill person | Keep the exact NPC out of normal target acquisition; engage it last within 20 m, then process its corpse. |

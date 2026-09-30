@@ -13,6 +13,7 @@ namespace RKmission
     // Managed objective identities survive native quest removal and action changes.
     internal sealed class MissionObjective
     {
+        private const float ObjectiveUseRange = 2f;
         internal sealed class Step
         {
             public MissionAction Action;
@@ -191,8 +192,18 @@ namespace RKmission
                 if (_approaching != step.Target)
                 { _approaching = step.Target; _approachStarted = DateTime.UtcNow; }
                 if (DateTime.UtcNow - _approachStarted > TimeSpan.FromSeconds(60))
-                { Failure = $"Objective {step.Target} did not complete within 60 s; /rkm complete remains available after checking in game."; return true; }
-                if (target.DistanceFrom(DynelManager.LocalPlayer) > 4f)
+                {
+                    string sourceState = step.Action is UseItemOnItemAction timeoutUse
+                        ? $", source={timeoutUse.Source}, source in inventory={Inventory.Items.Any(x => x.UniqueIdentity == timeoutUse.Source)}"
+                        : "";
+                    Failure = $"Objective {step.Target} did not complete within 60 s " +
+                        $"(distance={target.DistanceFrom(DynelManager.LocalPlayer):0.0}m{sourceState}); " +
+                        "/rkm complete remains available after checking in game.";
+                    return true;
+                }
+                float interactionRange = step.Pickup || step.Action is UseItemOnItemAction
+                    ? ObjectiveUseRange : 4f;
+                if (target.DistanceFrom(DynelManager.LocalPlayer) > interactionRange)
                 { navigate(target.Position); return true; }
                 MovementArbiter.Current.Halt(MovementOwner.Objective);
                 if (Spell.HasPendingCast || Item.HasPendingUse || loot.IsProcessingMissionLoot) return true;
@@ -214,7 +225,10 @@ namespace RKmission
                         MarkSent(step);
                         return false; // Manager.Loot opens/picks and transfers the objective contents.
                     }
-                    target.Use(); // Return-item collection only; hand-in remains manual.
+                    // A ground mission item needs the game's pickup action.
+                    // Generic Use interacts with the world dynel but need not
+                    // transfer it into the character's inventory.
+                    Network.Send(new PickUpMessage { Target = target.Identity });
                 }
                 else
                 {
@@ -238,7 +252,13 @@ namespace RKmission
 
         private void MarkSent(Step step)
         {
-            if (!step.Sent) _say($"Final objective action: {step.Action.Type}, target={step.Target}.");
+            if (!step.Sent)
+            {
+                string detail = step.Action is UseItemOnItemAction use
+                    ? $", source={use.Source}, destination={use.Destination}, collect={step.Pickup}"
+                    : "";
+                _say($"Final objective action: {step.Action.Type}, target={step.Target}{detail}.");
+            }
             step.Sent = true;
             step.LastSent = DateTime.UtcNow;
         }
