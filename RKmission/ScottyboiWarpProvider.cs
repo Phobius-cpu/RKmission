@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Text.RegularExpressions;
 using AOSharp.Common.GameData;
@@ -89,6 +90,12 @@ namespace RKmission
             if (_state == State.Lookup && _menuId == 0 && _botId != 0 &&
                 DateTime.UtcNow - _started > TimeSpan.FromSeconds(3))
                 StartHelp(_botId);
+            if ((_state == State.Invite || _state == State.Warp) &&
+                Playfield.ModelIdentity.Instance == _targetId)
+            {
+                _state = State.Settling;
+                _zonedAt = DateTime.UtcNow;
+            }
             if (_state == State.Settling)
             {
                 if (DateTime.UtcNow - _zonedAt < TimeSpan.FromSeconds(2)) return WarpResult.InProgress;
@@ -116,8 +123,18 @@ namespace RKmission
                 _started = DateTime.UtcNow;
                 _say("Scottyboi's warp menu is incomplete; requesting its pages once more.");
             }
-            TimeSpan timeout = _state == State.Warp ? TimeSpan.FromSeconds(35) :
-                _state == State.Invite ? TimeSpan.FromSeconds(20) :
+            if (_state == State.Invite && Team.IsInTeam && _warperName != null &&
+                Team.Members != null &&
+                Team.Members.Any(member =>
+                    string.Equals(member.Name, _warperName, StringComparison.OrdinalIgnoreCase)))
+            {
+                _joinedByProvider = true;
+                _state = State.Warp;
+                _started = DateTime.UtcNow;
+                _say($"Joined assigned warper {_warperName}'s team; waiting for the warp and destination verification.");
+            }
+            TimeSpan timeout = _state == State.Warp ? TimeSpan.FromSeconds(60) :
+                _state == State.Invite ? TimeSpan.FromSeconds(45) :
                 _state == State.Help ? TimeSpan.FromSeconds(18) : TimeSpan.FromSeconds(12);
             if (DateTime.UtcNow - _started > timeout)
                 Fail(_state == State.Help
@@ -236,9 +253,19 @@ namespace RKmission
             Match warper = Regex.Match(text, @"warper\s*\((?<name>[a-z][a-z0-9_-]{2,24})\)",
                 RegexOptions.IgnoreCase);
             if (!warper.Success) return;
-            _warperName = warper.Groups["name"].Value;
-            if (_state == State.Invite &&
-                Regex.IsMatch(text, @"\bis offline\b|\bneeds to log on\b", RegexOptions.IgnoreCase))
+            bool offline = Regex.IsMatch(text, @"\bis offline\b|\bneeds to log on\b",
+                RegexOptions.IgnoreCase);
+            string assignedWarper = warper.Groups["name"].Value;
+            if (!string.Equals(_warperName, assignedWarper, StringComparison.OrdinalIgnoreCase))
+            {
+                _warperName = assignedWarper;
+                if (!offline)
+                {
+                    _started = DateTime.UtcNow;
+                    _say($"Scottyboi assigned warper {_warperName}; waiting for its team invite.");
+                }
+            }
+            if (_state == State.Invite && offline)
             {
                 Fail($"Scottyboi queued '{_pendingCommand?.Text}', but warper {_warperName} is offline.", false);
                 return;
@@ -248,24 +275,31 @@ namespace RKmission
 
         private void OnTeamRequest(object sender, TeamRequestEventArgs request)
         {
+            uint requesterId = unchecked((uint)request.Requester.Instance);
             if ((_state != State.Invite && _state != State.Warp) ||
                 Team.IsInTeam ||
-                (request.Requester.Instance != _botId &&
-                 request.Requester.Instance != _recipientId &&
-                 request.Requester.Instance != _menuId &&
-                 request.Requester.Instance != _replyId &&
-                 request.Requester.Instance != _warperId))
+                (requesterId != _botId &&
+                 requesterId != _recipientId &&
+                 requesterId != _menuId &&
+                 requesterId != _replyId &&
+                 requesterId != _warperId))
                 return;
             request.Accept();
             _joinedByProvider = true;
             _state = State.Warp;
             _started = DateTime.UtcNow;
+            _say($"Accepted Scottyboi team invite from identity {requesterId}; waiting for the warp.");
         }
 
         private void OnTeleportStarted(object sender, EventArgs args)
         {
             if (_state == State.Invite || _state == State.Warp)
+            {
                 _teleportStarted = true;
+                _state = State.Warp;
+                _started = DateTime.UtcNow;
+                _say("Scottyboi warp zoning started; waiting for destination verification.");
+            }
         }
 
         private void OnTeleportEnded(object sender, EventArgs args)

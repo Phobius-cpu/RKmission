@@ -5,6 +5,7 @@ using System.Linq;
 using AOSharp.Common.GameData;
 using AOSharp.Core;
 using AOSharp.Core.Inventory;
+using AOSharp.Core.UI;
 using AOSharp.Pathfinding;
 using Newtonsoft.Json;
 using SmokeLounge.AOtomation.Messaging.Messages;
@@ -66,7 +67,7 @@ namespace RKmission
         {
             _say = say;
             _movement = movement;
-            Load(Path.Combine(pluginDir, "Data", "FGridServices.json"));
+            Load(System.IO.Path.Combine(pluginDir, "Data", "FGridServices.json"));
             Network.ChatMessageReceived += OnChatMessage;
             Team.TeamRequest += OnTeamRequest;
             Game.TeleportStarted += OnTeleportStarted;
@@ -334,7 +335,7 @@ namespace RKmission
             if ((_state != State.Invite && _state != State.Receptacle) || Team.IsInTeam)
                 return;
 
-            if (!_expectedInviters.Contains(request.Requester.Instance))
+            if (!_expectedInviters.Contains(unchecked((uint)request.Requester.Instance)))
                 return;
 
             request.Accept();
