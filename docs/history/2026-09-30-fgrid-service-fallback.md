@@ -21,8 +21,13 @@ available.
 - Added `FGridServiceProvider`.
 - Added exclusive `MovementOwner.FGridTravel` ownership.
 - Added `Data/FGridServices.json` for live service bot configuration.
-- The shipped service list is intentionally empty; bot names/commands must be
-  filled from verified in-game observations rather than guessed.
+- The live service list now contains three user-observed commands:
+  - `Fgridgirl` -> `fgrid`
+  - `Fgridder` -> `fgrid`
+  - `Chewysfgrid` -> `cast fgrid`
+  They are currently configured with `PlayfieldId: 0` and no fixed terminal
+  position, so they are eligible wherever the bot is reachable and a visible
+  normal Grid terminal is available.
 - Optional service fields:
   - `Name`
   - `Command`
@@ -86,9 +91,9 @@ AO chat/team/item/zoning interactions and the existing movement arbiter.
 
 The user will compile and test in-game. In particular validate:
 
-- the exact live service bot names and tell commands,
-- expected inviter aliases,
-- each configured bot's city/playfield and Grid terminal position,
+- whether the three observed service commands remain stable in live use,
+- whether any of the service bots invite from a different character identity,
+- whether any bot should later be restricted to a specific city/playfield or Grid terminal,
 - timing from accepted invite to Team FGrid cast,
 - temporary receptacle detection,
 - direct destination terminal invocation for each tested RK playfield,
