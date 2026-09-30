@@ -34,10 +34,13 @@ namespace RKmission
             public string Name { get; set; }
             public string Command { get; set; }
             public List<string> InviteFrom { get; set; } = new List<string>();
+            public int PlayfieldId { get; set; }
+            public float[] GridTerminalPosition { get; set; }
         }
 
         private const int DataReceptacleTemplateId = 160978;
         private readonly List<ServiceConfig> _services = new List<ServiceConfig>();
+        private readonly List<ServiceConfig> _candidates = new List<ServiceConfig>();
         private readonly HashSet<uint> _expectedInviters = new HashSet<uint>();
         private readonly Action<string> _say;
         private readonly MovementArbiter _movement;
@@ -149,6 +152,16 @@ namespace RKmission
                     return FGridServiceResult.Unavailable;
                 }
 
+                _candidates.Clear();
+                _candidates.AddRange(_services.Where(x => x.PlayfieldId <= 0 ||
+                    x.PlayfieldId == Playfield.ModelIdentity.Instance));
+                if (_candidates.Count == 0)
+                {
+                    LastFailure = $"No configured FGrid service bot is assigned to playfield {Playfield.ModelIdentity.Instance}.";
+                    _state = State.Failed;
+                    return FGridServiceResult.Unavailable;
+                }
+
                 _terminal = FindGridTerminal();
                 if (_terminal == null)
                 {
@@ -243,13 +256,25 @@ namespace RKmission
         }
 
         private ServiceConfig CurrentService =>
-            _serviceIndex >= 0 && _serviceIndex < _services.Count ? _services[_serviceIndex] : null;
+            _serviceIndex >= 0 && _serviceIndex < _candidates.Count ? _candidates[_serviceIndex] : null;
 
-        private SimpleItem FindGridTerminal() =>
-            DynelManager.Terminals
-                .Where(x => string.Equals(x.Name, "Enter The Grid", StringComparison.OrdinalIgnoreCase))
+        private SimpleItem FindGridTerminal()
+        {
+            IEnumerable<SimpleItem> terminals = DynelManager.Terminals.Where(x =>
+                string.Equals(x.Name, "Enter The Grid", StringComparison.OrdinalIgnoreCase));
+            float[] configured = CurrentService?.GridTerminalPosition;
+            if (configured != null && configured.Length == 3)
+            {
+                var expected = new Vector3(configured[0], configured[1], configured[2]);
+                return terminals
+                    .Where(x => Vector3.Distance(x.Position, expected) < 30f)
+                    .OrderBy(x => Vector3.Distance(x.Position, expected))
+                    .FirstOrDefault();
+            }
+            return terminals
                 .OrderBy(x => Vector3.Distance(x.Position, DynelManager.LocalPlayer.Position))
                 .FirstOrDefault();
+        }
 
         private void BeginLookup()
         {
@@ -359,9 +384,16 @@ namespace RKmission
             _serviceIndex++;
             _botId = 0;
             _expectedInviters.Clear();
-            if (_serviceIndex < _services.Count)
+            if (_serviceIndex < _candidates.Count)
             {
-                BeginLookup();
+                _terminal = FindGridTerminal();
+                if (_terminal == null)
+                {
+                    TryNextService($"Configured Grid terminal for FGrid service '{CurrentService?.Name}' is not visible.");
+                    return;
+                }
+                _state = State.ApproachTerminal;
+                _started = DateTime.UtcNow;
                 return;
             }
             Fail("All configured FGrid service bots were unavailable or did not complete the request.");
@@ -404,6 +436,7 @@ namespace RKmission
             _destinationAttempt = 0;
             _botId = 0;
             _expectedInviters.Clear();
+            _candidates.Clear();
             _teleportStarted = false;
             LastFailure = null;
             _movement.Release(MovementOwner.FGridTravel);
