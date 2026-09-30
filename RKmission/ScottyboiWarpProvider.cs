@@ -27,6 +27,10 @@ namespace RKmission
         private const string BotName = "Scottyboi";
         private const string MenuName = "scty";
         private const string ReplyName = "Scottyboi1";
+        private static readonly HashSet<string> MenuZoneHeadings = new HashSet<string>(
+            Enum.GetValues(typeof(PlayfieldId)).Cast<PlayfieldId>()
+                .SelectMany(id => MenuAliasesFor((int)id, Normalize(id.ToString())))
+                .Select(Normalize), StringComparer.OrdinalIgnoreCase);
         private readonly Action<string> _say;
         private readonly MovementArbiter _movement;
         private State _state;
@@ -390,10 +394,16 @@ namespace RKmission
             {
                 int firstLink = line.IndexOf("<a", StringComparison.OrdinalIgnoreCase);
                 string prefix = firstLink < 0 ? line : line.Substring(0, firstLink);
-                string heading = Regex.Replace(WebUtility.HtmlDecode(prefix), "<[^>]+>", " ").Trim();
+                // Nadybot may put a location name and decoration before the
+                // first link. Read a marked zone header when one is present.
+                Match markedHeading = Regex.Match(prefix,
+                    @"<header\d*[^>]*>(?<name>.*?)<end>",
+                    RegexOptions.IgnoreCase | RegexOptions.Singleline);
+                string heading = Regex.Replace(WebUtility.HtmlDecode(markedHeading.Success
+                    ? markedHeading.Groups["name"].Value : prefix), "<[^>]+>", " ").Trim();
                 if (MatchesTarget(heading, target)) inSection = true;
-                else if (inSection && heading.Length > 0 &&
-                    !heading.StartsWith("•") && !heading.StartsWith("-"))
+                else if (inSection &&
+                    (markedHeading.Success || MenuZoneHeadings.Contains(Normalize(heading))))
                     inSection = false;
                 if (!inSection) continue;
                 foreach (Match anchor in Regex.Matches(line,

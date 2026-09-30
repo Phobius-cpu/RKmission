@@ -2,6 +2,21 @@
 
 _Last updated: 2026-09-30_
 
+## 2026-09-30 Scottyboi menu sections across zones
+
+- A live `!help` reply contained all three menu pages and visibly listed
+  Perpetual Wastelands, but command discovery failed for playfield 570.
+  Section parsing discarded a destination as soon as a location line had
+  nonempty decoration/text before its command link.
+- The parser now keeps a destination section active through its location
+  lines and ends it only at another recognized playfield heading or a marked
+  heading. Known headings are derived from AOSharp playfield names and the
+  existing menu aliases, so this applies to every Scottyboi target rather
+  than a command hardcoded for playfield 570. Waypoint links remain excluded;
+  the bot still waits for a real command, invite and verified destination.
+- Synthetic paged-menu checks cover multiple zones, waypoint links, nearby
+  headings and absent targets. The live bot menu still needs in-game proof.
+
 ## 2026-09-30 skipped ordinary loot and mission completion
 
 - A live finale log reported three ordinary containers skipped in rooms 3, 4,
