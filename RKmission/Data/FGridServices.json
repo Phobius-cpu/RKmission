@@ -1,0 +1,12 @@
+{
+  "Services": [],
+  "Example": {
+    "Name": "ReplaceWithLiveFGridBotName",
+    "Command": "ReplaceWithLiveTellCommand",
+    "InviteFrom": [
+      "ReplaceWithExpectedInviterNameIfDifferent"
+    ],
+    "PlayfieldId": 800,
+    "GridTerminalPosition": [636.5, 66.8, 727.8]
+  }
+}
