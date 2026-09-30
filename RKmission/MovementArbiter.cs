@@ -6,7 +6,7 @@ namespace RKmission
 {
     internal enum MovementOwner
     {
-        None, OutdoorTravel, WarpTravel, MissionEntrance, DungeonRoom, DoorTransition,
+        None, OutdoorTravel, WarpTravel, FGridTravel, MissionEntrance, DungeonRoom, DoorTransition,
         LiftTransition, CombatPosition, LootApproach, Objective, DungeonExit, Recovery
     }
 
