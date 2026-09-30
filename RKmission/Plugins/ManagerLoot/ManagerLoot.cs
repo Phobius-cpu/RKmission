@@ -90,12 +90,6 @@ namespace ManagerLoot
         {
             MissionRoomId = -1;
             _pendingMissionLoot = MissionIdentity.None; // Explicitly release ownership on stop/exit.
-            if (CorpseContainer == null &&
-                (CurrentProcess == ProcessState.Opening || CurrentProcess == ProcessState.PickingLock))
-            {
-                CurrentCorpse = null;
-                CurrentProcess = ProcessState.Open_Corpse;
-            }
             if (_enabledForMission && _settings != null && _settings["Enable"].AsBool())
                 Helper_Enable();
             _enabledForMission = false;
@@ -117,6 +111,8 @@ namespace ManagerLoot
             CurrentProcess = ProcessState.Load_Backpacks;
         }
         private bool ReservedMissionLoot(MissionIdentity identity) => MissionLootReserved?.Invoke(identity) == true;
+        public bool IsMissionCriticalLoot(MissionIdentity identity) =>
+            ReservedMissionLoot(identity) || MissionObjectiveContainer == identity;
         public bool IgnoreOrdinaryMissionLoot { get; set; }
         public int SkippedMissionLootCount => IgnoreOrdinaryMissionLoot ? 0 : _unreachableMissionLoot.Count(x =>
             !_finishedMissionLoot.Contains(x) && !ReservedMissionLoot(x));
@@ -213,7 +209,8 @@ namespace ManagerLoot
             return candidates.Where(x =>
                 !_unreachableMissionLoot.Contains(x.Identity)
                 && !_finishedMissionLoot.Contains(x.Identity))
-            .OrderBy(x => x.DistanceFrom(DynelManager.LocalPlayer)).FirstOrDefault();
+            .OrderBy(x => x.Identity == _pendingMissionLoot ? 0 : 1)
+            .ThenBy(x => x.DistanceFrom(DynelManager.LocalPlayer)).FirstOrDefault();
         }
 
         private void FinishMissionContainer()
@@ -265,6 +262,11 @@ namespace ManagerLoot
         public MissionIdentity WaitingMissionLootIdentity =>
             MissionRoomId >= 0 && CurrentProcess == ProcessState.Opening &&
             CorpseContainer == null ? _pendingMissionLoot : MissionIdentity.None;
+        public bool WaitingForOrdinaryMissionContainer(MissionIdentity identity) =>
+            MissionRoomId >= 0 && identity.Type == IdentityType.Container &&
+            _pendingMissionLoot == identity && CorpseContainer == null &&
+            !IsMissionCriticalLoot(identity) &&
+            (CurrentProcess == ProcessState.Opening || CurrentProcess == ProcessState.Open_Corpse);
         private Dynel CurrentCorpse;
 
         private readonly List<string> ErrorMessages = new List<string>();
@@ -486,38 +488,16 @@ namespace ManagerLoot
 
             if (MissionRoomId >= 0)
             {
-                if (_pendingMissionLoot != container.Identity)
-                {
-                    Dynel visible = DynelManager.GetDynel(container.Identity);
-                    bool reopenedSkipped = _pendingMissionLoot == MissionIdentity.None &&
-                        CorpseContainer == null && _unreachableMissionLoot.Contains(container.Identity) &&
-                        visible != null && IsInMissionRoom(visible, MissionRoomId);
-                    if (!reopenedSkipped || visible == null)
-                    {
-                        Chat.WriteLine($"RKMission: Ignoring late ContainerOpened {container.Identity} " +
-                            $"in room {MissionRoomId}; pending={_pendingMissionLoot}.");
-                        return;
-                    }
-                    // A response that arrives while this room is still owned is
-                    // stronger evidence than the earlier unreachable timeout.
-                    _unreachableMissionLoot.Remove(container.Identity);
-                    _finishedMissionLoot.Remove(container.Identity);
-                    BindMissionLoot(visible);
-                    Chat.WriteLine($"RKMission: Previously skipped loot {container.Identity} opened in room {MissionRoomId}; processing contents.");
-                }
+                // A late response still belongs to this exact pending identity,
+                // even after timeout or the world corpse disappearing.
+                if (_pendingMissionLoot != container.Identity) return;
             }
-            else if (MissionLootAllowed != null || CurrentProcess != ProcessState.Opening)
-            {
-                if (MissionLootAllowed != null || _unreachableMissionLoot.Contains(container.Identity))
-                    Chat.WriteLine($"RKMission: Ignoring late ContainerOpened {container.Identity} after room ownership ended.");
-                return;
-            }
+            else if (CurrentProcess != ProcessState.Opening) return;
 
             if (Inventory.Backpacks.Any(b => b.Identity == container.Identity)) return;
 
             Chat.WriteLine($"ManagerLoot: ContainerOpened {container.Identity} " +
                 (MissionRoomId >= 0 ? $"in RKMission room {MissionRoomId}." : "outside RKMission room ownership."));
-
             if (_settings["Print"].AsBool() && container.Identity.Type == IdentityType.Container)
                 foreach (var item in container.Items)
                     Chat.WriteLine($"{item.Name}, {item.Id}, {item.QualityLevel}, {item.UniqueIdentity}");

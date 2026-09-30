@@ -2,25 +2,30 @@
 
 _Last updated: 2026-09-30_
 
-## 2026-09-30 late container event and room rebound
+## 2026-09-30 U-shaped room loot navigation
 
-- A run skipped `(Container:BB8CFAD)` in room 3 as unreachable at 14.8 m,
-  confirmed 3→1, then timed out approaching 1→0. Only after that stop did
-  `Container = Container` appear. That old Manager.Loot line omitted identity
-  and printed before mission ownership checks, so it did not prove which chest
-  was accepted for loot processing.
-- ContainerOpened logging now includes identity and room/standalone context.
-  A late open for a skipped identity is accepted only while RKMission still
-  owns that same room, no other container is pending, and the visible dynel is
-  in the room; the skip is then removed and contents processed. Other late
-  replies are explicitly ignored. Ending room ownership also cancels an
-  unfinished opening/lockpick wait, so a late response cannot resume mission
-  loot processing during a doorway crossing. Manager.Loot's standalone
-  enabled state is preserved after RKMission stops.
-- During a 1→0 transition, a stable, geometry-confirmed return to room 3 now
-  cancels the stale transition and reroutes from room 3 without blacklisting
-  1→0. Ordinary doorway crossing and its existing confirmation checks remain
-  unchanged. The exact cause of the observed rebound needs in-game evidence.
+- The user clarified that `(Container:BB8CFAD)` was behind an interior wall
+  reached by a U turn in an otherwise simple room. The prior 14.8 m
+  "unreachable" skip came from measuring progress as straight-line distance
+  to the chest; a correct path can initially move away from it. The later
+  doorway failure was downstream, not the root cause. Revert the speculative
+  doorway-rebound and late-open processing changes from `652d6bd`.
+- Loot approach now tracks actual player displacement along navigation, tries
+  several mapped points around the chest, and orders them by complete navmesh
+  route cost when available. It observes navigation acceptance and can probe
+  another side if the chest is geometrically near but does not open. Attempts
+  remain bounded by a 75-second approach budget; skipped loot still uses the
+  existing Manager.Loot mission skip path and completion gate.
+- A pending chest-use response previously halted all RKMission loot movement,
+  even when Manager.Loot still owned an ordinary chest across the wall. The
+  pending identity now stays first in the room's loot selection, and RKMission
+  may continue its bounded chest-side approach while that ordinary use is
+  pending. Corpse transfer, lockpicking, and objective-critical processing
+  still halt movement; unreachable objective-critical loot stops with a clear
+  recovery message instead of being silently skipped.
+- ContainerOpened logs now include identity and room ownership after the
+  ownership check, so a late line alone cannot masquerade as mission loot
+  processing. The user will validate the U-shaped room in game.
 
 ## 2026-09-30 close-combat approach after first kill
 

@@ -62,9 +62,11 @@ namespace RKmission
         private DateTime _lootWaitStarted;
         private DateTime _lootLastProgress;
         private Identity _waitingForLoot = Identity.None;
-        private Vector3 _lootApproachPoint;
-        private float _lootBestDistance;
-        private int _lootApproachRetries;
+        private readonly List<Vector3> _lootApproachPoints = new List<Vector3>();
+        private int _lootApproachIndex;
+        private Vector3 _lootLastPosition;
+        private DateTime _lootNearStarted;
+        private bool _lootProbeNextSide;
         private int _floor;
         private DungeonLiftController.Lift _activeLift;
         private DateTime _liftStarted;
@@ -78,8 +80,6 @@ namespace RKmission
             public float BestDistance;
             public int DoorAttempts, CrossingRetries;
             public bool PushingDeeper, DoorApproachLogged;
-            public int UnexpectedRoom = -1;
-            public DateTime UnexpectedSince;
         }
         private sealed class EdgeFailure
         {
@@ -894,87 +894,169 @@ namespace RKmission
                 _waitingForLoot = waitingIdentity;
                 _lootWaitStarted = now;
                 _lootLastProgress = _lootWaitStarted;
-                _lootBestDistance = next?.DistanceFrom(DynelManager.LocalPlayer) ?? 0f;
-                _lootApproachRetries = 0;
-                _lootApproachPoint = next == null ? DynelManager.LocalPlayer.Position : LootApproach(room, next.Position, false);
+                _lootLastPosition = DynelManager.LocalPlayer.Position;
+                _lootApproachIndex = 0;
+                _lootNearStarted = DateTime.MinValue;
+                _lootProbeNextSide = false;
+                _lootApproachPoints.Clear();
+                if (next != null) BuildLootApproaches(room, next.Position);
+                _destination = null;
                 if (next != null && next.Identity == waitingIdentity)
-                    _say($"Loot candidate {next.Identity.Type} {next.Identity} in room {room.Instance}; approaching Manager.Loot range.");
+                    _say($"Loot candidate {next.Identity.Type} {next.Identity} in room {room.Instance}; " +
+                        $"trying {_lootApproachPoints.Count} mapped approach point(s) to Manager.Loot range.");
                 else
                     _say($"Waiting for Manager.Loot contents/finish response for {waitingIdentity} in room {room.Instance}.");
             }
             if (_loot.IsProcessingMissionLoot)
             {
-                MovementArbiter.Current.Halt(_requestedOwner);
-                if (_waitingForLoot != Identity.None && now - _lootWaitStarted > TimeSpan.FromSeconds(60))
+                // A pending ordinary chest use can time out while the chest is
+                // still across an interior wall. Keep approaching that same
+                // identity; Manager.Loot retains ownership of opening it.
+                bool approachingPendingChest = next != null &&
+                    _loot.WaitingForOrdinaryMissionContainer(next.Identity);
+                int timeoutSeconds = approachingPendingChest ? 90 : 60;
+                if (_waitingForLoot != Identity.None && now - _lootWaitStarted > TimeSpan.FromSeconds(timeoutSeconds))
                 {
                     string blockers = _loot.MissionLootBlockers;
                     Stop();
-                    _say($"Loot processing for {_waitingForLoot} did not finish within 60 seconds; room clearance/completion held. {blockers}. Check free slots, bags and locks.");
+                    _say($"Loot processing for {_waitingForLoot} did not finish within {timeoutSeconds} seconds; room clearance/completion held. {blockers}. Check free slots, bags and locks.");
+                    return true;
                 }
-                return true;
+                if (!approachingPendingChest)
+                {
+                    MovementArbiter.Current.Halt(_requestedOwner);
+                    return true;
+                }
             }
             if (next == null)
             {
                 _waitingForLoot = Identity.None;
+                _lootApproachPoints.Clear();
+                _lootProbeNextSide = false;
                 return false;
             }
             float distance = next.DistanceFrom(DynelManager.LocalPlayer);
-            if (distance > 5.5f)
+            if (distance > 5.5f || _lootProbeNextSide)
             {
-                if (distance + 0.5f < _lootBestDistance)
+                Vector3 position = DynelManager.LocalPlayer.Position;
+                if (Vector3.Distance(position, _lootLastPosition) > 0.75f)
                 {
-                    _lootBestDistance = distance;
+                    // A U-shaped route initially increases straight-line distance
+                    // to the chest. Actual movement along the nav route is progress.
+                    _lootLastPosition = position;
                     _lootLastProgress = now;
                 }
-                bool stalled = now - _lootLastProgress > TimeSpan.FromSeconds(10) ||
-                    (now - _lootWaitStarted > TimeSpan.FromSeconds(3) &&
-                        !SMovementController.IsNavigating());
-                if (stalled && _lootApproachRetries == 0)
+                if (now - _lootWaitStarted > TimeSpan.FromSeconds(75))
                 {
-                    _lootApproachRetries = 1;
-                    _lootApproachPoint = LootApproach(room, next.Position, true);
-                    _lootLastProgress = now;
-                    _destination = null;
-                    _say($"Loot {next.Identity} is still {distance:0.0}m away; trying another approach.");
-                }
-                else if ((stalled && _lootApproachRetries > 0) ||
-                    now - _lootWaitStarted > TimeSpan.FromSeconds(30))
-                {
-                    SkipLoot(next, room.Instance, $"path stayed blocked at {distance:0.0}m");
+                    SkipLoot(next, room.Instance, $"no reachable approach within 75 seconds; still {distance:0.0}m away");
                     return true;
                 }
-                Navigate(_lootApproachPoint);
+                if (_destination.HasValue && _lootApproachIndex < _lootApproachPoints.Count &&
+                    Vector3.Distance(position, _lootApproachPoints[_lootApproachIndex]) < 1.5f &&
+                    distance <= 5.5f)
+                {
+                    _lootProbeNextSide = false;
+                    _lootNearStarted = now;
+                    _destination = null;
+                    MovementArbiter.Current.Halt(_requestedOwner);
+                    return true;
+                }
+                if (_destination.HasValue && _lootApproachIndex < _lootApproachPoints.Count &&
+                    (Vector3.Distance(position, _lootApproachPoints[_lootApproachIndex]) < 1.5f ||
+                     now - _lootLastProgress > TimeSpan.FromSeconds(10) ||
+                     (!SMovementController.IsNavigating() && now - _lootLastProgress > TimeSpan.FromSeconds(2))))
+                {
+                    _say($"Loot {next.Identity} approach {_lootApproachIndex + 1} ended while {distance:0.0}m away; trying another route.");
+                    _lootApproachIndex++;
+                    _destination = null;
+                    _lootLastProgress = now;
+                }
+                while (!_destination.HasValue && _lootApproachIndex < _lootApproachPoints.Count)
+                {
+                    Vector3 point = _lootApproachPoints[_lootApproachIndex];
+                    if (MovementArbiter.Current.SetNavDestination(_requestedOwner, point))
+                    {
+                        _destination = point;
+                        _lootLastProgress = now;
+                        _lootLastPosition = position;
+                        _say($"Loot {next.Identity} route {_lootApproachIndex + 1}/{_lootApproachPoints.Count}: destination={point}.");
+                        break;
+                    }
+                    _say($"Loot {next.Identity} route {_lootApproachIndex + 1} was rejected by navigation.");
+                    _lootApproachIndex++;
+                }
+                if (!_destination.HasValue)
+                {
+                    SkipLoot(next, room.Instance, $"no navigable chest-side point; still {distance:0.0}m away");
+                    return true;
+                }
                 return true;
             }
             MovementArbiter.Current.Halt(_requestedOwner);
-            if (now - _lootWaitStarted > TimeSpan.FromSeconds(30))
-                SkipLoot(next, room.Instance, "Manager.Loot did not finish within 30 seconds");
+            if (_lootNearStarted == DateTime.MinValue) _lootNearStarted = now;
+            double sideWait = _lootApproachPoints.Count > 1 ? 8 : 30;
+            if (now - _lootNearStarted > TimeSpan.FromSeconds(sideWait))
+            {
+                if (_lootApproachIndex + 1 < _lootApproachPoints.Count &&
+                    now - _lootWaitStarted <= TimeSpan.FromSeconds(75))
+                {
+                    _lootApproachIndex++;
+                    _lootProbeNextSide = true;
+                    _destination = null;
+                    _lootLastProgress = now;
+                    _lootNearStarted = DateTime.MinValue;
+                    _say($"Loot {next.Identity} is nearby but did not open; probing chest-side route {_lootApproachIndex + 1}/{_lootApproachPoints.Count}.");
+                }
+                else
+                    SkipLoot(next, room.Instance, "Manager.Loot did not open the container from any reachable side");
+            }
             return true;
         }
 
-        private Vector3 LootApproach(Room room, Vector3 target, bool alternate)
+        private void BuildLootApproaches(Room room, Vector3 target)
         {
             Vector3 player = DynelManager.LocalPlayer.Position;
-            float dx = player.X - target.X, dz = player.Z - target.Z;
-            float length = (float)Math.Sqrt(dx * dx + dz * dz);
-            if (length < 0.1f) return target;
-            dx = dx / length * 3.5f;
-            dz = dz / length * 3.5f;
-            var points = new[]
-            {
-                new Vector3(target.X + dx, target.Y, target.Z + dz),
-                new Vector3(target.X - dz, target.Y, target.Z + dx),
-                new Vector3(target.X + dz, target.Y, target.Z - dx),
-                new Vector3(target.X - dx, target.Y, target.Z - dz)
-            }.Where(point => _layout.IsInside(room.Instance, point, 0.4f)).ToList();
-            return points.Count == 0 ? target : points[Math.Min(alternate ? 1 : 0, points.Count - 1)];
+            Vector3 toward = player - target;
+            toward.Y = 0;
+            toward = toward.Magnitude > 0.1 ? toward.Normalize() : Vector3.Forward;
+            Vector3 side = new Vector3(-toward.Z, 0, toward.X);
+            foreach (float radius in new[] { 3.5f, 5f })
+                foreach (Vector3 direction in new[] { toward, side, -side, -toward })
+                {
+                    Vector3 point = target + direction * radius;
+                    if (_layout.IsInside(room.Instance, point, 0.4f) &&
+                        !_lootApproachPoints.Any(existing => Vector3.Distance(existing, point) < 1f))
+                        _lootApproachPoints.Add(point);
+                }
+            if (_lootApproachPoints.Count == 0)
+                _lootApproachPoints.Add(target); // Preserve the original fallback when Mali geometry is incomplete.
+            var ordered = _lootApproachPoints.Select((point, index) => new
+                { Point = point, Index = index, Cost = LootRouteCost(player, point) })
+                .OrderBy(x => x.Cost).ThenBy(x => x.Index).Select(x => x.Point).ToList();
+            _lootApproachPoints.Clear();
+            _lootApproachPoints.AddRange(ordered);
+        }
+
+        private static float LootRouteCost(Vector3 from, Vector3 to)
+        {
+            try { return LocalRoutePlanner.TryGroundCost(from, to, out float cost) ? cost : float.PositiveInfinity; }
+            catch { return float.PositiveInfinity; } // Advisory order; actual navigation is checked separately.
         }
 
         private void SkipLoot(Dynel loot, int roomId, string reason)
         {
+            if (_loot.IsMissionCriticalLoot(loot.Identity))
+            {
+                Stop();
+                _say($"Mission-critical loot {loot.Identity} in room {roomId} could not be reached: {reason}. Mission recovery required.");
+                return;
+            }
             _loot.SkipUnreachableMissionLoot(loot.Identity);
             _say($"Skipping unreachable loot {loot.Identity} in room {roomId}: {reason}. Exploration continues.");
             _waitingForLoot = Identity.None;
+            _lootApproachPoints.Clear();
+            _lootProbeNextSide = false;
+            _lootNearStarted = DateTime.MinValue;
             _destination = null;
             MovementArbiter.Current.Halt(_requestedOwner);
         }
@@ -1063,33 +1145,6 @@ namespace RKmission
             bool passageOpen = IsPassageOpen(edge, door);
             DateTime now = DateTime.UtcNow;
             Vector3 position = DynelManager.LocalPlayer.Position;
-            bool unexpectedRoom = detectedRoom.Instance != edge.Source &&
-                detectedRoom.Instance != edge.Target &&
-                _layout.IsInside(detectedRoom.Instance, position, 0.5f);
-            if (unexpectedRoom)
-            {
-                if (crossing.UnexpectedRoom != detectedRoom.Instance)
-                {
-                    crossing.UnexpectedRoom = detectedRoom.Instance;
-                    crossing.UnexpectedSince = now;
-                    MovementArbiter.Current.Halt(_requestedOwner);
-                    _destination = null;
-                }
-                else if (now - crossing.UnexpectedSince >= TimeSpan.FromSeconds(1))
-                {
-                    MovementArbiter.Current.Release(MovementOwner.DoorTransition);
-                    _transition = null;
-                    _destination = null;
-                    _currentRoom = detectedRoom.Instance;
-                    _visitedRooms.Add(_currentRoom);
-                    _observedRoom = -1;
-                    _roomQuietAt = DateTime.MinValue;
-                    _say($"Transition {edge.Source}->{edge.Target}: confirmed rebound into room {_currentRoom}; " +
-                        "rerouting from the actual room without marking this edge failed.");
-                }
-                return;
-            }
-            crossing.UnexpectedRoom = -1;
             bool targetDetected = detectedRoom.Instance == edge.Target;
             bool safelyInsideTarget = targetDetected &&
                 Vector3.Distance(position, edge.Threshold) > 1.5f &&
