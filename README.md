@@ -50,6 +50,31 @@ package restore, tests or game run were performed; the user compiles and validat
   creates settings/history there on load/use. A persistence error is logged;
   navigation continues with session observations. Runtime data is Git-ignored.
 
+### Public FGrid service fallback
+
+Automatic cross-playfield travel can optionally request Team Fixer Grid from
+player-run service bots. Configure only bots you have verified in-game in
+`RKmission/Data/FGridServices.json`; the shipped file intentionally contains no
+live bot names or commands. Each service can be scoped to a playfield and a
+specific nearby Grid terminal position, and can list alternate expected inviter
+characters.
+
+RKMission moves beside that normal Grid terminal *before* sending the tell. It
+accepts a team invite only from the configured/expected identities, waits for
+the temporary Data Receptacle (template 160978), and uses the confirmed
+Fixer-Grid destination terminal identities in `GridTerminals.json` following the
+existing Neko FgridWarper pattern. Zoning must end in the requested destination
+playfield before travel succeeds. A missing/offline service, invite timeout,
+missing/expired receptacle or wrong destination releases movement/team state
+and returns immediately to the next verified travel provider. Use `/rkm fgrid`
+to inspect configuration/activity/last failure.
+
+This means destinations such as Mort no longer require the character to own a
+pre-filled Data Receptacle container when a configured public FGrid service bot
+is available. Normal Grid/mapped travel remains the fallback. Scotty warpers
+reported offline are also treated as expected availability failures and no
+longer impose the normal two-minute integration-error cooldown.
+
 ## Local takeover (existing workflow)
 
 1. Roll/select/accept any number of missions yourself in Mali's window or the
