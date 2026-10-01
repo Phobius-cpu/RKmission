@@ -169,10 +169,11 @@ The roller uses the same native window frame and bordered panels as the other
 embedded plugins; its main header is labeled RKMission Roller without Mali's
 top-left icon. Each offered mission card is now the Ping target across its
 title, details, rewards, and unused background. The separate Ping button is
-gone; the Accept button is centered below the rewards and 20% wider than the
-previous centered version. Roller and DB Browser item rows have transparent
-backgrounds, and the browser QL input uses the same framed style as its
-search fields.
+gone; the Accept button is centered below the rewards and 69 pixels wide.
+Roller and DB Browser item rows have transparent backgrounds. Both tabs use
+aligned column widths, and the browser QL input keeps a visible label beside
+its numeric entry. The header, mission cards, and settings panels share a
+270-pixel content width with extra room for the full slider labels.
 Accept uses its own click control, so it does not invoke Ping.
 
 Automatic travel tries bounded Neko ACG key/entrance candidates before

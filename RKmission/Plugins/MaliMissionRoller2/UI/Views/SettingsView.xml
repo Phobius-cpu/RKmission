@@ -1,14 +1,14 @@
 ﻿<?xml version="1.0" standalone="yes"?>
 <Root>
-	<View name="SettingsViewRoot" v_alignment="UP" view_layout="vertical">
+	<View name="SettingsViewRoot" v_alignment="UP" view_layout="vertical" min_size="Point(270,0)">
 		<View name="ItemDisplayRoot">
 			<Haxxor/>
 		</View>
 		<View view_layout="horizontal">
-			<View name="TypesRoot" view_layout="horizontal">
+			<View name="TypesRoot" view_layout="horizontal" min_size="Point(95,0)" max_size="Point(95,-1)">
 				<Haxxor/>
 			</View>
-			<View name="ExtrasRoot" view_layout="horizontal">
+			<View name="ExtrasRoot" view_layout="horizontal" min_size="Point(175,0)" max_size="Point(175,-1)">
 				<Haxxor/>
 			</View>
 		</View>

@@ -1,8 +1,8 @@
 ﻿<?xml version="1.0" standalone="yes"?>
 <root>
-	<View name="MissionView" min_size="Point(235,123)" max_size="Point(235,123)">
-		<BorderView name="Background" min_size="Point(235,123)" max_size="Point(235,123)">
-			<Button name="PingContent" view_layout="vertical" min_size="Point(235,106)" max_size="Point(235,106)">
+	<View name="MissionView" min_size="Point(270,123)" max_size="Point(270,123)">
+		<BorderView name="Background" min_size="Point(270,123)" max_size="Point(270,123)">
+			<Button name="PingContent" view_layout="vertical" min_size="Point(270,106)" max_size="Point(270,106)">
 				<View view_layout="horizontal">
 					<BitmapView name="Icon" layout_borders="Rect(3,0,0,0)" color="0x00D5C64A"/>
 					<HLayoutSpacer/>
@@ -33,11 +33,11 @@
 				</View>
 			</Button>
 			<View view_layout="horizontal" layout_borders="Rect(4,0,4,0)">
-				<Button name="PingLeft" min_size="Point(90,14)" max_size="Point(90,14)"/>
-				<Button name="Accept" min_size="Point(46,14)" max_size="Point(46,14)"/>
-				<Button name="PingRight" min_size="Point(91,14)" max_size="Point(91,14)"/>
+				<Button name="PingLeft" min_size="Point(96,14)" max_size="Point(96,14)"/>
+				<Button name="Accept" min_size="Point(69,14)" max_size="Point(69,14)"/>
+				<Button name="PingRight" min_size="Point(97,14)" max_size="Point(97,14)"/>
 			</View>
-			<Button name="PingBottom" min_size="Point(235,3)" max_size="Point(235,3)"/>
+			<Button name="PingBottom" min_size="Point(270,3)" max_size="Point(270,3)"/>
 		</BorderView>
 	</View>
 </root>

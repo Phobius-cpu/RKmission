@@ -421,10 +421,10 @@ namespace MaliMissionRoller2
             _columnRange.Text = "Rng";
             _columnQuantity.Text = "QL";
             _columnActions.Text = "+";
-            _searchFields.LimitMaxSize(new Vector2(235, 36));
+            _searchFields.LimitMaxSize(new Vector2(270, 36));
             _searchFields.SetAlpha(1);
             _dbRoot.SetAlpha(1);
-            _dbRoot.LimitMaxSize(new Vector2(235, 15));
+            _dbRoot.LimitMaxSize(new Vector2(270, 15));
 
             foreach (var item in RollEntryViews)
                 _scrollListRoot.RemoveChild(item.Root);

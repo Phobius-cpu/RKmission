@@ -8,8 +8,8 @@ Accept. Each region carries only its own card's mission identity and calls the
 existing `PingClick` handler, which uploads that mission to the map.
 
 The separate visible Ping button was removed. Accept remains a separate
-Button, horizontally centered near the bottom of the 235-by-123 card and 46
-pixels wide, about 20% wider than the preceding centered 38-pixel version.
+Button, horizontally centered near the bottom of the 270-by-123 card and 69
+pixels wide, 50% wider than the preceding centered 46-pixel version.
 Its callback still calls `AcceptMission`. Keeping
 it outside the Ping controls prevents the Accept click from invoking Ping.
 Mission data binding, reward slots, stacked-card size, fonts, colors, borders,
@@ -26,3 +26,11 @@ Ping regions. The follow-up sets each region's local alpha to zero as well as
 its state border alpha. The Roll List and DB Browser row strip bitmaps were
 removed, leaving the item icons and action controls in place. The browser QL
 input now has a cyan border and yellow text matching the framed search fields.
+
+A later in-game view showed that the 235-pixel settings panels clipped slider
+labels and that the list header no longer aligned with item rows. The header,
+mission cards, and settings panels now share a 270-pixel content width inside
+a 280-pixel main layout. List rows reserve 258 pixels plus scrollbar space,
+with matching fixed header and row columns. The browser QL frame now carries
+a permanent, readable `QL` label beside the numeric input. The slider label
+columns and section height were enlarged so the final row has room.

@@ -1,13 +1,13 @@
 ﻿<?xml version="1.0" standalone="yes"?>
 <Root>
-	<View view_layout="vertical">
+	<View view_layout="vertical" min_size="Point(280,0)">
 		<View name="HeaderRoot">
 			<Haxxor/>
 		</View>
-		<View name="MissionRoot" v_alignment="TOP" view_layout="vertical">
+		<View name="MissionRoot" v_alignment="TOP" view_layout="vertical" layout_borders="Rect(5,0,5,0)">
 			<Haxxor/>
 		</View>
-		<View name="SettingsRoot" v_alignment="TOP" view_layout="vertical">
+		<View name="SettingsRoot" v_alignment="TOP" view_layout="vertical" layout_borders="Rect(5,0,5,0)">
 			<Haxxor/>
 		</View>
 	</View>

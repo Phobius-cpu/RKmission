@@ -9,14 +9,20 @@ _Last updated: 2026-10-01_
   target. Separate invisible buttons cover the bottom strip around Accept.
   All regions reuse the existing `PingClick` mission map upload handler.
 - The visible Ping button was removed. Accept remains a separate sibling
-  control, centered at 46 pixels wide (about 20% wider than the prior 38), so its click does not
-  invoke Ping. The five cards keep their 235-by-123 layout and existing
+  control, now centered at 69 pixels wide (50% wider than the prior 46), so
+  its click does not invoke Ping. The five cards now use a 270-by-123 layout
+  matching the other roller panels, with existing
   content and reward slots. A follow-up hides the native Ping region chrome
   locally to remove cyan corner marks without removing the click regions.
 - Roll List and DB Browser entry rows now use transparent Views instead of
   painted BitmapView row strips. The browser QL input has the same cyan frame
-  and yellow text as the two search fields. Item icons and add/remove controls
-  remain in place.
+  and yellow text as the two search fields, plus a permanent QL label.
+  The 258-pixel list rows and headers share explicit column widths next to
+  the scrollbar. Item icons and add/remove controls remain in place.
+- The header, mission cards, and settings panels use a common 270-pixel inner
+  width. The main window reserves five pixels on either side. Slider labels
+  have 62-pixel columns and the slider section has more height so the bottom
+  row is not cut off.
 - AOSharp `View` does not expose a managed click event; a nested Button with
   transparent native border views provides the card click surface. In-game
   event and layout behavior still needs user verification. Per user instruction,
