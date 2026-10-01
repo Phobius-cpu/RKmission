@@ -2,6 +2,22 @@
 
 _Last updated: 2026-10-01_
 
+## 2026-10-01 shared plugin UI palette checkpoint
+
+- ManagerLoot's native AO controls are the visual reference for the embedded
+  plugin windows. The Roller no longer tints button labels, panel borders, or
+  wording yellow/cyan; native text, borders, and action buttons now match the
+  ManagerLoot palette. Accept and graphical help Close use labeled native
+  buttons. The invisible mission-card Ping regions remain transparent.
+- Compact Roller controls use native button frames with X/blank selection
+  marks and +/−/Dev labels instead of custom colored button bitmaps. Their
+  fixed sizes retain the existing row and settings layout. Roller sliders no
+  longer load custom teal/purple graphics, so they use the same native red
+  track and cyan handle as Mali's Dungeon Map 2. ManagerLoot and Dungeon Map
+  already used those respective native controls.
+- No compile or test was performed by request. In-game visual and click checks
+  remain for the user. See `docs/history/2026-10-01-shared-plugin-ui-palette.md`.
+
 ## 2026-10-01 roller mission-card Ping checkpoint
 
 - The embedded Mali Mission Roller mission-card template uses an invisible
@@ -2371,3 +2387,14 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
   established, so unrecognized replies use the bounded retry fallback.
 - `dotnet build RKmission/RKmission.csproj` succeeded on integrated main with
   zero errors and 413 compiler warnings. Game behavior still needs user validation.
+
+## Embedded roller UI alignment (2026-10-01)
+
+- RKMission Roller now uses the native AO button/frame palette from ManagerLoot
+  and native sliders with the same margins as Mali's Dungeon Map settings.
+- The mission card remains the scoped Ping surface; its independent native
+  Accept control is centered and 76 pixels wide. Roller panels use 310 pixels
+  of content width. Roll List and DB Browser headers share the 298-pixel row
+  grid, leaving room for the scrollbar; Playfields coordinates fit the row.
+- XML parsing and `dotnet build RKmission/RKmission.csproj` passed with zero
+  errors. In-game appearance and click propagation still require inspection.

@@ -1,37 +1,37 @@
-﻿<?xml version="1.0" standalone="yes"?>
+<?xml version="1.0" standalone="yes"?>
 <Root>
 	<View>
-		<BorderView name="Background" min_size="Point(175,0)" max_size="Point(175,-1)">
+		<BorderView name="Background" min_size="Point(215,0)" max_size="Point(215,-1)">
 			<View view_layout="horizontal">
 				<HLayoutSpacer/>
-				<TextView font="BOLD" value="- EXTRAS -" feature_flags="TVF_RENDER_SHADOW" layout_borders="Rect(10,5,0,0)" color="0x00FFF1AC"/>
+				<TextView font="BOLD" value="- EXTRAS -" feature_flags="TVF_RENDER_SHADOW" layout_borders="Rect(10,5,0,0)"/>
 				<HLayoutSpacer/>
-				<Button name="Dev" layout_borders="Rect(0,4,4,0)"/>
+				<Button name="Dev" min_size="Point(30,15)" max_size="Point(30,15)" layout_borders="Rect(0,4,4,0)"/>
 			</View>
 			<View layout_borders="Rect(2,4,0,0)">
 				<View view_layout="horizontal" min_size="Point(80,15)">
-					<Button name="PlayAlertSound" layout_borders="Rect(2,1,2,1)"/>
-					<TextView font="SMALL" value="Play Sound on Hit" layout_borders="Rect(2,0,2,0)" color="0x00FFF1AC"/>
+					<Button name="PlayAlertSound" min_size="Point(12,12)" max_size="Point(12,12)" layout_borders="Rect(2,1,2,1)"/>
+					<TextView font="SMALL" value="Play Sound on Hit" layout_borders="Rect(2,0,2,0)"/>
 					<HLayoutSpacer/>
 				</View>
 				<View view_layout="horizontal" min_size="Point(80,15)">
-					<Button name="AutoAdjustQl" layout_borders="Rect(2,1,2,1)"/>
-					<TextView font="SMALL" value="Auto Adjust Lvl Slider" layout_borders="Rect(2,0,2,0)" color="0x00FFF1AC"/>
+					<Button name="AutoAdjustQl" min_size="Point(12,12)" max_size="Point(12,12)" layout_borders="Rect(2,1,2,1)"/>
+					<TextView font="SMALL" value="Auto Adjust Lvl Slider" layout_borders="Rect(2,0,2,0)"/>
 					<HLayoutSpacer/>
 				</View>
 				<View view_layout="horizontal"  min_size="Point(80,15)">
-					<Button name="RemoveRoll" layout_borders="Rect(2,1,2,0)"/>
-					<TextView font="SMALL" value="Remove Rolled Entries" layout_borders="Rect(2,0,2,0)" color="0x00FFF1AC"/>
+					<Button name="RemoveRoll" min_size="Point(12,12)" max_size="Point(12,12)" layout_borders="Rect(2,1,2,0)"/>
+					<TextView font="SMALL" value="Remove Rolled Entries" layout_borders="Rect(2,0,2,0)"/>
 					<HLayoutSpacer/>
 				</View>
 				<View view_layout="horizontal" min_size="Point(80,15)">
-					<Button name="AutoAccept" layout_borders="Rect(2,1,2,0)"/>
-					<TextView font="SMALL" value="Auto Accept Missions" layout_borders="Rect(2,0,2,0)" color="0x00FFF1AC"/>
+					<Button name="AutoAccept" min_size="Point(12,12)" max_size="Point(12,12)" layout_borders="Rect(2,1,2,0)"/>
+					<TextView font="SMALL" value="Auto Accept Missions" layout_borders="Rect(2,0,2,0)"/>
 					<HLayoutSpacer/>
 				</View>
 				<View view_layout="horizontal" min_size="Point(80,15)">
-					<Button name="ShowBounds" layout_borders="Rect(2,1,2,0)"/>
-					<TextView font="SMALL" value="Show Playfield Bounds" layout_borders="Rect(2,0,2,0)" color="0x00FFF1AC"/>
+					<Button name="ShowBounds" min_size="Point(12,12)" max_size="Point(12,12)" layout_borders="Rect(2,1,2,0)"/>
+					<TextView font="SMALL" value="Show Playfield Bounds" layout_borders="Rect(2,0,2,0)"/>
 					<HLayoutSpacer/>
 				</View>
 				<VLayoutSpacer/>

@@ -1,6 +1,6 @@
 ﻿<?xml version="1.0" standalone="yes"?>
 <Root>
-	<View view_layout="vertical" min_size="Point(280,0)">
+	<View view_layout="vertical" min_size="Point(320,0)">
 		<View name="HeaderRoot">
 			<Haxxor/>
 		</View>

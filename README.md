@@ -4,6 +4,11 @@ AO# plugin for solo Rubi-Ka missions in Anarchy Online. It combines the original
 Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
 local mission travel, room exploration, combat, door handling and looting.
 
+The embedded plugin windows use ManagerLoot's native AO button, text, and
+border palette. Roller action buttons and compact toggles use that same button
+skin; its mission cards keep invisible Ping hit regions. Roller mission sliders
+use the native red track and cyan handle shown in Mali's Dungeon Map 2.
+
 **2026-09-29 implementation continuation:** Automatic mode now combines nearby
 live/static ACG entrance candidates across multiple mission keys, exact
 post-zone mission verification, Scotty menu discovery and settled warp checks,
@@ -169,11 +174,14 @@ The roller uses the same native window frame and bordered panels as the other
 embedded plugins; its main header is labeled RKMission Roller without Mali's
 top-left icon. Each offered mission card is now the Ping target across its
 title, details, rewards, and unused background. The separate Ping button is
-gone; the Accept button is centered below the rewards and 69 pixels wide.
+gone; the native Accept button is centered below the rewards and 76 pixels wide.
 Roller and DB Browser item rows have transparent backgrounds. Both tabs use
 aligned column widths, and the browser QL input keeps a visible label beside
 its numeric entry. The header, mission cards, and settings panels share a
-270-pixel content width with extra room for the full slider labels.
+310-pixel content width. Roll List and DB Browser use the same 298-pixel row
+grid: icon/quality, name, quantity or QL, and actions. The wider Playfields
+panel fits its coordinate columns, and native sliders use the Dungeon Map
+track and handle with matching horizontal margins.
 Accept uses its own click control, so it does not invoke Ping.
 
 Automatic travel tries bounded Neko ACG key/entrance candidates before
