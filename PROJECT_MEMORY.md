@@ -2,6 +2,22 @@
 
 _Last updated: 2026-10-01_
 
+## 2026-10-01 roller mission-card Ping checkpoint
+
+- The embedded Mali Mission Roller mission-card template uses an invisible
+  Button around its title, mission details, rewards, and background as the Ping
+  target. Separate invisible buttons cover the bottom strip around Accept.
+  All regions reuse the existing `PingClick` mission map upload handler.
+- The visible Ping button was removed. Accept remains a separate sibling
+  control, centered at 38 pixels wide rather than 34, so its click does not
+  invoke Ping. The five cards keep their 235-by-123 layout and existing
+  content, reward slots, and appearance.
+- AOSharp `View` does not expose a managed click event; a nested Button with
+  transparent native border views provides the card click surface. In-game
+  event and layout behavior still needs user verification. Per user instruction,
+  this change was not compiled or tested here. See
+  `docs/history/2026-10-01-roller-card-ping.md`.
+
 ## 2026-10-01 automatic roller, mission limit, and window checkpoint
 
 - Automatic destination rolling could stop after one offer because Mali's

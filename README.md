@@ -167,7 +167,10 @@ and movement. Destination rolling does not require an item roll list, and the
 roller's Auto Adjust Level Slider option no longer stops it for an empty list.
 The roller uses the same native window frame and bordered panels as the other
 embedded plugins; its main header is labeled RKMission Roller without Mali's
-icon.
+top-left icon. Each offered mission card is now the Ping target across its
+title, details, rewards, and unused background. The separate Ping button is
+gone; the Accept button is centered below the rewards and slightly wider.
+Accept uses its own click control, so it does not invoke Ping.
 
 Automatic travel tries bounded Neko ACG key/entrance candidates before
 cross-playfield and local Run/Fly travel, even when the mission entrance is not

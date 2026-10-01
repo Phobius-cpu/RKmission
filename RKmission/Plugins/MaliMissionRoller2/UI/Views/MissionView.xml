@@ -2,43 +2,42 @@
 <root>
 	<View name="MissionView" min_size="Point(235,123)" max_size="Point(235,123)">
 		<BorderView name="Background" min_size="Point(235,123)" max_size="Point(235,123)">
-			<View view_layout="horizontal">
-				<BitmapView name="Icon" layout_borders="Rect(3,0,0,0)" color="0x00D5C64A"/>
-				<HLayoutSpacer/>
-				<TextView feature_flags="TVF_RENDER_SHADOW" font="BOLD" name="Title" layout_borders="Rect(0,4,0,5)" color="0x00FFF1AC"/>
-				<HLayoutSpacer/>
-			</View>
-			<View view_layout="horizontal" layout_borders="Rect(5,4,5,0)">
-				<TextView font="BOLD" value="Playfield: " color="0x00FFF1AC"/>
-				<HLayoutSpacer/>
-				<TextView name="Playfield" color="0x00FFF1AC"/>
-
-			</View>
-			<View view_layout="horizontal" layout_borders="Rect(5,7,5,1)">
-				<TextView font="BOLD" value="Credits: " color="0x00FFF1AC"/>
-				<HLayoutSpacer/>
-				<TextView name="Credits" color="0x00FFF1AC"/>
-			</View>
-			<View view_layout="horizontal" layout_borders="Rect(5,6,5,0)">
-				<TextView font="BOLD" value="Experience: " color="0x00FFF1AC"/>
-				<HLayoutSpacer/>
-				<TextView name="Experience" color="0x00FFF1AC"/>
-			</View>
-			<View view_layout="horizontal" layout_borders="Rect(5,2,3,0)">
-				<TextView font="BOLD" value="Rewards: " color="0x00FFF1AC"/>
-				<View layout_borders="Rect(1,0,0,0)" name="Preview" min_size="Point(178,22)"  max_size="Point(178,22)">
-					<Haxxor/>
+			<Button name="PingContent" view_layout="vertical" min_size="Point(235,106)" max_size="Point(235,106)">
+				<View view_layout="horizontal">
+					<BitmapView name="Icon" layout_borders="Rect(3,0,0,0)" color="0x00D5C64A"/>
+					<HLayoutSpacer/>
+					<TextView feature_flags="TVF_RENDER_SHADOW" font="BOLD" name="Title" layout_borders="Rect(0,4,0,5)" color="0x00FFF1AC"/>
+					<HLayoutSpacer/>
 				</View>
-				<HLayoutSpacer/>
-			</View>
+				<View view_layout="horizontal" layout_borders="Rect(5,4,5,0)">
+					<TextView font="BOLD" value="Playfield: " color="0x00FFF1AC"/>
+					<HLayoutSpacer/>
+					<TextView name="Playfield" color="0x00FFF1AC"/>
+				</View>
+				<View view_layout="horizontal" layout_borders="Rect(5,7,5,1)">
+					<TextView font="BOLD" value="Credits: " color="0x00FFF1AC"/>
+					<HLayoutSpacer/>
+					<TextView name="Credits" color="0x00FFF1AC"/>
+				</View>
+				<View view_layout="horizontal" layout_borders="Rect(5,6,5,0)">
+					<TextView font="BOLD" value="Experience: " color="0x00FFF1AC"/>
+					<HLayoutSpacer/>
+					<TextView name="Experience" color="0x00FFF1AC"/>
+				</View>
+				<View view_layout="horizontal" layout_borders="Rect(5,2,3,0)">
+					<TextView font="BOLD" value="Rewards: " color="0x00FFF1AC"/>
+					<View layout_borders="Rect(1,0,0,0)" name="Preview" min_size="Point(178,22)" max_size="Point(178,22)">
+						<Haxxor/>
+					</View>
+					<HLayoutSpacer/>
+				</View>
+			</Button>
 			<View view_layout="horizontal" layout_borders="Rect(4,0,4,0)">
-				<Button name="Accept" min_size="Point(34,14)" />
-				<HLayoutSpacer/>
-				<Button name="Ping" min_size="Point(34,14)"/>
+				<Button name="PingLeft" min_size="Point(94,14)" max_size="Point(94,14)"/>
+				<Button name="Accept" min_size="Point(38,14)" max_size="Point(38,14)"/>
+				<Button name="PingRight" min_size="Point(95,14)" max_size="Point(95,14)"/>
 			</View>
-			<View min_size="Point(1,3)">
-				<Haxxor/>
-			</View>
+			<Button name="PingBottom" min_size="Point(235,3)" max_size="Point(235,3)"/>
 		</BorderView>
 	</View>
 </root>

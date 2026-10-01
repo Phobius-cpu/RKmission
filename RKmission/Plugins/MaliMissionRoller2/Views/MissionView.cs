@@ -1,5 +1,6 @@
 ﻿using AOSharp.Common.GameData;
 using AOSharp.Core;
+using AOSharp.Common.GameData.UI;
 using AOSharp.Core.UI;
 using SmokeLounge.AOtomation.Messaging.GameData;
 using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
@@ -13,6 +14,7 @@ namespace MaliMissionRoller2
         private List<MissionModel> _missionViews;
         private const float _maxDistanceToTerminal = 7.480928f;
         private const float _numOfMissions = 5;
+        private static readonly string[] PingRegionNames = { "PingContent", "PingLeft", "PingRight", "PingBottom" };
         internal double ShopValue;
         internal int[] CombinedItemValue;
 
@@ -27,9 +29,15 @@ namespace MaliMissionRoller2
                 missionModel.Root = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\MissionView.xml");
                 Extensions.ColorFrame(missionModel.Root);
                 missionModel.Root.FindChild("Icon", out missionModel.Icon);
-                missionModel.Root.FindChild("Ping", out missionModel.Ping);
-                Extensions.ButtonSetGfx(missionModel.Ping, 1000045);
-                missionModel.Ping.Clicked = PingClick;
+                missionModel.PingTargets = new Button[PingRegionNames.Length];
+                for (int region = 0; region < PingRegionNames.Length; region++)
+                {
+                    missionModel.Root.FindChild(PingRegionNames[region], out missionModel.PingTargets[region]);
+                    Button pingTarget = missionModel.PingTargets[region];
+                    foreach (ButtonState state in new[] { ButtonState.Raised, ButtonState.Hover, ButtonState.Pressed })
+                        pingTarget.GetBorderView(state)?.SetLocalAlpha(0);
+                    pingTarget.Clicked = PingClick;
+                }
                 missionModel.Root.FindChild("Accept", out missionModel.Accept);
                 Extensions.ButtonSetGfx(missionModel.Accept, 1000035);
                 missionModel.Accept.Clicked = AcceptClick;
@@ -118,7 +126,8 @@ namespace MaliMissionRoller2
                 _missionViews[i].Playfield.Text = Extensions.GetZoneName(rollList[i].Playfield.Instance);
                 _missionViews[i].Experience.Text = rollList[i].XpReward.ToString();
                 _missionViews[i].Accept.Tag = rollList[i].MissionIdentity;
-                _missionViews[i].Ping.Tag = rollList[i].MissionIdentity;
+                foreach (Button pingTarget in _missionViews[i].PingTargets)
+                    pingTarget.Tag = rollList[i].MissionIdentity;
 
                 for (int e = 0; e < itemData.Length; e++)
                 {
@@ -171,6 +180,9 @@ namespace MaliMissionRoller2
                 _missionViews[i].Credits.SetAlpha(num);
                 _missionViews[i].Experience.SetAlpha(num);
                 _missionViews[i].MultiListView.SetAlpha(num);
+                if (num == 0)
+                    foreach (Button pingTarget in _missionViews[i].PingTargets)
+                        pingTarget.Tag = null;
             }
         }
     }
@@ -183,7 +195,7 @@ namespace MaliMissionRoller2
         public TextView Playfield;
         public TextView Credits;
         public TextView Experience;
-        public Button Ping;
+        public Button[] PingTargets;
         public Button Accept;
         public MultiListView MultiListView;
         public InventoryListViewItem[] MultiListViewItem = new InventoryListViewItem[6];
