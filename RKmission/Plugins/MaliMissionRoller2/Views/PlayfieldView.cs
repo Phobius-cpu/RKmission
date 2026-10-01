@@ -51,9 +51,9 @@ namespace MaliMissionRoller2
                 pfEntryView.Root.FindChild("Toggle", out pfEntryView.Toggle);
                 pfEntryView.Toggle.Tag = Main.Settings.Locations[pfName].State;
                 if (Main.Settings.Locations[pfName].State)
-                    Extensions.SetButtonSymbol(pfEntryView.Toggle, "X");
+                    Extensions.ButtonSetGfx(pfEntryView.Toggle, 1000036);
                 else
-                    Extensions.SetButtonSymbol(pfEntryView.Toggle, " ");
+                    Extensions.ButtonSetGfx(pfEntryView.Toggle, 1000046);
                 pfEntryView.Toggle.Clicked = LocationClick;
                 pfEntryView.Root.FindChild("Coord1", out pfEntryView.Coord1);
                 Vector2 coord1 = Main.Settings.Locations[pfName].Bounds.Coord1;
@@ -71,6 +71,8 @@ namespace MaliMissionRoller2
                 _scrollListRoot.AddChild(pfEntryView.Root, false);
             }
 
+            _scrollListRoot.FitToContents();
+
             Root.AddChild(_view, false);
         }
 
@@ -80,7 +82,7 @@ namespace MaliMissionRoller2
             foreach (PlayfieldEntryView viewEntry in Entries)
             {
                 viewEntry.Toggle.Tag = false;
-                Extensions.SetButtonSymbol(viewEntry.Toggle, " ");
+                Extensions.ButtonSetGfx(viewEntry.Toggle, 1000046);
             }
         }
 
@@ -90,7 +92,7 @@ namespace MaliMissionRoller2
             foreach (PlayfieldEntryView viewEntry in Entries)
             {
                 viewEntry.Toggle.Tag = true;
-                Extensions.SetButtonSymbol(viewEntry.Toggle, "X");
+                Extensions.ButtonSetGfx(viewEntry.Toggle, 1000036);
             }
         }
 
@@ -240,9 +242,9 @@ namespace MaliMissionRoller2
             bool on = (bool)e.Tag;
 
             if (!on)
-                Extensions.SetButtonSymbol((Button)e, "X");
+                Extensions.ButtonSetGfx((Button)e, 1000036);
             else
-                Extensions.SetButtonSymbol((Button)e, " ");
+                Extensions.ButtonSetGfx((Button)e, 1000046);
 
             e.Tag = !on;
             Main.Settings.Save();

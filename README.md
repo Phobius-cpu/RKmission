@@ -183,6 +183,14 @@ grid: icon/quality, name, quantity or QL, and actions. The wider Playfields
 panel fits its coordinate columns, and native sliders use the Dungeon Map
 track and handle with matching horizontal margins.
 Accept uses its own click control, so it does not invoke Ping.
+The Settings view opens as a 620-pixel two-column layout: Roll List and TYPES
+on the left, Playfields, EXTRAS, and sliders on the right. The Playfields list
+has a 130-pixel scroll viewport with a separate scroll client, keeping its
+rows visible above the action buttons. Invisible mission-card Ping controls
+use a transparent texture in every button state, including beside and below
+Accept, so native button chrome cannot appear in those spaces.
+Mission Types, EXTRAS, Playfields, and the Impl/Refin/Clstr/Nano/Rest filters
+retain Mali's original on/off button graphics.
 
 Automatic travel tries bounded Neko ACG key/entrance candidates before
 cross-playfield and local Run/Fly travel, even when the mission entrance is not

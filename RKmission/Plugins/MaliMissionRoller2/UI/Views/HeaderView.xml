@@ -1,7 +1,7 @@
 <?xml version="1.0" standalone="yes"?>
 <root>
 	<View>
-		<BorderView name="Header" layout_borders="Rect(5,5,5,5)" min_size="Point(310,55)" max_size="Point(310,55)">
+		<BorderView name="Header" layout_borders="Rect(5,5,5,5)" min_size="Point(310,55)" max_size="Point(620,55)">
 			<View view_layout="vertical">
 			<View view_layout="horizontal" layout_borders="Rect(4,2,4,3)">
 				<TextView font="BOLD" value="RKMission Roller"/>

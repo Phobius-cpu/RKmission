@@ -3,7 +3,7 @@
 	<View>
 		<BorderView name="Background" min_size="Point(298,30)" max_size="Point(298,30)">
 			<View view_layout="horizontal" layout_borders="Rect(0,3,0,3)">
-				<Button name="Toggle" h_alignment="LEFT" min_size="Point(12,12)" max_size="Point(12,12)" layout_borders="Rect(4,1,0,0)"/>
+				<Button name="Toggle" h_alignment="LEFT" layout_borders="Rect(4,1,0,0)"/>
 				<TextView name="Name" layout_borders="Rect(4,1,0,0)" min_size="Point(120,12)" max_size="Point(120,12)"/>
 				<HLayoutSpacer/>
 				<View >

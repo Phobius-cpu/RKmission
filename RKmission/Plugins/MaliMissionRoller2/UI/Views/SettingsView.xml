@@ -1,23 +1,24 @@
 ﻿<?xml version="1.0" standalone="yes"?>
 <Root>
-	<View name="SettingsViewRoot" v_alignment="UP" view_layout="vertical" min_size="Point(310,0)">
-		<View name="ItemDisplayRoot">
-			<Haxxor/>
-		</View>
-		<View view_layout="horizontal">
-			<View name="TypesRoot" view_layout="horizontal" min_size="Point(95,0)" max_size="Point(95,-1)">
+	<View name="SettingsViewRoot" v_alignment="UP" view_layout="horizontal" min_size="Point(620,0)">
+		<View view_layout="vertical" min_size="Point(310,0)" max_size="Point(310,-1)">
+			<View name="ItemDisplayRoot">
 				<Haxxor/>
 			</View>
-			<View name="ExtrasRoot" view_layout="horizontal" min_size="Point(215,0)" max_size="Point(215,-1)">
+			<View name="TypesRoot" view_layout="horizontal" min_size="Point(310,0)" max_size="Point(310,-1)">
 				<Haxxor/>
 			</View>
 		</View>
-		<View name="LocationRoot" view_layout="horizontal">
-			<Haxxor/>
+		<View view_layout="vertical" min_size="Point(310,0)" max_size="Point(310,-1)">
+			<View name="LocationRoot" view_layout="horizontal">
+				<Haxxor/>
+			</View>
+			<View name="ExtrasRoot" view_layout="horizontal" min_size="Point(310,0)" max_size="Point(310,-1)">
+				<Haxxor/>
+			</View>
+			<View name="SliderRoot" view_layout="horizontal">
+				<Haxxor/>
+			</View>
 		</View>
-		<View name="SliderRoot" view_layout="horizontal">
-			<Haxxor/>
-		</View>
-		<VLayoutSpacer/>
 	</View>
 </Root>

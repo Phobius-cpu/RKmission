@@ -472,9 +472,9 @@ namespace MaliMissionRoller2
             bool on = (bool)button.Tag;
 
             if (on)
-                Extensions.SetButtonSymbol((Button)button, "X");
+                Extensions.ButtonSetGfx((Button)button, 1000036);
             else
-                Extensions.SetButtonSymbol((Button)button, " ");
+                Extensions.ButtonSetGfx((Button)button, 1000046);
 
             button.Clicked += FormatItemDb;
         }
@@ -484,9 +484,9 @@ namespace MaliMissionRoller2
             bool on = (bool)e.Tag;
 
             if (!on)
-                Extensions.SetButtonSymbol((Button)e, "X");
+                Extensions.ButtonSetGfx((Button)e, 1000036);
             else
-                Extensions.SetButtonSymbol((Button)e, " ");
+                Extensions.ButtonSetGfx((Button)e, 1000046);
 
             e.Tag = !(bool)e.Tag;
 

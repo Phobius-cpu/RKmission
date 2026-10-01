@@ -33,9 +33,7 @@ namespace MaliMissionRoller2
                 {
                     missionModel.Root.FindChild(PingRegionNames[region], out missionModel.PingTargets[region]);
                     Button pingTarget = missionModel.PingTargets[region];
-                    pingTarget.SetLocalAlpha(0);
-                    foreach (ButtonState state in new[] { ButtonState.Raised, ButtonState.Hover, ButtonState.Pressed })
-                        pingTarget.GetBorderView(state)?.SetLocalAlpha(0);
+                    Extensions.HidePingChrome(pingTarget);
                     pingTarget.Clicked = PingClick;
                 }
                 missionModel.Root.FindChild("Accept", out missionModel.Accept);

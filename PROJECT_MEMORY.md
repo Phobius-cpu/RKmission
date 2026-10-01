@@ -2398,3 +2398,17 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
   grid, leaving room for the scrollbar; Playfields coordinates fit the row.
 - XML parsing and `dotnet build RKmission/RKmission.csproj` passed with zero
   errors. In-game appearance and click propagation still require inspection.
+
+## Spacious roller Settings and invisible Ping regions (2026-10-01)
+
+- The user selected the spacious mockup. Settings now uses two 310-pixel
+  columns: Roll List/TYPES and Playfields/EXTRAS/sliders. The Playfields list
+  has a fixed 130-pixel viewport, a unique scroll client, and fitted rows.
+- The user corrected the styling scope: retain Mali's original on/off images
+  for Mission Types, EXTRAS, Playfields, and DB category filters, while using
+  native AO styling for the other roller buttons.
+- Mission-card Ping hit regions retain their callbacks but use an explicit
+  fully transparent texture in all button states to suppress native chrome
+  beside and below the independent Accept button.
+- All roller XML parses and `dotnet build` succeeds with zero errors. Verify
+  final scroll and hit-region behavior in the AO client.

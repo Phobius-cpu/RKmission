@@ -16,10 +16,32 @@ namespace MaliMissionRoller2
 {
     public class Extensions
     {
+        // 041_TransparentPing.png follows the forty original roller textures.
+        // Giving every state an explicit transparent image prevents AO's native
+        // button skin from showing on the card's invisible Ping hit regions.
+        private const int TransparentPingGfxId = 1000075;
+
         // Keep compact controls on the same native AO button skin as ManagerLoot.
         public static void SetButtonSymbol(Button button, string symbol)
         {
             button.SetLabel(symbol);
+        }
+
+        public static void ButtonSetGfx(Button button, int gfxId)
+        {
+            button.SetGfx(ButtonState.Raised, gfxId);
+            button.SetGfx(ButtonState.Hover, gfxId);
+            button.SetGfx(ButtonState.Pressed, gfxId);
+        }
+
+        public static void HidePingChrome(Button button)
+        {
+            foreach (ButtonState state in new[] { ButtonState.Raised, ButtonState.Hover, ButtonState.Pressed })
+            {
+                button.SetGfx(state, TransparentPingGfxId);
+                button.GetBorderView(state)?.SetLocalAlpha(0);
+            }
+            button.SetLocalAlpha(0);
         }
 
         public static string GetZoneName(int id)

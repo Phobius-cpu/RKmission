@@ -44,23 +44,23 @@
 			</View>
 			<View name="DbRoot" layout_borders="Rect(4,0,4,2)" min_size="Point(302,17)" view_layout="horizontal">
 				<View view_layout="horizontal">
-					<Button layout_borders="Rect(2,0,2,0)" name="Implants" min_size="Point(12,12)" max_size="Point(12,12)"/>
+					<Button layout_borders="Rect(2,0,2,0)" name="Implants"/>
 					<TextView   value="Impl"/>
 				</View>
 				<View view_layout="horizontal">
-					<Button layout_borders="Rect(2,0,2,0)" name="Refined" min_size="Point(12,12)" max_size="Point(12,12)"/>
+					<Button layout_borders="Rect(2,0,2,0)" name="Refined"/>
 					<TextView   value="Refin"/>
 				</View>
 				<View view_layout="horizontal">
-					<Button layout_borders="Rect(2,0,2,0)" name="Clusters" min_size="Point(12,12)" max_size="Point(12,12)"/>
+					<Button layout_borders="Rect(2,0,2,0)" name="Clusters"/>
 					<TextView  value="Clstr"/>
 				</View>
 				<View view_layout="horizontal">
-					<Button layout_borders="Rect(2,0,2,0)" name="Nanos" min_size="Point(12,12)" max_size="Point(12,12)"/>
+					<Button layout_borders="Rect(2,0,2,0)" name="Nanos"/>
 					<TextView  value="Nano"/>
 				</View>
 				<View view_layout="horizontal">
-					<Button layout_borders="Rect(2,0,2,0)" name="Rest" min_size="Point(12,12)" max_size="Point(12,12)"/>
+					<Button layout_borders="Rect(2,0,2,0)" name="Rest"/>
 					<TextView value="Rest"/>
 				</View>
 			</View>
