@@ -33,9 +33,9 @@
 				</View>
 			</Button>
 			<View view_layout="horizontal" layout_borders="Rect(4,0,4,0)">
-				<Button name="PingLeft" min_size="Point(94,14)" max_size="Point(94,14)"/>
-				<Button name="Accept" min_size="Point(38,14)" max_size="Point(38,14)"/>
-				<Button name="PingRight" min_size="Point(95,14)" max_size="Point(95,14)"/>
+				<Button name="PingLeft" min_size="Point(90,14)" max_size="Point(90,14)"/>
+				<Button name="Accept" min_size="Point(46,14)" max_size="Point(46,14)"/>
+				<Button name="PingRight" min_size="Point(91,14)" max_size="Point(91,14)"/>
 			</View>
 			<Button name="PingBottom" min_size="Point(235,3)" max_size="Point(235,3)"/>
 		</BorderView>

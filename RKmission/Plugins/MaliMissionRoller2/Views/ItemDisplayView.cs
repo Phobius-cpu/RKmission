@@ -118,11 +118,10 @@ namespace MaliMissionRoller2
                 BrowserEntryView itemView = new BrowserEntryView();
 
                 itemView.Root = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\BrowserEntryView.xml");
+                Extensions.ColorFrame(itemView.Root, "QlFrame");
                 itemView.Root.FindChild("Name", out itemView.Name);
                 itemView.Root.FindChild("Range", out itemView.Range);
                 itemView.Root.FindChild("Ql", out itemView.Ql);
-                itemView.Root.FindChild("Bitmap", out itemView.Bitmap);
-                itemView.Bitmap.SetBitmap("ItemPreviewBg");
                 itemView.Root.FindChild("Button", out itemView.Button);
                 Extensions.ButtonSetGfx(itemView.Button, 1000037);
                 itemView.Root.FindChild("Preview", out View preview);
@@ -145,7 +144,6 @@ namespace MaliMissionRoller2
 
             rollEntry.Root = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\RollEntryView.xml");
             rollEntry.Root.FindChild("Name", out rollEntry.Name);
-            rollEntry.Root.FindChild("Bitmap", out rollEntry.Bitmap);
             rollEntry.Root.FindChild("Range", out rollEntry.Range);
             rollEntry.Root.FindChild("Count", out rollEntry.Count);
             rollEntry.Count.Text = $"{rollEntryModel.Count.ToString().PadLeft(2, '0')}";
@@ -155,7 +153,6 @@ namespace MaliMissionRoller2
             Extensions.ButtonSetGfx(rollEntry.Minus, 1000047);
             rollEntry.Root.FindChild("Preview", out View preview);
             rollEntry.Name.Text = rollEntryModel.Name;
-            rollEntry.Bitmap.SetBitmap("ItemPreviewBg2");
             rollEntry.Range.Text = $"{rollEntryModel.Ql.ToString().PadLeft(3, '0')}";
             rollEntry.Plus.Tag = rollEntry;
             rollEntry.Plus.Clicked = RollEntryPlusClick;
@@ -506,7 +503,6 @@ namespace MaliMissionRoller2
     public class BrowserEntryView
     {
         public View Root;
-        public BitmapView Bitmap;
         public Button Button;
         public MultiListView MultiListView;
         public InventoryListViewItem MultiListViewItem;
@@ -522,7 +518,6 @@ namespace MaliMissionRoller2
     public class RollEntryView
     {
         public View Root;
-        public BitmapView Bitmap;
         public Button Plus;
         public Button Minus;
         public TextView Count;
