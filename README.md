@@ -62,22 +62,30 @@ characters.
 RKMission moves beside that normal Grid terminal *before* sending the tell. It
 accepts a team invite only from the configured/expected identities, waits for
 the temporary Data Receptacle (template 160978), and uses it on the nearby
-Grid entrance to enter Fixer Grid. `FixerGridExits.json` maps supported
-destinations to floors and exit names. The first route is Perpetual Wastelands
-(570), floor 10; RKMission traverses the lifts, chooses an exit by its live
-terminal name, or by a nearby destination-labelled dynel that identifies one
-generic `Exit the Grid` portal unambiguously, and verifies the destination
-after zoning. If AO# exposes only generic portal names with no destination
-label, the attempt stops on floor 10 and logs visible portal identities and
-positions. A manual trip through a generic portal learns its destination only
-after zoning confirms a configured playfield; future runs can use that saved
-portal position from `RKMissionData/fixer-grid-exits.json`. The previous
+Grid entrance to enter Fixer Grid. `Data/FixerGridSurveyExits.json` ships the
+verified portal identities, FGrid floors and positions, destination playfields,
+and outdoor arrival positions: 78 exits across 46 destinations, including
+20 destinations with multiple exits. For a selected mission, RKMission ranks all
+verified exits into its playfield by horizontal distance from each arrival to
+the mission's quest entrance anchor. It traverses the required floors and
+uses the exact selected portal. If that portal is unavailable or does not
+start zoning, it tries another verified exit on the current or a higher floor.
+The destination playfield and selected portal are verified before local mission
+travel resumes from the observed outdoor position. `/rkm fgrid` shows the
+destination count, current target's exit count, selected portal, arrival,
+estimated remaining distance, and last failure.
+
+`FixerGridExits.json` remains a legacy floor/name fallback where no verified
+arrival is available. The old single-exit `RKMissionData/fixer-grid-exits.json`
+is read for compatibility and never overwritten. Newly verified exits are
+merged into `RKMissionData/fixer-grid-exits-v2.json`; repeated identities or
+matching FGrid positions do not replace another exit in the same playfield.
+The previous
 `GridTerminals.json` lists *entrances by source playfield*, not destination
-exits; it is no longer used to select an FGrid destination. A missing/offline
+exits; it is not used to select an FGrid destination. A missing/offline
 service, invite timeout, missing receptacle, unknown exit or wrong destination
-stops the FGrid attempt and records the cause. Use `/rkm fgrid` to inspect
-configuration, mapped destinations, activity, and the last failure. Lift and
-exit selection still needs in-game validation. AO# reports Fixer Grid as a
+stops the FGrid attempt and records the cause. Lift and exit selection still
+need in-game validation. AO# reports Fixer Grid as a
 dungeon, but RKMission keeps its travel provider active there and can resume
 the mapped exit route after `/rkm auto` is restarted inside it.
 
@@ -94,8 +102,9 @@ arrival position in `RKMissionData/fixer-grid-survey.json`. A repeated portal
 keeps one record. `/rkm fgrid scan` reports verified identities against the
 78 physical exits (eight on each of floors 1–9, six on floor 10) and shows
 per-floor counts. `/rkm fgrid` includes the overall count. Keep `RKMissionData`
-when updating the plugin. This survey is observational; travel still uses the
-existing single learned exit per mapped destination.
+when updating the plugin. New survey observations become runtime route
+candidates after verified outdoor zoning; the shipped survey remains the
+canonical source for known exits.
 
 ## Local takeover (existing workflow)
 

@@ -2,6 +2,32 @@
 
 _Last updated: 2026-10-01_
 
+## 2026-10-01 multi-exit FGrid routing checkpoint
+
+- `FGridServiceProvider` now groups verified survey exits by destination
+  playfield and retains every distinct portal identity. The shipped
+  `Data/FixerGridSurveyExits.json` contains 78 verified portals across 46
+  playfields (20 have multiple exits). Every floor count matches the expected
+  eight exits on floors 1–9 and six on floor 10. It is the canonical route
+  source; local survey
+  observations and new runtime observations merge by identity, then by floor
+  and FGrid position tolerance. Conflicting records keep the existing route
+  and are logged. `RKMissionData/fixer-grid-exits.json` remains intact as a
+  read-only legacy fallback; new runtime entries go to
+  `RKMissionData/fixer-grid-exits-v2.json` after successful input parsing.
+- The selected accepted mission's `Entrance` anchor reaches the long-range
+  planner. FGrid ranks each verified arrival by horizontal outdoor distance
+  to that anchor, logs the chosen portal/floor/arrival/cost, and uses that
+  portal's exact identity and position on its surveyed floor. If it is
+  unavailable or fails to start zoning, the provider tries another verified
+  exit on the current or a higher floor. Completed zoning still requires the
+  expected playfield and selected-portal verification before local travel.
+- The provider and `/rkm fgrid` report surveyed destination count, exit count
+  for the selected mission playfield, selected portal, estimated remaining
+  distance, and fallback failures. Nearby mapped direct links, Scotty, FGrid,
+  and normal graph routing retain their existing order. No dungeon behavior
+  changed. See `docs/history/2026-10-01-fgrid-multi-exit-routing.md`.
+
 ## 2026-10-01 checkpoint of the 2026-09-30 FGrid and loot discussion
 
 - GitHub `main` was verified at `253d8c12542d47a626ffbd349ae0f858d9cf9749`

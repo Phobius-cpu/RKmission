@@ -29,6 +29,7 @@ namespace RKmission
         private readonly Action<string> _say;
         private Link _step;
         private int _target;
+        private Vector3? _targetAnchor;
         private bool _warpFailed;
         private bool _fgridFailed;
         private DateTime _stepStarted, _lastUse;
@@ -88,10 +89,10 @@ namespace RKmission
 
         }
 
-        public TravelResult Tick(int target)
+        public TravelResult Tick(int target, Vector3? missionAnchor = null)
         {
             int current = Playfield.ModelIdentity.Instance;
-            if (_target != target) Reset(target);
+            if (_target != target || !SameAnchor(_targetAnchor, missionAnchor)) Reset(target, missionAnchor);
 
             if (current == target)
             {
@@ -103,11 +104,16 @@ namespace RKmission
                     if (warpAtDestination == WarpResult.InProgress)
                         return TravelResult.InProgress;
                 }
-                else if (!_fgridFailed && _fgrid.CanRoute(target))
+                else if (!_fgridFailed && _fgrid.IsActive)
                 {
-                    FGridServiceResult fgridAtDestination = _fgrid.Tick(target);
+                    FGridServiceResult fgridAtDestination = _fgrid.Tick(target, missionAnchor);
                     if (fgridAtDestination == FGridServiceResult.InProgress)
                         return TravelResult.InProgress;
+                    if (fgridAtDestination != FGridServiceResult.Succeeded)
+                    {
+                        LastFailure = _fgrid.LastFailure ?? "FGrid destination verification failed.";
+                        return TravelResult.Blocked;
+                    }
                 }
 
                 _movement.Release(MovementOwner.OutdoorTravel);
@@ -125,7 +131,7 @@ namespace RKmission
 
             if (!_fgridFailed && _fgrid.CanRoute(target))
             {
-                FGridServiceResult result = _fgrid.Tick(target);
+                FGridServiceResult result = _fgrid.Tick(target, missionAnchor);
                 if (result == FGridServiceResult.InProgress) return TravelResult.InProgress;
                 if (result == FGridServiceResult.Succeeded) return TravelResult.Arrived;
                 _fgridFailed = true;
@@ -277,9 +283,14 @@ namespace RKmission
             return step;
         }
 
-        public void Reset(int target = 0)
+        private static bool SameAnchor(Vector3? first, Vector3? second) =>
+            first.HasValue == second.HasValue &&
+            (!first.HasValue || Vector3.Distance(first.Value, second.Value) <= 0.5f);
+
+        public void Reset(int target = 0, Vector3? missionAnchor = null)
         {
             _target = target;
+            _targetAnchor = missionAnchor;
             _step = null;
 
             // A nearby, single verified normal link is cheaper than asking a

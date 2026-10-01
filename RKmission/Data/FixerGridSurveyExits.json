@@ -1,0 +1,1328 @@
+[
+  {
+    "PortalIdentity": 1478272421,
+    "Floor": 1,
+    "FGridPosition": [
+      307.2,
+      11.9137716,
+      83.1
+    ],
+    "DestinationPlayfield": 700,
+    "ArrivalPosition": [
+      525.0,
+      16.41,
+      462.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:54:23.0482597Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272424,
+    "Floor": 1,
+    "FGridPosition": [
+      295.7,
+      11.9137707,
+      78.5
+    ],
+    "DestinationPlayfield": 705,
+    "ArrivalPosition": [
+      482.0,
+      16.41,
+      949.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:53:11.2020056Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272425,
+    "Floor": 1,
+    "FGridPosition": [
+      290.9,
+      11.9137716,
+      67.0
+    ],
+    "DestinationPlayfield": 800,
+    "ArrivalPosition": [
+      291.0,
+      26.4140015,
+      777.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:52:16.0747742Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272426,
+    "Floor": 1,
+    "FGridPosition": [
+      295.6,
+      11.9137707,
+      55.7000046
+    ],
+    "DestinationPlayfield": 540,
+    "ArrivalPosition": [
+      329.0,
+      8.01,
+      286.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:51:30.0590882Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272427,
+    "Floor": 1,
+    "FGridPosition": [
+      307.0,
+      11.9137716,
+      50.8
+    ],
+    "DestinationPlayfield": 545,
+    "ArrivalPosition": [
+      465.0,
+      23.7727318,
+      560.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:50:43.404913Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272428,
+    "Floor": 1,
+    "FGridPosition": [
+      318.4,
+      11.9137707,
+      55.5000038
+    ],
+    "DestinationPlayfield": 640,
+    "ArrivalPosition": [
+      665.0,
+      8.01,
+      558.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:49:58.2939993Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272429,
+    "Floor": 1,
+    "FGridPosition": [
+      323.165039,
+      11.9137716,
+      66.87515
+    ],
+    "DestinationPlayfield": 566,
+    "ArrivalPosition": [
+      480.0,
+      28.8100014,
+      334.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:49:01.1638112Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272430,
+    "Floor": 1,
+    "FGridPosition": [
+      318.6,
+      11.9137707,
+      78.30001
+    ],
+    "DestinationPlayfield": 710,
+    "ArrivalPosition": [
+      364.0,
+      5.01,
+      209.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:54:55.9509728Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272432,
+    "Floor": 2,
+    "FGridPosition": [
+      312.696838,
+      21.9137726,
+      82.06639
+    ],
+    "DestinationPlayfield": 735,
+    "ArrivalPosition": [
+      700.0,
+      17.41,
+      194.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:47:17.2831776Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272435,
+    "Floor": 2,
+    "FGridPosition": [
+      300.317078,
+      21.91377,
+      81.67691
+    ],
+    "DestinationPlayfield": 730,
+    "ArrivalPosition": [
+      341.0,
+      17.41,
+      404.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:46:30.7019927Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272436,
+    "Floor": 2,
+    "FGridPosition": [
+      291.8734,
+      21.9137726,
+      72.5120544
+    ],
+    "DestinationPlayfield": 740,
+    "ArrivalPosition": [
+      263.9581,
+      17.41,
+      439.028046
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:45:22.4107848Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272437,
+    "Floor": 2,
+    "FGridPosition": [
+      292.4253,
+      21.91377,
+      60.28604
+    ],
+    "DestinationPlayfield": 791,
+    "ArrivalPosition": [
+      776.0,
+      5.017996,
+      1168.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:44:36.4014917Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272438,
+    "Floor": 2,
+    "FGridPosition": [
+      301.461975,
+      21.9137726,
+      51.782608
+    ],
+    "DestinationPlayfield": 550,
+    "ArrivalPosition": [
+      1977.0,
+      32.862,
+      312.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:44:10.7466069Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272439,
+    "Floor": 2,
+    "FGridPosition": [
+      313.781952,
+      21.91377,
+      52.3002625
+    ],
+    "DestinationPlayfield": 646,
+    "ArrivalPosition": [
+      728.0,
+      24.91212,
+      820.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:43:24.9477113Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272440,
+    "Floor": 2,
+    "FGridPosition": [
+      322.18277,
+      21.9137726,
+      61.3212929
+    ],
+    "DestinationPlayfield": 567,
+    "ArrivalPosition": [
+      756.0,
+      37.57799,
+      1083.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:42:59.6225264Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272441,
+    "Floor": 2,
+    "FGridPosition": [
+      321.767761,
+      21.91377,
+      73.65694
+    ],
+    "DestinationPlayfield": 716,
+    "ArrivalPosition": [
+      903.0,
+      13.1925592,
+      2358.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:48:09.030924Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272442,
+    "Floor": 3,
+    "FGridPosition": [
+      317.5087,
+      31.9137726,
+      79.21513
+    ],
+    "DestinationPlayfield": 695,
+    "ArrivalPosition": [
+      936.0,
+      29.4241352,
+      2304.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:41:43.5815567Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272445,
+    "Floor": 3,
+    "FGridPosition": [
+      305.742279,
+      31.91377,
+      83.0831451
+    ],
+    "DestinationPlayfield": 696,
+    "ArrivalPosition": [
+      440.0,
+      15.8120012,
+      1012.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:40:45.3382362Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272446,
+    "Floor": 3,
+    "FGridPosition": [
+      294.67334,
+      31.9137726,
+      77.35879
+    ],
+    "DestinationPlayfield": 790,
+    "ArrivalPosition": [
+      1968.0,
+      0.01,
+      2484.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:40:06.6831211Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272447,
+    "Floor": 3,
+    "FGridPosition": [
+      291.0105,
+      31.91377,
+      65.68131
+    ],
+    "DestinationPlayfield": 790,
+    "ArrivalPosition": [
+      816.0,
+      20.8100014,
+      1154.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:39:04.4147534Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272448,
+    "Floor": 3,
+    "FGridPosition": [
+      296.593964,
+      31.9137726,
+      54.60003
+    ],
+    "DestinationPlayfield": 551,
+    "ArrivalPosition": [
+      1249.0,
+      22.0128326,
+      3162.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:34:40.6986923Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272449,
+    "Floor": 3,
+    "FGridPosition": [
+      308.348053,
+      31.91377,
+      50.8729019
+    ],
+    "DestinationPlayfield": 647,
+    "ArrivalPosition": [
+      2888.0,
+      20.11,
+      2352.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:34:10.0297531Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272450,
+    "Floor": 3,
+    "FGridPosition": [
+      319.3137,
+      31.9137726,
+      56.4880142
+    ],
+    "DestinationPlayfield": 565,
+    "ArrivalPosition": [
+      2476.0,
+      31.814249,
+      876.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:33:25.4086794Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272451,
+    "Floor": 3,
+    "FGridPosition": [
+      323.156464,
+      31.91377,
+      68.2104645
+    ],
+    "DestinationPlayfield": 717,
+    "ArrivalPosition": [
+      1824.0,
+      12.01,
+      2496.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:42:11.1277713Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272452,
+    "Floor": 4,
+    "FGridPosition": [
+      321.055237,
+      41.9137726,
+      74.8901138
+    ],
+    "DestinationPlayfield": 685,
+    "ArrivalPosition": [
+      2140.0,
+      18.2227459,
+      1764.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:31:19.2881547Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272455,
+    "Floor": 4,
+    "FGridPosition": [
+      311.3213,
+      41.9137726,
+      82.54911
+    ],
+    "DestinationPlayfield": 687,
+    "ArrivalPosition": [
+      852.0,
+      17.8100014,
+      710.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:30:48.7645104Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272456,
+    "Floor": 4,
+    "FGridPosition": [
+      298.962036,
+      41.9137726,
+      80.95565
+    ],
+    "DestinationPlayfield": 670,
+    "ArrivalPosition": [
+      1025.0,
+      15.0680084,
+      3037.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:29:42.6677833Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272457,
+    "Floor": 4,
+    "FGridPosition": [
+      291.526245,
+      41.9137726,
+      71.2351
+    ],
+    "DestinationPlayfield": 670,
+    "ArrivalPosition": [
+      2400.0,
+      11.012002,
+      1248.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:28:31.4400063Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272458,
+    "Floor": 4,
+    "FGridPosition": [
+      292.9831,
+      41.9137726,
+      58.9124527
+    ],
+    "DestinationPlayfield": 586,
+    "ArrivalPosition": [
+      472.0,
+      11.4100008,
+      363.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:27:30.8859822Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272459,
+    "Floor": 4,
+    "FGridPosition": [
+      302.753662,
+      41.9137726,
+      51.3900642
+    ],
+    "DestinationPlayfield": 585,
+    "ArrivalPosition": [
+      1480.0,
+      19.8100014,
+      1240.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:26:30.1367432Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272460,
+    "Floor": 4,
+    "FGridPosition": [
+      314.9615,
+      41.9137726,
+      52.9437752
+    ],
+    "DestinationPlayfield": 600,
+    "ArrivalPosition": [
+      628.0,
+      26.4206123,
+      2004.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:26:03.8274334Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272461,
+    "Floor": 4,
+    "FGridPosition": [
+      322.5987,
+      41.9137726,
+      62.61747
+    ],
+    "DestinationPlayfield": 600,
+    "ArrivalPosition": [
+      3259.0,
+      29.195612,
+      805.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:32:58.6889825Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272462,
+    "Floor": 5,
+    "FGridPosition": [
+      322.9087,
+      51.9137726,
+      69.61296
+    ],
+    "DestinationPlayfield": 630,
+    "ArrivalPosition": [
+      2468.0,
+      16.0128231,
+      848.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:23:18.7369942Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272465,
+    "Floor": 5,
+    "FGridPosition": [
+      316.3812,
+      51.9137726,
+      80.1392
+    ],
+    "DestinationPlayfield": 630,
+    "ArrivalPosition": [
+      1208.0,
+      16.0160065,
+      1816.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:22:28.5250656Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272466,
+    "Floor": 5,
+    "FGridPosition": [
+      304.22226,
+      51.9137726,
+      82.86882
+    ],
+    "DestinationPlayfield": 655,
+    "ArrivalPosition": [
+      1827.0,
+      6.01,
+      2387.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:21:24.3517513Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272467,
+    "Floor": 5,
+    "FGridPosition": [
+      293.91037,
+      51.9137726,
+      76.27757
+    ],
+    "DestinationPlayfield": 655,
+    "ArrivalPosition": [
+      1000.0,
+      34.5121231,
+      1340.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:20:53.5092315Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272468,
+    "Floor": 5,
+    "FGridPosition": [
+      291.06488,
+      51.9137726,
+      64.1997757
+    ],
+    "DestinationPlayfield": 655,
+    "ArrivalPosition": [
+      4268.0,
+      2.41,
+      844.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:20:00.1159163Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272469,
+    "Floor": 5,
+    "FGridPosition": [
+      297.673523,
+      51.9137726,
+      53.7893829
+    ],
+    "DestinationPlayfield": 760,
+    "ArrivalPosition": [
+      1605.0,
+      15.5114164,
+      2298.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:19:32.0524824Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272470,
+    "Floor": 5,
+    "FGridPosition": [
+      309.65686,
+      51.9137726,
+      51.0610123
+    ],
+    "DestinationPlayfield": 760,
+    "ArrivalPosition": [
+      1905.0,
+      5.566006,
+      1832.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:18:44.3671589Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272471,
+    "Floor": 5,
+    "FGridPosition": [
+      320.1617,
+      51.9137726,
+      57.55252
+    ],
+    "DestinationPlayfield": 760,
+    "ArrivalPosition": [
+      860.0,
+      2.812826,
+      640.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:24:00.9811906Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272472,
+    "Floor": 6,
+    "FGridPosition": [
+      322.84552,
+      61.9137726,
+      64.02014
+    ],
+    "DestinationPlayfield": 625,
+    "ArrivalPosition": [
+      1327.0,
+      50.8939857,
+      2367.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:17:06.5639019Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272475,
+    "Floor": 6,
+    "FGridPosition": [
+      320.311737,
+      61.9137726,
+      76.14408
+    ],
+    "DestinationPlayfield": 625,
+    "ArrivalPosition": [
+      3940.0,
+      39.61,
+      460.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:15:41.8150892Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272476,
+    "Floor": 6,
+    "FGridPosition": [
+      309.8196,
+      61.9137726,
+      82.86757
+    ],
+    "DestinationPlayfield": 635,
+    "ArrivalPosition": [
+      1217.0,
+      36.01,
+      2607.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:15:05.5616443Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272477,
+    "Floor": 6,
+    "FGridPosition": [
+      297.8753,
+      61.9137726,
+      80.2005844
+    ],
+    "DestinationPlayfield": 635,
+    "ArrivalPosition": [
+      1840.0,
+      43.66,
+      1285.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:13:56.2508141Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272478,
+    "Floor": 6,
+    "FGridPosition": [
+      291.0781,
+      61.9137726,
+      69.8556747
+    ],
+    "DestinationPlayfield": 635,
+    "ArrivalPosition": [
+      1192.0,
+      22.0114136,
+      616.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:13:22.469559Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272479,
+    "Floor": 6,
+    "FGridPosition": [
+      293.7203,
+      61.9137726,
+      57.78148
+    ],
+    "DestinationPlayfield": 795,
+    "ArrivalPosition": [
+      419.0,
+      18.3642445,
+      1188.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:12:15.9698672Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272480,
+    "Floor": 6,
+    "FGridPosition": [
+      304.076965,
+      61.9137726,
+      51.09941
+    ],
+    "DestinationPlayfield": 795,
+    "ArrivalPosition": [
+      2524.0,
+      23.210001,
+      1036.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:11:42.9551614Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272481,
+    "Floor": 6,
+    "FGridPosition": [
+      316.1394,
+      61.9137726,
+      53.6264839
+    ],
+    "DestinationPlayfield": 795,
+    "ArrivalPosition": [
+      1684.0,
+      15.0269709,
+      836.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:17:38.5054524Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272482,
+    "Floor": 7,
+    "FGridPosition": [
+      320.873383,
+      71.91377,
+      58.7861862
+    ],
+    "DestinationPlayfield": 610,
+    "ArrivalPosition": [
+      1768.0,
+      15.6156645,
+      1120.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:09:23.8347848Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272485,
+    "Floor": 7,
+    "FGridPosition": [
+      322.638916,
+      71.91377,
+      71.0455856
+    ],
+    "DestinationPlayfield": 610,
+    "ArrivalPosition": [
+      3326.0,
+      15.21,
+      1181.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:08:33.0264492Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272486,
+    "Floor": 7,
+    "FGridPosition": [
+      315.079,
+      71.91377,
+      80.95204
+    ],
+    "DestinationPlayfield": 650,
+    "ArrivalPosition": [
+      1082.0,
+      11.9170809,
+      2298.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:07:48.1996252Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272487,
+    "Floor": 7,
+    "FGridPosition": [
+      302.9428,
+      71.91377,
+      82.53097
+    ],
+    "DestinationPlayfield": 650,
+    "ArrivalPosition": [
+      1740.0,
+      10.0128326,
+      1952.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:05:46.8779943Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272488,
+    "Floor": 7,
+    "FGridPosition": [
+      292.999756,
+      71.91377,
+      75.107666
+    ],
+    "DestinationPlayfield": 650,
+    "ArrivalPosition": [
+      1368.0,
+      20.2184963,
+      648.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:04:49.3539146Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272489,
+    "Floor": 7,
+    "FGridPosition": [
+      291.370819,
+      71.91377,
+      62.8848724
+    ],
+    "DestinationPlayfield": 615,
+    "ArrivalPosition": [
+      1540.0,
+      38.8184967,
+      3147.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:04:02.2488734Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272490,
+    "Floor": 7,
+    "FGridPosition": [
+      298.83075,
+      71.91377,
+      53.0728874
+    ],
+    "DestinationPlayfield": 615,
+    "ArrivalPosition": [
+      2245.0,
+      42.6699,
+      724.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:03:06.2298591Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272491,
+    "Floor": 7,
+    "FGridPosition": [
+      311.0169,
+      71.91377,
+      51.3128738
+    ],
+    "DestinationPlayfield": 610,
+    "ArrivalPosition": [
+      1120.0,
+      18.01,
+      2404.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:10:35.9005828Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272492,
+    "Floor": 8,
+    "FGridPosition": [
+      317.230072,
+      81.91377,
+      54.54236
+    ],
+    "DestinationPlayfield": 605,
+    "ArrivalPosition": [
+      2185.0,
+      4.066006,
+      1782.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:01:28.4940798Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272495,
+    "Floor": 8,
+    "FGridPosition": [
+      323.08197,
+      81.91377,
+      65.45864
+    ],
+    "DestinationPlayfield": 605,
+    "ArrivalPosition": [
+      3124.0,
+      13.0156517,
+      996.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:00:26.4629444Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272496,
+    "Floor": 8,
+    "FGridPosition": [
+      319.3661,
+      81.91377,
+      77.3532639
+    ],
+    "DestinationPlayfield": 590,
+    "ArrivalPosition": [
+      2988.0,
+      25.5160084,
+      1656.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T16:59:45.1718641Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272497,
+    "Floor": 8,
+    "FGridPosition": [
+      308.50177,
+      81.91377,
+      82.98767
+    ],
+    "DestinationPlayfield": 590,
+    "ArrivalPosition": [
+      2404.0,
+      24.9121265,
+      2108.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T16:58:37.1394727Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272498,
+    "Floor": 8,
+    "FGridPosition": [
+      296.636475,
+      81.91377,
+      79.42649
+    ],
+    "DestinationPlayfield": 590,
+    "ArrivalPosition": [
+      976.0,
+      40.21425,
+      1464.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T16:57:56.8857671Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272499,
+    "Floor": 8,
+    "FGridPosition": [
+      290.908447,
+      81.91377,
+      68.4840546
+    ],
+    "DestinationPlayfield": 505,
+    "ArrivalPosition": [
+      1253.0,
+      27.26,
+      3141.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T16:56:58.8774173Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272500,
+    "Floor": 8,
+    "FGridPosition": [
+      294.548645,
+      81.91377,
+      56.72783
+    ],
+    "DestinationPlayfield": 505,
+    "ArrivalPosition": [
+      928.0,
+      11.8119993,
+      783.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T16:56:19.687851Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272501,
+    "Floor": 8,
+    "FGridPosition": [
+      305.412048,
+      81.91377,
+      50.8907242
+    ],
+    "DestinationPlayfield": 605,
+    "ArrivalPosition": [
+      1044.0,
+      13.0199127,
+      2308.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:02:08.0406937Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272502,
+    "Floor": 9,
+    "FGridPosition": [
+      312.355072,
+      91.91377,
+      51.8004951
+    ],
+    "DestinationPlayfield": 665,
+    "ArrivalPosition": [
+      1088.0,
+      3.61000013,
+      4228.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T16:53:18.7825741Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272505,
+    "Floor": 9,
+    "FGridPosition": [
+      321.587555,
+      91.91377,
+      60.0570679
+    ],
+    "DestinationPlayfield": 665,
+    "ArrivalPosition": [
+      1284.0,
+      33.62001,
+      2212.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T16:51:46.4361185Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272506,
+    "Floor": 9,
+    "FGridPosition": [
+      322.163818,
+      91.91377,
+      72.50528
+    ],
+    "DestinationPlayfield": 595,
+    "ArrivalPosition": [
+      2504.0,
+      21.2128334,
+      3256.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T16:49:36.8346171Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272507,
+    "Floor": 9,
+    "FGridPosition": [
+      313.8817,
+      91.91377,
+      81.515625
+    ],
+    "DestinationPlayfield": 595,
+    "ArrivalPosition": [
+      1492.0,
+      17.612833,
+      2308.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T16:47:14.2477528Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272508,
+    "Floor": 9,
+    "FGridPosition": [
+      301.518738,
+      91.91377,
+      82.22952
+    ],
+    "DestinationPlayfield": 595,
+    "ArrivalPosition": [
+      1948.0,
+      10.4100008,
+      1297.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T16:46:29.4276114Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272509,
+    "Floor": 9,
+    "FGridPosition": [
+      292.388916,
+      91.91377,
+      73.90373
+    ],
+    "DestinationPlayfield": 560,
+    "ArrivalPosition": [
+      2044.0,
+      38.2160034,
+      3240.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T16:45:02.5468795Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272510,
+    "Floor": 9,
+    "FGridPosition": [
+      291.754181,
+      91.91377,
+      61.5883636
+    ],
+    "DestinationPlayfield": 560,
+    "ArrivalPosition": [
+      1172.0,
+      24.8170815,
+      2692.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T16:44:15.0897581Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272511,
+    "Floor": 9,
+    "FGridPosition": [
+      300.000824,
+      91.91377,
+      52.4109573
+    ],
+    "DestinationPlayfield": 560,
+    "ArrivalPosition": [
+      648.0,
+      12.0227232,
+      334.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T16:54:13.5276815Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272513,
+    "Floor": 10,
+    "FGridPosition": [
+      318.463226,
+      101.913925,
+      78.3332443
+    ],
+    "DestinationPlayfield": 620,
+    "ArrivalPosition": [
+      468.0,
+      21.01,
+      2812.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:59:15.6270127Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272514,
+    "Floor": 10,
+    "FGridPosition": [
+      307.064178,
+      101.913818,
+      83.1341858
+    ],
+    "DestinationPlayfield": 620,
+    "ArrivalPosition": [
+      1836.0,
+      38.8170776,
+      2088.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:58:35.095297Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272515,
+    "Floor": 10,
+    "FGridPosition": [
+      323.084259,
+      101.914055,
+      66.98514
+    ],
+    "DestinationPlayfield": 620,
+    "ArrivalPosition": [
+      1044.0,
+      36.2114143,
+      672.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T18:00:24.4018165Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272516,
+    "Floor": 10,
+    "FGridPosition": [
+      295.631836,
+      101.913818,
+      78.4711456
+    ],
+    "DestinationPlayfield": 570,
+    "ArrivalPosition": [
+      3067.0,
+      30.6121254,
+      2900.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:56:53.827943Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272517,
+    "Floor": 10,
+    "FGridPosition": [
+      290.814575,
+      101.913818,
+      67.16725
+    ],
+    "DestinationPlayfield": 570,
+    "ArrivalPosition": [
+      1069.0,
+      33.0340233,
+      2220.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:56:03.0646932Z",
+    "Source": "verified in-game survey"
+  },
+  {
+    "PortalIdentity": 1478272518,
+    "Floor": 10,
+    "FGridPosition": [
+      295.462433,
+      101.913818,
+      55.66339
+    ],
+    "DestinationPlayfield": 570,
+    "ArrivalPosition": [
+      3832.0,
+      47.1130028,
+      1388.0
+    ],
+    "VerifiedAtUtc": "2026-10-01T17:57:28.357571Z",
+    "Source": "verified in-game survey"
+  }
+]

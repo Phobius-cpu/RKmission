@@ -185,6 +185,8 @@ namespace RKmission
                     }
                     Say($"FGrid service configured={_fgrid.IsConfigured}, mapped destinations={_fgrid.MappedDestinations}, " +
                         $"active={_fgrid.IsActive}, last issue={_fgrid.LastFailure ?? "none"}.");
+                    Say($"Surveyed FGrid destinations={_fgrid.SurveyedDestinationCount}; " +
+                        _fgrid.TargetStatus(_selected?.PlayfieldId ?? 0) + ".");
                     Say(_fgrid.SurveySummary + " Use /rkm fgrid scan for floor counts and file path.");
                     break;
                 case "loot": Say("Use /ManagerLoot for the original item list and settings."); break;
@@ -421,7 +423,7 @@ namespace RKmission
                 if (_selected.PlayfieldId != Playfield.ModelIdentity.Instance)
                 {
                     _travel.Reset();
-                    TravelResult longResult = _longTravel.Tick(_selected.PlayfieldId);
+                    TravelResult longResult = _longTravel.Tick(_selected.PlayfieldId, _selected.Entrance);
                     if (longResult == TravelResult.Blocked)
                     { string reason = _longTravel.LastFailure; Stop(); Say(reason); }
                     return;
