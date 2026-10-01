@@ -1,7 +1,7 @@
 ﻿<?xml version="1.0" standalone="yes"?>
 <root>
 	<View name="MissionView" min_size="Point(235,123)" max_size="Point(235,123)">
-		<BitmapView name="Background" min_size="Point(235,123)" max_size="Point(235,123)">
+		<BorderView name="Background" min_size="Point(235,123)" max_size="Point(235,123)">
 			<View view_layout="horizontal">
 				<BitmapView name="Icon" layout_borders="Rect(3,0,0,0)" color="0x00D5C64A"/>
 				<HLayoutSpacer/>
@@ -39,6 +39,6 @@
 			<View min_size="Point(1,3)">
 				<Haxxor/>
 			</View>
-		</BitmapView>
+		</BorderView>
 	</View>
 </root>

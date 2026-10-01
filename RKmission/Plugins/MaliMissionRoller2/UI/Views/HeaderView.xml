@@ -1,21 +1,21 @@
 ﻿<?xml version="1.0" standalone="yes"?>
 <root>
 	<View>
-		<BitmapView name="Background" min_size="Point(235, 31)">
-			<View view_layout="horizontal">
-				<BitmapView name="Icon" max_size="Point(16, 16)" color="0x00D5C64A"/>
+		<BorderView name="Header" layout_borders="Rect(5,5,5,5)" min_size="Point(235,55)">
+			<View view_layout="vertical">
+			<View view_layout="horizontal" layout_borders="Rect(4,2,4,3)">
+				<TextView font="BOLD" value="RKMission Roller"/>
 				<HLayoutSpacer/>
-				<TextView font="BOLD" name="Title" color="0x00D5C64A"/>
-				<HLayoutSpacer/>
-				<Button name="Help" layout_borders="Rect(1,0,1,0)"/>
+				<Button name="Help" label="Help" min_size="Point(35,18)"/>
 			</View>
-			<View view_layout="horizontal">
-				<Button name="Start" layout_borders="Rect(2,0,0,0)"/>
+			<View view_layout="horizontal" layout_borders="Rect(4,2,4,2)">
+				<Button name="Start" label="Auto Roll" min_size="Point(64,20)"/>
 				<HLayoutSpacer/>
-				<Button name="Request" layout_borders="Rect(2,0,2,0)"/>
+				<Button name="Request" label="Request" min_size="Point(62,20)"/>
 				<HLayoutSpacer/>
-				<Button name="Settings" layout_borders="Rect(0,0,2,0)"/>
+				<Button name="Settings" label="Settings" min_size="Point(62,20)"/>
 			</View>
-		</BitmapView>
+			</View>
+		</BorderView>
 	</View>
 </root>

@@ -20,27 +20,44 @@ namespace MaliMissionRoller2
         internal SettingsView SettingsView;
         internal bool InSettings;
         private bool _isRolling;
-        // RKMission drives the original request/response UI with a zone target.
+        private bool _rkAutoMode;
+        // RKMission drives the original request/response UI. A zero zone uses
+        // the enabled Rubi-Ka locations in the roller settings.
         public int AutoZoneId { get; private set; }
+        public bool IsAutoRolling => _rkAutoMode && _isRolling;
+        public string LastAutoError { get; private set; }
+        public int PendingAutoMissionId { get; private set; }
+        public DateTime AutoAcceptRequestedAtUtc { get; private set; }
+        public DateTime LastAutoOfferAtUtc { get; private set; }
+        public bool HasEnabledAutoDestination => SettingsView?.Locations?.Entries?.Any(x =>
+            (bool)x.Toggle.Tag && RKmission.AcceptedMissions.IsRubiKaPlayfield(x.PfId)) == true;
 
-        public void StartZoneRolling(int zoneId)
+        public bool StartZoneRolling(int zoneId)
         {
             AutoZoneId = zoneId;
+            _rkAutoMode = true;
             _isRolling = true;
+            LastAutoError = null;
+            PendingAutoMissionId = 0;
+            AutoAcceptRequestedAtUtc = DateTime.MinValue;
+            LastAutoOfferAtUtc = DateTime.UtcNow;
             _requestTimer = 1.5f;
-            RequestMission();
+            return RequestMission();
         }
 
         public void StopZoneRolling()
         {
             AutoZoneId = 0;
+            _rkAutoMode = false;
             _isRolling = false;
+            PendingAutoMissionId = 0;
+            AutoAcceptRequestedAtUtc = DateTime.MinValue;
         }
         private float _requestTimer;
         private int _missionLevel;
         private readonly List<List<int>> MissionLvls = JsonConvert.DeserializeObject<List<List<int>>>(File.ReadAllText($"{Main.PluginDir}\\JSON\\MissionLevels.json"));
 
-        public MainWindow(string name, string path, WindowStyle windowStyle = WindowStyle.Popup, WindowFlags flags = WindowFlags.AutoScale | WindowFlags.NoFade) : base(name, path, windowStyle, flags)
+        public MainWindow(string name, string path, WindowStyle windowStyle = WindowStyle.Default, WindowFlags flags = WindowFlags.AutoScale | WindowFlags.NoFade) : base(name, path, windowStyle, flags)
         {
             Extensions.LoadCustomTextures($"{Main.PluginDir}\\UI\\Textures\\", 1000035);
         }
@@ -96,6 +113,9 @@ namespace MaliMissionRoller2
             Midi.Play("Click");
 
             _isRolling = !_isRolling;
+            _rkAutoMode = false;
+            AutoZoneId = 0;
+            PendingAutoMissionId = 0;
             Chat.WriteLine($"Auto Rolling Toggled.");
         }
 
@@ -105,17 +125,16 @@ namespace MaliMissionRoller2
 
             if (InSettings)
             {
-                Extensions.ButtonSetGfx(HeaderView.Settings, 1000050);
                 MissionView.Show();
                 SettingsView.Hide();
             }
             else
             {
-                Extensions.ButtonSetGfx(HeaderView.Settings, 1000043);
                 MissionView.Hide();
                 SettingsView.Show();
             }
             InSettings = !InSettings;
+            HeaderView.Settings.Tag = InSettings;
         }
 
         public void SwapViews()
@@ -132,8 +151,7 @@ namespace MaliMissionRoller2
             {
                 MissionView.Show();
             }
-
-            Extensions.ButtonSetGfx(HeaderView.Settings, 1000050);
+            HeaderView.Settings.Tag = false;
         }
 
         private void RequestClick(object sender, ButtonBase e)
@@ -144,33 +162,38 @@ namespace MaliMissionRoller2
             RequestMission();
         }
 
-        internal void RequestMission()
+        internal bool RequestMission()
         {
             if (CurrentTerminal == null)
             {
-                Chat.WriteLine("Invalid terminal. (right click or use a mission terminal)");
+                LastAutoError = "Mission terminal is unavailable; stand beside it and restart /rkm auto.";
+                Chat.WriteLine(LastAutoError);
                 _isRolling = false;
-                return;
+                return false;
             }
 
             if (Inventory.NumFreeSlots < 2)
             {
-                Chat.WriteLine("You need at least 2 free inventory slots to roll.");
+                LastAutoError = "You need at least 2 free inventory slots to roll.";
+                Chat.WriteLine(LastAutoError);
                 _isRolling = false;
-                return;
+                return false;
             }
 
             List<RollEntryView> rollEntries = SettingsView.ItemDisplay.RollEntryViews;
 
-            if (rollEntries.Count == 0 && _isRolling && AutoZoneId == 0)
+            if (rollEntries.Count == 0 && _isRolling && !_rkAutoMode)
             {
                 _isRolling = false;
                 Chat.WriteLine("Roll List is empty!");
                 Chat.WriteLine("Auto Rolling set to: FALSE");
-                return;
+                return false;
             }
 
-            if ((bool)SettingsView.ExtraOptions.AutoAdjustQl.Tag && _isRolling)
+            // RKMission destination rolling does not require an item roll list.
+            // The item's auto-level processor reports an empty list as fatal.
+            if ((bool)SettingsView.ExtraOptions.AutoAdjustQl.Tag && _isRolling &&
+                !_rkAutoMode)
             {
                 var rollProcessor = new RollEntryProcessor(MissionLvls);
 
@@ -183,7 +206,7 @@ namespace MaliMissionRoller2
                         "Remaining roll items outside characters level reach.\n" +
                         "If you think this is wrong, disable the 'Auto Adjust Level Slider'\n" +
                         "temporarily and contact me so I can update the mission level table!\n" +
-                        "(press '?' in the top right corner for contact details)");
+                        "(press Help in the roller window for details)");
                     _isRolling = false;
                 }
                 else if (result.IsSpecialCredit)
@@ -199,7 +222,7 @@ namespace MaliMissionRoller2
 
             MissionSliders sliders = SettingsView.Sliders.GetSliderValues();
 
-            CurrentTerminal?.RequestMissions(
+            CurrentTerminal.RequestMissions(
                 sliders.Difficulty,
                 sliders.GoodBad,
                 sliders.OrderChaos,
@@ -208,22 +231,53 @@ namespace MaliMissionRoller2
                 sliders.HeadonStealth,
                 sliders.CreditsXp
                 );
+            return true;
         }
+
+        private bool IsAutoEligible(MissionInfo mission)
+        {
+            int playfield = mission.Playfield.Instance;
+            if (!RKmission.AcceptedMissions.IsRubiKaPlayfield(playfield) ||
+                (AutoZoneId > 0 && playfield != AutoZoneId)) return false;
+            PlayfieldEntryView location = SettingsView.Locations.Entries.FirstOrDefault(x => x.PfId == playfield);
+            if (AutoZoneId == 0 && (location == null || !(bool)location.Toggle.Tag)) return false;
+            if (location != null && location.Bounds.Coord1.X != 0 &&
+                location.Bounds.Coord2.X != 0 && !location.Bounds.Contains(mission.Location)) return false;
+            var types = SettingsView.MissionTypes;
+            switch (mission.MissionIcon)
+            {
+                case 11329: return (bool)types.ReturnItem.Tag;
+                case 11330: return (bool)types.KillTarget.Tag;
+                case 11335: return (bool)types.FindTarget.Tag;
+                case 11337: return (bool)types.FindItem.Tag;
+                case 11342: return (bool)types.UseItem.Tag;
+                default: return false;
+            }
+        }
+
         internal void RollMatchCheck(MissionInfo[] missionList)
         {
             MissionView.Update(missionList);
-            if (AutoZoneId != 0)
+            if (PendingAutoMissionId > 0) return;
+            if (_rkAutoMode)
             {
-                var origin = AOSharp.Core.Playfield.ModelIdentity.Instance == AutoZoneId
-                    ? DynelManager.LocalPlayer.Position : Vector3.Zero;
+                LastAutoOfferAtUtc = DateTime.UtcNow;
+                int current = AOSharp.Core.Playfield.ModelIdentity.Instance;
+                Vector3 origin = DynelManager.LocalPlayer.Position;
                 MissionInfo nearest = missionList
-                    .Where(x => x.Playfield.Instance == AutoZoneId)
-                    .OrderBy(x => Vector3.Distance(x.Location, origin))
+                    .Where(IsAutoEligible)
+                    .OrderBy(x => x.Playfield.Instance == current ? 0 : 1)
+                    .ThenBy(x => x.Playfield.Instance)
+                    .ThenBy(x => x.Playfield.Instance == current
+                        ? Vector3.Distance(x.Location, origin) : 0f)
                     .FirstOrDefault();
                 if (nearest != null)
                 {
                     _isRolling = false;
+                    _rkAutoMode = false;
                     AutoZoneId = 0;
+                    PendingAutoMissionId = nearest.MissionIdentity.Instance;
+                    AutoAcceptRequestedAtUtc = DateTime.UtcNow;
                     MissionView.AcceptMission(nearest.MissionIdentity);
                     return;
                 }
@@ -320,7 +374,7 @@ namespace MaliMissionRoller2
         public void UpdateTerminal(MissionTerminal terminal)
         {
             CurrentTerminal = terminal;
-            if ((bool)HeaderView.Settings.Tag == true)
+            if (!InSettings)
                 MissionView.Show();
         }
     }

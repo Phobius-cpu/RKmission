@@ -1,7 +1,7 @@
 <?xml version="1.0" standalone="yes"?>
 <Root>
 	<View>
-		<BitmapView name="Background"  min_size="Point(235, 277)">
+		<BorderView name="Background" min_size="Point(235, 277)">
 			<View layout_borders="Rect(2,0,2,0)" view_layout="horizontal" min_size="Point(235,16)">
 				<Button  layout_borders="Rect(0,0,2,0)" name="RollMode"/>
 				<TextView font="BOLD" value="ROLL LIST" color="0x00FFF1AC"/>
@@ -48,6 +48,6 @@
 				</View>
 			</View>
 
-</BitmapView>
+</BorderView>
 	</View>
 </Root>

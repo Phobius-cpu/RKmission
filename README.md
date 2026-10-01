@@ -149,15 +149,25 @@ Starting inside a mission retains AO#'s exact dungeon-to-mission lookup.
 and allows retry. Quest disappearance alone never proves reward. `/rkm complete
 [bound id]` remains a manual completion override; automatic exit follows while armed.
 
-## Automatic cycle (new, source only)
+## Automatic cycle
 
-At a mission terminal, use `/rkm zone <Rubi-Ka playfield id>` to choose the
-rolling destination and optionally `/rkm rolls <count>` (default 100). Use
-`/rkm auto` to roll with Mali's original roller, accept a matching mission,
+At a mission terminal, use `/rkm auto` to roll for the Rubi-Ka destinations
+enabled in the embedded roller's Locations panel. `/rkm zone <Rubi-Ka
+playfield id>` restricts the next rolls to one destination; `/rkm zone all`
+returns to the enabled locations. `/rkm rolls <count>` limits offers per
+rolling attempt (default 100). `/rkm limit <count>` caps confirmed automatic
+mission acceptances in one cycle; `/rkm limit off` removes that cap. RKMission
+finishes already accepted missions before ending a capped cycle. The limit is
+saved in the RKMission checkpoint; `/rkm status` shows the count. Use
+`/rkm auto` to roll with the embedded roller, accept a matching mission,
 travel, enter, clear, exit, return to the remembered terminal, and repeat.
 Already accepted missions take priority. `/rkm local` switches back to the
 previous local-only takeover; `/rkm stop` stops RKMission's automatic rolling
-and movement.
+and movement. Destination rolling does not require an item roll list, and the
+roller's Auto Adjust Level Slider option no longer stops it for an empty list.
+The roller uses the same native window frame and bordered panels as the other
+embedded plugins; its main header is labeled RKMission Roller without Mali's
+icon.
 
 Automatic travel tries bounded Neko ACG key/entrance candidates before
 cross-playfield and local Run/Fly travel, even when the mission entrance is not
@@ -628,7 +638,8 @@ A stalled room scan stops without claiming clearance.
 | `/rkm local` | Use the established local takeover workflow. |
 | `/rkm stop` | Stop RKMission movement and dungeon automation. User-owned roller controls remain independent. |
 | `/rkm complete [mission id]` | Manually mark the verified bound run completed; while armed, exit automatically and continue locally. |
-| `/rkm zone <id>` / `/rkm rolls <count>` | Set automatic rolling destination and offer limit. |
+| `/rkm zone <id\|all>` / `/rkm rolls <count>` | Set automatic rolling destination and offer limit; `all` uses enabled Rubi-Ka locations. |
+| `/rkm limit <count\|off>` | Cap confirmed automatic mission acceptances per cycle, or remove the cap. |
 | `/rkm loot` | Show guidance to use `/ManagerLoot`; does not open a window. |
 | `/ManagerLoot` | Open the original loot rule list and settings. |
 | `/lm` | Toggle Manager.Loot's independent enable state. |

@@ -11,6 +11,8 @@ namespace RKmission
     {
         public bool Armed { get; set; }
         public bool AutoCycle { get; set; }
+        public int AutoMissionLimit { get; set; } // Zero means no acceptance limit.
+        public int AutoAcceptedCount { get; set; }
         public string Phase { get; set; } = "Idle";
         public int MissionType { get; set; }
         public int MissionInstance { get; set; }

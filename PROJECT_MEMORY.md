@@ -2,6 +2,27 @@
 
 _Last updated: 2026-10-01_
 
+## 2026-10-01 automatic roller, mission limit, and window checkpoint
+
+- Automatic destination rolling could stop after one offer because Mali's
+  default Auto Adjust Level Slider processed an empty item roll list and
+  disabled rolling. RKMission's destination mode now bypasses that item-list
+  check while retaining the roller's request, offer, and acceptance path.
+  An unset `/rkm zone` now uses enabled Rubi-Ka Locations; `/rkm zone all`
+  restores that choice after an explicit destination override.
+- `/rkm limit <count|off>` sets a saved cap on confirmed automatic mission
+  acceptances per cycle, separate from `/rkm rolls` offer attempts. An offered
+  mission counts only when it appears in the accepted quest list. Reaching the
+  cap stops new rolling after already accepted work is finished. An unconfirmed
+  acceptance pauses the cycle for inspection instead of risking another roll.
+- The embedded roller's main and help windows now use the default AOSharp
+  frame. Its main content panels use native borders, and its header uses
+  native controls with an RKMission Roller label; Mali's top-left header icon
+  was removed. The embedded item and settings controls remain available.
+  The user will pull, compile, and test in game; this
+  checkpoint was not compiled or tested here. See
+  `docs/history/2026-10-01-roller-auto-limit-ui.md`.
+
 ## 2026-10-01 multi-exit FGrid routing checkpoint
 
 - `FGridServiceProvider` now groups verified survey exits by destination

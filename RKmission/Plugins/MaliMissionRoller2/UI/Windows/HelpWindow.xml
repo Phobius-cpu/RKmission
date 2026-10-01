@@ -1,15 +1,18 @@
 <?xml version="1.0" standalone="yes"?>
 <Root>
 	<View>
-		<BitmapView name="Logo">
+		<BorderView layout_borders="Rect(5,5,5,5)">
+			<View view_layout="vertical">
 			<View view_layout="horizontal" layout_borders="Rect(5,4,4,0)">
-				<TextView layout_borders="Rect(20,1,0,0)" value="- Welcome to Mali's Mission Roller 2.0 -" font="BOLD" color="0x00FFF1AC" feature_flags="TVF_RENDER_SHADOW"/>
-				<Button layout_borders="Rect(10,1,0,0)" min_size="Point(15,15)"  max_size="Point(15,15)" name="Close"/>
+				<TextView value="RKMission Roller Help" font="BOLD"/>
+				<HLayoutSpacer/>
+				<Button label="Close" min_size="Point(45,18)" name="Close"/>
 			</View>
-			<TextView  layout_borders="Rect(5,2,5,0)" font="LARGE" color="0x00FFF1AC" feature_flags="TVF_MULTILINE|TVF_RENDER_SHADOW" name="Text"/>
-			<Button layout_borders="Rect(0,15,0,20)" name="GraphicalGuide"/>
-			<TextView min_size="Point(270,70)" layout_borders="Rect(5,0,5,0)" font="LARGE" color="0x00FFF1AC" feature_flags="TVF_MULTILINE|TVF_RENDER_SHADOW" name="Text2"/>
+			<TextView layout_borders="Rect(5,2,5,0)" font="LARGE" feature_flags="TVF_MULTILINE" name="Text"/>
+			<Button layout_borders="Rect(5,5,5,5)" label="Visual guide" name="GraphicalGuide"/>
+			<TextView min_size="Point(270,70)" layout_borders="Rect(5,0,5,0)" font="LARGE" feature_flags="TVF_MULTILINE" name="Text2"/>
 			<VLayoutSpacer/>
-		</BitmapView>
+			</View>
+		</BorderView>
 	</View>
 </Root>

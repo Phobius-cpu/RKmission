@@ -1,7 +1,7 @@
 ﻿<?xml version="1.0" standalone="yes"?>
 <Root>
 	<View view_layout="vertical">
-		<BitmapView name="Background">
+		<BorderView name="Background">
 			<TextView layout_borders="Rect(0,3,0,0)" font="BOLD" value="- SLIDERS -" feature_flags="TVF_RENDER_SHADOW" color="0x00FFF1AC"/>
 			<View view_layout="horizontal">
 				<View h_alignment="RIGHT" min_size="Point(51,90)" max_size="Point(51,90)">
@@ -33,6 +33,6 @@
 				</View>
 
 			</View>
-		</BitmapView>
+		</BorderView>
 	</View>
 </Root>

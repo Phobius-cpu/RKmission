@@ -21,10 +21,10 @@ namespace MaliMissionRoller2
         public HelpWindow()
         {
             StartupWindow = Window.CreateFromXml("MaliMissionRollerHelp", $"{Main.PluginDir}\\UI\\Windows\\HelpWindow.xml",
-                WindowStyle.Popup, WindowFlags.AutoScale | WindowFlags.NoFade);
+                WindowStyle.Default, WindowFlags.AutoScale | WindowFlags.NoFade);
 
             _graphicalWindow = Window.CreateFromXml("MaliMissionRollerGraphicalHelp", $"{Main.PluginDir}\\UI\\Windows\\GraphicalHelpWindow.xml",
-                WindowStyle.Popup, WindowFlags.AutoScale | WindowFlags.NoFade);
+                WindowStyle.Default, WindowFlags.AutoScale | WindowFlags.NoFade);
 
             if (StartupWindow.FindView("Text", out TextView textView))
             {
@@ -38,7 +38,7 @@ namespace MaliMissionRoller2
                 $"  inbetween rolls for full automation\n " +
                 $"- Press the Dev button next to 'Extras'\n " +
                 $"  for some bonus / in dev features\n " +
-                $"- Press the '?' in the UI to reopen me\n\n" +
+                $"- Press Help in the roller window to reopen me\n\n" +
                 $"* QUICK ITEM BROWSER GUIDE *\n " +
                 $"- You can search for items based on\n " +
                 $"  their name or modifications or both\n " +
@@ -58,19 +58,12 @@ namespace MaliMissionRoller2
 
             if (StartupWindow.FindView("Close", out Button _closeHelp))
             {
-                Extensions.ButtonSetGfx(_closeHelp, 1000064);
                 _closeHelp.Clicked = CloseHelpClick;
             }
 
             if (StartupWindow.FindView("GraphicalGuide", out Button _graphicalGuide))
             {
-                Extensions.ButtonSetGfx(_graphicalGuide, 1000073);
                 _graphicalGuide.Clicked = GraphicalGuideClick;
-            }
-
-            if (StartupWindow.FindView("Logo", out BitmapView _logo))
-            {
-                _logo.SetBitmap("BigLogo");
             }
 
             if (Main.Settings.Extras["StartHelp"])
@@ -85,7 +78,7 @@ namespace MaliMissionRoller2
             Midi.Play("Click");
 
             _graphicalWindow = Window.CreateFromXml("MaliMissionRollerGraphicalHelp", $"{Main.PluginDir}\\UI\\Windows\\GraphicalHelpWindow.xml",
-                  WindowStyle.Popup, WindowFlags.AutoScale | WindowFlags.NoFade);
+                  WindowStyle.Default, WindowFlags.AutoScale | WindowFlags.NoFade);
 
             if (_graphicalWindow.FindView("Close", out Button _closeGraphical))
             {

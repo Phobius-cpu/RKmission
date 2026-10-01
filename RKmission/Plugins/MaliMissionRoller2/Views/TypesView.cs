@@ -16,7 +16,6 @@ namespace MaliMissionRoller2
     public class TypesView
     {
         internal View Root;
-        private BitmapView Background;
         internal Button FindTarget;
         internal Button KillTarget;
         internal Button FindItem;
@@ -27,8 +26,6 @@ namespace MaliMissionRoller2
         {
             Root = root;
             View _view = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\TypesView.xml");
-            _view.FindChild("Background", out Background);
-            Background.SetBitmap("TypesBg");
             _view.FindChild("FindTarget", out FindTarget);
             SetupChild(FindTarget, "FindTarget");
             _view.FindChild("KillTarget", out KillTarget);

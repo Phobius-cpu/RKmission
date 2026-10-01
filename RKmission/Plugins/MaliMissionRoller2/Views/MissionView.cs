@@ -25,9 +25,7 @@ namespace MaliMissionRoller2
             {
                 MissionModel missionModel = new MissionModel();
                 missionModel.Root = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\MissionView.xml");
-                missionModel.Root.FindChild("Background", out missionModel.Bitmap);
                 missionModel.Root.FindChild("Icon", out missionModel.Icon);
-                missionModel.Bitmap.SetBitmap("MissionSlotBg");
                 missionModel.Root.FindChild("Ping", out missionModel.Ping);
                 Extensions.ButtonSetGfx(missionModel.Ping, 1000045);
                 missionModel.Ping.Clicked = PingClick;
@@ -98,7 +96,7 @@ namespace MaliMissionRoller2
             if (MainWindow.CurrentTerminal == null)
                 return;
 
-            if (_root.FindChild("MissionSlotBg", out BitmapView background))
+            if (_root.FindChild("MissionView", out View existing))
                 return;
 
             foreach (MissionModel model in _missionViews)
@@ -179,7 +177,6 @@ namespace MaliMissionRoller2
     internal class MissionModel
     {
         public View Root;
-        public BitmapView Bitmap;
         public BitmapView Icon;
         public TextView Title;
         public TextView Playfield;

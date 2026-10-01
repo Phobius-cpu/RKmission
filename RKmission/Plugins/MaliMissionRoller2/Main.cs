@@ -26,7 +26,7 @@ namespace MaliMissionRoller2
             string fileName = File.Exists($"{pluginDir}\\JSON\\Settings.json") ? "" : "Default_";
             Settings = JsonConvert.DeserializeObject<Settings>(File.ReadAllText($"{pluginDir}\\JSON\\{fileName}Settings.json"));
             Extensions.FormatItemDb(Settings.Database["Implants"], Settings.Database["Refined"], Settings.Database["Clusters"], Settings.Database["Nanos"], Settings.Database["Rest"]);
-            Window = new MainWindow("MaliMissionRoller", $"{pluginDir}\\UI\\Windows\\MainWindow.xml");
+            Window = new MainWindow("RKMission Roller", $"{pluginDir}\\UI\\Windows\\MainWindow.xml");
             Window.Show();
 
             var screenSize = AOSharp.Core.UI.Window.GetScreenSize();

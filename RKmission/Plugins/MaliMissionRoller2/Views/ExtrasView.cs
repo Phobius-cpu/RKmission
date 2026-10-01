@@ -16,7 +16,6 @@ namespace MaliMissionRoller2
     public class ExtrasView
     {
         internal View Root;
-        private BitmapView Background;
         internal Button PlayAlertSound;
         internal Button AutoAdjustQl;
         internal Button RemoveRoll;
@@ -27,8 +26,6 @@ namespace MaliMissionRoller2
         {
             Root = root;
             View _view = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\ExtrasView.xml");
-            _view.FindChild("Background", out Background);
-            Background.SetBitmap("ExtrasBg");
             _view.FindChild("PlayAlertSound", out PlayAlertSound);
             SetupChild(PlayAlertSound, "PlayAlertSound");
             _view.FindChild("AutoAdjustQl", out AutoAdjustQl);

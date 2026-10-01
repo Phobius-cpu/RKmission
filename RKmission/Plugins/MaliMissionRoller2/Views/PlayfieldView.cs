@@ -31,8 +31,6 @@ namespace MaliMissionRoller2
 
             View _view = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\PlayfieldView.xml");
             _view.FindChild("ScrollListRoot", out View _scrollListRoot);
-            _view.FindChild("Background", out BitmapView _background);
-            _background.SetBitmap("LocationsBg");
             _view.FindChild("Coords", out _coords);
             _coords.Tag = 0;
             _coords.Clicked = CoordsClick;
@@ -50,8 +48,6 @@ namespace MaliMissionRoller2
                 PlayfieldEntryView pfEntryView = new PlayfieldEntryView();
                 pfEntryView.Root = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\PlayfieldEntryView.xml");
                 pfEntryView.Root.Tag = _pfIds[i].ToString();
-                pfEntryView.Root.FindChild("Background", out pfEntryView.Background);
-                pfEntryView.Background.SetBitmap("LocationPreviewBg");
                 pfEntryView.Root.FindChild("Toggle", out pfEntryView.Toggle);
                 pfEntryView.Toggle.Tag = Main.Settings.Locations[pfName].State;
                 if (Main.Settings.Locations[pfName].State)
@@ -255,7 +251,6 @@ namespace MaliMissionRoller2
     public class PlayfieldEntryView
     {
         public View Root;
-        public BitmapView Background;
         public Button Toggle;
         public TextView Name;
         public Button SetBounds;

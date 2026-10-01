@@ -16,7 +16,6 @@ namespace MaliMissionRoller2
     public class SlidersView
     {
         private View _root;
-        private BitmapView _background;
         internal SliderView EasyHard;
         internal SliderView GoodBad;
         internal SliderView OrderChaos;
@@ -30,8 +29,6 @@ namespace MaliMissionRoller2
             _root = root;
             View _view = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\SliderView.xml");
 
-            _view.FindChild("Background", out _background);
-            _background.SetBitmap("SlidersBg");
             _view.FindChild("EasyHard", out EasyHard);
             EasyHard.Value = Main.Settings.Sliders["EasyHard"];
             _view.FindChild("GoodBad", out GoodBad);

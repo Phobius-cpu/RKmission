@@ -13,7 +13,6 @@ namespace MaliMissionRoller2
         private View _root;
         private View _scrollListRoot;
         private View _dbRoot;
-        private BitmapView _background;
         private List<BrowserEntryView> _browserEntryViews;
         internal List<RollEntryView> RollEntryViews;
         private TextView _searchBarNameInput;
@@ -39,8 +38,6 @@ namespace MaliMissionRoller2
             RollEntryViews = new List<RollEntryView>();
 
             _view.FindChild("ScrollListRoot", out _scrollListRoot);
-            _view.FindChild("Background", out _background);
-            _background.SetBitmap("SearchWindowBg2");
             _view.FindChild("DbRoot", out _dbRoot);
             _dbRoot.LimitMaxSize(new Vector2(0, 15));
             _dbRoot.SetAlpha(0);
@@ -418,7 +415,6 @@ namespace MaliMissionRoller2
             _searchBarModsInput.SetAlpha(1);
             _dbRoot.SetAlpha(1);
             _dbRoot.LimitMaxSize(new Vector2(235, 15));
-            _background.SetBitmap("SearchWindowBg");
 
             foreach (var item in RollEntryViews)
                 _scrollListRoot.RemoveChild(item.Root);
@@ -446,7 +442,6 @@ namespace MaliMissionRoller2
             _searchBarModsInput.SetAlpha(0);
             _dbRoot.SetAlpha(0);
             _dbRoot.LimitMaxSize(new Vector2(0, 15));
-            _background.SetBitmap("SearchWindowBg2");
             DeleteBrowserEntries();
 
             foreach (var item in RollEntryViews)
