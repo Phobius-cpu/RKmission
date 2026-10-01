@@ -2425,7 +2425,18 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
   scroll client and a 96-pixel viewport for three visible rows.
 - Mission Ping buttons clear AO's color override and state borders; the empty
   footer Ping regions are fully transparent while retaining their callbacks.
-  Reward previews use six fixed cells and a
-  210x22 viewport. Card values have more right padding; truncated titles end
-  with an ellipsis. AO client verification is still needed for hover rendering
-  and reward-list scroll controls.
+  Reward previews initially used six fixed cells and a 210x22 viewport; the
+  follow-up below replaces that native list. Card values have more right
+  padding; truncated titles end with an ellipsis. AO client verification was
+  still needed for hover rendering and reward-list scroll controls.
+
+## Mission-card purple pixel and reward arrows follow-up (2026-10-01)
+
+- The user still saw a small purple pixel above Accept and scroll arrows after
+  the prior layout change. The 8x8 Ping texture had alpha-zero black pixels;
+  Mali's other UI textures use opaque RGB(0,255,0) for transparent regions.
+  The Ping texture now uses that same green color key format.
+- The mission reward row now has six 32-pixel cells, each containing its own
+  single-item native view configured like the existing item-list previews.
+  This removes the shared scrollable six-item control while retaining item
+  icons and tooltips. Reward data and Ping/Accept callbacks are unchanged.

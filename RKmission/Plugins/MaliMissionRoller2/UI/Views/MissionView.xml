@@ -26,8 +26,13 @@
 				</View>
 				<View view_layout="horizontal" layout_borders="Rect(5,2,3,0)">
 					<TextView font="BOLD" value="Rewards: "/>
-					<View layout_borders="Rect(1,0,0,0)" name="Preview" min_size="Point(210,22)" max_size="Point(210,22)">
-						<Haxxor/>
+					<View layout_borders="Rect(1,0,0,0)" name="Preview" view_layout="horizontal" min_size="Point(192,22)" max_size="Point(192,22)">
+						<View name="RewardSlot0" min_size="Point(32,22)" max_size="Point(32,22)"><Haxxor/></View>
+						<View name="RewardSlot1" min_size="Point(32,22)" max_size="Point(32,22)"><Haxxor/></View>
+						<View name="RewardSlot2" min_size="Point(32,22)" max_size="Point(32,22)"><Haxxor/></View>
+						<View name="RewardSlot3" min_size="Point(32,22)" max_size="Point(32,22)"><Haxxor/></View>
+						<View name="RewardSlot4" min_size="Point(32,22)" max_size="Point(32,22)"><Haxxor/></View>
+						<View name="RewardSlot5" min_size="Point(32,22)" max_size="Point(32,22)"><Haxxor/></View>
 					</View>
 					<HLayoutSpacer/>
 				</View>

@@ -17,8 +17,8 @@ namespace MaliMissionRoller2
     public class Extensions
     {
         // 041_TransparentPing.png follows the forty original roller textures.
-        // Giving every state an explicit transparent image prevents AO's native
-        // button skin from showing on the card's invisible Ping hit regions.
+        // Like Mali's original UI art, it uses opaque green color key pixels.
+        // A fully alpha-transparent PNG leaves a purple artifact in AO.
         private const int TransparentPingGfxId = 1000075;
 
         public static void ButtonSetGfx(Button button, int gfxId)

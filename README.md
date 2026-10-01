@@ -187,8 +187,9 @@ The Settings view follows the compact restored-list layout: Roll List/DB
 Browser, side-by-side TYPES and EXTRAS, Playfields, then sliders in one
 310-pixel column. The Playfields list has a 96-pixel scroll viewport with a
 separate scroll client, keeping three rows visible above the action buttons.
-The mission reward list has six fixed cells within its card, and the invisible
-Ping controls suppress the AO hover tint beside and below Accept.
+Mission rewards use six separate single-icon slots within each card, so the
+native multi-item scroll controls are absent. Invisible Ping controls use
+Mali's opaque green color key format to avoid AO's purple transparency artifact.
 Mission Types, EXTRAS, Playfields, and the Impl/Refin/Clstr/Nano/Rest filters
 retain Mali's original on/off button graphics.
 Roll List and DB Browser selectors also retain Mali's on/off graphics, while
