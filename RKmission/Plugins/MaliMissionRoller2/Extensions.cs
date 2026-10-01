@@ -21,12 +21,6 @@ namespace MaliMissionRoller2
         // button skin from showing on the card's invisible Ping hit regions.
         private const int TransparentPingGfxId = 1000075;
 
-        // Keep compact controls on the same native AO button skin as ManagerLoot.
-        public static void SetButtonSymbol(Button button, string symbol)
-        {
-            button.SetLabel(symbol);
-        }
-
         public static void ButtonSetGfx(Button button, int gfxId)
         {
             button.SetGfx(ButtonState.Raised, gfxId);

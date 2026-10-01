@@ -2,18 +2,24 @@
 <root>
 	<View name="Root">
 		<View view_layout="horizontal" min_size="Point(298,26)" max_size="Point(298,26)">
-			<BorderView alpha="0" name="Preview" min_size="Point(64,24)" max_size="Point(64,24)">
+			<View min_size="Point(3,26)" max_size="Point(3,26)"/>
+			<BorderView alpha="0" name="Preview" min_size="Point(64,24)" max_size="Point(64,24)" layout_borders="Rect(0,1,0,1)">
 				<Haxxor/>
 				<TextView font="SMALL" feature_flags="TVF_MULTILINE" name="Range" min_size="Point(24,24)" max_size="Point(24,24)" layout_borders="Rect(36,0,0,0)"/>
 			</BorderView>
-			<TextView name="Name" layout_borders="Rect(0,7,0,0)" min_size="Point(163,12)" max_size="Point(163,12)"/>
-			<BorderView name="QlFrame" layout_borders="Rect(4,1,4,0)" min_size="Point(47,18)" max_size="Point(47,18)">
-				<View view_layout="horizontal" layout_borders="Rect(2,2,0,0)">
-					<TextView font="SMALL" value="QL" min_size="Point(14,14)" max_size="Point(14,14)"/>
-					<TextView feature_flags="TVF_ACCEPT_TXT_INPUT|TVF_ACCEPT_MOUSE_INPUT|TVF_NUMERIC" name="Ql" layout_borders="Rect(2,0,0,0)" min_size="Point(25,14)" max_size="Point(25,14)"/>
-				</View>
-			</BorderView>
-			<Button name="Button" h_alignment="LEFT" view_layout="vertical" min_size="Point(12,12)" max_size="Point(12,12)" layout_borders="Rect(2,0,2,0)"/>
+			<TextView name="Name" layout_borders="Rect(0,7,0,7)" min_size="Point(149,12)" max_size="Point(149,12)"/>
+			<View min_size="Point(55,26)" max_size="Point(55,26)">
+				<BorderView name="QlFrame" layout_borders="Rect(4,4,4,4)" min_size="Point(47,18)" max_size="Point(47,18)">
+					<View view_layout="horizontal" layout_borders="Rect(2,2,0,0)">
+						<TextView font="SMALL" value="QL" min_size="Point(14,14)" max_size="Point(14,14)"/>
+						<TextView feature_flags="TVF_ACCEPT_TXT_INPUT|TVF_ACCEPT_MOUSE_INPUT|TVF_NUMERIC" name="Ql" layout_borders="Rect(2,0,0,0)" min_size="Point(25,14)" max_size="Point(25,14)"/>
+					</View>
+				</BorderView>
+			</View>
+			<View min_size="Point(24,26)" max_size="Point(24,26)">
+				<Button name="Button" min_size="Point(10,10)" max_size="Point(10,10)" layout_borders="Rect(7,8,7,8)"/>
+			</View>
+			<View min_size="Point(3,26)" max_size="Point(3,26)"/>
 		</View>
 	</View>
 </root>

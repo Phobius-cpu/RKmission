@@ -8,7 +8,7 @@
 				<HLayoutSpacer/>
 				<Button name="Dev" layout_borders="Rect(0,4,4,0)"/>
 			</View>
-			<View layout_borders="Rect(2,4,0,0)">
+			<View view_layout="vertical" h_alignment="CENTER" min_size="Point(200,0)" max_size="Point(200,-1)" layout_borders="Rect(2,4,2,0)">
 				<View view_layout="horizontal" min_size="Point(80,15)">
 					<Button name="PlayAlertSound" layout_borders="Rect(2,1,2,1)"/>
 					<TextView font="SMALL" value="Play Sound on Hit" layout_borders="Rect(2,0,2,0)"/>

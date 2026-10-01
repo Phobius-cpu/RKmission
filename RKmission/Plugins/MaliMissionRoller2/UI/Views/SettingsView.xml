@@ -5,7 +5,7 @@
 			<View name="ItemDisplayRoot">
 				<Haxxor/>
 			</View>
-			<View name="TypesRoot" view_layout="horizontal" min_size="Point(310,0)" max_size="Point(310,-1)">
+			<View name="ExtrasRoot" view_layout="horizontal" min_size="Point(310,0)" max_size="Point(310,-1)">
 				<Haxxor/>
 			</View>
 		</View>
@@ -13,7 +13,7 @@
 			<View name="LocationRoot" view_layout="horizontal">
 				<Haxxor/>
 			</View>
-			<View name="ExtrasRoot" view_layout="horizontal" min_size="Point(310,0)" max_size="Point(310,-1)">
+			<View name="TypesRoot" view_layout="horizontal" min_size="Point(310,0)" max_size="Point(310,-1)">
 				<Haxxor/>
 			</View>
 			<View name="SliderRoot" view_layout="horizontal">

@@ -2402,11 +2402,13 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 ## Spacious roller Settings and invisible Ping regions (2026-10-01)
 
 - The user selected the spacious mockup. Settings now uses two 310-pixel
-  columns: Roll List/TYPES and Playfields/EXTRAS/sliders. The Playfields list
+  columns: Roll List/EXTRAS and Playfields/TYPES/sliders. The Playfields list
   has a fixed 130-pixel viewport, a unique scroll client, and fitted rows.
 - The user corrected the styling scope: retain Mali's original on/off images
-  for Mission Types, EXTRAS, Playfields, and DB category filters, while using
-  native AO styling for the other roller buttons.
+  for Mission Types, EXTRAS, Playfields, DB category filters, and Roll List/DB
+  Browser selectors. Item add/increment/decrement controls use Mali's original
+  plus/minus graphics. Types and Extras option groups are centered in their
+  swapped panels; both item-list modes share one centered column grid.
 - Mission-card Ping hit regions retain their callbacks but use an explicit
   fully transparent texture in all button states to suppress native chrome
   beside and below the independent Accept button.

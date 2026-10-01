@@ -3,19 +3,29 @@
 	<View>
 		<BorderView name="Background" min_size="Point(310,277)" max_size="Point(310,-1)">
 			<View layout_borders="Rect(4,0,4,0)" view_layout="horizontal" min_size="Point(302,20)">
-				<Button layout_borders="Rect(0,0,2,0)" name="RollMode" min_size="Point(12,12)" max_size="Point(12,12)"/>
+				<Button layout_borders="Rect(0,0,2,0)" name="RollMode"/>
 				<TextView font="BOLD" value="ROLL LIST"/>
 				<HLayoutSpacer/>
-				<Button layout_borders="Rect(0,0,2,0)" name="BrowserMode" min_size="Point(12,12)" max_size="Point(12,12)"/>
+				<Button layout_borders="Rect(0,0,2,0)" name="BrowserMode"/>
 				<TextView font="BOLD" layout_borders="Rect(0,0,2,0)" value="DB BROWSER"/>
 			</View>
 			<BorderView name="ListColumns" layout_borders="Rect(0,2,0,0)" min_size="Point(310,24)" max_size="Point(310,24)">
-				<View view_layout="horizontal" layout_borders="Rect(0,5,0,0)">
+				<View view_layout="horizontal" layout_borders="Rect(0,5,0,5)">
+					<View min_size="Point(3,14)" max_size="Point(3,14)"/>
 					<TextView font="BOLD" value="Icon" min_size="Point(36,14)" max_size="Point(36,14)"/>
 					<TextView font="BOLD" name="ColumnRange" value="QL" min_size="Point(28,14)" max_size="Point(28,14)"/>
-					<TextView font="BOLD" value="Name" min_size="Point(163,14)" max_size="Point(163,14)"/>
-					<TextView font="BOLD" name="ColumnQuantity" value="x" min_size="Point(55,14)" max_size="Point(55,14)"/>
-					<TextView font="BOLD" name="ColumnActions" value="+/-" min_size="Point(16,14)" max_size="Point(16,14)"/>
+					<TextView font="BOLD" value="Name" min_size="Point(149,14)" max_size="Point(149,14)"/>
+					<View view_layout="horizontal" min_size="Point(55,14)" max_size="Point(55,14)">
+						<HLayoutSpacer/>
+						<TextView font="BOLD" name="ColumnQuantity" value="x"/>
+						<HLayoutSpacer/>
+					</View>
+					<View view_layout="horizontal" min_size="Point(24,14)" max_size="Point(24,14)">
+						<HLayoutSpacer/>
+						<TextView font="BOLD" name="ColumnActions" value="+/-"/>
+						<HLayoutSpacer/>
+					</View>
+					<View min_size="Point(15,14)" max_size="Point(15,14)"/>
 				</View>
 			</BorderView>
 			<BorderView alpha="0" layout_borders="Rect(0,0,0,2)" min_size="Point(310,210)" max_size="Point(310,210)">
