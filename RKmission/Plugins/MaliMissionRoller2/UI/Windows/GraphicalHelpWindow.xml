@@ -2,7 +2,7 @@
 <Root>
 	<View>
 		<BitmapView name="Image">
-			<Button layout_borders="Rect(477,4,0,0)" min_size="Point(45,15)" max_size="Point(45,15)" name="Close" label="Close"/>
+			<Button layout_borders="Rect(507,4,0,0)" min_size="Point(15,15)"  max_size="Point(15,15)" name="Close"/>
 			<VLayoutSpacer/>
 		</BitmapView>
 	</View>

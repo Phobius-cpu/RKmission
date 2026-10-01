@@ -1,9 +1,9 @@
-<?xml version="1.0" standalone="yes"?>
+﻿<?xml version="1.0" standalone="yes"?>
 <Root>
 	<View>
 		<BorderView name="Background" min_size="Point(270,0)" max_size="Point(270,-1)">
 			<View view_layout="horizontal">
-				<TextView font="BOLD" value="- Playfields -" feature_flags="TVF_RENDER_SHADOW" layout_borders="Rect(0,5,0,0)"/>
+				<TextView color="0x00FFF1AC" font="BOLD" value="- Playfields -" feature_flags="TVF_RENDER_SHADOW" layout_borders="Rect(0,5,0,0)"/>
 			</View>
 			<View layout_borders="Rect(0,3,0,2)">
 				<ScrollView h_alignment="LEFT" label="#Behaviour/s" v_scrollbar_mode="auto" scroll_client="behaviour_s_scroll">

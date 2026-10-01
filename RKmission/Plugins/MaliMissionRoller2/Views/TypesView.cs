@@ -26,6 +26,7 @@ namespace MaliMissionRoller2
         {
             Root = root;
             View _view = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\TypesView.xml");
+            Extensions.ColorFrame(_view);
             _view.FindChild("FindTarget", out FindTarget);
             SetupChild(FindTarget, "FindTarget");
             _view.FindChild("KillTarget", out KillTarget);
@@ -45,9 +46,9 @@ namespace MaliMissionRoller2
             button.Tag = Main.Settings.Types[settingsName];
 
             if (Main.Settings.Types[settingsName])
-                Extensions.SetButtonSymbol(button, "X");
+                Extensions.ButtonSetGfx(button, 1000036);
             else
-                Extensions.SetButtonSymbol(button, " ");
+                Extensions.ButtonSetGfx(button, 1000046);
 
             button.Clicked = MissionTypeClick;
         }
@@ -59,9 +60,9 @@ namespace MaliMissionRoller2
             bool on = (bool)e.Tag;
 
             if (!on)
-                Extensions.SetButtonSymbol((Button)e, "X");
+                Extensions.ButtonSetGfx((Button)e, 1000036);
             else
-                Extensions.SetButtonSymbol((Button)e, " ");
+                Extensions.ButtonSetGfx((Button)e, 1000046);
 
             e.Tag = !on;
             Main.Settings.Save();

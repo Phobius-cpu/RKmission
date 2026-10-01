@@ -1,4 +1,4 @@
-using AOSharp.Common.GameData;
+﻿using AOSharp.Common.GameData;
 using AOSharp.Common.GameData.UI;
 using AOSharp.Common.Helpers;
 using AOSharp.Common.Unmanaged.Imports;
@@ -28,6 +28,7 @@ namespace MaliMissionRoller2
         {
             _root = root;
             View _view = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\SliderView.xml");
+            Extensions.ColorFrame(_view);
 
             _view.FindChild("EasyHard", out EasyHard);
             EasyHard.Value = Main.Settings.Sliders["EasyHard"];

@@ -1,4 +1,4 @@
-using AOSharp.Common.GameData;
+﻿using AOSharp.Common.GameData;
 using AOSharp.Core;
 using AOSharp.Common.GameData.UI;
 using AOSharp.Core.UI;
@@ -27,6 +27,7 @@ namespace MaliMissionRoller2
             {
                 MissionModel missionModel = new MissionModel();
                 missionModel.Root = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\MissionView.xml");
+                Extensions.ColorFrame(missionModel.Root);
                 missionModel.Root.FindChild("Icon", out missionModel.Icon);
                 missionModel.PingTargets = new Button[PingRegionNames.Length];
                 for (int region = 0; region < PingRegionNames.Length; region++)
@@ -39,6 +40,7 @@ namespace MaliMissionRoller2
                     pingTarget.Clicked = PingClick;
                 }
                 missionModel.Root.FindChild("Accept", out missionModel.Accept);
+                Extensions.ButtonSetGfx(missionModel.Accept, 1000035);
                 missionModel.Accept.Clicked = AcceptClick;
                 missionModel.Root.FindChild("Title", out missionModel.Title);
                 missionModel.Root.FindChild("Playfield", out missionModel.Playfield);

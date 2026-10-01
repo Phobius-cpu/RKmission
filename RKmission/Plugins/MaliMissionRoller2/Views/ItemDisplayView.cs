@@ -37,6 +37,10 @@ namespace MaliMissionRoller2
         public ItemDisplayView(View root)
         {
             View _view = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\ItemDisplayView.xml");
+            Extensions.ColorFrame(_view);
+            Extensions.ColorFrame(_view, "ListColumns");
+            Extensions.ColorFrame(_view, "SearchNameFrame");
+            Extensions.ColorFrame(_view, "SearchModsFrame");
             _root = root;
             _browserEntryViews = new List<BrowserEntryView>();
             RollEntryViews = new List<RollEntryView>();
@@ -79,9 +83,9 @@ namespace MaliMissionRoller2
             defaultText =  _searchBarNameInput.Text + _searchBarModsInput.Text;
              _view.FindChild("BrowserMode", out BrowserMode);
             _view.FindChild("RollMode", out RollMode);
-            Extensions.SetButtonSymbol(RollMode, "X");
+            Extensions.ButtonSetGfx(RollMode, 1000036);
             RollMode.Clicked = RollModeClick;
-            Extensions.SetButtonSymbol(BrowserMode, " ");
+            Extensions.ButtonSetGfx(BrowserMode, 1000046);
             BrowserMode.Clicked = BrowserModeClick;
             _inRollMode = true;
             //pregenerated views for browser entries
@@ -114,11 +118,12 @@ namespace MaliMissionRoller2
                 BrowserEntryView itemView = new BrowserEntryView();
 
                 itemView.Root = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\BrowserEntryView.xml");
+                Extensions.ColorFrame(itemView.Root, "QlFrame");
                 itemView.Root.FindChild("Name", out itemView.Name);
                 itemView.Root.FindChild("Range", out itemView.Range);
                 itemView.Root.FindChild("Ql", out itemView.Ql);
                 itemView.Root.FindChild("Button", out itemView.Button);
-                Extensions.SetButtonSymbol(itemView.Button, "+");
+                Extensions.ButtonSetGfx(itemView.Button, 1000037);
                 itemView.Root.FindChild("Preview", out View preview);
                 itemView.MultiListView = ItemListViewBase.Create(new Rect(20, 20, 20, 20), 0, 0);
                 itemView.MultiListView.SetGridIconSpacing(new Vector2(6000, 6000));
@@ -143,9 +148,9 @@ namespace MaliMissionRoller2
             rollEntry.Root.FindChild("Count", out rollEntry.Count);
             rollEntry.Count.Text = $"{rollEntryModel.Count.ToString().PadLeft(2, '0')}";
             rollEntry.Root.FindChild("Plus", out rollEntry.Plus);
-            Extensions.SetButtonSymbol(rollEntry.Plus, "+");
+            Extensions.ButtonSetGfx(rollEntry.Plus, 1000037);
             rollEntry.Root.FindChild("Minus", out rollEntry.Minus);
-            Extensions.SetButtonSymbol(rollEntry.Minus, "-");
+            Extensions.ButtonSetGfx(rollEntry.Minus, 1000047);
             rollEntry.Root.FindChild("Preview", out View preview);
             rollEntry.Name.Text = rollEntryModel.Name;
             rollEntry.Range.Text = $"{rollEntryModel.Ql.ToString().PadLeft(3, '0')}";
@@ -411,8 +416,8 @@ namespace MaliMissionRoller2
                 return;
 
             Midi.Play("Click");
-            Extensions.SetButtonSymbol(BrowserMode, "X");
-            Extensions.SetButtonSymbol(RollMode, " ");
+            Extensions.ButtonSetGfx(BrowserMode, 1000036);
+            Extensions.ButtonSetGfx(RollMode, 1000046);
             _columnRange.Text = "Rng";
             _columnQuantity.Text = "QL";
             _columnActions.Text = "+";
@@ -439,8 +444,8 @@ namespace MaliMissionRoller2
                 return;
 
             Midi.Play("Click");
-            Extensions.SetButtonSymbol(RollMode, "X");
-            Extensions.SetButtonSymbol(BrowserMode, " ");
+            Extensions.ButtonSetGfx(RollMode, 1000036);
+            Extensions.ButtonSetGfx(BrowserMode, 1000046);
             _columnRange.Text = "QL";
             _columnQuantity.Text = "x";
             _columnActions.Text = "+/-";
@@ -472,9 +477,9 @@ namespace MaliMissionRoller2
             bool on = (bool)button.Tag;
 
             if (on)
-                Extensions.SetButtonSymbol((Button)button, "X");
+                Extensions.ButtonSetGfx((Button)button, 1000036);
             else
-                Extensions.SetButtonSymbol((Button)button, " ");
+                Extensions.ButtonSetGfx((Button)button, 1000046);
 
             button.Clicked += FormatItemDb;
         }
@@ -484,9 +489,9 @@ namespace MaliMissionRoller2
             bool on = (bool)e.Tag;
 
             if (!on)
-                Extensions.SetButtonSymbol((Button)e, "X");
+                Extensions.ButtonSetGfx((Button)e, 1000036);
             else
-                Extensions.SetButtonSymbol((Button)e, " ");
+                Extensions.ButtonSetGfx((Button)e, 1000046);
 
             e.Tag = !(bool)e.Tag;
 

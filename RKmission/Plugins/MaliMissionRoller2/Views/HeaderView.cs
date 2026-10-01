@@ -1,4 +1,4 @@
-using AOSharp.Common.GameData;
+﻿using AOSharp.Common.GameData;
 using AOSharp.Common.GameData.UI;
 using AOSharp.Common.Helpers;
 using AOSharp.Common.Unmanaged.Imports;
@@ -24,12 +24,17 @@ namespace MaliMissionRoller2
         public HeaderView(View root)
         {
             View _view = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\HeaderView.xml");
+            Extensions.ColorFrame(_view, "Header");
 
             _root = root;
             _view.FindChild("Help", out Help);
             _view.FindChild("Start", out Start);
             _view.FindChild("Request", out Request);
             _view.FindChild("Settings", out Settings);
+            Extensions.ColorButtonLabel(Help);
+            Extensions.ColorButtonLabel(Start);
+            Extensions.ColorButtonLabel(Request);
+            Extensions.ColorButtonLabel(Settings);
             bool isInSettings = false;
             Settings.Tag = isInSettings;
 

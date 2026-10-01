@@ -2,22 +2,6 @@
 
 _Last updated: 2026-10-01_
 
-## 2026-10-01 shared plugin UI palette checkpoint
-
-- ManagerLoot's native AO controls are the visual reference for the embedded
-  plugin windows. The Roller no longer tints button labels, panel borders, or
-  wording yellow/cyan; native text, borders, and action buttons now match the
-  ManagerLoot palette. Accept and graphical help Close use labeled native
-  buttons. The invisible mission-card Ping regions remain transparent.
-- Compact Roller controls use native button frames with X/blank selection
-  marks and +/−/Dev labels instead of custom colored button bitmaps. Their
-  fixed sizes retain the existing row and settings layout. Roller sliders no
-  longer load custom teal/purple graphics, so they use the same native red
-  track and cyan handle as Mali's Dungeon Map 2. ManagerLoot and Dungeon Map
-  already used those respective native controls.
-- No compile or test was performed by request. In-game visual and click checks
-  remain for the user. See `docs/history/2026-10-01-shared-plugin-ui-palette.md`.
-
 ## 2026-10-01 roller mission-card Ping checkpoint
 
 - The embedded Mali Mission Roller mission-card template uses an invisible
