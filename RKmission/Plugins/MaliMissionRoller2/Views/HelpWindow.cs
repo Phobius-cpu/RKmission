@@ -22,8 +22,6 @@ namespace MaliMissionRoller2
         {
             StartupWindow = Window.CreateFromXml("MaliMissionRollerHelp", $"{Main.PluginDir}\\UI\\Windows\\HelpWindow.xml",
                 WindowStyle.Default, WindowFlags.AutoScale | WindowFlags.NoFade);
-            if (StartupWindow.FindView("HelpFrame", out BorderView helpFrame))
-                helpFrame.SetLocalColor(Extensions.RollerFrameColor);
 
             _graphicalWindow = Window.CreateFromXml("MaliMissionRollerGraphicalHelp", $"{Main.PluginDir}\\UI\\Windows\\GraphicalHelpWindow.xml",
                 WindowStyle.Default, WindowFlags.AutoScale | WindowFlags.NoFade);
@@ -60,13 +58,11 @@ namespace MaliMissionRoller2
 
             if (StartupWindow.FindView("Close", out Button _closeHelp))
             {
-                Extensions.ColorButtonLabel(_closeHelp);
                 _closeHelp.Clicked = CloseHelpClick;
             }
 
             if (StartupWindow.FindView("GraphicalGuide", out Button _graphicalGuide))
             {
-                Extensions.ColorButtonLabel(_graphicalGuide);
                 _graphicalGuide.Clicked = GraphicalGuideClick;
             }
 
@@ -86,7 +82,6 @@ namespace MaliMissionRoller2
 
             if (_graphicalWindow.FindView("Close", out Button _closeGraphical))
             {
-                Extensions.ButtonSetGfx(_closeGraphical, 1000064);
                 _closeGraphical.Clicked = CloseGraphicalClick;
             }
 

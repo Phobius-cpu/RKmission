@@ -1,35 +1,35 @@
-﻿<?xml version="1.0" standalone="yes"?>
+<?xml version="1.0" standalone="yes"?>
 <Root>
 	<View view_layout="vertical">
 		<BorderView name="Background" min_size="Point(270,0)" max_size="Point(270,-1)">
-			<TextView layout_borders="Rect(0,3,0,0)" font="BOLD" value="- SLIDERS -" feature_flags="TVF_RENDER_SHADOW" color="0x00FFF1AC"/>
+			<TextView layout_borders="Rect(0,3,0,0)" font="BOLD" value="- SLIDERS -" feature_flags="TVF_RENDER_SHADOW"/>
 			<View view_layout="horizontal" layout_borders="Rect(3,0,3,5)">
 				<View h_alignment="RIGHT" min_size="Point(62,105)" max_size="Point(62,105)">
-					<TextView font="SMALL" value="Easy " color="0x00FFF1AC"/>
-					<TextView font="SMALL" value="Good " color="0x00FFF1AC"/>
-					<TextView font="SMALL" value="Order " color="0x00FFF1AC"/>
-					<TextView font="SMALL" value="Open " color="0x00FFF1AC"/>
-					<TextView font="SMALL" value="Physical " color="0x00FFF1AC"/>
-					<TextView font="SMALL" value="Head On " color="0x00FFF1AC"/>
-					<TextView font="SMALL" value="Credits " color="0x00FFF1AC"/>
+					<TextView font="SMALL" value="Easy "/>
+					<TextView font="SMALL" value="Good "/>
+					<TextView font="SMALL" value="Order "/>
+					<TextView font="SMALL" value="Open "/>
+					<TextView font="SMALL" value="Physical "/>
+					<TextView font="SMALL" value="Head On "/>
+					<TextView font="SMALL" value="Credits "/>
 				</View>
 				<View min_size="Point(133,105)" max_size="Point(133,105)">
-					<Slider name="EasyHard" gfxid_background="1000052" gfxid_slider="1000051" min_value="1" max_value="11" default_value="6"/>
-					<Slider name="GoodBad" gfxid_background="1000052" gfxid_slider="1000051" min_value="-100" max_value="100" default_value="0"/>
-					<Slider name="OrderChaos" gfxid_background="1000052" gfxid_slider="1000051" min_value="-100" max_value="100" default_value="0"/>
-					<Slider name="OpenHidden" gfxid_background="1000052" gfxid_slider="1000051" min_value="-100" max_value="100" default_value="0"/>
-					<Slider name="PhysicalMystical" gfxid_background="1000052" gfxid_slider="1000051" min_value="-100" max_value="100" default_value="0"/>
-					<Slider name="HeadonStealth" gfxid_background="1000052" gfxid_slider="1000051" min_value="-100" max_value="100" default_value="0"/>
-					<Slider name="CreditsXp" gfxid_background="1000052" gfxid_slider="1000051" min_value="-100" max_value="100" default_value="0"/>
+					<Slider name="EasyHard" min_value="1" max_value="11" default_value="6"/>
+					<Slider name="GoodBad" min_value="-100" max_value="100" default_value="0"/>
+					<Slider name="OrderChaos" min_value="-100" max_value="100" default_value="0"/>
+					<Slider name="OpenHidden" min_value="-100" max_value="100" default_value="0"/>
+					<Slider name="PhysicalMystical" min_value="-100" max_value="100" default_value="0"/>
+					<Slider name="HeadonStealth" min_value="-100" max_value="100" default_value="0"/>
+					<Slider name="CreditsXp" min_value="-100" max_value="100" default_value="0"/>
 				</View>
 				<View h_alignment="LEFT" min_size="Point(62,105)" max_size="Point(62,105)">
-					<TextView font="SMALL" value=" Hard" color="0x00FFF1AC"/>
-					<TextView font="SMALL" value=" Bad" color="0x00FFF1AC"/>
-					<TextView font="SMALL" value=" Chaos" color="0x00FFF1AC"/>
-					<TextView font="SMALL" value=" Hidden" color="0x00FFF1AC"/>
-					<TextView font="SMALL" value=" Mystical" color="0x00FFF1AC"/>
-					<TextView font="SMALL" value=" Stealth" color="0x00FFF1AC"/>
-					<TextView font="SMALL" value=" Xp" color="0x00FFF1AC"/>
+					<TextView font="SMALL" value=" Hard"/>
+					<TextView font="SMALL" value=" Bad"/>
+					<TextView font="SMALL" value=" Chaos"/>
+					<TextView font="SMALL" value=" Hidden"/>
+					<TextView font="SMALL" value=" Mystical"/>
+					<TextView font="SMALL" value=" Stealth"/>
+					<TextView font="SMALL" value=" Xp"/>
 				</View>
 
 			</View>

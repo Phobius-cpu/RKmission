@@ -4,6 +4,11 @@ AO# plugin for solo Rubi-Ka missions in Anarchy Online. It combines the original
 Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
 local mission travel, room exploration, combat, door handling and looting.
 
+The embedded plugin windows use ManagerLoot's native AO button, text, and
+border palette. Roller action buttons and compact toggles use that same button
+skin; its mission cards keep invisible Ping hit regions. Roller mission sliders
+use the native red track and cyan handle shown in Mali's Dungeon Map 2.
+
 **2026-09-29 implementation continuation:** Automatic mode now combines nearby
 live/static ACG entrance candidates across multiple mission keys, exact
 post-zone mission verification, Scotty menu discovery and settled warp checks,

@@ -1,4 +1,4 @@
-﻿using AOSharp.Common.GameData;
+using AOSharp.Common.GameData;
 using AOSharp.Common.GameData.UI;
 using AOSharp.Common.Helpers;
 using AOSharp.Common.Unmanaged.Imports;
@@ -26,7 +26,6 @@ namespace MaliMissionRoller2
         {
             Root = root;
             View _view = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\ExtrasView.xml");
-            Extensions.ColorFrame(_view);
             _view.FindChild("PlayAlertSound", out PlayAlertSound);
             SetupChild(PlayAlertSound, "PlayAlertSound");
             _view.FindChild("AutoAdjustQl", out AutoAdjustQl);
@@ -38,7 +37,7 @@ namespace MaliMissionRoller2
             _view.FindChild("ShowBounds", out ShowBounds);
             SetupChild(ShowBounds, "ShowBounds");
             _view.FindChild("Dev", out Dev);
-            Extensions.ButtonSetGfx(Dev, 1000070);
+            Extensions.SetButtonSymbol(Dev, "Dev");
             Dev.Clicked += DevClick;
             Root.AddChild(_view, false);
         }
@@ -61,9 +60,9 @@ namespace MaliMissionRoller2
             button.Tag = Main.Settings.Extras[settingsName];
 
             if (Main.Settings.Extras[settingsName])
-                Extensions.ButtonSetGfx(button, 1000036);
+                Extensions.SetButtonSymbol(button, "X");
             else
-                Extensions.ButtonSetGfx(button, 1000046);
+                Extensions.SetButtonSymbol(button, " ");
 
             button.Clicked = ExtrasClick;
         }
@@ -74,9 +73,9 @@ namespace MaliMissionRoller2
             bool on = (bool)e.Tag;
 
             if (!on)
-                Extensions.ButtonSetGfx((Button)e, 1000036);
+                Extensions.SetButtonSymbol((Button)e, "X");
             else
-                Extensions.ButtonSetGfx((Button)e, 1000046);
+                Extensions.SetButtonSymbol((Button)e, " ");
 
             e.Tag = !on;
             Main.Settings.Save();
