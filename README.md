@@ -85,6 +85,18 @@ Normal Grid/mapped travel remains the fallback. Scotty warpers
 reported offline are also treated as expected availability failures and no
 longer impose the normal two-minute integration-error cooldown.
 
+### Fixer Grid exit survey
+
+RKMission records manually traversed `Exit the Grid` portals even when the
+mission bot is stopped. After the outdoor zone settles, it saves the portal's
+stable identity, floor, full FGrid position, destination playfield, and outdoor
+arrival position in `RKMissionData/fixer-grid-survey.json`. A repeated portal
+keeps one record. `/rkm fgrid scan` reports verified identities against the
+78 physical exits (eight on each of floors 1–9, six on floor 10) and shows
+per-floor counts. `/rkm fgrid` includes the overall count. Keep `RKMissionData`
+when updating the plugin. This survey is observational; travel still uses the
+existing single learned exit per mapped destination.
+
 ## Local takeover (existing workflow)
 
 1. Roll/select/accept any number of missions yourself in Mali's window or the

@@ -171,12 +171,25 @@ namespace RKmission
                     break;
                 case "complete": ConfirmCompletion(args); break;
                 case "fgrid":
+                    if (args.Length > 1 && args[1].Equals("scan", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Say(_fgrid.SurveySummary);
+                        Say(_fgrid.SurveyFloorCounts);
+                        Say("Survey file: " + _fgrid.SurveyFilePath);
+                        break;
+                    }
+                    if (args.Length > 1)
+                    {
+                        Say("Usage: /rkm fgrid [scan]");
+                        break;
+                    }
                     Say($"FGrid service configured={_fgrid.IsConfigured}, mapped destinations={_fgrid.MappedDestinations}, " +
                         $"active={_fgrid.IsActive}, last issue={_fgrid.LastFailure ?? "none"}.");
+                    Say(_fgrid.SurveySummary + " Use /rkm fgrid scan for floor counts and file path.");
                     break;
                 case "loot": Say("Use /ManagerLoot for the original item list and settings."); break;
                 case "map": _map.ToggleWindow(); break;
-                default: Say("Commands: start, auto, local, stop, status, missions, zone <id>, rolls <count>, travel auto|ground|flying, fgrid, complete [mission id], loot, map."); break;
+                default: Say("Commands: start, auto, local, stop, status, missions, zone <id>, rolls <count>, travel auto|ground|flying, fgrid [scan], complete [mission id], loot, map."); break;
             }
         }
 

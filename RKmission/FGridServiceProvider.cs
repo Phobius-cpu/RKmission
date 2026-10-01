@@ -51,8 +51,19 @@ namespace RKmission
             public int Floor { get; set; }
             public int Identity { get; set; }
             public float X { get; set; }
+            public float Y { get; set; }
             public float Z { get; set; }
         }
+        private sealed class SurveyExit
+        {
+            public int PortalIdentity { get; set; }
+            public int Floor { get; set; }
+            public float[] FGridPosition { get; set; } = Array.Empty<float>();
+            public int DestinationPlayfield { get; set; }
+            public float[] ArrivalPosition { get; set; } = Array.Empty<float>();
+            public DateTime VerifiedAtUtc { get; set; }
+        }
+        private static readonly int[] SurveyExitsPerFloor = { 8, 8, 8, 8, 8, 8, 8, 8, 8, 6 };
         // Lift coordinates from AOSharp.Navigator's FixerGridElevators.
         private static readonly Vector3[] UpLifts =
         {
@@ -72,6 +83,8 @@ namespace RKmission
         private readonly Dictionary<int, ExitRoute> _exitRoutes = new Dictionary<int, ExitRoute>();
         private readonly Dictionary<int, LearnedExit> _learnedExits = new Dictionary<int, LearnedExit>();
         private readonly string _learnedExitPath;
+        private readonly Dictionary<int, SurveyExit> _surveyExits = new Dictionary<int, SurveyExit>();
+        private readonly string _surveyPath;
         private readonly Dictionary<int, Vector3> _entrancePositions = new Dictionary<int, Vector3>();
         private readonly HashSet<uint> _expectedInviters = new HashSet<uint>();
         private readonly Action<string> _say;
@@ -93,7 +106,10 @@ namespace RKmission
         private DateTime _backoffUntil;
         private LearnedExit _observedExit;
         private DateTime _observedExitZoneEnded;
+        private int _observedDestination;
+        private bool _observedLearned;
         private bool _learnedExitsWritable = true;
+        private bool _surveyWritable = true;
 
         public string LastFailure { get; private set; }
         public bool IsConfigured => _services.Count > 0;
@@ -101,15 +117,23 @@ namespace RKmission
         public bool CanRoute(int targetId) => _exitRoutes.ContainsKey(targetId);
         public string MappedDestinations => _exitRoutes.Count == 0 ? "none" :
             string.Join(",", _exitRoutes.Keys.OrderBy(x => x));
+        public string SurveySummary => $"FGrid survey: {_surveyExits.Count}/78 verified portal identities" +
+            (_surveyWritable ? "." : "; survey file unreadable, saving disabled.");
+        public string SurveyFloorCounts => "Floors: " + string.Join(", ",
+            Enumerable.Range(1, 10).Select(floor =>
+                $"{floor}={_surveyExits.Values.Count(x => x.Floor == floor)}/{SurveyExitsPerFloor[floor - 1]}")) + ".";
+        public string SurveyFilePath => _surveyPath;
 
         public FGridServiceProvider(string pluginDir, Action<string> say, MovementArbiter movement)
         {
             _say = say;
             _movement = movement;
             _learnedExitPath = System.IO.Path.Combine(pluginDir, "RKMissionData", "fixer-grid-exits.json");
+            _surveyPath = System.IO.Path.Combine(pluginDir, "RKMissionData", "fixer-grid-survey.json");
             Load(System.IO.Path.Combine(pluginDir, "Data", "FGridServices.json"));
             LoadRoutes(pluginDir);
             LoadLearnedExits();
+            LoadSurvey();
             Network.ChatMessageReceived += OnChatMessage;
             Team.TeamRequest += OnTeamRequest;
             Game.TeleportStarted += OnTeleportStarted;
@@ -197,6 +221,104 @@ namespace RKmission
             {
                 _say("Fixer Grid exit learning could not be saved: " + ex.Message);
             }
+        }
+
+        private static bool Finite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
+
+        private static bool ValidPosition(float[] position) => position != null &&
+            position.Length == 3 && position.All(Finite);
+
+        private static bool SamePortalPosition(SurveyExit saved, LearnedExit observed) =>
+            saved.Floor == observed.Floor &&
+            Math.Abs(saved.FGridPosition[0] - observed.X) < 1.5f &&
+            Math.Abs(saved.FGridPosition[1] - observed.Y) < 1.5f &&
+            Math.Abs(saved.FGridPosition[2] - observed.Z) < 1.5f;
+
+        private void LoadSurvey()
+        {
+            try
+            {
+                if (!File.Exists(_surveyPath)) return;
+                var saved = JsonConvert.DeserializeObject<Dictionary<int, SurveyExit>>(
+                    File.ReadAllText(_surveyPath));
+                if (saved == null || saved.Any(entry => entry.Key <= 0 || entry.Value == null ||
+                    entry.Value.PortalIdentity != entry.Key || entry.Value.Floor < 1 ||
+                    entry.Value.Floor > 10 || entry.Value.DestinationPlayfield <= 0 ||
+                    entry.Value.DestinationPlayfield == (int)PlayfieldId.FixerGrid ||
+                    !ValidPosition(entry.Value.FGridPosition) ||
+                    !ValidPosition(entry.Value.ArrivalPosition)))
+                    throw new InvalidDataException("invalid Fixer Grid survey record");
+                foreach (var entry in saved)
+                    _surveyExits.Add(entry.Key, entry.Value);
+                _say($"Loaded {_surveyExits.Count} verified Fixer Grid survey portal(s).");
+            }
+            catch (Exception ex)
+            {
+                _surveyExits.Clear();
+                _surveyWritable = false;
+                _say("Fixer Grid survey file could not be read; file preserved and saving disabled: " + ex.Message);
+            }
+        }
+
+        private void SaveSurvey()
+        {
+            if (!_surveyWritable) return;
+            try
+            {
+                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(_surveyPath));
+                string temp = _surveyPath + ".new";
+                File.WriteAllText(temp, JsonConvert.SerializeObject(_surveyExits, Formatting.Indented));
+                if (File.Exists(_surveyPath)) File.Replace(temp, _surveyPath, null);
+                else File.Move(temp, _surveyPath);
+            }
+            catch (Exception ex)
+            {
+                _say("Fixer Grid survey could not be saved: " + ex.Message);
+            }
+        }
+
+        private void RecordSurveyExit(LearnedExit observed, int destination, Vector3 arrival)
+        {
+            if (!_surveyWritable || observed.Identity <= 0 || observed.Floor < 1 ||
+                observed.Floor > 10 || !Finite(observed.X) || !Finite(observed.Y) ||
+                !Finite(observed.Z) || !Finite(arrival.X) || !Finite(arrival.Y) ||
+                !Finite(arrival.Z) ||
+                (arrival.X == 0f && arrival.Y == 0f && arrival.Z == 0f)) return;
+
+            if (_surveyExits.TryGetValue(observed.Identity, out SurveyExit previous))
+            {
+                if (!SamePortalPosition(previous, observed) || previous.DestinationPlayfield != destination)
+                    _say($"FGrid survey portal {observed.Identity} conflicts with its saved position or destination; existing record preserved.");
+                return;
+            }
+
+            // The live identity is the key. Position also catches an old identity
+            // for the same physical portal, so the survey cannot count it twice.
+            SurveyExit atPosition = _surveyExits.Values.FirstOrDefault(x => SamePortalPosition(x, observed));
+            if (atPosition != null)
+            {
+                if (atPosition.DestinationPlayfield != destination)
+                {
+                    _say($"FGrid survey portal {observed.Identity} conflicts with saved portal {atPosition.PortalIdentity} at the same position; existing record preserved.");
+                    return;
+                }
+                _surveyExits.Remove(atPosition.PortalIdentity);
+                _say($"FGrid survey portal identity {atPosition.PortalIdentity} replaced by live identity {observed.Identity} at the same position.");
+            }
+
+            _surveyExits[observed.Identity] = new SurveyExit
+            {
+                PortalIdentity = observed.Identity,
+                Floor = observed.Floor,
+                FGridPosition = new[] { observed.X, observed.Y, observed.Z },
+                DestinationPlayfield = destination,
+                ArrivalPosition = new[] { arrival.X, arrival.Y, arrival.Z },
+                VerifiedAtUtc = DateTime.UtcNow
+            };
+            SaveSurvey();
+            _say($"FGrid survey verified portal {observed.Identity}, floor {observed.Floor}, " +
+                $"destination {destination}, arrival ({arrival.X:0.0},{arrival.Y:0.0},{arrival.Z:0.0}); " +
+                $"{_surveyExits.Count}/78 recorded.");
         }
 
         private void Load(string path)
@@ -670,6 +792,8 @@ namespace RKmission
         {
             _observedExit = null;
             _observedExitZoneEnded = DateTime.MinValue;
+            _observedDestination = 0;
+            _observedLearned = false;
             if (Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid &&
                 DynelManager.LocalPlayer != null)
             {
@@ -685,6 +809,7 @@ namespace RKmission
                         Floor = Math.Max(0, (int)(playerPosition.Y / 10f)),
                         Identity = nearest[0].Identity.Instance,
                         X = nearest[0].Position.X,
+                        Y = nearest[0].Position.Y,
                         Z = nearest[0].Position.Z
                     };
             }
@@ -716,18 +841,38 @@ namespace RKmission
             int destination = Playfield.ModelIdentity.Instance;
             if (destination > 0 && destination != (int)PlayfieldId.FixerGrid)
             {
-                if (_exitRoutes.TryGetValue(destination, out ExitRoute route) &&
-                    route.Floor == _observedExit.Floor)
+                if (!_observedLearned)
                 {
-                    _learnedExits[destination] = _observedExit;
-                    SaveLearnedExits();
-                    _say($"Learned Fixer Grid floor {route.Floor} portal {_observedExit.Identity} " +
-                        $"at ({_observedExit.X:0.0},{_observedExit.Z:0.0}) for playfield {destination} " +
-                        "from verified zoning.");
+                    _observedLearned = true;
+                    if (_exitRoutes.TryGetValue(destination, out ExitRoute route) &&
+                        route.Floor == _observedExit.Floor)
+                    {
+                        _learnedExits[destination] = _observedExit;
+                        SaveLearnedExits();
+                        _say($"Learned Fixer Grid floor {route.Floor} portal {_observedExit.Identity} " +
+                            $"at ({_observedExit.X:0.0},{_observedExit.Z:0.0}) for playfield {destination} " +
+                            "from verified zoning.");
+                    }
                 }
+                if (Playfield.IsDungeon || Game.IsZoning || DynelManager.LocalPlayer == null)
+                {
+                    if (DateTime.UtcNow - _observedExitZoneEnded > TimeSpan.FromSeconds(10))
+                        _observedExit = null;
+                    return;
+                }
+                if (_observedDestination == 0)
+                    _observedDestination = destination;
+                if (_observedDestination != destination)
+                {
+                    _observedExit = null;
+                    return;
+                }
+                if (DateTime.UtcNow - _observedExitZoneEnded < TimeSpan.FromSeconds(2)) return;
+
+                RecordSurveyExit(_observedExit, destination, DynelManager.LocalPlayer.Position);
                 _observedExit = null;
             }
-            else if (DateTime.UtcNow - _observedExitZoneEnded > TimeSpan.FromSeconds(5))
+            else if (DateTime.UtcNow - _observedExitZoneEnded > TimeSpan.FromSeconds(10))
                 _observedExit = null;
         }
 
