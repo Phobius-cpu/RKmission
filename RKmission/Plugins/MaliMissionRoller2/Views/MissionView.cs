@@ -45,19 +45,12 @@ namespace MaliMissionRoller2
                 missionModel.Root.FindChild("Playfield", out missionModel.Playfield);
                 missionModel.Root.FindChild("Credits", out missionModel.Credits);
                 missionModel.Root.FindChild("Experience", out missionModel.Experience);
-                // One native item view per reward keeps item tooltips without
-                // the scroll controls of a six-item list.
-                for (int slot = 0; slot < missionModel.RewardSlots.Length; slot++)
-                {
-                    missionModel.RewardSlots[slot] = ItemListViewBase.Create(new Rect(20, 20, 20, 20), 0, 0);
-                    missionModel.RewardSlots[slot].SetGridIconSpacing(new Vector2(6000, 6000));
-                    missionModel.RewardSlots[slot].SetGridIconSize(3);
-                    missionModel.RewardSlots[slot].SetLayoutMode(0);
-                    missionModel.RewardSlots[slot].SetViewCellCounts(IPoint.Zero, IPoint.Zero);
-                    missionModel.Root.FindChild($"RewardSlot{slot}", out View rewardSlot);
-                    rewardSlot.AddChild(missionModel.RewardSlots[slot], false);
-                    missionModel.RewardSlots[slot].ResizeTo(new Vector2(30, 22));
-                }
+                missionModel.MultiListView = ItemListViewBase.Create(new Rect(20, 20, 20, 20), 0, 0);
+                missionModel.MultiListView.SetGridIconSpacing(new Vector2(4, 4));
+                missionModel.MultiListView.SetGridIconSize(3);
+                missionModel.MultiListView.SetLayoutMode(0);
+                missionModel.Root.FindChild("Preview", out View preview);
+                preview.AddChild(missionModel.MultiListView, false);
 
                 _missionViews.Add(missionModel);
                 _root.AddChild(missionModel.Root,false);
@@ -129,7 +122,16 @@ namespace MaliMissionRoller2
                 MissionItemReward[] itemData = rollList[i].MissionItemData;
 
                 _missionViews[i].Icon.SetBitmap(rollList[i].MissionIcon.ToString());
-                _missionViews[i].Title.Text = rollList[i].Title.Length > 25 ? rollList[i].Title.Substring(0, 22).ToUpper() + "..." : rollList[i].Title.ToUpper();
+                string title = rollList[i].Title.ToUpper();
+                if (title.Length > 25)
+                {
+                    title = title.Substring(0, 22).TrimEnd();
+                    int lastSpace = title.LastIndexOf(' ');
+                    if (lastSpace >= 15)
+                        title = title.Substring(0, lastSpace);
+                    title += "...";
+                }
+                _missionViews[i].Title.Text = title;
                 _missionViews[i].Playfield.Text = Extensions.GetZoneName(rollList[i].Playfield.Instance);
                 _missionViews[i].Experience.Text = rollList[i].XpReward.ToString();
                 _missionViews[i].Accept.Tag = rollList[i].MissionIdentity;
@@ -146,10 +148,10 @@ namespace MaliMissionRoller2
                             CombinedItemValue[i] += (int)(ShopValue * Extensions.GetItemValue(dummyItemId));
 
                         if (_missionViews[i].MultiListViewItem[e] != null)
-                            _missionViews[i].RewardSlots[e].RemoveItem(_missionViews[i].MultiListViewItem[e]);
+                            _missionViews[i].MultiListView.RemoveItem(_missionViews[i].MultiListViewItem[e]);
 
                         _missionViews[i].MultiListViewItem[e] = InventoryListViewItem.Create(0, dummyItemId, true);
-                        _missionViews[i].RewardSlots[e].AddItem(IPoint.Zero, _missionViews[i].MultiListViewItem[e], true);
+                        _missionViews[i].MultiListView.AddItem(_missionViews[i].MultiListView.GetFirstFreePos(), _missionViews[i].MultiListViewItem[e], true);
                     }
                 }
 
@@ -186,8 +188,7 @@ namespace MaliMissionRoller2
                 _missionViews[i].Playfield.SetAlpha(num);
                 _missionViews[i].Credits.SetAlpha(num);
                 _missionViews[i].Experience.SetAlpha(num);
-                foreach (ItemListViewBase rewardSlot in _missionViews[i].RewardSlots)
-                    rewardSlot.SetAlpha(num);
+                _missionViews[i].MultiListView.SetAlpha(num);
                 if (num == 0)
                     foreach (Button pingTarget in _missionViews[i].PingTargets)
                         pingTarget.Tag = null;
@@ -205,7 +206,7 @@ namespace MaliMissionRoller2
         public TextView Experience;
         public Button[] PingTargets;
         public Button Accept;
-        public ItemListViewBase[] RewardSlots = new ItemListViewBase[6];
+        public MultiListView MultiListView;
         public InventoryListViewItem[] MultiListViewItem = new InventoryListViewItem[6];
     }
 }

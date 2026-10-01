@@ -2440,3 +2440,17 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
   single-item native view configured like the existing item-list previews.
   This removes the shared scrollable six-item control while retaining item
   icons and tooltips. Reward data and Ping/Accept callbacks are unchanged.
+
+## Mission-card icon regression and remaining purple mark (2026-10-02)
+
+- User screenshot showed that the six narrow native reward views rendered no
+  icons, while an 8x8 magenta mark remained immediately above Accept.
+- The proven shared native item list has been restored to show reward icons and
+  tooltips. Narrow single-item views hid all rewards in the AO screenshot, so
+  its small scroll buttons remain until a tested non-list rendering path exists.
+- The Ping texture now contains one dark, visible pixel amid the green color
+  key and is resolved by its registered name. This addresses an all-key image
+  being treated as missing by AO. The card right inset increases to 14 pixels,
+  card height grows three pixels, and long titles truncate at a word boundary.
+- XML and build validation are required; AO client rendering must confirm the
+  icon resource lookup and hover image.

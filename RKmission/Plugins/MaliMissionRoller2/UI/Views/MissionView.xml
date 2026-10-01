@@ -1,38 +1,33 @@
 <?xml version="1.0" standalone="yes"?>
 <root>
-	<View name="MissionView" min_size="Point(310,123)" max_size="Point(310,123)">
-		<BorderView name="Background" min_size="Point(310,123)" max_size="Point(310,123)">
-			<Button name="PingContent" view_layout="vertical" min_size="Point(310,106)" max_size="Point(310,106)">
+	<View name="MissionView" min_size="Point(310,126)" max_size="Point(310,126)">
+		<BorderView name="Background" min_size="Point(310,126)" max_size="Point(310,126)">
+			<Button name="PingContent" view_layout="vertical" min_size="Point(310,109)" max_size="Point(310,109)">
 				<View view_layout="horizontal">
 					<BitmapView name="Icon" layout_borders="Rect(3,0,0,0)" color="0x00D5C64A"/>
 					<HLayoutSpacer/>
 					<TextView feature_flags="TVF_RENDER_SHADOW" font="BOLD" name="Title" layout_borders="Rect(0,4,0,5)"/>
 					<HLayoutSpacer/>
 				</View>
-				<View view_layout="horizontal" layout_borders="Rect(5,4,9,0)">
+				<View view_layout="horizontal" layout_borders="Rect(5,4,14,0)">
 					<TextView font="BOLD" value="Playfield: "/>
 					<HLayoutSpacer/>
 					<TextView name="Playfield"/>
 				</View>
-				<View view_layout="horizontal" layout_borders="Rect(5,7,9,1)">
+				<View view_layout="horizontal" layout_borders="Rect(5,7,14,1)">
 					<TextView font="BOLD" value="Credits: "/>
 					<HLayoutSpacer/>
 					<TextView name="Credits"/>
 				</View>
-				<View view_layout="horizontal" layout_borders="Rect(5,6,9,0)">
+				<View view_layout="horizontal" layout_borders="Rect(5,6,14,0)">
 					<TextView font="BOLD" value="Experience: "/>
 					<HLayoutSpacer/>
 					<TextView name="Experience"/>
 				</View>
-				<View view_layout="horizontal" layout_borders="Rect(5,2,3,0)">
+				<View view_layout="horizontal" layout_borders="Rect(5,3,3,0)">
 					<TextView font="BOLD" value="Rewards: "/>
-					<View layout_borders="Rect(1,0,0,0)" name="Preview" view_layout="horizontal" min_size="Point(192,22)" max_size="Point(192,22)">
-						<View name="RewardSlot0" min_size="Point(32,22)" max_size="Point(32,22)"><Haxxor/></View>
-						<View name="RewardSlot1" min_size="Point(32,22)" max_size="Point(32,22)"><Haxxor/></View>
-						<View name="RewardSlot2" min_size="Point(32,22)" max_size="Point(32,22)"><Haxxor/></View>
-						<View name="RewardSlot3" min_size="Point(32,22)" max_size="Point(32,22)"><Haxxor/></View>
-						<View name="RewardSlot4" min_size="Point(32,22)" max_size="Point(32,22)"><Haxxor/></View>
-						<View name="RewardSlot5" min_size="Point(32,22)" max_size="Point(32,22)"><Haxxor/></View>
+					<View layout_borders="Rect(1,0,0,0)" name="Preview" min_size="Point(178,22)" max_size="Point(178,22)">
+						<Haxxor/>
 					</View>
 					<HLayoutSpacer/>
 				</View>

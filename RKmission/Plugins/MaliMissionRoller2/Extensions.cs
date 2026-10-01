@@ -16,10 +16,9 @@ namespace MaliMissionRoller2
 {
     public class Extensions
     {
-        // 041_TransparentPing.png follows the forty original roller textures.
-        // Like Mali's original UI art, it uses opaque green color key pixels.
-        // A fully alpha-transparent PNG leaves a purple artifact in AO.
-        private const int TransparentPingGfxId = 1000075;
+        // Resolve the Ping image by its registered name so texture numbering
+        // cannot shift when other embedded UI resources are loaded.
+        private const string TransparentPingGfxName = "TransparentPing";
 
         public static void ButtonSetGfx(Button button, int gfxId)
         {
@@ -35,7 +34,7 @@ namespace MaliMissionRoller2
             button.SetColorOverride(0);
             foreach (ButtonState state in new[] { ButtonState.Raised, ButtonState.Hover, ButtonState.Pressed })
             {
-                button.SetGfx(state, TransparentPingGfxId);
+                button.SetGfx(state, TransparentPingGfxName);
                 button.GetBorderView(state)?.SetAlpha(0);
             }
             button.SetLocalAlpha(0);
