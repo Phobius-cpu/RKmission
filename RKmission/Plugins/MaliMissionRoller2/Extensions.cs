@@ -16,6 +16,22 @@ namespace MaliMissionRoller2
 {
     public class Extensions
     {
+        public const uint RollerTextColor = 0x00FFF1AC;
+        public const uint RollerFrameColor = 0x006AB7C4;
+
+        public static void ColorFrame(View root, string name = "Background")
+        {
+            if (root.FindChild(name, out BorderView frame))
+                frame.SetLocalColor(RollerFrameColor);
+        }
+
+        public static void ColorButtonLabel(Button button)
+        {
+            button.SetLabelColor(RollerTextColor);
+            foreach (ButtonState state in new[] { ButtonState.Raised, ButtonState.Hover, ButtonState.Pressed })
+                button.GetBorderView(state)?.SetLocalColor(RollerFrameColor);
+        }
+
         public static void ButtonSetGfx(Button button, int gfxId)
         {
             button.SetGfx(ButtonState.Raised, gfxId);

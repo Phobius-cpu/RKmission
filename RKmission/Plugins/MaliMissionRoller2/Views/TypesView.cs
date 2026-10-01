@@ -26,6 +26,7 @@ namespace MaliMissionRoller2
         {
             Root = root;
             View _view = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\TypesView.xml");
+            Extensions.ColorFrame(_view);
             _view.FindChild("FindTarget", out FindTarget);
             SetupChild(FindTarget, "FindTarget");
             _view.FindChild("KillTarget", out KillTarget);

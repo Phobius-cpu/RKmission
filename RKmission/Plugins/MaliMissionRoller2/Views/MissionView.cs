@@ -25,6 +25,7 @@ namespace MaliMissionRoller2
             {
                 MissionModel missionModel = new MissionModel();
                 missionModel.Root = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\MissionView.xml");
+                Extensions.ColorFrame(missionModel.Root);
                 missionModel.Root.FindChild("Icon", out missionModel.Icon);
                 missionModel.Root.FindChild("Ping", out missionModel.Ping);
                 Extensions.ButtonSetGfx(missionModel.Ping, 1000045);

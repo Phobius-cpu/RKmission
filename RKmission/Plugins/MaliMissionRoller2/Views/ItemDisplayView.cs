@@ -33,6 +33,7 @@ namespace MaliMissionRoller2
         public ItemDisplayView(View root)
         {
             View _view = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\ItemDisplayView.xml");
+            Extensions.ColorFrame(_view);
             _root = root;
             _browserEntryViews = new List<BrowserEntryView>();
             RollEntryViews = new List<RollEntryView>();

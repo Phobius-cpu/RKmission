@@ -26,6 +26,7 @@ namespace MaliMissionRoller2
         {
             Root = root;
             View _view = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\ExtrasView.xml");
+            Extensions.ColorFrame(_view);
             _view.FindChild("PlayAlertSound", out PlayAlertSound);
             SetupChild(PlayAlertSound, "PlayAlertSound");
             _view.FindChild("AutoAdjustQl", out AutoAdjustQl);

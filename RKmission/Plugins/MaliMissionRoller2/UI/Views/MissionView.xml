@@ -5,7 +5,7 @@
 			<View view_layout="horizontal">
 				<BitmapView name="Icon" layout_borders="Rect(3,0,0,0)" color="0x00D5C64A"/>
 				<HLayoutSpacer/>
-				<TextView feature_flags="TVF_RENDER_SHADOW" font="BOLD" name="Title" layout_borders="Rect(0,4,0,5)" color="0x00D5C64A"/>
+				<TextView feature_flags="TVF_RENDER_SHADOW" font="BOLD" name="Title" layout_borders="Rect(0,4,0,5)" color="0x00FFF1AC"/>
 				<HLayoutSpacer/>
 			</View>
 			<View view_layout="horizontal" layout_borders="Rect(5,4,5,0)">

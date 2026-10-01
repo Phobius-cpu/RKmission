@@ -30,23 +30,28 @@ namespace MaliMissionRoller2
             Root = root;
 
             View _view = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\PlayfieldView.xml");
+            Extensions.ColorFrame(_view);
             _view.FindChild("ScrollListRoot", out View _scrollListRoot);
             _view.FindChild("Coords", out _coords);
             _coords.Tag = 0;
             _coords.Clicked = CoordsClick;
-            Extensions.ButtonSetGfx(_coords, 1000061);
+            _coords.SetLabel("Add Coord");
+            Extensions.ColorButtonLabel(_coords);
             _view.FindChild("EnableAll", out _enableAll);
             _enableAll.Clicked = EnableAllClick;
-            Extensions.ButtonSetGfx(_enableAll, 1000072);
+            _enableAll.SetLabel("Enable All");
+            Extensions.ColorButtonLabel(_enableAll);
             _view.FindChild("DisableAll", out _disableAll);
             _disableAll.Clicked = DisableAllClick;
-            Extensions.ButtonSetGfx(_disableAll, 1000071);
+            _disableAll.SetLabel("Disable All");
+            Extensions.ColorButtonLabel(_disableAll);
 
             for (int i = 0; i < _pfIds.Length; i++)
             {
                 string pfName = Utils.UnsafePointerToString(N3InterfaceModule_t.GetPFName(_pfIds[i]));
                 PlayfieldEntryView pfEntryView = new PlayfieldEntryView();
                 pfEntryView.Root = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\PlayfieldEntryView.xml");
+                Extensions.ColorFrame(pfEntryView.Root);
                 pfEntryView.Root.Tag = _pfIds[i].ToString();
                 pfEntryView.Root.FindChild("Toggle", out pfEntryView.Toggle);
                 pfEntryView.Toggle.Tag = Main.Settings.Locations[pfName].State;
@@ -100,13 +105,13 @@ namespace MaliMissionRoller2
 
             if (viewEntry == null)
             {
-                Extensions.ButtonSetGfx(_coords, 1000061);
+                _coords.SetLabel("Add Coord");
                 _coords.Tag = 0;
                 _bounds = new Bounds();
             }
             else
             {
-                Extensions.ButtonSetGfx(_coords, 1000062);
+                _coords.SetLabel("Rem Coord");
                 _coords.Tag = 2;
 
                 if (viewEntry.Bounds.Coord1.X != 0)
@@ -140,13 +145,13 @@ namespace MaliMissionRoller2
             switch (state)
             {
                 case 0:
-                    Extensions.ButtonSetGfx(_coords, 1000061);
+                    _coords.SetLabel("Add Coord");
                     _bounds.Coord1 = new Vector2(Convert.ToInt32(playerPos.X), Convert.ToInt32(playerPos.Z));
                     Chat.WriteLine($"Coordinate 1 set: {_bounds.Coord1}");
                     _bounds.Coord2 = new Vector2();
                     break;
                 case 1:
-                    Extensions.ButtonSetGfx(_coords, 1000062);
+                    _coords.SetLabel("Rem Coord");
                     _bounds.Coord2 = new Vector2(Convert.ToInt32(playerPos.X), Convert.ToInt32(playerPos.Z));
                     Chat.WriteLine($"Coordinate 2 set: {_bounds.Coord2}");
                     _bounds.Reorder();
@@ -162,7 +167,7 @@ namespace MaliMissionRoller2
                     }
                     break;
                 case 2:
-                    Extensions.ButtonSetGfx(_coords, 1000061);
+                    _coords.SetLabel("Add Coord");
                     Midi.Play("Click"); viewEntry.Coord1.Text = "";
                     viewEntry.Coord2.Text = "";
                     _bounds = new Bounds();

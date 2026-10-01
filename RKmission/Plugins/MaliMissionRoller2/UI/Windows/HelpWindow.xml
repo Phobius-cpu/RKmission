@@ -1,16 +1,16 @@
 <?xml version="1.0" standalone="yes"?>
 <Root>
 	<View>
-		<BorderView layout_borders="Rect(5,5,5,5)">
+		<BorderView name="HelpFrame" layout_borders="Rect(5,5,5,5)">
 			<View view_layout="vertical">
 			<View view_layout="horizontal" layout_borders="Rect(5,4,4,0)">
-				<TextView value="RKMission Roller Help" font="BOLD"/>
+				<TextView value="RKMission Roller Help" font="BOLD" color="0x00FFF1AC"/>
 				<HLayoutSpacer/>
 				<Button label="Close" min_size="Point(45,18)" name="Close"/>
 			</View>
-			<TextView layout_borders="Rect(5,2,5,0)" font="LARGE" feature_flags="TVF_MULTILINE" name="Text"/>
+			<TextView layout_borders="Rect(5,2,5,0)" font="LARGE" feature_flags="TVF_MULTILINE" name="Text" color="0x00FFF1AC"/>
 			<Button layout_borders="Rect(5,5,5,5)" label="Visual guide" name="GraphicalGuide"/>
-			<TextView min_size="Point(270,70)" layout_borders="Rect(5,0,5,0)" font="LARGE" feature_flags="TVF_MULTILINE" name="Text2"/>
+			<TextView min_size="Point(270,70)" layout_borders="Rect(5,0,5,0)" font="LARGE" feature_flags="TVF_MULTILINE" name="Text2" color="0x00FFF1AC"/>
 			<VLayoutSpacer/>
 			</View>
 		</BorderView>
