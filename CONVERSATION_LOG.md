@@ -1510,3 +1510,36 @@ Preserve accepted dungeon behavior and the original backup. Update README and
 PROJECT_MEMORY. Source/API/diff and independent backup review only; no compile,
 restore, automated tests or game run. Successful corrected entry remains for the
 user to validate in game.
+
+## 2026-10-01 - Preserve the FGrid, loot, and source-comparison conclusions
+
+The user asked to persist the latest context from "Análise de plugins AO#" on
+the current authoritative GitHub `main`, without changing functional code or
+removing earlier chronology. Before editing, remote `main` and the clean local
+base both resolved to `253d8c12542d47a626ffbd349ae0f858d9cf9749`.
+
+A verified zone logged `Learned Fixer Grid floor 10 portal 1478272517 at
+(290,8,67,2) for playfield 570 from verified zoning.` The user pointed out
+that one playfield can have several FGrid exits, with different outdoor arrival
+points and travel times to a mission entrance. The current one-exit-per-playfield
+learning file would overwrite a prior exit. Record the future multi-exit model,
+arrival capture, and route-cost selection; postpone bulk manual mapping until
+that model exists.
+
+The user also reported ordinary containers that could not be lockpicked for
+insufficient skill and others marked unreachable around interior walls. A live
+diagnostic showed `ordinary skipped=3, ordinary unfinished=3` and `skipped still
+visible`, holding objective completion and automatic exit. Terminally skipped
+ordinary loot should be settled, while reserved/objective loot stays blocking.
+The focused skipped-count exclusion already on main is retained; the proposed
+Pending/Completed/TerminallySkipped(reason)/CriticalBlocked ledger is future
+design work, not an implementation claim.
+
+The user requested a durable record of conclusions from eight supplied source
+ZIPs. Preserve RKMission's single movement owner/controller, share a future
+approach planner across loot/combat/objectives, require complete navmesh paths,
+rank by route cost, and use Mali geometry for reachable interaction points.
+Weighted room routing, profession action profiles, backpack capacity, and
+recovery/watchdog patterns remain staged ideas. The source inventory, rejected
+movement patterns, evidence, and limits are in
+`docs/history/2026-09-30-fgrid-loot-source-review.md`.

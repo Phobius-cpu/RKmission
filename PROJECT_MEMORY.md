@@ -1,6 +1,39 @@
 # RKMission Project Memory
 
-_Last updated: 2026-09-30_
+_Last updated: 2026-10-01_
+
+## 2026-10-01 checkpoint of the 2026-09-30 FGrid and loot discussion
+
+- GitHub `main` was verified at `253d8c12542d47a626ffbd349ae0f858d9cf9749`
+  before this documentation update. Preserve the earlier FGrid, Scotty, loot,
+  pathing, and return-item checkpoints below; this entry records new design
+  conclusions without claiming a functional change.
+- Generic Fixer Grid exit learning is present. The live result was:
+  `Learned Fixer Grid floor 10 portal 1478272517 at (290,8,67,2) for playfield 570 from verified zoning.`
+  The current `Dictionary<int, LearnedExit>` and JSON file keep only one portal
+  per destination playfield, so teaching a second exit for 570 would replace
+  the first. Defer bulk manual mapping until a playfield can hold multiple
+  verified exits. Each exit should retain its FGrid floor, portal identity and
+  internal position, plus the outdoor arrival position captured after verified
+  zoning. Select the exit with the lowest estimated travel cost to the chosen
+  mission entrance, preferably by outdoor route cost rather than straight-line
+  distance alone.
+- A live ordinary-loot stop reported `ordinary skipped=3, ordinary unfinished=3`
+  and `skipped still visible` after unpickable and wall-obstructed containers.
+  Terminally skipped ordinary loot must not hold objective completion or exit;
+  exact objective/reserved loot remains blocking. Main already has a focused
+  skipped-count exclusion, recorded below. A future explicit ledger should
+  distinguish Pending, Completed, TerminallySkipped(reason), and CriticalBlocked
+  so one ordinary identity cannot be counted as both skipped and unfinished.
+- The eight supplied source ZIPs were compared for integration ideas. Keep
+  RKMission's `MovementArbiter`/`SMovementController`; plan a shared
+  `DungeonApproachPlanner` for loot, combat, and objectives using strict complete
+  navmesh paths, route-cost ranking, and Mali walkable/collision geometry.
+  Weighted room routing is a later improvement. Combat profession profiles,
+  backpack-aware capacity, and watchdog/recovery patterns are secondary ideas.
+  Avoid position writes, WarpManager teleports, competing movement controllers,
+  and encounter-specific movement. See
+  `docs/history/2026-09-30-fgrid-loot-source-review.md` for provenance and scope.
 
 ## 2026-09-30 return-item finale pickup
 
