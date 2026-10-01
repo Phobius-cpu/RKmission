@@ -189,9 +189,8 @@ Browser, side-by-side TYPES and EXTRAS, Playfields, then sliders in one
 separate scroll client, keeping three rows visible above the action buttons.
 Mission rewards use the original native item list so icons and item tooltips
 remain visible. Its small scroll controls remain because the narrower
-replacement views hid the rewards in AO. The Ping graphic resolves by its
-registered name and includes a dark pixel among Mali-style transparent pixels
-to avoid AO's purple missing-texture mark. Card values have extra right
+replacement views hid the rewards in AO. Invisible Ping buttons hide their
+native state views directly; no Ping texture is assigned. Card values have extra right
 padding and long titles end at a word boundary.
 Mission Types, EXTRAS, Playfields, and the Impl/Refin/Clstr/Nano/Rest filters
 retain Mali's original on/off button graphics.

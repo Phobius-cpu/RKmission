@@ -16,10 +16,6 @@ namespace MaliMissionRoller2
 {
     public class Extensions
     {
-        // Resolve the Ping image by its registered name so texture numbering
-        // cannot shift when other embedded UI resources are loaded.
-        private const string TransparentPingGfxName = "TransparentPing";
-
         public static void ButtonSetGfx(Button button, int gfxId)
         {
             button.SetGfx(ButtonState.Raised, gfxId);
@@ -29,14 +25,12 @@ namespace MaliMissionRoller2
 
         public static void HidePingChrome(Button button)
         {
-            // AO can draw its own hover tint over a transparent button image.
-            // Clear that tint as well as the border for each input state.
+            // The transparent Ping texture showed up as an 8x8 magenta marker
+            // in AO. Hide the native state views directly instead of assigning
+            // any image to this invisible click target.
             button.SetColorOverride(0);
             foreach (ButtonState state in new[] { ButtonState.Raised, ButtonState.Hover, ButtonState.Pressed })
-            {
-                button.SetGfx(state, TransparentPingGfxName);
                 button.GetBorderView(state)?.SetAlpha(0);
-            }
             button.SetLocalAlpha(0);
         }
 

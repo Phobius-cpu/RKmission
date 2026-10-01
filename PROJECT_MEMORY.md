@@ -2454,3 +2454,12 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
   card height grows three pixels, and long titles truncate at a word boundary.
 - XML and build validation are required; AO client rendering must confirm the
   icon resource lookup and hover image.
+
+## Remove residual Ping graphic (2026-10-02)
+
+- User confirmed the purple dot persisted after the dark-pixel texture change.
+  Its 8x8 size and position match the graphic assigned to `PingContent`.
+- Invisible Ping buttons now hide their native state views without assigning
+  any custom image. The unused `041_TransparentPing.png` is removed. The four
+  Ping regions and independent Accept callback remain; native reward list and
+  card layout are unchanged from the prior correction.
