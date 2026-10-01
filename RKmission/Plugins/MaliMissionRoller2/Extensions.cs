@@ -30,10 +30,13 @@ namespace MaliMissionRoller2
 
         public static void HidePingChrome(Button button)
         {
+            // AO can draw its own hover tint over a transparent button image.
+            // Clear that tint as well as the border for each input state.
+            button.SetColorOverride(0);
             foreach (ButtonState state in new[] { ButtonState.Raised, ButtonState.Hover, ButtonState.Pressed })
             {
                 button.SetGfx(state, TransparentPingGfxId);
-                button.GetBorderView(state)?.SetLocalAlpha(0);
+                button.GetBorderView(state)?.SetAlpha(0);
             }
             button.SetLocalAlpha(0);
         }

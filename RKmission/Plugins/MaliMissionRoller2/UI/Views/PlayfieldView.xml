@@ -3,9 +3,11 @@
 	<View>
 		<BorderView name="Background" min_size="Point(310,0)" max_size="Point(310,-1)">
 			<View view_layout="horizontal">
+				<HLayoutSpacer/>
 				<TextView font="BOLD" value="- Playfields -" feature_flags="TVF_RENDER_SHADOW" layout_borders="Rect(0,5,0,0)"/>
+				<HLayoutSpacer/>
 			</View>
-			<BorderView alpha="0" layout_borders="Rect(0,3,0,2)" min_size="Point(310,130)" max_size="Point(310,130)">
+			<BorderView alpha="0" layout_borders="Rect(0,3,0,2)" min_size="Point(310,96)" max_size="Point(310,96)">
 				<ScrollView h_alignment="LEFT" label="#Playfields" v_scrollbar_mode="auto" scroll_client="playfield_scroll">
 					<ScrollViewChild name="playfield_scroll" view_layout="vertical" min_size="Point(298,15)">
 						<View name="ScrollListRoot" view_layout="vertical">

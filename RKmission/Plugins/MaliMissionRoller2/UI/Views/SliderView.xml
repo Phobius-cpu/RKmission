@@ -2,7 +2,7 @@
 <Root>
 	<View view_layout="vertical">
 		<BorderView name="Background" min_size="Point(310,0)" max_size="Point(310,-1)">
-			<TextView layout_borders="Rect(0,3,0,0)" font="BOLD" value="- SLIDERS -" feature_flags="TVF_RENDER_SHADOW"/>
+			<TextView layout_borders="Rect(0,3,0,0)" font="BOLD" value="- SLIDERS -" feature_flags="TVF_RENDER_SHADOW" h_alignment="CENTER"/>
 			<View view_layout="horizontal" layout_borders="Rect(3,0,3,5)">
 				<View h_alignment="RIGHT" min_size="Point(62,105)" max_size="Point(62,105)">
 					<TextView font="SMALL" value="Easy "/>

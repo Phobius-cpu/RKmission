@@ -1,9 +1,9 @@
 <?xml version="1.0" standalone="yes"?>
 <Root>
 	<View>
-		<BorderView name="Background" min_size="Point(310,0)" max_size="Point(310,-1)">
+		<BorderView name="Background" min_size="Point(155,0)" max_size="Point(155,-1)">
 			<TextView font="BOLD" value="- TYPES -" feature_flags="TVF_RENDER_SHADOW" h_alignment="CENTER" layout_borders="Rect(0,5,0,0)"/>
-			<View view_layout="vertical" h_alignment="CENTER" min_size="Point(170,0)" max_size="Point(170,-1)" layout_borders="Rect(2,4,2,0)">
+			<View view_layout="vertical" h_alignment="CENTER" min_size="Point(131,0)" max_size="Point(131,-1)" layout_borders="Rect(2,4,2,0)">
 				<View view_layout="horizontal" min_size="Point(80,15)">
 					<Button name="ReturnItem" layout_borders="Rect(2,1,2,1)"/>
 					<TextView font="SMALL" value="Return Item" layout_borders="Rect(2,0,2,0)"/>

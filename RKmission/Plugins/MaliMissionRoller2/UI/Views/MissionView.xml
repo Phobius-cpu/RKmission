@@ -9,24 +9,24 @@
 					<TextView feature_flags="TVF_RENDER_SHADOW" font="BOLD" name="Title" layout_borders="Rect(0,4,0,5)"/>
 					<HLayoutSpacer/>
 				</View>
-				<View view_layout="horizontal" layout_borders="Rect(5,4,5,0)">
+				<View view_layout="horizontal" layout_borders="Rect(5,4,9,0)">
 					<TextView font="BOLD" value="Playfield: "/>
 					<HLayoutSpacer/>
 					<TextView name="Playfield"/>
 				</View>
-				<View view_layout="horizontal" layout_borders="Rect(5,7,5,1)">
+				<View view_layout="horizontal" layout_borders="Rect(5,7,9,1)">
 					<TextView font="BOLD" value="Credits: "/>
 					<HLayoutSpacer/>
 					<TextView name="Credits"/>
 				</View>
-				<View view_layout="horizontal" layout_borders="Rect(5,6,5,0)">
+				<View view_layout="horizontal" layout_borders="Rect(5,6,9,0)">
 					<TextView font="BOLD" value="Experience: "/>
 					<HLayoutSpacer/>
 					<TextView name="Experience"/>
 				</View>
 				<View view_layout="horizontal" layout_borders="Rect(5,2,3,0)">
 					<TextView font="BOLD" value="Rewards: "/>
-					<View layout_borders="Rect(1,0,0,0)" name="Preview" min_size="Point(178,22)" max_size="Point(178,22)">
+					<View layout_borders="Rect(1,0,0,0)" name="Preview" min_size="Point(210,22)" max_size="Point(210,22)">
 						<Haxxor/>
 					</View>
 					<HLayoutSpacer/>

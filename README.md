@@ -183,12 +183,12 @@ grid: icon/quality, name, quantity or QL, and actions. The wider Playfields
 panel fits its coordinate columns, and native sliders use the Dungeon Map
 track and handle with matching horizontal margins.
 Accept uses its own click control, so it does not invoke Ping.
-The Settings view opens as a 620-pixel two-column layout: Roll List and EXTRAS
-on the left, Playfields, TYPES, and sliders on the right. The Playfields list
-has a 130-pixel scroll viewport with a separate scroll client, keeping its
-rows visible above the action buttons. Invisible mission-card Ping controls
-use a transparent texture in every button state, including beside and below
-Accept, so native button chrome cannot appear in those spaces.
+The Settings view follows the compact restored-list layout: Roll List/DB
+Browser, side-by-side TYPES and EXTRAS, Playfields, then sliders in one
+310-pixel column. The Playfields list has a 96-pixel scroll viewport with a
+separate scroll client, keeping three rows visible above the action buttons.
+The mission reward list has six fixed cells within its card, and the invisible
+Ping controls suppress the AO hover tint beside and below Accept.
 Mission Types, EXTRAS, Playfields, and the Impl/Refin/Clstr/Nano/Rest filters
 retain Mali's original on/off button graphics.
 Roll List and DB Browser selectors also retain Mali's on/off graphics, while

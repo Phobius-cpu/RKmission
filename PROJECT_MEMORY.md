@@ -2414,3 +2414,18 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
   beside and below the independent Accept button.
 - All roller XML parses and `dotnet build` succeeds with zero errors. Verify
   final scroll and hit-region behavior in the AO client.
+
+## Compact roller Settings and mission-card follow-up (2026-10-01)
+
+- User screenshots showed a purple Ping hover strip, reward-list scroll arrows,
+  and card content near the right edge. The user selected the earlier compact
+  restored-list option, superseding the spacious side-panel layout above.
+- Settings is one 310-pixel column: Roll List/DB Browser, TYPES and EXTRAS in
+  155-pixel panels, Playfields, then sliders. Playfields keeps a separate
+  scroll client and a 96-pixel viewport for three visible rows.
+- Mission Ping buttons clear AO's color override and state borders; the empty
+  footer Ping regions are fully transparent while retaining their callbacks.
+  Reward previews use six fixed cells and a
+  210x22 viewport. Card values have more right padding; truncated titles end
+  with an ellipsis. AO client verification is still needed for hover rendering
+  and reward-list scroll controls.

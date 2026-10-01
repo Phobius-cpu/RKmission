@@ -34,6 +34,9 @@ namespace MaliMissionRoller2
                     missionModel.Root.FindChild(PingRegionNames[region], out missionModel.PingTargets[region]);
                     Button pingTarget = missionModel.PingTargets[region];
                     Extensions.HidePingChrome(pingTarget);
+                    // These footer regions have no child text or icons to keep visible.
+                    if (region > 0)
+                        pingTarget.SetAlpha(0);
                     pingTarget.Clicked = PingClick;
                 }
                 missionModel.Root.FindChild("Accept", out missionModel.Accept);
@@ -46,8 +49,10 @@ namespace MaliMissionRoller2
                 missionModel.MultiListView.SetGridIconSpacing(new Vector2(4, 4));
                 missionModel.MultiListView.SetGridIconSize(3);
                 missionModel.MultiListView.SetLayoutMode(0);
+                missionModel.MultiListView.SetViewCellCounts(new IPoint(6, 1), new IPoint(6, 1));
                 missionModel.Root.FindChild("Preview", out View preview);
                 preview.AddChild(missionModel.MultiListView, false);
+                missionModel.MultiListView.ResizeTo(new Vector2(210, 22));
 
                 _missionViews.Add(missionModel);
                 _root.AddChild(missionModel.Root,false);
@@ -119,7 +124,7 @@ namespace MaliMissionRoller2
                 MissionItemReward[] itemData = rollList[i].MissionItemData;
 
                 _missionViews[i].Icon.SetBitmap(rollList[i].MissionIcon.ToString());
-                _missionViews[i].Title.Text = rollList[i].Title.Length > 25 ? rollList[i].Title.Substring(0, 25).ToUpper() : rollList[i].Title.ToUpper();
+                _missionViews[i].Title.Text = rollList[i].Title.Length > 25 ? rollList[i].Title.Substring(0, 22).ToUpper() + "..." : rollList[i].Title.ToUpper();
                 _missionViews[i].Playfield.Text = Extensions.GetZoneName(rollList[i].Playfield.Instance);
                 _missionViews[i].Experience.Text = rollList[i].XpReward.ToString();
                 _missionViews[i].Accept.Tag = rollList[i].MissionIdentity;
