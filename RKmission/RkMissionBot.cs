@@ -653,7 +653,7 @@ namespace RKmission
 
         private bool ObserveAutoAcceptance()
         {
-            MainWindow window = MaliMissionRoller2.Main.Window;
+            MaliMissionRoller2.MainWindow window = MaliMissionRoller2.Main.Window;
             if (window == null) return true;
             int pending = window.PendingAutoMissionId;
             if (pending > 0)
