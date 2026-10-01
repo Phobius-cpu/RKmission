@@ -9,7 +9,14 @@
 				<Button layout_borders="Rect(0,0,2,0)" name="BrowserMode"/>
 				<TextView font="BOLD" layout_borders="Rect(0,0,2,0)" value="DB BROWSER" color="0x00FFF1AC"/>
 			</View>
-			<BorderView alpha="0" layout_borders="Rect(0,2,0,0)" min_size="Point(235, 24)" >
+			<BorderView name="ListColumns" layout_borders="Rect(0,2,0,0)" min_size="Point(235,24)" max_size="Point(235,24)">
+				<View view_layout="horizontal" layout_borders="Rect(3,4,0,0)">
+					<TextView font="BOLD" value="Icon" color="0x00FFF1AC" min_size="Point(39,14)" max_size="Point(39,14)"/>
+					<TextView font="BOLD" name="ColumnRange" value="QL" color="0x00FFF1AC" min_size="Point(32,14)" max_size="Point(32,14)"/>
+					<TextView font="BOLD" value="Name" color="0x00FFF1AC" min_size="Point(119,14)" max_size="Point(119,14)"/>
+					<TextView font="BOLD" name="ColumnQuantity" value="x" color="0x00FFF1AC" min_size="Point(18,14)" max_size="Point(18,14)"/>
+					<TextView font="BOLD" name="ColumnActions" value="+/-" color="0x00FFF1AC" min_size="Point(20,14)" max_size="Point(20,14)"/>
+				</View>
 			</BorderView>
 			<BorderView alpha="0" layout_borders="Rect(0,0,0,2)" min_size="Point(235,210)"  max_size="Point(235,210)">
 				<ScrollView h_alignment="LEFT" label="#Behaviour/s" v_scrollbar_mode="auto" scroll_client="behaviour_s_scroll">
@@ -21,9 +28,19 @@
 					</ScrollViewChild>
 				</ScrollView>
 			</BorderView>
-			<View>
-				<TextView font="BOLD" feature_flags="TVF_ACCEPT_TXT_INPUT|TVF_ACCEPT_MOUSE_INPUT|TVF_RENDER_SHADOW" layout_borders="Rect(0,0,0,0)" color="0x00FFF1AC" name="SearchBarName" min_size="Point(225,14)" max_size="Point(225,14)"/>
-				<TextView font="BOLD" feature_flags="TVF_ACCEPT_TXT_INPUT|TVF_ACCEPT_MOUSE_INPUT|TVF_RENDER_SHADOW" layout_borders="Rect(0,0,0,1)" color="0x00FFF1AC" name="SearchBarMods" min_size="Point(225,14)" max_size="Point(225,14)"/>
+			<View name="SearchFields" layout_borders="Rect(4,1,4,1)">
+				<BorderView name="SearchNameFrame" min_size="Point(225,17)" max_size="Point(225,17)">
+					<View view_layout="horizontal" layout_borders="Rect(3,1,0,1)">
+						<TextView font="SMALL" value="NAME" color="0x00FFF1AC" min_size="Point(32,14)" max_size="Point(32,14)"/>
+						<TextView font="BOLD" feature_flags="TVF_ACCEPT_TXT_INPUT|TVF_ACCEPT_MOUSE_INPUT|TVF_RENDER_SHADOW" layout_borders="Rect(2,0,0,0)" color="0x00FFF1AC" name="SearchBarName" min_size="Point(184,14)" max_size="Point(184,14)"/>
+					</View>
+				</BorderView>
+				<BorderView name="SearchModsFrame" min_size="Point(225,17)" max_size="Point(225,17)">
+					<View view_layout="horizontal" layout_borders="Rect(3,1,0,1)">
+						<TextView font="SMALL" value="MODS" color="0x00FFF1AC" min_size="Point(32,14)" max_size="Point(32,14)"/>
+						<TextView font="BOLD" feature_flags="TVF_ACCEPT_TXT_INPUT|TVF_ACCEPT_MOUSE_INPUT|TVF_RENDER_SHADOW" layout_borders="Rect(2,0,0,0)" color="0x00FFF1AC" name="SearchBarMods" min_size="Point(184,14)" max_size="Point(184,14)"/>
+					</View>
+				</BorderView>
 			</View>
 			<View name="DbRoot" layout_borders="Rect(2,0,2,1)" min_size="Point(235, 15)" view_layout="horizontal">
 				<View view_layout="horizontal">

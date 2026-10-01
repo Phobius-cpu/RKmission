@@ -13,10 +13,14 @@ namespace MaliMissionRoller2
         private View _root;
         private View _scrollListRoot;
         private View _dbRoot;
+        private View _searchFields;
         private List<BrowserEntryView> _browserEntryViews;
         internal List<RollEntryView> RollEntryViews;
         private TextView _searchBarNameInput;
         private TextView _searchBarModsInput;
+        private TextView _columnRange;
+        private TextView _columnQuantity;
+        private TextView _columnActions;
         private Button BrowserMode;
         private Button RollMode;
         public Button Implants;
@@ -34,11 +38,20 @@ namespace MaliMissionRoller2
         {
             View _view = View.CreateFromXml($"{Main.PluginDir}\\UI\\Views\\ItemDisplayView.xml");
             Extensions.ColorFrame(_view);
+            Extensions.ColorFrame(_view, "ListColumns");
+            Extensions.ColorFrame(_view, "SearchNameFrame");
+            Extensions.ColorFrame(_view, "SearchModsFrame");
             _root = root;
             _browserEntryViews = new List<BrowserEntryView>();
             RollEntryViews = new List<RollEntryView>();
 
             _view.FindChild("ScrollListRoot", out _scrollListRoot);
+            _view.FindChild("ColumnRange", out _columnRange);
+            _view.FindChild("ColumnQuantity", out _columnQuantity);
+            _view.FindChild("ColumnActions", out _columnActions);
+            _view.FindChild("SearchFields", out _searchFields);
+            _searchFields.SetAlpha(0);
+            _searchFields.LimitMaxSize(new Vector2(0, 0));
             _view.FindChild("DbRoot", out _dbRoot);
             _dbRoot.LimitMaxSize(new Vector2(0, 15));
             _dbRoot.SetAlpha(0);
@@ -62,14 +75,12 @@ namespace MaliMissionRoller2
                 _searchBarModsInput.Text = "Type item mods here.. str,stam";
             else
                 _searchBarModsInput.Text = "";
-            _searchBarModsInput.SetAlpha(0);
             _view.FindChild("SearchBarName", out _searchBarNameInput);
             if (Main.Settings.Extras["StartHelp"])
                 _searchBarNameInput.Text = "Type item name here.. Nano Beh";
             else
                 _searchBarNameInput.Text = "";
             defaultText =  _searchBarNameInput.Text + _searchBarModsInput.Text;
-            _searchBarNameInput.SetAlpha(0);
              _view.FindChild("BrowserMode", out BrowserMode);
             _view.FindChild("RollMode", out RollMode);
             Extensions.ButtonSetGfx(RollMode, 1000036);
@@ -410,10 +421,11 @@ namespace MaliMissionRoller2
             Midi.Play("Click");
             Extensions.ButtonSetGfx(BrowserMode, 1000036);
             Extensions.ButtonSetGfx(RollMode, 1000046);
-            _searchBarNameInput.LimitMaxSize(new Vector2(225, 14));
-            _searchBarNameInput.SetAlpha(1);
-            _searchBarModsInput.LimitMaxSize(new Vector2(225, 14));
-            _searchBarModsInput.SetAlpha(1);
+            _columnRange.Text = "Rng";
+            _columnQuantity.Text = "QL";
+            _columnActions.Text = "+";
+            _searchFields.LimitMaxSize(new Vector2(235, 36));
+            _searchFields.SetAlpha(1);
             _dbRoot.SetAlpha(1);
             _dbRoot.LimitMaxSize(new Vector2(235, 15));
 
@@ -437,10 +449,11 @@ namespace MaliMissionRoller2
             Midi.Play("Click");
             Extensions.ButtonSetGfx(RollMode, 1000036);
             Extensions.ButtonSetGfx(BrowserMode, 1000046);
-            _searchBarNameInput.SetAlpha(0);
-            _searchBarNameInput.LimitMaxSize(new Vector2(0, 14));
-            _searchBarModsInput.LimitMaxSize(new Vector2(0, 14));
-            _searchBarModsInput.SetAlpha(0);
+            _columnRange.Text = "QL";
+            _columnQuantity.Text = "x";
+            _columnActions.Text = "+/-";
+            _searchFields.SetAlpha(0);
+            _searchFields.LimitMaxSize(new Vector2(0, 0));
             _dbRoot.SetAlpha(0);
             _dbRoot.LimitMaxSize(new Vector2(0, 15));
             DeleteBrowserEntries();
