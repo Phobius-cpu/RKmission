@@ -824,3 +824,12 @@ failed navigation revisions. The earlier Desktop/OneDrive source backup is not
 refreshed by this request. Pull main, compile yourself, and validate both Run/Fly
 entrances, native map upload, association safety, full-direction recovery,
 persisted retries and the unchanged dungeon handoff in AO#.
+
+
+### Recorded navigation and post-zone flight safety
+
+Use `/rkm nav record [name]` before manually walking a safe route and `/rkm nav stop` at its endpoint. `/rkm nav list` shows saved routes. Samples are persisted in `RKMissionData/navigation-routes.json`. Inside Fixer Grid, automatic lift/portal movement only replays a route whose recorded endpoints match the current position and requested endpoint; it no longer invents a straight-line shortcut across an unrecorded gap.
+
+When a flying character zones outdoors from Fixer Grid or a mission dungeon, RKMission performs a short diagonal climb (36 m vertical with lateral displacement) before normal routing. It does not run for ground movement, normal Grid/FGrid entrance approaches, mission-terminal approaches, or recorded internal FGrid routes.
+
+Mission-key discovery accepts MissionKey identities even when Neko's dynamic `Mission key to ...` label is unreadable. Unlabelled candidates are only paired with live ACG entrances at the selected mission anchor; static broad guessing remains disabled and exact dungeon verification is still mandatory.
