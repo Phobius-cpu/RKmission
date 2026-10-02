@@ -54,6 +54,9 @@ namespace RKmission
         public AcceptedMission Find(Identity id) => _records.TryGetValue(id, out AcceptedMission record) ? record : null;
         public bool ObservedQuestUpdate(int missionId, DateTime sinceUtc) =>
             _questUpdateAt.TryGetValue(missionId, out DateTime receivedAt) && receivedAt >= sinceUtc;
+        public IEnumerable<int> NewQuestUpdateIdsSince(DateTime sinceUtc, HashSet<int> previousIds) =>
+            _questUpdateAt.Where(x => x.Value >= sinceUtc && !previousIds.Contains(x.Key))
+                .Select(x => x.Key);
         public IEnumerable<AcceptedMission> Eligible(int playfield) => Records.Where(x => x.Present && x.IsRubiKaDestination &&
             x.PlayfieldId == playfield && !x.Completed);
 

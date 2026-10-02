@@ -28,6 +28,9 @@ namespace MaliMissionRoller2
         public string LastAutoError { get; private set; }
         public int PendingAutoMissionId { get; private set; }
         public int PendingAutoPlayfieldId { get; private set; }
+        public string? PendingAutoTitle { get; private set; }
+        public Vector3 PendingAutoLocation { get; private set; }
+        public HashSet<int> PendingAutoPreviousQuestIds { get; private set; } = new HashSet<int>();
         public DateTime AutoAcceptRequestedAtUtc { get; private set; }
         public DateTime LastAutoOfferAtUtc { get; private set; }
         public Func<int, int>? AutoAcceptedCountForPlayfield { get; set; }
@@ -50,6 +53,8 @@ namespace MaliMissionRoller2
             LastAutoError = null;
             PendingAutoMissionId = 0;
             PendingAutoPlayfieldId = 0;
+            PendingAutoTitle = null;
+            PendingAutoPreviousQuestIds.Clear();
             AutoAcceptRequestedAtUtc = DateTime.MinValue;
             LastAutoOfferAtUtc = DateTime.UtcNow;
             _requestTimer = 1.5f;
@@ -63,6 +68,8 @@ namespace MaliMissionRoller2
             _isRolling = false;
             PendingAutoMissionId = 0;
             PendingAutoPlayfieldId = 0;
+            PendingAutoTitle = null;
+            PendingAutoPreviousQuestIds.Clear();
             AutoAcceptRequestedAtUtc = DateTime.MinValue;
         }
         private float _requestTimer;
@@ -298,6 +305,10 @@ namespace MaliMissionRoller2
                     AutoZoneId = 0;
                     PendingAutoMissionId = nearest.MissionIdentity.Instance;
                     PendingAutoPlayfieldId = nearest.Playfield.Instance;
+                    PendingAutoTitle = nearest.Title;
+                    PendingAutoLocation = nearest.Location;
+                    PendingAutoPreviousQuestIds = new HashSet<int>((Mission.List ?? new List<Mission>())
+                        .Select(x => x.Identity.Instance));
                     AutoAcceptRequestedAtUtc = DateTime.UtcNow;
                     MissionView.AcceptMission(nearest.MissionIdentity);
                     return;

@@ -2558,3 +2558,17 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 - Restarting `/rkm auto` now counts already accepted, uncompleted Rubi-Ka
   quests toward the mission limit. This prevents a confirmed game-side accept
   from the timed-out run from causing an extra paid roll on restart.
+
+## Offered ID differs from accepted quest ID (2026-10-02)
+
+- The user supplied `/rkm missions` output after another timeout: offered
+  mission `1442854549` became accepted quest `1442854551` in playfield 615.
+  The previous offer `1442852655` is present as quest `1442852660` in playfield
+  570. Therefore exact offer-ID lookup cannot confirm accepted quests; the
+  game assigns a new quest identity. The second offer also proves rolling is
+  selecting a destination outside playfield 540.
+- Snapshot native quest IDs before sending `CreateQuestMessage`. Confirm the
+  single new accepted mission matching the offered playfield, title/location,
+  or unique new quest update, and count/log its accepted quest ID. Retain a
+  cautious wait when the new quest exists but its destination is unresolved.
+  A future timeout logs newly observed quest IDs and playfields for diagnosis.

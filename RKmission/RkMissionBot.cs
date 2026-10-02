@@ -716,19 +716,44 @@ namespace RKmission
             if (pending > 0)
             {
                 _missions.Refresh(true);
+                int destination = window.PendingAutoPlayfieldId;
                 AcceptedMission accepted = _missions.Records.FirstOrDefault(x =>
                     x.Id.Instance == pending && x.Present);
-                bool questAcknowledged = _missions.ObservedQuestUpdate(pending, window.AutoAcceptRequestedAtUtc);
-                if (accepted != null || questAcknowledged)
+                if (accepted == null)
                 {
-                    int destination = window.PendingAutoPlayfieldId;
-                    if (_autoAcceptedIds.Add(pending)) _autoAcceptedCount++;
-                    _autoAcceptedPlayfields[pending] = destination;
+                    // The accepted quest receives a new identity; the offer ID
+                    // is only the argument to CreateQuestMessage. Match a new
+                    // native quest against the offered destination and the
+                    // pre-accept mission-list snapshot.
+                    var added = _missions.Records.Where(x => x.Present &&
+                        !window.PendingAutoPreviousQuestIds.Contains(x.Id.Instance)).ToList();
+                    var inDestination = added.Where(x => x.PlayfieldId == destination).ToList();
+                    if (inDestination.Count == 1) accepted = inDestination[0];
+                    else if (added.Count > 0)
+                    {
+                        var matching = added.Where(x =>
+                            string.Equals(x.Name, window.PendingAutoTitle, StringComparison.OrdinalIgnoreCase) ||
+                            (x.PlayfieldId == destination &&
+                                Vector3.Distance(x.Entrance, window.PendingAutoLocation) <= 12f)).ToList();
+                        if (matching.Count == 1) accepted = matching[0];
+                        else if (added.Count == 1 && added[0].PlayfieldId == 0)
+                            accepted = added[0]; // Live quest exists; destination metadata is still loading.
+                    }
+                }
+                var updatedIds = _missions.NewQuestUpdateIdsSince(window.AutoAcceptRequestedAtUtc,
+                    window.PendingAutoPreviousQuestIds).ToList();
+                int updateId = updatedIds.Count == 1 ? updatedIds[0] : 0;
+                bool exactQuestAcknowledged = _missions.ObservedQuestUpdate(pending, window.AutoAcceptRequestedAtUtc);
+                if (accepted != null || updateId > 0 || exactQuestAcknowledged)
+                {
+                    int acceptedId = accepted?.Id.Instance ?? (updateId > 0 ? updateId : pending);
+                    if (_autoAcceptedIds.Add(acceptedId)) _autoAcceptedCount++;
+                    _autoAcceptedPlayfields[acceptedId] = destination;
                     if (accepted == null || !accepted.IsRubiKaDestination)
-                        _awaitingQuestDetails.Add(pending);
+                        _awaitingQuestDetails.Add(acceptedId);
                     window.StopZoneRolling();
                     _autoRolling = false;
-                    Say($"Automatic acceptance confirmed: mission {pending}; " +
+                    Say($"Automatic acceptance confirmed: offer {pending}, quest {acceptedId}; " +
                         $"destination playfield {destination}, " +
                         $"{_autoAcceptedCount}/{(_maxAutoMissions == 0 ? "unlimited" : _maxAutoMissions.ToString())} this cycle" +
                         (accepted == null || !accepted.IsRubiKaDestination
@@ -740,8 +765,13 @@ namespace RKmission
                     Wait($"Waiting for accepted mission {pending} to appear in the quest list.");
                     return false;
                 }
+                var observed = _missions.Records.Where(x => x.Present &&
+                    !window.PendingAutoPreviousQuestIds.Contains(x.Id.Instance))
+                    .Take(5).Select(x => $"{x.Id.Instance}/PF{x.PlayfieldId}").ToList();
                 Stop();
-                Say($"Mission {pending} was offered, but neither the quest list nor an exact server quest update confirmed acceptance within 20 seconds. Check the quest list before restarting /rkm auto.");
+                Say($"Offer {pending} was sent for acceptance, but no matching new quest appeared in playfield {destination} within 20 seconds. Check /rkm missions before restarting /rkm auto.");
+                Say("New quest-list identities seen during acceptance: " +
+                    (observed.Count > 0 ? string.Join(", ", observed) : "none") + ".");
                 return false;
             }
             if (Inventory.NumFreeSlots < 2 ||
