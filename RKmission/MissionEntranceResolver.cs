@@ -113,22 +113,21 @@ namespace RKmission
                 // Neko reads the dynamic name through the key's dynel identity.
                 Identity keyDynel = N3EngineClientAnarchy.TemplateIDToDynelID(key.Slot);
                 bool templateMatches = TryMissionKeyLabel(key.Name, out string templateLabel);
-                if (keyDynel.Type != IdentityType.MissionKey &&
-                    key.UniqueIdentity.Type != IdentityType.MissionKey && !templateMatches)
-                    continue;
-                missionKeys++;
                 string keyName = keyDynel.Type == IdentityType.MissionKey
                     ? N3EngineClientAnarchy.GetName(keyDynel) : null;
-                if (!TryMissionKeyLabel(keyName, out string label))
-                {
-                    if (!templateMatches)
-                    {
-                        if (firstUnreadableName == null)
-                            firstUnreadableName = $"dynel='{keyName}', template='{key.Name}'";
-                        continue;
-                    }
-                    label = templateLabel;
-                }
+                bool dynamicMatches = TryMissionKeyLabel(keyName, out string dynamicLabel);
+                bool missionIdentity = keyDynel.Type == IdentityType.MissionKey ||
+                    key.UniqueIdentity.Type == IdentityType.MissionKey;
+                // Some valid mission keys do not expose the same readable dynamic
+                // name Neko expected. Identity is authoritative; labels only narrow
+                // static entrance candidates. A live mission-anchor entrance can
+                // safely be tried and is still verified against the exact dungeon.
+                if (!missionIdentity && !templateMatches && !dynamicMatches)
+                    continue;
+                missionKeys++;
+                string label = dynamicMatches ? dynamicLabel : templateMatches ? templateLabel : null;
+                if (label == null && firstUnreadableName == null)
+                    firstUnreadableName = $"dynel='{keyName}', template='{key.Name}', slot={key.Slot}, unique={key.UniqueIdentity}";
                 keys.Add(new MissionKeyCandidate
                 {
                     Key = key,
@@ -149,12 +148,16 @@ namespace RKmission
             foreach (MissionKeyCandidate key in keys)
             {
                 var ids = new List<int>();
-                bool hasKnownLabel = _entrances.TryGetValue(key.Label, out List<uint> known);
+                bool hasKnownLabel = !string.IsNullOrWhiteSpace(key.Label) &&
+                    _entrances.TryGetValue(key.Label, out List<uint> known);
                 if (live.Count > 0 && matchingLiveKeys <= 1)
                 {
                     if (hasKnownLabel)
                         ids.AddRange(live.Where(id => known.Contains(unchecked((uint)id))));
-                    else if (keys.Count == 1)
+                    else
+                        // The mission anchor supplies the missing association.
+                        // Try unreadable/previously unknown key forms against only
+                        // these nearby entrances; exact dungeon verification remains mandatory.
                         ids.AddRange(live);
                 }
                 else if (keys.Count == 1)
@@ -191,7 +194,7 @@ namespace RKmission
                     : missionKeys == 0
                         ? "no mission-key dynel found in inventory"
                         : keys.Count == 0
-                            ? $"mission-key dynels have no readable destination label ({firstUnreadableName})"
+                            ? $"mission-key candidates have no usable destination evidence ({firstUnreadableName})"
                             : live.Count == 0 && keys.Count > 1
                                 ? "several mission keys and no nearby entrance to identify the selected mission"
                                 : matchingLiveKeys > 1
