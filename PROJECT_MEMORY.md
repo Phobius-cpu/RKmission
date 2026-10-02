@@ -2513,3 +2513,16 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
   Existing low-inventory optional-loot and unreachable-loot policies remain.
 - Compilation passed; actual combat, deferred chest collection, and exit
   still require an AO client run.
+
+## Door crossing after mission completion (2026-10-02)
+
+- A live 1->6 crossing reported an open door and detected room 6, but Mali's
+  stricter interior-margin check never confirmed entry. The deeper mapped
+  point then failed navmesh validation repeatedly until the 30-second edge
+  timeout. The log does not establish that the completed mission locked the
+  door; it establishes a target-room confirmation/navigation failure.
+- Keep the original safe interior check, and add a fallback requiring two
+  seconds of stable AO room identity plus 1.5 m of physical progress inward.
+  A stalled crossing now uses a short direct move at the live floor height
+  instead of repeatedly submitting the invalid deep navmesh point. AO client
+  verification is still needed for this door and post-completion loot route.

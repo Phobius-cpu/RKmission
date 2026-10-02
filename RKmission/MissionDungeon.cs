@@ -1245,6 +1245,21 @@ namespace RKmission
                     }
                     return;
                 }
+                // Mali's polygon can disagree with the live room boundary at
+                // a doorway. A stable AO room identity plus physical progress
+                // toward this edge's interior is independent entry evidence.
+                Vector3 inward = edge.Interior - edge.Threshold;
+                inward.Y = 0;
+                Vector3 crossed = position - edge.Threshold;
+                crossed.Y = 0;
+                float inwardProgress = inward.Magnitude > 0.1f
+                    ? (crossed.X * inward.X + crossed.Z * inward.Z) / inward.Magnitude : 0f;
+                if (now - _observedRoomAt >= TimeSpan.FromSeconds(2) && inwardProgress >= 1.5f)
+                {
+                    _say($"Transition {edge.Source}->{edge.Target}: live room identity and {inwardProgress:0.0}m of inward crossing remained stable; confirming entry despite mapped margin disagreement.");
+                    ConfirmTransition();
+                    return;
+                }
             }
             else
                 _observedRoom = -1;
@@ -1416,9 +1431,22 @@ namespace RKmission
                     crossing.LastProgress = now;
                     crossing.BestDistance = float.MaxValue;
                     _destination = null;
-                    _say($"Transition {edge.Source}->{edge.Target}: interior route stalled before safe entry; moving farther inside.");
+                    _say($"Transition {edge.Source}->{edge.Target}: interior route stalled before safe entry; trying a short direct crossing at the live floor height.");
                 }
-                Navigate(crossing.PushingDeeper ? edge.DeepInterior : edge.Interior);
+                if (crossing.PushingDeeper)
+                {
+                    Vector3 inward = edge.Interior - edge.Threshold;
+                    inward.Y = 0;
+                    if (inward.Magnitude > 0.1f &&
+                        now - crossing.LastApproachCommand >= TimeSpan.FromSeconds(1))
+                    {
+                        Vector3 direct = edge.Threshold + inward.Normalize() * 2.5f;
+                        direct.Y = position.Y;
+                        MovementArbiter.Current.SetDestination(_requestedOwner, direct);
+                        crossing.LastApproachCommand = now;
+                    }
+                }
+                else Navigate(edge.Interior);
                 return;
             }
             if (detectedRoom.Instance == edge.Source && (arrivedWithoutEntry || stalled) &&
