@@ -833,3 +833,10 @@ Use `/rkm nav record [name]` before manually walking a safe route and `/rkm nav 
 When a flying character zones outdoors from Fixer Grid or a mission dungeon, RKMission performs a short diagonal climb (36 m vertical with lateral displacement) before normal routing. It does not run for ground movement, normal Grid/FGrid entrance approaches, mission-terminal approaches, or recorded internal FGrid routes.
 
 Mission-key discovery accepts MissionKey identities even when Neko's dynamic `Mission key to ...` label is unreadable. Unlabelled candidates are only paired with live ACG entrances at the selected mission anchor; static broad guessing remains disabled and exact dungeon verification is still mandatory.
+
+
+### Shared RKMission tool window
+
+The RKMission tool host now has three tabs: **RKMission**, **Loot**, and **Dungeon**. Each tab keeps the original tool's own layout dimensions instead of inheriting the widest tab. The Roller restores Mali Mission Roller 2.0's original 320 px settings layout (including its original vertical settings arrangement), ManagerLoot embeds its unchanged original settings XML, and Mali's Dungeon Map 2.0 embeds its unchanged settings XML. Switching tabs refits the common host to the active content.
+
+`/rkm loot` opens the Loot tab. `/rkm map` and `/mapsettings` open the Dungeon tab. Closing/reopening the shared host recreates embedded views while preserving each plugin's existing settings/config persistence.
