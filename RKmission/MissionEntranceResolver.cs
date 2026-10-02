@@ -27,6 +27,7 @@ namespace RKmission
         private readonly string _cachePath;
         private readonly List<KeyEntrance> _attempts = new List<KeyEntrance>();
         private Mission _mission;
+        private int _scanPlayfieldId;
         private int _index;
         private bool _sent, _accepted;
         private DateTime _sentAt, _lastScanAt, _lastNoCandidateLogAt;
@@ -84,12 +85,15 @@ namespace RKmission
         public void Select(Mission mission)
         {
             bool sameMission = _mission != null && mission != null && _mission.Identity == mission.Identity;
-            if (sameMission && (_attempts.Count > 0 || _sent || _accepted ||
+            bool samePlayfield = _scanPlayfieldId == Playfield.ModelIdentity.Instance;
+            if (sameMission && samePlayfield &&
+                (_attempts.Count > 0 || _sent || _accepted ||
                 DateTime.UtcNow - _lastScanAt < TimeSpan.FromSeconds(2)))
                 return;
-            if (!sameMission) _lastNoCandidateReason = null;
+            if (!sameMission || !samePlayfield) _lastNoCandidateReason = null;
             Reset();
             _mission = mission;
+            _scanPlayfieldId = Playfield.ModelIdentity.Instance;
             _lastScanAt = DateTime.UtcNow;
             if (mission?.Location == null) return;
             Vector3 anchor = mission.Location.Pos;
@@ -155,7 +159,11 @@ namespace RKmission
                 }
                 else if (keys.Count == 1)
                 {
-                    if (_successfulKeys.TryGetValue(key.DynelInstance, out int cached))
+                    // A dynel instance can be reused by a later mission in
+                    // another zone. Trust a cached entrance only when this
+                    // key label still maps to that entrance in Neko's data.
+                    if (hasKnownLabel && _successfulKeys.TryGetValue(key.DynelInstance, out int cached) &&
+                        known.Contains(unchecked((uint)cached)))
                         ids.Add(cached);
                     if (hasKnownLabel && known.Count <= MaxUnlocatedEntrancesPerName)
                         ids.AddRange(known.Select(x => unchecked((int)x)));
@@ -313,6 +321,7 @@ namespace RKmission
         public void Reset()
         {
             _mission = null;
+            _scanPlayfieldId = 0;
             _attempts.Clear();
             _index = 0;
             _sent = _accepted = false;

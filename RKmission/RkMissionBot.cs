@@ -423,6 +423,14 @@ namespace RKmission
                 {
                     if (DateTime.UtcNow < _nextSelection) return;
                     _nextSelection = DateTime.UtcNow.AddSeconds(5);
+                    // Fill the requested mission batch before selecting a
+                    // destination. Keep the roller's existing two-slot guard.
+                    if (_autoCycle && !inFixerGrid && Inventory.NumFreeSlots >= 2 &&
+                        (_maxAutoMissions == 0 || _autoAcceptedCount < _maxAutoMissions))
+                    {
+                        if (!_autoRolling && ReturnToRollTerminal()) StartAutoRolling();
+                        return;
+                    }
                     var local = _missions.Eligible(Playfield.ModelIdentity.Instance).ToList();
                     if (local.Count == 0)
                     {
@@ -666,7 +674,8 @@ namespace RKmission
         private bool ObserveAutoAcceptance()
         {
             MaliMissionRoller2.MainWindow window = MaliMissionRoller2.Main.Window;
-            if (window == null) return true;
+            if (window == null)
+            { Stop(); Say("Mission roller is unavailable; automatic cycle stopped."); return false; }
             int pending = window.PendingAutoMissionId;
             if (pending > 0)
             {
@@ -679,7 +688,7 @@ namespace RKmission
                     _autoRolling = false;
                     Say($"Automatic acceptance confirmed: mission {pending}; " +
                         $"{_autoAcceptedCount}/{(_maxAutoMissions == 0 ? "unlimited" : _maxAutoMissions.ToString())} this cycle.");
-                    return true;
+                    return false;
                 }
                 if (DateTime.UtcNow - window.AutoAcceptRequestedAtUtc < TimeSpan.FromSeconds(20))
                 {
@@ -688,6 +697,15 @@ namespace RKmission
                 }
                 Stop();
                 Say($"Mission {pending} was offered, but acceptance was not confirmed. Check the quest list before restarting /rkm auto.");
+                return false;
+            }
+            if (Inventory.NumFreeSlots < 2 ||
+                (_maxAutoMissions > 0 && _autoAcceptedCount >= _maxAutoMissions))
+            {
+                window.StopZoneRolling();
+                _autoRolling = false;
+                Say($"Mission batch ready: {_autoAcceptedCount} accepted, " +
+                    $"{Inventory.NumFreeSlots} free inventory slots; selecting an accepted mission.");
                 return false;
             }
             if (!window.IsAutoRolling)
@@ -703,7 +721,7 @@ namespace RKmission
                 Say("The mission terminal did not return an offer within 20 seconds. Check terminal range and restart /rkm auto.");
                 return false;
             }
-            return true;
+            return false;
         }
 
         private void ObserveAutoRoll(object sender, RollListChangedArgs args)

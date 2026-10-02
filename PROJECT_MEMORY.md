@@ -2480,3 +2480,21 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
   closed Roller back. Reopening previously occurred only when the bot reached
   the next rolling step; `/rkm auto` now recreates the window immediately and
   restores its saved position before arming the automatic cycle.
+
+## Automatic mission batch and Neko zone rescan (2026-10-02)
+
+- The coordinator previously selected the first accepted mission as soon as
+  the quest appeared, even while the roller was still collecting offers. It
+  now keeps rolling until `/rkm limit` is met or fewer than the original two
+  free main-inventory slots remain, then selects accepted work. Confirmed
+  acceptance is still required before another paid roll starts. The user
+  confirmed this character currently has `/rkm limit` set to 6.
+- Neko's entrance resolver kept a candidate list for the same mission identity
+  even after zoning. A live log showed 19 key/entrance candidates exhausted in
+  playfield 540, followed by Scottyboi travel to 570 and no new Neko messages.
+  The resolver now rescans when the playfield changes. A cached successful
+  entrance is used only if it belongs to the current key label's Neko data.
+- The same live log shows the Scottyboi invite autoaccepted: it logged the
+  verified `Scottyboi4` reply, assigned `Warpdude32`, accepted inviter
+  identity `1624483346`, and joined the team. No Scotty invite logic change
+  was needed for that observed run.
