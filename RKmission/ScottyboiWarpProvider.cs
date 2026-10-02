@@ -46,6 +46,8 @@ namespace RKmission
         private bool _helpRetried, _teleportStarted, _queueReplySeen, _unverifiedQueueReplySeen;
         private bool _joinedByProvider;
         private readonly List<TeamRequestEventArgs> _pendingWarperInvites = new List<TeamRequestEventArgs>();
+        private uint _acceptedWarperInviteId;
+        private DateTime _acceptedWarperInviteAt;
         private readonly HashSet<uint> _verifiedNumberedBotIds = new HashSet<uint>();
         private PrivateMsgMessage? _pendingQueueReply;
         private string _lastReply;
@@ -80,6 +82,8 @@ namespace RKmission
                 _botId = _menuId = _replyId = _helpId = _recipientId = _warperId = 0;
                 _warperName = null;
                 _pendingWarperInvites.Clear();
+                _acceptedWarperInviteId = 0;
+                _acceptedWarperInviteAt = DateTime.MinValue;
                 _verifiedNumberedBotIds.Clear();
                 _pendingQueueReply = null;
                 _pendingCommand = null;
@@ -208,9 +212,9 @@ namespace RKmission
                             _say($"Assigned warper {_warperName} resolved to identity {_warperId}; " +
                                 "pending team invite identities did not match.");
                         _pendingWarperInvites.Clear();
-                        if (pending != null && !pending.Responded && !Team.IsInTeam &&
+                        if (pending != null && !Team.IsInTeam &&
                             (_state == State.Invite || _state == State.Warp))
-                            AcceptWarpInvite(pending, _warperId);
+                            AcceptWarpInvite(pending, _warperId, buffered: true);
                     }
                 }
                 if (_state == State.CommandLookup && _pendingCommand != null &&
@@ -363,7 +367,19 @@ namespace RKmission
 
         private void OnTeamRequest(object sender, TeamRequestEventArgs request)
         {
+            if (request.Responded) return;
             uint requesterId = unchecked((uint)request.Requester.Instance);
+            // AO# opens its native invitation window after this event unless
+            // Responded is set. A repeat invite from the warper we already
+            // accepted needs no second reply or visible prompt.
+            if (requesterId != 0 && requesterId == _acceptedWarperInviteId &&
+                DateTime.UtcNow - _acceptedWarperInviteAt < TimeSpan.FromMinutes(2) &&
+                (_joinedByProvider || (Team.IsInTeam && Team.Members != null && Team.Members.Any(member =>
+                    member.Identity.Instance == request.Requester.Instance))))
+            {
+                request.Ignore();
+                return;
+            }
             if ((_state != State.Invite && _state != State.Warp) || Team.IsInTeam || requesterId == 0) return;
             if (requesterId == _botId || requesterId == _recipientId ||
                 requesterId == _menuId || requesterId == _replyId ||
@@ -372,13 +388,18 @@ namespace RKmission
                 AcceptWarpInvite(request, requesterId);
                 return;
             }
-            // The team request can arrive before Scottyboi's queue response.
-            // Buffer only during this request, then accept it only if the
-            // subsequently verified warper-name lookup matches its identity.
-            if (_warperId == 0 && _pendingWarperInvites.Count < 4 &&
-                !_pendingWarperInvites.Any(x => x.Requester == request.Requester))
+            // The invite can arrive before Scottyboi's verified warper lookup.
+            // Mark it handled now so AO# does not open a native invite window;
+            // send the team reply only after the lookup matches its identity.
+            if (_warperId == 0 && _pendingWarperInvites.Any(x => x.Requester == request.Requester))
+            {
+                request.Ignore();
+                return;
+            }
+            if (_warperId == 0 && _pendingWarperInvites.Count < 4)
             {
                 bool firstInvite = _pendingWarperInvites.Count == 0;
+                request.Ignore();
                 _pendingWarperInvites.Add(request);
                 if (firstInvite && _warperName != null)
                     Network.Send(new LookupMessage { Id = 0, Name = _warperName });
@@ -386,9 +407,14 @@ namespace RKmission
             }
         }
 
-        private void AcceptWarpInvite(TeamRequestEventArgs request, uint requesterId)
+        private void AcceptWarpInvite(TeamRequestEventArgs request, uint requesterId, bool buffered = false)
         {
-            request.Accept();
+            if (buffered)
+                Team.Accept(request.Requester);
+            else
+                request.Accept();
+            _acceptedWarperInviteId = requesterId;
+            _acceptedWarperInviteAt = DateTime.UtcNow;
             _pendingWarperInvites.Clear();
             _pendingQueueReply = null;
             _joinedByProvider = true;
@@ -594,6 +620,8 @@ namespace RKmission
             _botId = _menuId = _replyId = _helpId = _recipientId = _warperId = 0;
             _warperName = null;
             _pendingWarperInvites.Clear();
+            _acceptedWarperInviteId = 0;
+            _acceptedWarperInviteAt = DateTime.MinValue;
             _verifiedNumberedBotIds.Clear();
             _pendingQueueReply = null;
             _pendingCommand = null;

@@ -2572,3 +2572,8 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
   or unique new quest update, and count/log its accepted quest ID. Retain a
   cautious wait when the new quest exists but its destination is unresolved.
   A future timeout logs newly observed quest IDs and playfields for diagnosis.
+
+## Scottyboi invite prompt after joining (2026-10-02)
+
+- AO# opens its native team-invite window after `TeamRequest` unless the event is marked handled. RKMission buffered early invites pending warper identity verification without marking them handled, so the popup could remain after the verified invite was accepted.
+- Mark buffered invites handled immediately, then send the team accept only after the assigned warper lookup matches the inviter. Suppress repeat invites from the accepted warper while the team join is active. Local build passed; verify in the AO client on the next warp.
