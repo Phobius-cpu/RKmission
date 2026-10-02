@@ -160,7 +160,22 @@ namespace RKmission
                     if (!_roller.ShowRoller())
                     { Say("Roller window could not be reopened; automatic cycle was not started."); break; }
                     if (!_running || !_autoCycle)
-                    { _autoAcceptedCount = 0; _autoAcceptedIds.Clear(); _autoAcceptedPlayfields.Clear(); _awaitingQuestDetails.Clear(); }
+                    {
+                        _missions.Refresh(true);
+                        var existing = _missions.Records.Where(x => x.Present &&
+                            x.IsRubiKaDestination && !x.Completed).ToList();
+                        _autoAcceptedCount = existing.Count;
+                        _autoAcceptedIds.Clear();
+                        _autoAcceptedPlayfields.Clear();
+                        _awaitingQuestDetails.Clear();
+                        foreach (AcceptedMission mission in existing)
+                        {
+                            _autoAcceptedIds.Add(mission.Id.Instance);
+                            _autoAcceptedPlayfields[mission.Id.Instance] = mission.PlayfieldId;
+                        }
+                        if (existing.Count > 0)
+                            Say($"Counting {existing.Count} already accepted Rubi-Ka mission(s) toward the automatic limit.");
+                    }
                     Dynel? visibleTerminal = FindVisibleRollTerminal();
                     if (visibleTerminal != null) RememberRollTerminal(visibleTerminal);
                     _autoCycle = true; Start(); Say("Automatic mission cycle armed."); break;

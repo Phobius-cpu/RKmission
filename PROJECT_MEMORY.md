@@ -2555,3 +2555,6 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 - Build passed; AO client validation is needed to confirm the server quest
   update arrives for the accepted identity and that the enabled offer pool
   contains missions outside playfield 540.
+- Restarting `/rkm auto` now counts already accepted, uncompleted Rubi-Ka
+  quests toward the mission limit. This prevents a confirmed game-side accept
+  from the timed-out run from causing an extra paid roll on restart.
