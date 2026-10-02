@@ -13,6 +13,9 @@ namespace RKmission
         public bool AutoCycle { get; set; }
         public int AutoMissionLimit { get; set; } // Zero means no acceptance limit.
         public int AutoAcceptedCount { get; set; }
+        public bool HasRollTerminal { get; set; }
+        public int RollTerminalPlayfield { get; set; }
+        public Vector3 RollTerminalPosition { get; set; }
         public string Phase { get; set; } = "Idle";
         public int MissionType { get; set; }
         public int MissionInstance { get; set; }

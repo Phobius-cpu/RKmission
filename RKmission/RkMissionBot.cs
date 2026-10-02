@@ -70,6 +70,13 @@ namespace RKmission
             _checkpoint = MissionCheckpoint.Load(pluginDir, Say);
             _maxAutoMissions = Math.Max(0, _checkpoint.AutoMissionLimit);
             _autoAcceptedCount = Math.Max(0, _checkpoint.AutoAcceptedCount);
+            _hasRollTerminal = _checkpoint.HasRollTerminal && _checkpoint.RollTerminalPlayfield > 0 &&
+                AcceptedMissions.Finite(_checkpoint.RollTerminalPosition);
+            if (_hasRollTerminal)
+            {
+                _rollTerminalPlayfield = _checkpoint.RollTerminalPlayfield;
+                _rollTerminalPosition = _checkpoint.RollTerminalPosition;
+            }
             _pendingCheckpointResume = _checkpoint.Armed;
             _checkpointResumeAfter = DateTime.UtcNow.AddSeconds(5);
             SMovementController.Set();
@@ -152,6 +159,8 @@ namespace RKmission
                     { Say("Roller window could not be reopened; automatic cycle was not started."); break; }
                     if (!_running || !_autoCycle)
                     { _autoAcceptedCount = 0; _autoAcceptedIds.Clear(); }
+                    Dynel? visibleTerminal = FindVisibleRollTerminal();
+                    if (visibleTerminal != null) RememberRollTerminal(visibleTerminal);
                     _autoCycle = true; Start(); Say("Automatic mission cycle armed."); break;
                 case "local":
                     if (_autoRolling) MaliMissionRoller2.Main.Window?.StopZoneRolling();
@@ -543,6 +552,9 @@ namespace RKmission
             _checkpoint.AutoCycle = _autoCycle;
             _checkpoint.AutoMissionLimit = _maxAutoMissions;
             _checkpoint.AutoAcceptedCount = _autoAcceptedCount;
+            _checkpoint.HasRollTerminal = _hasRollTerminal;
+            _checkpoint.RollTerminalPlayfield = _rollTerminalPlayfield;
+            _checkpoint.RollTerminalPosition = _rollTerminalPosition;
             _checkpoint.Phase = !_running ? "Idle" : _recoveringDeath ? "Recovery" :
                 _autoRolling ? "Rolling" : _selected == null ? "SelectingMission" :
                 Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid ? "Travel" :
@@ -748,16 +760,11 @@ namespace RKmission
             { Stop(); Say($"Rolling zone {_autoZone} is not a configured Rubi-Ka mission destination."); return; }
             if (_autoZone == 0 && !MaliMissionRoller2.Main.Window.HasEnabledAutoDestination)
             { Stop(); Say("No Rubi-Ka destination is enabled in the roller. Enable a location or use /rkm zone <id>."); return; }
-            Dynel terminal = DynelManager.AllDynels.Where(x =>
-                x.Identity.Type == IdentityType.MissionTerminal &&
-                x.DistanceFrom(DynelManager.LocalPlayer) < 7.5f)
-                .OrderBy(x => x.DistanceFrom(DynelManager.LocalPlayer)).FirstOrDefault();
+            Dynel? terminal = FindVisibleRollTerminal(7.5f);
             if (terminal == null)
-            { Stop(); Say("No mission terminal is in range for automatic rolling."); return; }
+            { Wait("Mission terminal is not yet in range; automatic cycle remains armed and will retry."); return; }
             MaliMissionRoller2.Main.Window.UpdateTerminal(new MissionTerminal(terminal));
-            _hasRollTerminal = true;
-            _rollTerminalPlayfield = Playfield.ModelIdentity.Instance;
-            _rollTerminalPosition = terminal.Position;
+            RememberRollTerminal(terminal);
             _autoRollCount = 0;
             _autoRolling = true;
             _returnStarted = DateTime.MinValue;
@@ -772,7 +779,16 @@ namespace RKmission
 
         private bool ReturnToRollTerminal()
         {
-            if (!_hasRollTerminal) return true;
+            if (!_hasRollTerminal)
+            {
+                Dynel? visible = FindVisibleRollTerminal();
+                if (visible == null)
+                {
+                    Wait("No saved roller terminal is available. Automatic cycle remains armed; move within sight of a mission terminal to resume rolling.");
+                    return false;
+                }
+                RememberRollTerminal(visible);
+            }
             if (Playfield.ModelIdentity.Instance != _rollTerminalPlayfield)
             {
                 TravelResult result = _longTravel.Tick(_rollTerminalPlayfield);
@@ -792,6 +808,32 @@ namespace RKmission
                 _nextReturnMove = DateTime.UtcNow.AddSeconds(3);
             }
             return false;
+        }
+
+        private static Dynel? FindVisibleRollTerminal(float maxDistance = float.MaxValue)
+        {
+            var player = DynelManager.LocalPlayer;
+            if (player == null) return null;
+            return DynelManager.AllDynels.Where(x => x.Identity.Type == IdentityType.MissionTerminal &&
+                    x.DistanceFrom(player) < maxDistance)
+                .OrderBy(x => x.DistanceFrom(player)).FirstOrDefault();
+        }
+
+        private void RememberRollTerminal(Dynel? terminal)
+        {
+            if (terminal == null) return;
+            int playfield = Playfield.ModelIdentity.Instance;
+            if (_hasRollTerminal && _rollTerminalPlayfield == playfield &&
+                Vector3.Distance(_rollTerminalPosition, terminal.Position) < 0.5f) return;
+            _hasRollTerminal = true;
+            _rollTerminalPlayfield = playfield;
+            _rollTerminalPosition = terminal.Position;
+            if (_checkpoint == null) return;
+            _checkpoint.HasRollTerminal = true;
+            _checkpoint.RollTerminalPlayfield = playfield;
+            _checkpoint.RollTerminalPosition = terminal.Position;
+            _checkpoint.Save(true, Say);
+            Say($"Saved roller terminal in playfield {playfield} for the automatic return after missions.");
         }
 
         private void OnRubberband(Vector3 position)

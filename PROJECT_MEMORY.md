@@ -2526,3 +2526,16 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
   A stalled crossing now uses a short direct move at the live floor height
   instead of repeatedly submitting the invalid deep navmesh point. AO client
   verification is still needed for this door and post-completion loot route.
+
+## Automatic return to the roller terminal (2026-10-02)
+
+- After exiting into Perpetual Wastelands, a live run said no mission terminal
+  was in range. The return terminal was held only in `RkMissionBot` memory, so
+  reinjection during a mission could lose it and try to roll at the exit.
+- Save the observed terminal playfield and position in the mission checkpoint,
+  restore it on load, and capture a visible terminal when `/rkm auto` arms or
+  when rolling starts. A terminal that has not loaded after zoning now causes
+  an armed retry rather than stopping the cycle.
+- Old checkpoints have no terminal bookmark. If none is visible in the current
+  playfield, the cycle stays armed and asks the character to come within sight
+  of one terminal once; future returns can use the saved bookmark.
