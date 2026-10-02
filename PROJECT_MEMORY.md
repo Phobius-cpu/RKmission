@@ -2588,3 +2588,12 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 - The user selected the single-window design with RKMission Roller as the left/default tab and ManagerLoot on the right. The roller's existing AO# window now hosts both original plugin views; ManagerLoot controls are attached as a view and keep their existing handlers and rule state.
 - Roller settings use two columns: Roll List / DB Browser at left, Types / Extras / Playfields / sliders at right. `/ManagerLoot` and `/rkm loot` open the ManagerLoot tab. Reopening the shared window restores the roller as the default tab and recreates ManagerLoot's view on demand.
 - C# build and XML parsing passed. Live AO client inspection is still needed for the tab layout, resizing, and close/reopen behavior.
+
+
+## 2026-10-02 generalized keys, safe FGrid paths and post-zone flight
+
+- Mission entrance discovery no longer requires every valid MissionKey identity to expose Neko's readable dynamic label. Unlabelled key identities may be tried only against live ACG entrances at the selected mission anchor; static guessing remains bounded and exact `Mission.FindMissionForCurrentDungeon` verification remains mandatory.
+- Added persistent `NavigationRouteRecorder` at `RKMissionData/navigation-routes.json`. `/rkm nav record [name]`, `/rkm nav stop`, and `/rkm nav list` let the user capture/edit safe paths from actual movement.
+- FGrid lift/portal traversal prefers only endpoint-matched recorded routes and now stops with a recording instruction instead of issuing a straight-line command when no safe route has been recorded. Existing 78-exit survey data remains authoritative and is not repeated.
+- Added flying-only post-zone safety after FGrid exits and mission exits: a short diagonal climb (18 m X, 12 m Z, 36 m Y) runs before ordinary routing. Ground movement, Grid/FGrid access approaches, mission-terminal paths and recorded FGrid routes are not altered.
+- Reference/history review still found lift coordinates and survey evidence but no confirmed reusable 4107/FGrid navmesh; recorded movement is therefore the safety authority rather than guessed geometry.
