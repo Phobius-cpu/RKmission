@@ -1,14 +1,25 @@
 ﻿<?xml version="1.0" standalone="yes"?>
 <Root>
-	<View view_layout="vertical" min_size="Point(320,0)">
-		<View name="HeaderRoot">
-			<Haxxor/>
-		</View>
-		<View name="MissionRoot" v_alignment="TOP" view_layout="vertical" layout_borders="Rect(5,0,5,0)">
-			<Haxxor/>
-		</View>
-		<View name="SettingsRoot" v_alignment="TOP" view_layout="vertical" layout_borders="Rect(5,0,5,0)">
-			<Haxxor/>
+	<View view_layout="vertical" min_size="Point(630,0)">
+		<BorderView min_size="Point(620,30)" max_size="Point(620,30)" layout_borders="Rect(5,4,5,4)">
+			<View view_layout="horizontal" layout_borders="Rect(4,3,4,3)">
+				<Button name="RollerTab" label="RKMission Roller" min_size="Point(145,22)" max_size="Point(145,22)"/>
+				<Button name="ManagerLootTab" label="ManagerLoot" min_size="Point(110,22)" max_size="Point(110,22)" layout_borders="Rect(4,0,0,0)"/>
+				<HLayoutSpacer/>
+			</View>
+		</BorderView>
+		<View name="TabContent" view_layout="vertical" h_alignment="CENTER" min_size="Point(630,0)">
+			<View name="RollerContent" view_layout="vertical" h_alignment="CENTER" min_size="Point(630,0)">
+				<View name="HeaderRoot" h_alignment="LEFT">
+					<Haxxor/>
+				</View>
+				<View name="MissionRoot" v_alignment="TOP" h_alignment="CENTER" view_layout="vertical" layout_borders="Rect(5,0,5,0)">
+					<Haxxor/>
+				</View>
+				<View name="SettingsRoot" v_alignment="TOP" h_alignment="CENTER" view_layout="vertical" layout_borders="Rect(5,0,5,0)">
+					<Haxxor/>
+				</View>
+			</View>
 		</View>
 	</View>
 </Root>

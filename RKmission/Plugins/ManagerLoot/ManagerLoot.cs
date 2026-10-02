@@ -22,11 +22,49 @@ namespace ManagerLoot
         private const string PluginName = "ManagerLoot";
         private string _embeddedPluginDirectory;
         private string UiDirectory => _embeddedPluginDirectory;
+        private MaliMissionRoller2.MainWindow? _rollerHost;
+        private Func<bool>? _showRoller;
+        private View? _managerView;
 
-        public void RunEmbedded(string pluginDirectory)
+        public void RunEmbedded(string pluginDirectory, MaliMissionRoller2.MainWindow rollerHost, Func<bool> showRoller)
         {
             _embeddedPluginDirectory = pluginDirectory;
+            _rollerHost = rollerHost;
+            _showRoller = showRoller;
+            _rollerHost.WindowReady += OnHostWindowReady;
+            _rollerHost.EnsureManagerLootView = MainUI;
             Run();
+        }
+
+        private void OnHostWindowReady()
+        {
+            settingsWindow = null!;
+            _managerView = null;
+        }
+
+        public void ShowSettingsTab()
+        {
+            if (_rollerHost == null) { MainUI(); return; }
+            if (_rollerHost.Window?.IsValid != true)
+                _showRoller?.Invoke();
+            if (_rollerHost.Window?.IsValid == true)
+            {
+                if (_managerView == null) MainUI();
+                _rollerHost.ShowManagerLootTab();
+            }
+        }
+
+        private bool FindSettingsView<T>(string name, out T view) where T : View
+        {
+            if (_rollerHost != null)
+            {
+                if (_managerView != null) return _managerView.FindChild(name, out view);
+                view = null!;
+                return false;
+            }
+            if (settingsWindow != null) return settingsWindow.FindView(name, out view);
+            view = null!;
+            return false;
         }
         private readonly string Version_Number = "2.1.6";
 
@@ -343,7 +381,7 @@ namespace ManagerLoot
                 MainUI();
 
                 Chat.WriteLine($"{PluginName} loaded!");
-                Chat.WriteLine($"/{PluginName} to open/close UI. /lm to enable/disable");
+                Chat.WriteLine($"/{PluginName} opens its tab in RKMission Roller. /lm to enable/disable");
                 Chat.WriteLine($"/macro mLoot /{PluginName}");
 
                 string _ManagerLootEnable = _settings["Enable"].AsBool() ? "Enabled" : "Disabled";
@@ -378,7 +416,7 @@ namespace ManagerLoot
             _settings["Enable"] = false;
             EnableString = "Enable";
 
-            if (settingsWindow?.IsValid == true && settingsWindow.FindView("Enable_Disable_Button", out Button enableButton))
+            if (settingsWindow?.IsValid == true && FindSettingsView("Enable_Disable_Button", out Button enableButton))
                 enableButton.SetLabel(EnableString);
 
             Save();
@@ -550,7 +588,7 @@ namespace ManagerLoot
                     _settings["DisableIfEmptyList"] = false;
                     EnableString = "Enable";
 
-                    if (settingsWindow?.IsValid == true && settingsWindow.FindView("Enable_Disable_Button", out Button enableButton))
+                    if (settingsWindow?.IsValid == true && FindSettingsView("Enable_Disable_Button", out Button enableButton))
                         enableButton.SetLabel(EnableString);
 
                     Chat.WriteLine($"{PluginName} disabled");
@@ -1030,11 +1068,11 @@ namespace ManagerLoot
                 if (settingsWindow == null || !settingsWindow.IsValid)
                     return;
 
-                if (settingsWindow.FindView("SaveAs", out TextInputView text))
+                if (FindSettingsView("SaveAs", out TextInputView text))
                 {
                     if (text.Text == null || string.IsNullOrEmpty(text.Text))
                     {
-                        if (settingsWindow.FindView("filePath", out DropdownMenu filePath))
+                        if (FindSettingsView("filePath", out DropdownMenu filePath))
                             path = Path.Combine(FolderPath, $"{filePath.GetItemLabel(filePath.GetSelection())}.json");
                     }
                     else
@@ -1057,7 +1095,7 @@ namespace ManagerLoot
                 if (settingsWindow == null || !settingsWindow.IsValid)
                     return;
 
-                settingsWindow.FindView("ScrollListRoot", out MultiListView _multiListView);
+                FindSettingsView("ScrollListRoot", out MultiListView _multiListView);
 
                 _multiListView.DeleteAllChildren();
 
@@ -1105,7 +1143,7 @@ namespace ManagerLoot
 
         private void ManagerCommand(string arg1, string[] arg2, ChatWindow window)
         {
-            MainUI();
+            ShowSettingsTab();
         }
 
         private void ManagerLootCommand(string command, string[] param, ChatWindow chatWindow)
@@ -1142,12 +1180,12 @@ namespace ManagerLoot
         {
             try
             {
-                settingsWindow.FindView("TextName", out TextInputView nameInput);
-                settingsWindow.FindView("_itemMinQL", out TextInputView minQlInput);
-                settingsWindow.FindView("_itemMaxQL", out TextInputView maxQlInput);
-                settingsWindow.FindView("_itemQuantity", out TextInputView quantityInput);
-                settingsWindow.FindView("BagName", out DropdownMenu bagMenu);
-                settingsWindow.FindView("ErrorMessage", out TextView errorMessage);
+                FindSettingsView("TextName", out TextInputView nameInput);
+                FindSettingsView("_itemMinQL", out TextInputView minQlInput);
+                FindSettingsView("_itemMaxQL", out TextInputView maxQlInput);
+                FindSettingsView("_itemQuantity", out TextInputView quantityInput);
+                FindSettingsView("BagName", out DropdownMenu bagMenu);
+                FindSettingsView("ErrorMessage", out TextView errorMessage);
 
                 string name = nameInput.Text.Trim();
                 string minQlStr = minQlInput.Text;
@@ -1221,10 +1259,10 @@ namespace ManagerLoot
         private void RemButtonClicked(object sender, ButtonBase e)
         {
             try {
-            settingsWindow.FindView("ScrollListRoot", out MultiListView list);
+            FindSettingsView("ScrollListRoot", out MultiListView list);
 
-            settingsWindow.FindView("RemoveIndex", out TextInputView removeIndex);
-            settingsWindow.FindView("ErrorMessage", out TextView errorMessage);
+            FindSettingsView("RemoveIndex", out TextInputView removeIndex);
+            FindSettingsView("ErrorMessage", out TextView errorMessage);
 
             if (removeIndex.Text.Trim() == "")
             {
@@ -1267,7 +1305,7 @@ namespace ManagerLoot
             try {
             if (settingsWindow == null || !settingsWindow.IsValid) return;
 
-            if (settingsWindow.FindView("SaveAs", out TextInputView text))
+            if (FindSettingsView("SaveAs", out TextInputView text))
             {
                 if (text.Text == null || string.IsNullOrEmpty(text.Text))
                 {
@@ -1295,7 +1333,7 @@ namespace ManagerLoot
         private void LoadButtonClicked(object sender, ButtonBase e)
         {
             try {
-            if (settingsWindow.FindView("filePath", out DropdownMenu filePath))
+            if (FindSettingsView("filePath", out DropdownMenu filePath))
             {
                 string selectedFile = Path.Combine(FolderPath, $"{filePath.GetItemLabel(filePath.GetSelection())}.json");
 
@@ -1320,7 +1358,7 @@ namespace ManagerLoot
 
         private void Remove_Button_Clicked(object sender, ButtonBase e)
         {
-            if (settingsWindow.FindView("filePath", out DropdownMenu filePath))
+            if (FindSettingsView("filePath", out DropdownMenu filePath))
             {
                 string selectedFile = Path.Combine(FolderPath, $"{filePath.GetItemLabel(filePath.GetSelection())}.json");
 
@@ -1345,7 +1383,7 @@ namespace ManagerLoot
             bool newValue = !_settings["UseSharedFolder"].AsBool();
             _settings["UseSharedFolder"] = newValue;
 
-            if (settingsWindow.FindView("ToggleFolderScope", out Button toggleBtn))
+            if (FindSettingsView("ToggleFolderScope", out Button toggleBtn))
                 toggleBtn.SetLabel($"Use Shared: {newValue}");
 
             Save();
@@ -1357,7 +1395,7 @@ namespace ManagerLoot
             if (settingsWindow == null || !settingsWindow.IsValid)
                 return;
 
-            settingsWindow.FindView("ScrollListRoot", out MultiListView _multiListView);
+            FindSettingsView("ScrollListRoot", out MultiListView _multiListView);
 
             _multiListView.DeleteAllChildren();
 
@@ -1379,7 +1417,7 @@ namespace ManagerLoot
         {
             try
             {
-                if (settingsWindow?.IsValid == true)
+                if (_rollerHost == null && settingsWindow?.IsValid == true)
                 {
                     Window_Closed_helper();
 
@@ -1388,19 +1426,31 @@ namespace ManagerLoot
                     return;
                 }
 
-                settingsWindow = Window.CreateFromXml(PluginName, UiDirectory + "\\UI\\ManagerLoot\\ManagerLootSettingWindow.xml", windowStyle: WindowStyle.Default, windowFlags: WindowFlags.AutoScale | WindowFlags.NoFade);
-                settingsWindow.MoveTo(_settings["MainWindowTopLeftX"].AsFloat(), _settings["MainWindowTopLeftY"].AsFloat());
+                if (_rollerHost != null)
+                {
+                    if (_managerView != null && ReferenceEquals(settingsWindow, _rollerHost.Window) &&
+                        settingsWindow?.IsValid == true) return;
+                    settingsWindow = _rollerHost.Window;
+                    if (settingsWindow?.IsValid != true) return;
+                    _managerView = View.CreateFromXml(UiDirectory + "\\UI\\ManagerLoot\\ManagerLootSettingWindow.xml");
+                    _rollerHost.AttachManagerLootView(_managerView);
+                }
+                else
+                {
+                    settingsWindow = Window.CreateFromXml(PluginName, UiDirectory + "\\UI\\ManagerLoot\\ManagerLootSettingWindow.xml", windowStyle: WindowStyle.Default, windowFlags: WindowFlags.AutoScale | WindowFlags.NoFade);
+                    settingsWindow.MoveTo(_settings["MainWindowTopLeftX"].AsFloat(), _settings["MainWindowTopLeftY"].AsFloat());
+                }
 
-                if (settingsWindow.FindView("InfoView", out Button infoView))
+                if (FindSettingsView("InfoView", out Button infoView))
                     infoView.Clicked = HandleInfoViewClick;
 
-                if (settingsWindow.FindView("Enable_Disable_Button", out Button enableButton))
+                if (FindSettingsView("Enable_Disable_Button", out Button enableButton))
                 {
                     enableButton.SetLabel(EnableString);
                     enableButton.Clicked = Enable_Disable_Button_Clicked;
                 }
 
-                if (settingsWindow.FindView("BagName", out DropdownMenu bags))
+                if (FindSettingsView("BagName", out DropdownMenu bags))
                 {
                     for (uint i = 0; i < 30; i++)
                         bags.DeleteItem(i);
@@ -1414,8 +1464,8 @@ namespace ManagerLoot
                     }
                 }
 
-                if (settingsWindow.FindView("ScrollListRoot", out MultiListView _multiListView) && settingsWindow.FindView("_itemMinQL", out TextInputView _itemMinQL)
-                    && settingsWindow.FindView("_itemMaxQL", out TextInputView _itemMaxQL) && settingsWindow.FindView("_itemQuantity", out TextInputView _itemQuantity))
+                if (FindSettingsView("ScrollListRoot", out MultiListView _multiListView) && FindSettingsView("_itemMinQL", out TextInputView _itemMinQL)
+                    && FindSettingsView("_itemMaxQL", out TextInputView _itemMaxQL) && FindSettingsView("_itemQuantity", out TextInputView _itemQuantity))
                 {
                     _itemMinQL.Text = "1";
                     _itemMaxQL.Text = "500";
@@ -1426,42 +1476,42 @@ namespace ManagerLoot
                     RefreshList();
                 }
 
-                if (settingsWindow.FindView("buttonAdd", out Button addbut))
+                if (FindSettingsView("buttonAdd", out Button addbut))
                     addbut.Clicked += AddButtonClicked;
 
-                if (settingsWindow.FindView("buttonDel", out Button rembut))
+                if (FindSettingsView("buttonDel", out Button rembut))
                     rembut.Clicked += RemButtonClicked;
 
-                if (settingsWindow.FindView("buttonNew", out Button newbut))
+                if (FindSettingsView("buttonNew", out Button newbut))
                     newbut.Clicked += New_List_Button_Clicked;
 
-                if (settingsWindow.FindView("filePath", out DropdownMenu filePath))
+                if (FindSettingsView("filePath", out DropdownMenu filePath))
                     Update_List_DropDown();
 
-                if (settingsWindow.FindView("buttonLoad", out Button loadbut))
+                if (FindSettingsView("buttonLoad", out Button loadbut))
                     loadbut.Clicked += LoadButtonClicked;
 
-                if (settingsWindow.FindView("buttonRemove", out Button buttonRemove))
+                if (FindSettingsView("buttonRemove", out Button buttonRemove))
                     buttonRemove.Clicked += Remove_Button_Clicked;
 
-                if (settingsWindow.FindView("OpenLootFolder", out Button openLootFolder))
+                if (FindSettingsView("OpenLootFolder", out Button openLootFolder))
                     openLootFolder.Clicked = OpenTheLootFolder;
 
-                if (settingsWindow.FindView("ToggleFolderScope", out Button toggleFolderScope))
+                if (FindSettingsView("ToggleFolderScope", out Button toggleFolderScope))
                 {
                     toggleFolderScope.Clicked = ToggleFolderScopeClicked;
                     toggleFolderScope.SetLabel($"Use Shared: {_settings["UseSharedFolder"].AsBool()}");
                 }
 
-                if (settingsWindow.FindView("ClearList", out Button clearButton))
+                if (FindSettingsView("ClearList", out Button clearButton))
                     clearButton.Clicked += Clear_List_Button_Clicked;
 
-                if (settingsWindow.FindView("VersionNumber", out TextView version))
+                if (FindSettingsView("VersionNumber", out TextView version))
                     version.Text = $"Version {Version_Number}";
 
                 if (settingsWindow == null) { Chat.WriteLine("settingsWindow == nul"); return; }
 
-                settingsWindow.Show(true);
+                if (_rollerHost == null) settingsWindow.Show(true);
 
             }
             catch (Exception ex)
@@ -1472,7 +1522,7 @@ namespace ManagerLoot
 
         private void Update_List_DropDown()
         {
-            if (settingsWindow.FindView("filePath", out DropdownMenu filePath))
+            if (FindSettingsView("filePath", out DropdownMenu filePath))
             {
                 if (!string.IsNullOrEmpty(FolderPath))
                 {
@@ -1503,6 +1553,11 @@ namespace ManagerLoot
 
         public void Teardown()
         {
+            if (_rollerHost != null)
+            {
+                _rollerHost.WindowReady -= OnHostWindowReady;
+                _rollerHost.EnsureManagerLootView = null;
+            }
             Save();
             UnsubEvents();
         }
@@ -1540,7 +1595,7 @@ namespace ManagerLoot
             _settings["Enable"] = !_settings["Enable"].AsBool();
             EnableString = _settings["Enable"].AsBool() ? "Disable" : "Enable";
 
-            if (settingsWindow?.IsValid == true && settingsWindow.FindView("Enable_Disable_Button", out Button enableButton))
+            if (settingsWindow?.IsValid == true && FindSettingsView("Enable_Disable_Button", out Button enableButton))
                 enableButton.SetLabel(EnableString);
 
             if (_settings["Enable"].AsBool())
@@ -1567,6 +1622,7 @@ namespace ManagerLoot
 
         private void Window_Closed_helper()
         {
+            if (_rollerHost != null) return;
             if (settingsWindow?.IsValid == true)
             {
                 Rect frame = settingsWindow.GetFrame();
@@ -1596,7 +1652,7 @@ namespace ManagerLoot
             if (!ErrorMessages.Contains(output))
                 ErrorMessages.Add(output);
 
-            if (settingsWindow != null && settingsWindow.IsValid && settingsWindow.FindView("Errors", out View errorView))
+            if (settingsWindow != null && settingsWindow.IsValid && FindSettingsView("Errors", out View errorView))
                 PopulateErrorView(errorView);
         }
 

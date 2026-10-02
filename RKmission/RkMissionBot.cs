@@ -59,7 +59,7 @@ namespace RKmission
             _map = new DungeonMap();
             _map.Run(System.IO.Path.Combine(pluginDir, "Plugins", "MalisDungeonMap2"));
             _loot = new ManagerLoot.ManagerLoot();
-            _loot.RunEmbedded(System.IO.Path.Combine(pluginDir, "Plugins", "ManagerLoot"));
+            _loot.RunEmbedded(System.IO.Path.Combine(pluginDir, "Plugins", "ManagerLoot"), MaliMissionRoller2.Main.Window, _roller.ShowRoller);
             _readiness = new MissionReadiness(Say, MissionReadinessSettings.Load(pluginDir, Say));
             _inventory = InventoryPolicy.Load(pluginDir, Say);
             _dungeon = new MissionDungeon(Say, _loot, _readiness, _inventory);
@@ -257,7 +257,7 @@ namespace RKmission
                         _fgrid.TargetStatus(_selected?.PlayfieldId ?? 0) + ".");
                     Say(_fgrid.SurveySummary + " Use /rkm fgrid scan for floor counts and file path.");
                     break;
-                case "loot": Say("Use /ManagerLoot for the original item list and settings."); break;
+                case "loot": _loot.ShowSettingsTab(); break;
                 case "map": _map.ToggleWindow(); break;
                 default: Say("Commands: start, auto, local, stop, status, missions, zone <id|all>, rolls <count>, limit <count|off>, travel auto|ground|flying, fgrid [scan], complete [mission id], loot, map."); break;
             }

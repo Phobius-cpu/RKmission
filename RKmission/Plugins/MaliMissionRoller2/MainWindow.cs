@@ -19,6 +19,14 @@ namespace MaliMissionRoller2
         internal MissionView MissionView;
         internal SettingsView SettingsView;
         internal bool InSettings;
+        private View? _tabContent;
+        private View? _rollerContent;
+        private View? _managerLootContent;
+        private Button? _rollerTab;
+        private Button? _managerLootTab;
+        public bool IsManagerLootTabActive { get; private set; }
+        public event Action? WindowReady;
+        public Action? EnsureManagerLootView { get; set; }
         private bool _isRolling;
         private bool _rkAutoMode;
         // RKMission drives the original request/response UI. A zero zone uses
@@ -87,6 +95,16 @@ namespace MaliMissionRoller2
             {
                 HelpWindow _helpWindow = new HelpWindow();
 
+                Window.FindView("TabContent", out _tabContent);
+                Window.FindView("RollerContent", out _rollerContent);
+                Window.FindView("RollerTab", out _rollerTab);
+                Window.FindView("ManagerLootTab", out _managerLootTab);
+                _managerLootContent = null;
+                IsManagerLootTabActive = false;
+                if (_rollerTab != null) _rollerTab.Clicked += (_, _) => ShowRollerTab();
+                if (_managerLootTab != null) _managerLootTab.Clicked += (_, _) => ShowManagerLootTab();
+                UpdateTabAppearance();
+
                 if (Window.FindView("HeaderRoot", out View headerRoot))
                 {
                     InSettings = false;
@@ -112,11 +130,51 @@ namespace MaliMissionRoller2
                     SettingsView.Locations.BoundsCheck();
                     SettingsView.Hide();
                 }
+                WindowReady?.Invoke();
             }
             catch (Exception e)
             {
                 Chat.WriteLine(e);
             }
+        }
+
+        public void AttachManagerLootView(View view)
+        {
+            if (_tabContent == null || view == null) return;
+            if (IsManagerLootTabActive && _managerLootContent != null)
+                _tabContent.RemoveChild(_managerLootContent);
+            _managerLootContent = view;
+            if (IsManagerLootTabActive)
+                _tabContent.AddChild(_managerLootContent, false);
+            _tabContent.FitToContents();
+        }
+
+        public void ShowRollerTab()
+        {
+            if (_tabContent == null || _rollerContent == null || !IsManagerLootTabActive) return;
+            if (_managerLootContent != null)
+                _tabContent.RemoveChild(_managerLootContent);
+            _tabContent.AddChild(_rollerContent, false);
+            IsManagerLootTabActive = false;
+            _tabContent.FitToContents();
+            UpdateTabAppearance();
+        }
+
+        public void ShowManagerLootTab()
+        {
+            if (_managerLootContent == null) EnsureManagerLootView?.Invoke();
+            if (_tabContent == null || _rollerContent == null || _managerLootContent == null || IsManagerLootTabActive) return;
+            _tabContent.RemoveChild(_rollerContent);
+            _tabContent.AddChild(_managerLootContent, false);
+            IsManagerLootTabActive = true;
+            _tabContent.FitToContents();
+            UpdateTabAppearance();
+        }
+
+        private void UpdateTabAppearance()
+        {
+            _rollerTab?.SetAlpha(IsManagerLootTabActive ? 0.65f : 1f);
+            _managerLootTab?.SetAlpha(IsManagerLootTabActive ? 1f : 0.65f);
         }
 
         private void HelpClick(object sender, ButtonBase e)

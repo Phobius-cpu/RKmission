@@ -2582,3 +2582,9 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 
 - A live log in room 3 repeated scan approach 1/7 and combat approach 1/9 against the same Veteran Ruffian while distance oscillated between 20.2 m and 19.8 m. The 20 m filter dropped the active combat target on every outward step and restarted both approaches.
 - Keep a previously selected enemy in the same mapped room as the combat target while approaching it, even if movement briefly exceeds 20 m. The existing 45-second unreachable-enemy deadline remains in force. Local build passed; AO client pathing needs a live check.
+
+## RKMission Roller and ManagerLoot shared tabs (2026-10-02)
+
+- The user selected the single-window design with RKMission Roller as the left/default tab and ManagerLoot on the right. The roller's existing AO# window now hosts both original plugin views; ManagerLoot controls are attached as a view and keep their existing handlers and rule state.
+- Roller settings use two columns: Roll List / DB Browser at left, Types / Extras / Playfields / sliders at right. `/ManagerLoot` and `/rkm loot` open the ManagerLoot tab. Reopening the shared window restores the roller as the default tab and recreates ManagerLoot's view on demand.
+- C# build and XML parsing passed. Live AO client inspection is still needed for the tab layout, resizing, and close/reopen behavior.
