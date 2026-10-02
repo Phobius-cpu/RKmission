@@ -10,7 +10,7 @@
 			</View>
 		</BorderView>
 		<View name="TabContent" view_layout="vertical" h_alignment="CENTER">
-			<View name="RollerContent" view_layout="vertical" h_alignment="CENTER" min_size="Point(630,0)">
+			<View name="RollerContent" view_layout="vertical" h_alignment="CENTER" min_size="Point(320,0)">
 				<View name="HeaderRoot" h_alignment="LEFT">
 					<Haxxor/>
 				</View>
