@@ -28,6 +28,8 @@ namespace RKmission
         private FGridServiceProvider _fgrid;
         private RubiKaTravelPlanner _longTravel;
         private MissionEntranceResolver _entranceResolver;
+        private NavigationRouteRecorder _navRoutes;
+        private PostZoneFlightSafety _postZoneSafety;
         private MissionCheckpoint _checkpoint;
         private bool _pendingCheckpointResume;
         private DateTime _checkpointResumeAfter;
@@ -66,7 +68,9 @@ namespace RKmission
             _deathRecovery = new DeathRecoveryController(_readiness, _movement, Say);
             _travel = new LocalMissionTravel(Say, pluginDir);
             _warp = new ScottyboiWarpProvider(Say, _movement);
-            _fgrid = new FGridServiceProvider(pluginDir, Say, _movement);
+            _navRoutes = new NavigationRouteRecorder(pluginDir, Say);
+            _postZoneSafety = new PostZoneFlightSafety(_movement, Say);
+            _fgrid = new FGridServiceProvider(pluginDir, Say, _movement, _navRoutes);
             _longTravel = new RubiKaTravelPlanner(pluginDir, _warp, _fgrid, _movement, Say);
             _entranceResolver = new MissionEntranceResolver(pluginDir, Say);
             _checkpoint = MissionCheckpoint.Load(pluginDir, Say);
@@ -104,6 +108,8 @@ namespace RKmission
         public override void Teardown()
         {
             _roller.RollerWindowClosed -= OnRollerWindowClosed;
+            _postZoneSafety?.Dispose();
+            _navRoutes?.Dispose();
             Stop(true);
             Game.OnUpdate -= Update;
             Game.TeleportStarted -= ZoningStarted;
@@ -238,6 +244,18 @@ namespace RKmission
                     if (!_missions.Records.Any()) Say("No accepted Rubi-Ka mission destinations detected.");
                     break;
                 case "complete": ConfirmCompletion(args); break;
+                case "nav":
+                    if (args.Length > 1 && args[1].Equals("record", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string name = args.Length > 2 ? string.Join("-", args.Skip(2)) : null;
+                        _navRoutes.Start(name); break;
+                    }
+                    if (args.Length > 1 && args[1].Equals("stop", StringComparison.OrdinalIgnoreCase))
+                    { _navRoutes.Stop(); break; }
+                    if (args.Length > 1 && args[1].Equals("list", StringComparison.OrdinalIgnoreCase))
+                    { _navRoutes.List(); break; }
+                    Say("Usage: /rkm nav record [name] | stop | list. Record FGrid walkways from endpoint to endpoint; playback is automatic when endpoints match.");
+                    break;
                 case "fgrid":
                     if (args.Length > 1 && args[1].Equals("scan", StringComparison.OrdinalIgnoreCase))
                     {
@@ -259,7 +277,7 @@ namespace RKmission
                     break;
                 case "loot": _loot.ShowSettingsTab(); break;
                 case "map": _map.ToggleWindow(); break;
-                default: Say("Commands: start, auto, local, stop, status, missions, zone <id|all>, rolls <count>, limit <count|off>, travel auto|ground|flying, fgrid [scan], complete [mission id], loot, map."); break;
+                default: Say("Commands: start, auto, local, stop, status, missions, zone <id|all>, rolls <count>, limit <count|off>, travel auto|ground|flying, fgrid [scan], nav record [name]|stop|list, complete [mission id], loot, map."); break;
             }
         }
 
@@ -298,6 +316,7 @@ namespace RKmission
             _travel?.Reset();
             _longTravel?.Reset();
             _entranceResolver?.Reset();
+            _navRoutes?.StopPlayback();
             _dungeon?.Stop();
             _movement?.StopAll();
             _autoCycle = false;
@@ -362,6 +381,9 @@ namespace RKmission
                     x.Id.Instance == id && x.Present && x.IsRubiKaDestination));
                 if (_pendingCheckpointResume) TryResumeCheckpoint();
                 if (!_running) return;
+                // Give a just-zoned flying character a short diagonal altitude
+                // escape before mission selection, terminal return or other travel.
+                if (_postZoneSafety.Tick()) return;
                 if (!DynelManager.LocalPlayer.IsAlive)
                 {
                     if (!_autoCycle) { Stop(); Say("Stopped because the character died."); return; }
