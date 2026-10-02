@@ -2597,3 +2597,12 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 - FGrid lift/portal traversal prefers only endpoint-matched recorded routes and now stops with a recording instruction instead of issuing a straight-line command when no safe route has been recorded. Existing 78-exit survey data remains authoritative and is not repeated.
 - Added flying-only post-zone safety after FGrid exits and mission exits: a short diagonal climb (18 m X, 12 m Z, 36 m Y) runs before ordinary routing. Ground movement, Grid/FGrid access approaches, mission-terminal paths and recorded FGrid routes are not altered.
 - Reference/history review still found lift coordinates and survey evidence but no confirmed reusable 4107/FGrid navmesh; recorded movement is therefore the safety authority rather than guessed geometry.
+
+
+## 2026-10-03 adaptive three-tab tool host
+
+- The shared RKMission AO# window now hosts RKMission Roller, ManagerLoot and Mali's Dungeon Map 2.0 as three tabs.
+- Roller settings were restored from the pre-`3700e170` layout: 320 px native width and the original vertical settings arrangement, rather than the 620/630 px two-column host introduced by the first shared-window implementation.
+- ManagerLoot continues to use its original `ManagerLootSettingWindow.xml`; Dungeon Map now uses its original `MainWindow.xml`, `ColorView.xml` and `EntryView.xml` inside the shared host.
+- The host root and tab content no longer impose the Roller width on every tab. On tab changes the active content and host refit to their natural dimensions. The compact tab strip is approximately the Dungeon Map width, so the map tab is not expanded to Roller dimensions.
+- `/rkm loot`, `/rkm map`, and `/mapsettings` route to their respective embedded tabs. Dungeon Map rendering/config behavior remains original; only the settings-window container changed.
