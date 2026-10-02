@@ -59,7 +59,7 @@ namespace RKmission
             _roller.Run(System.IO.Path.Combine(pluginDir, "Plugins", "MaliMissionRoller2"));
             _roller.RollerWindowClosed += OnRollerWindowClosed;
             _map = new DungeonMap();
-            _map.Run(System.IO.Path.Combine(pluginDir, "Plugins", "MalisDungeonMap2"));
+            _map.RunEmbedded(System.IO.Path.Combine(pluginDir, "Plugins", "MalisDungeonMap2"), MaliMissionRoller2.Main.Window, _roller.ShowRoller);
             _loot = new ManagerLoot.ManagerLoot();
             _loot.RunEmbedded(System.IO.Path.Combine(pluginDir, "Plugins", "ManagerLoot"), MaliMissionRoller2.Main.Window, _roller.ShowRoller);
             _readiness = new MissionReadiness(Say, MissionReadinessSettings.Load(pluginDir, Say));
