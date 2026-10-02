@@ -143,6 +143,7 @@ namespace RKmission
             // With several keys and no live match, static brute force can open
             // another accepted mission's dungeon, so travel to the anchor.
             int matchingLiveKeys = live.Count == 0 ? 0 : keys.Count(key =>
+                !string.IsNullOrWhiteSpace(key.Label) &&
                 _entrances.TryGetValue(key.Label, out List<uint> known) &&
                 live.Any(id => known.Contains(unchecked((uint)id))));
             foreach (MissionKeyCandidate key in keys)
