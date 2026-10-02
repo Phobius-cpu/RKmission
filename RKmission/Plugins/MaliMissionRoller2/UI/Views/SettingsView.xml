@@ -1,24 +1,22 @@
 ﻿<?xml version="1.0" standalone="yes"?>
 <Root>
-	<View name="SettingsViewRoot" v_alignment="TOP" view_layout="horizontal" min_size="Point(620,0)" max_size="Point(620,-1)">
-		<View name="ItemDisplayRoot" view_layout="vertical" min_size="Point(310,0)" max_size="Point(310,-1)">
+	<View name="SettingsViewRoot" v_alignment="UP" view_layout="vertical" min_size="Point(310,0)" max_size="Point(310,-1)">
+		<View name="ItemDisplayRoot">
 			<Haxxor/>
 		</View>
-		<View view_layout="vertical" min_size="Point(310,0)" max_size="Point(310,-1)">
-			<View view_layout="horizontal" min_size="Point(310,0)" max_size="Point(310,-1)">
-				<View name="TypesRoot" view_layout="horizontal" min_size="Point(155,0)" max_size="Point(155,-1)">
-					<Haxxor/>
-				</View>
-				<View name="ExtrasRoot" view_layout="horizontal" min_size="Point(155,0)" max_size="Point(155,-1)">
-					<Haxxor/>
-				</View>
-			</View>
-			<View name="LocationRoot" view_layout="horizontal">
+		<View view_layout="horizontal" min_size="Point(310,0)" max_size="Point(310,-1)">
+			<View name="TypesRoot" view_layout="horizontal" min_size="Point(155,0)" max_size="Point(155,-1)">
 				<Haxxor/>
 			</View>
-			<View name="SliderRoot" view_layout="horizontal">
+			<View name="ExtrasRoot" view_layout="horizontal" min_size="Point(155,0)" max_size="Point(155,-1)">
 				<Haxxor/>
 			</View>
+		</View>
+		<View name="LocationRoot" view_layout="horizontal">
+			<Haxxor/>
+		</View>
+		<View name="SliderRoot" view_layout="horizontal">
+			<Haxxor/>
 		</View>
 	</View>
 </Root>
