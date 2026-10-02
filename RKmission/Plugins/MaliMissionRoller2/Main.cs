@@ -17,6 +17,14 @@ namespace MaliMissionRoller2
         public static MainWindow Window;
         public static Settings Settings;
         public static List<KeyValuePair<ItemInfo, List<Stat>>> ItemDb;
+        public event EventHandler RollerWindowClosed;
+        private bool _rollerWindowClosed;
+
+        public void ShowRoller()
+        {
+            Window.Show();
+            _rollerWindowClosed = false;
+        }
 
         public unsafe void Run(string pluginDir)
         {
@@ -27,7 +35,7 @@ namespace MaliMissionRoller2
             Settings = JsonConvert.DeserializeObject<Settings>(File.ReadAllText($"{pluginDir}\\JSON\\{fileName}Settings.json"));
             Extensions.FormatItemDb(Settings.Database["Implants"], Settings.Database["Refined"], Settings.Database["Clusters"], Settings.Database["Nanos"], Settings.Database["Rest"]);
             Window = new MainWindow("RKMission Roller", $"{pluginDir}\\UI\\Windows\\MainWindow.xml");
-            Window.Show();
+            ShowRoller();
 
             var screenSize = AOSharp.Core.UI.Window.GetScreenSize();
 
@@ -36,7 +44,10 @@ namespace MaliMissionRoller2
             else
                 Window.Window.MoveTo(Settings.Frame.X, Settings.Frame.Y);
 
+            Settings.CaptureUiState();
+
             Game.OnUpdate += Update;
+            UIController.WindowDeleted += OnWindowDeleted;
             Mission.RollListChanged += RollListChanged;
             Network.N3MessageReceived += N3Message_Received;
             Game.TeleportEnded += Game_OnTeleportEnded;
@@ -60,8 +71,11 @@ namespace MaliMissionRoller2
             {
                 case "maxitems":
                     Settings.Dev["MaxItems"] = result;
-                    Window.SettingsView.ItemDisplay.DeleteBrowserEntries();
-                    Window.SettingsView.ItemDisplay.FormatBrowserEntries();
+                    if (!_rollerWindowClosed && Window?.Window?.IsValid == true)
+                    {
+                        Window.SettingsView.ItemDisplay.DeleteBrowserEntries();
+                        Window.SettingsView.ItemDisplay.FormatBrowserEntries();
+                    }
                     Chat.WriteLine($"Max Display items set to: {Settings.Dev["MaxItems"]}",ChatColor.Red);
                     break;
                 case "shopvalue":
@@ -71,9 +85,30 @@ namespace MaliMissionRoller2
             }
         }
 
+        private void OnWindowDeleted(object sender, AOSharp.Core.UI.Window closedWindow)
+        {
+            if (!ReferenceEquals(closedWindow, Window?.Window))
+                return;
+
+            // AOSharp raises this event before invalidating the native window.
+            // Save the live controls and frame now; Teardown must not read them later.
+            _rollerWindowClosed = true;
+            Window.StopZoneRolling();
+            MainWindow.CurrentTerminal = null;
+            RollerWindowClosed?.Invoke(this, EventArgs.Empty);
+            try
+            {
+                Settings.Save(false);
+            }
+            catch (Exception e)
+            {
+                Chat.WriteLine($"Roller settings could not be saved on close: {e.Message}");
+            }
+        }
+
         private void Game_OnTeleportStarted(object sender, EventArgs e)
         {
-            if (!Window.Window.IsValid)
+            if (_rollerWindowClosed || Window?.Window?.IsValid != true)
                 return;
 
             MainWindow.CurrentTerminal = null;
@@ -82,7 +117,7 @@ namespace MaliMissionRoller2
 
         private void Game_OnTeleportEnded(object sender, EventArgs e)
         {
-            if (!Window.Window.IsValid)
+            if (_rollerWindowClosed || Window?.Window?.IsValid != true)
                 return;
 
             Window.SettingsView.Locations.BoundsCheck();
@@ -102,9 +137,8 @@ namespace MaliMissionRoller2
             if (genCmdMsg.Target.Type != IdentityType.MissionTerminal)
                 return;
 
-            if (!Window.Window.IsValid)
+            if (_rollerWindowClosed || Window?.Window?.IsValid != true)
             {
-                Chat.WriteLine("This shouldn't happen");
                 return;
             }
 
@@ -123,7 +157,7 @@ namespace MaliMissionRoller2
 
         private void RollListChanged(object sender, RollListChangedArgs rollListChanged)
         {
-            if (!Window.Window.IsValid)
+            if (_rollerWindowClosed || Window?.Window?.IsValid != true)
                 return;
 
             Window.RollMatchCheck(rollListChanged.MissionDetails);
@@ -131,21 +165,26 @@ namespace MaliMissionRoller2
 
         private void Update(object sender, float e)
         {
-            if (!Window.Window.IsValid)
+            if (_rollerWindowClosed || Window?.Window?.IsValid != true)
                 return;
 
             Window.Update(e);
+            if (!_rollerWindowClosed && Window?.Window?.IsValid == true)
+                Settings.CaptureUiState(false);
         }
 
         public void Teardown()
         {
             Game.OnUpdate -= Update;
+            UIController.WindowDeleted -= OnWindowDeleted;
             Mission.RollListChanged -= RollListChanged;
             Network.N3MessageReceived -= N3Message_Received;
             Game.TeleportEnded -= Game_OnTeleportEnded;
             Game.TeleportStarted -= Game_OnTeleportStarted;
             Midi.TearDown();
-            Settings.Save();
+            if (!_rollerWindowClosed && Window?.Window?.IsValid == true)
+                Settings.Save();
+            MainWindow.CurrentTerminal = null;
         }
     }
 }

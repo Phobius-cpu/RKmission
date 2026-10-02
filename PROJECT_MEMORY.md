@@ -2463,3 +2463,16 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
   any custom image. The unused `041_TransparentPing.png` is removed. The four
   Ping regions and independent Accept callback remain; native reward list and
   card layout are unchanged from the prior correction.
+
+## Roller close and reinject lifecycle (2026-10-02)
+
+- User clarified that the AO client crashes after closing the Roller and then
+  ejecting and injecting RKMission again. The old teardown called `Settings.Save`
+  after the Roller window was invalid; that method read its native frame and
+  slider controls. It could dereference destroyed AO UI pointers.
+- The Roller now snapshots settings while its window is live and writes that
+  snapshot on close. Teardown never reads a closed window. Closing the Roller
+  stops an active `/rkm auto` cycle and blocks further mission requests. Late
+  terminal responses are ignored until an explicit new `/rkm auto` reopens it.
+- Compilation succeeded. The close/eject/inject sequence still needs an AO
+  client run because the native window lifetime cannot be simulated here.

@@ -34,6 +34,12 @@ namespace MaliMissionRoller2
 
         public bool StartZoneRolling(int zoneId)
         {
+            if (Window?.IsValid != true)
+            {
+                LastAutoError = "Roller window is closed; reopen it and restart /rkm auto.";
+                return false;
+            }
+
             AutoZoneId = zoneId;
             _rkAutoMode = true;
             _isRolling = true;
@@ -164,6 +170,13 @@ namespace MaliMissionRoller2
 
         internal bool RequestMission()
         {
+            if (Window?.IsValid != true)
+            {
+                LastAutoError = "Roller window is closed; reopen it and restart /rkm auto.";
+                _isRolling = false;
+                return false;
+            }
+
             if (CurrentTerminal == null)
             {
                 LastAutoError = "Mission terminal is unavailable; stand beside it and restart /rkm auto.";

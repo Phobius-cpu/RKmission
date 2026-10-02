@@ -16,6 +16,7 @@ namespace MaliMissionRoller2
 
         public Dictionary<string, LocationModel> Locations;
         public Vector2 Frame;
+        private List<RollEntryViewModel> _rollModels;
 
         public class LocationModel
         {
@@ -27,8 +28,13 @@ namespace MaliMissionRoller2
         {
         }
 
-        public void Save()
+        // Keep a managed snapshot while the AO window is alive. Its native
+        // child views may already be gone by the time WindowDeleted fires.
+        public void CaptureUiState(bool includeRollList = true)
         {
+            if (Main.Window?.Window?.IsValid != true || Main.Window.SettingsView == null)
+                return;
+
             foreach (PlayfieldEntryView locationEntry in Main.Window.SettingsView.Locations.Entries)
                 Locations[locationEntry.Name.Text] = new LocationModel
                 {
@@ -72,10 +78,19 @@ namespace MaliMissionRoller2
             Frame.X = Main.Window.Window.GetFrame().MinX;
             Frame.Y = Main.Window.Window.GetFrame().MinY;
 
+            if (includeRollList)
+                _rollModels = Main.Window.SettingsView.ItemDisplay.RollEntryViews.Select(x => x.RollEntryModel).ToList();
+        }
+
+        public void Save(bool captureUiState = true)
+        {
+            if (captureUiState)
+                CaptureUiState();
+
             File.WriteAllText($"{Main.PluginDir}\\JSON\\Settings.json", JsonConvert.SerializeObject(this));
 
-            List<RollEntryViewModel> rollModels = Main.Window.SettingsView.ItemDisplay.RollEntryViews.Select(x => x.RollEntryModel).ToList();
-            File.WriteAllText($"{Main.PluginDir}\\JSON\\RollList.json", JsonConvert.SerializeObject(rollModels));
+            if (_rollModels != null)
+                File.WriteAllText($"{Main.PluginDir}\\JSON\\RollList.json", JsonConvert.SerializeObject(_rollModels));
         }
     }
 }

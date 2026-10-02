@@ -53,6 +53,7 @@ namespace RKmission
             _autoZone = 0; // Unset means any enabled Rubi-Ka location in the roller.
             _roller = new MaliMissionRoller2.Main();
             _roller.Run(System.IO.Path.Combine(pluginDir, "Plugins", "MaliMissionRoller2"));
+            _roller.RollerWindowClosed += OnRollerWindowClosed;
             _map = new DungeonMap();
             _map.Run(System.IO.Path.Combine(pluginDir, "Plugins", "MalisDungeonMap2"));
             _loot = new ManagerLoot.ManagerLoot();
@@ -93,6 +94,7 @@ namespace RKmission
 
         public override void Teardown()
         {
+            _roller.RollerWindowClosed -= OnRollerWindowClosed;
             Stop(true);
             Game.OnUpdate -= Update;
             Game.TeleportStarted -= ZoningStarted;
@@ -115,6 +117,14 @@ namespace RKmission
         }
 
         private static void Say(string text) => Chat.WriteLine("RKMission: " + text);
+
+        private void OnRollerWindowClosed(object sender, EventArgs args)
+        {
+            if (!_autoCycle) return;
+
+            Stop();
+            Say("Roller window closed; automatic cycle stopped. Use /rkm auto to restart it.");
+        }
 
         private void ObserveMissionMessage(object sender, N3Message message)
         {
@@ -708,6 +718,10 @@ namespace RKmission
         private void StartAutoRolling()
         {
             if (!_running || !_autoCycle || _autoRolling || MaliMissionRoller2.Main.Window == null) return;
+            if (MaliMissionRoller2.Main.Window.Window?.IsValid != true)
+                _roller.ShowRoller();
+            if (MaliMissionRoller2.Main.Window.Window?.IsValid != true)
+            { Stop(); Say("Roller window could not be opened for automatic rolling."); return; }
             if (Inventory.NumFreeSlots < 2)
             { Stop(); Say("Two free main-inventory slots are required before automatic rolling."); return; }
             if (_autoZone > 0 && !AcceptedMissions.IsRubiKaPlayfield(_autoZone))
@@ -720,8 +734,6 @@ namespace RKmission
                 .OrderBy(x => x.DistanceFrom(DynelManager.LocalPlayer)).FirstOrDefault();
             if (terminal == null)
             { Stop(); Say("No mission terminal is in range for automatic rolling."); return; }
-            if (!MaliMissionRoller2.Main.Window.Window.IsValid)
-                MaliMissionRoller2.Main.Window.Show();
             MaliMissionRoller2.Main.Window.UpdateTerminal(new MissionTerminal(terminal));
             _hasRollTerminal = true;
             _rollTerminalPlayfield = Playfield.ModelIdentity.Instance;
