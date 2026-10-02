@@ -148,6 +148,8 @@ namespace RKmission
                     break;
                 case "start": Start(); break;
                 case "auto":
+                    if (!_roller.ShowRoller())
+                    { Say("Roller window could not be reopened; automatic cycle was not started."); break; }
                     if (!_running || !_autoCycle)
                     { _autoAcceptedCount = 0; _autoAcceptedIds.Clear(); }
                     _autoCycle = true; Start(); Say("Automatic mission cycle armed."); break;

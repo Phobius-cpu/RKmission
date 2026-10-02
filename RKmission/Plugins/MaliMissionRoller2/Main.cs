@@ -20,10 +20,27 @@ namespace MaliMissionRoller2
         public event EventHandler RollerWindowClosed;
         private bool _rollerWindowClosed;
 
-        public void ShowRoller()
+        public bool ShowRoller()
         {
+            if (Window == null)
+                return false;
+
+            bool reopening = Window.Window?.IsValid != true;
             Window.Show();
+            if (Window?.Window?.IsValid != true)
+                return false;
+
             _rollerWindowClosed = false;
+            if (reopening)
+            {
+                var screenSize = AOSharp.Core.UI.Window.GetScreenSize();
+                if (Settings.Frame.X > screenSize.X || Settings.Frame.Y > screenSize.Y)
+                    Window.Window.MoveToCenter();
+                else
+                    Window.Window.MoveTo(Settings.Frame.X, Settings.Frame.Y);
+                Settings.CaptureUiState();
+            }
+            return true;
         }
 
         public unsafe void Run(string pluginDir)
@@ -36,15 +53,6 @@ namespace MaliMissionRoller2
             Extensions.FormatItemDb(Settings.Database["Implants"], Settings.Database["Refined"], Settings.Database["Clusters"], Settings.Database["Nanos"], Settings.Database["Rest"]);
             Window = new MainWindow("RKMission Roller", $"{pluginDir}\\UI\\Windows\\MainWindow.xml");
             ShowRoller();
-
-            var screenSize = AOSharp.Core.UI.Window.GetScreenSize();
-
-            if (Settings.Frame.X > screenSize.X || Settings.Frame.Y > screenSize.Y)
-                Window.Window.MoveToCenter();
-            else
-                Window.Window.MoveTo(Settings.Frame.X, Settings.Frame.Y);
-
-            Settings.CaptureUiState();
 
             Game.OnUpdate += Update;
             UIController.WindowDeleted += OnWindowDeleted;

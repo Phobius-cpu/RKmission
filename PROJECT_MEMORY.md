@@ -2476,3 +2476,7 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
   terminal responses are ignored until an explicit new `/rkm auto` reopens it.
 - Compilation succeeded. The close/eject/inject sequence still needs an AO
   client run because the native window lifetime cannot be simulated here.
+- User then confirmed the crash was gone but `/rkm auto` did not bring the
+  closed Roller back. Reopening previously occurred only when the bot reached
+  the next rolling step; `/rkm auto` now recreates the window immediately and
+  restores its saved position before arming the automatic cycle.
