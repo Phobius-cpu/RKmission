@@ -27,6 +27,7 @@ namespace RKmission
         private const float DoorUseRange = 2f;
         private const int ReverseEdgeCooldownSeconds = 1;
         private readonly HashSet<int> _clearedRooms = new HashSet<int>();
+        private readonly HashSet<int> _combatCheckedRooms = new HashSet<int>();
         private readonly HashSet<int> _visitedRooms = new HashSet<int>();
         private readonly HashSet<int> _surveyedRooms = new HashSet<int>();
         private readonly HashSet<int> _enemyOwners = new HashSet<int>();
@@ -49,6 +50,7 @@ namespace RKmission
         private AcceptedMission _record;
         private MissionObjective _objective;
         private bool _exiting;
+        private bool _reservedAggroReported;
         private int _entryRoom;
         private Vector3 _entryPosition, _exitThreshold, _exitAcross;
         private Identity _exitDoor = Identity.None;
@@ -114,6 +116,8 @@ namespace RKmission
                 return;
             MovementArbiter.Current.StopAll();
             _clearedRooms.Clear();
+            _combatCheckedRooms.Clear();
+            _reservedAggroReported = false;
             _visitedRooms.Clear();
             _surveyedRooms.Clear();
             _enemyOwners.Clear();
@@ -258,10 +262,18 @@ namespace RKmission
             if (_objective.Failure != null) { Stop(); _say(_objective.Failure); return; }
             _objective.ObserveAcknowledgement();
             ReopenOccupiedRooms();
-            _objective.FinalActionsAllowed = _clearedRooms.Count == Playfield.Rooms.Count &&
-                !Playfield.Rooms.Any(x => EnemyCandidates(x).Any(enemy => !_objective.IsObjective(enemy.Identity))) &&
-                _loot.UnfinishedMissionLootCount == 0;
-            if (GuardReservedEnemy()) return;
+            foreach (Room occupied in Playfield.Rooms.Where(x =>
+                EnemyCandidates(x).Any(enemy => !_objective.IsObjective(enemy.Identity))))
+                _combatCheckedRooms.Remove(occupied.Instance);
+            bool ordinaryEnemiesRemain = Playfield.Rooms.Any(x =>
+                EnemyCandidates(x).Any(enemy => !_objective.IsObjective(enemy.Identity)));
+            bool allRoomsChecked = Playfield.Rooms.All(x =>
+                _clearedRooms.Contains(x.Instance) || _combatCheckedRooms.Contains(x.Instance));
+            _objective.FinalActionsAllowed = allRoomsChecked && !ordinaryEnemiesRemain &&
+                (_loot.UnfinishedMissionLootCount == 0 ||
+                    (_objective.HasKillTarget && _combatCheckedRooms.Count > 0));
+            bool reservedAggro = GuardReservedEnemy();
+            if (!IsRunning) return;
             _loot.MissionActionsPaused = _readiness.InCombat;
             // An established doorway crossing retains its existing ownership and
             // deadlines. Defer recovery until safe room arrival, observing aggro
@@ -340,14 +352,45 @@ namespace RKmission
             }
             if (_readiness.InCombat)
             {
-                // Aggro outside the new-target range still prevents sitting,
-                // looting, room clearance and initiating another fight.
-                if (!FightInRoom(room))
+                if (FightInRoom(room))
                 {
-                    MovementArbiter.Current.Halt(_requestedOwner);
-                    if (_objective.Finale && _objective.FinalActionsAllowed)
-                        TickObjective(room);
+                    _roomQuietAt = DateTime.MinValue;
+                    return;
                 }
+                if (reservedAggro && _objective.HasKillTarget)
+                {
+                    // The reserved target's aggro prevents chest interaction.
+                    // Sweep every room for ordinary enemies, then kill it and
+                    // return for the deferred loot before exiting.
+                    if (ScanRemainingRoom(room)) return;
+                    _combatCheckedRooms.Add(room.Instance);
+                    if (Playfield.Rooms.All(x => _clearedRooms.Contains(x.Instance) ||
+                            _combatCheckedRooms.Contains(x.Instance)) && !ordinaryEnemiesRemain)
+                    {
+                        _objective.FinalActionsAllowed = true;
+                        if (!_objective.Finale) _objective.BeginFinale();
+                        if (FightInRoom(room)) return;
+                        if (ScanRemainingRoom(room)) return;
+                        int? objectiveRoom = _objective.PendingRoom;
+                        if (objectiveRoom.HasValue && objectiveRoom.Value != room.Instance &&
+                            RouteToRoom(objectiveRoom.Value)) return;
+                    }
+                    else
+                    {
+                        Room nextCombatRoom = NextCombatSweepRoom(room);
+                        if (nextCombatRoom != null)
+                        { BeginTransition(room.Instance, nextCombatRoom.Instance); return; }
+                        if (!WaitingForRoute)
+                        {
+                            Stop();
+                            _say("Ordinary-enemy sweep cannot reach every room; reserved objective remains held.");
+                            return;
+                        }
+                    }
+                }
+                MovementArbiter.Current.Halt(_requestedOwner);
+                if (_objective.Finale && _objective.FinalActionsAllowed)
+                    TickObjective(room);
                 _roomQuietAt = DateTime.MinValue;
                 return;
             }
@@ -744,15 +787,25 @@ namespace RKmission
                     _objective.HoldEnemy(x.Character.FightingTarget.Identity));
             bool reservedAggro = !(_objective.Finale && _objective.FinalActionsAllowed) && DynelManager.NPCs.Any(x => x.IsAlive && _objective.HoldEnemy(x.Identity) &&
                 x.IsAttacking && owned.Contains(x.FightingTarget?.Identity ?? Identity.None));
-            if (attackingReserved || reservedAggro)
+            if (attackingReserved)
             {
-                player.StopAttack(); // Includes pet follow; don't finish a kill/observation early.
+                player.StopAttack(); // Includes pet follow; prevent the reserved kill.
                 Targeting.SelectSelf();
+            }
+            if ((attackingReserved || reservedAggro) && !_objective.HasKillTarget)
+            {
                 Stop();
                 _say("Reserved objective enemy engaged before the other enemies were cleared. Attacks stopped; resolve its aggro before resuming. Objective order was not waived.");
                 return true;
             }
-            return false;
+            if ((attackingReserved || reservedAggro) && !_reservedAggroReported)
+            {
+                _say("Reserved objective enemy engaged early; clearing ordinary enemies first. Loot blocked by combat will be collected before exit.");
+                _reservedAggroReported = true;
+            }
+            if (!attackingReserved && !reservedAggro)
+                _reservedAggroReported = false;
+            return reservedAggro;
         }
 
         private void ReopenOccupiedRooms()
@@ -840,16 +893,22 @@ namespace RKmission
                 _liftStarted = now;
                 return;
             }
-            if (_readiness.InCombat || (_record.State != MissionProgress.CompletedByUser &&
-                (EnemyCandidates(room).Any() || _loot.HasUnprocessedMissionLoot(room.Instance,
-                    dynel => !_objective.IsNonLootObjective(dynel.Identity)))))
+            Room occupied = Playfield.Rooms.FirstOrDefault(x =>
+                EnemyCandidates(x).Any(enemy => !_objective.IsObjective(enemy.Identity)));
+            Room unlooted = Playfield.Rooms.FirstOrDefault(x => _loot.HasUnprocessedMissionLoot(
+                x.Instance, dynel => !_objective.IsNonLootObjective(dynel.Identity)));
+            if (_readiness.InCombat || occupied != null || unlooted != null ||
+                _loot.UnfinishedMissionLootCount > 0)
             {
-                // New arrivals invalidate automatic all-enemies-cleared evidence.
+                // Check all rooms, including after the objective acknowledgement:
+                // combat may have deferred chests in rooms already traversed.
                 IsComplete = false;
                 _record.RoomsCleared = false;
                 _exiting = false;
-                _clearedRooms.Remove(room.Instance);
-                _say("New combat or unfinished room contents found during exit; clear them and recover before leaving.");
+                if (occupied != null) _clearedRooms.Remove(occupied.Instance);
+                if (unlooted != null) _clearedRooms.Remove(unlooted.Instance);
+                if (_readiness.InCombat) _clearedRooms.Remove(room.Instance);
+                _say("Combat, an ordinary enemy, or unlooted mission container remains; returning to clear it before exit.");
                 return;
             }
             if (room.Instance != _entryRoom)
@@ -1073,6 +1132,14 @@ namespace RKmission
             // A cut-through objective room may be unavoidable; its actions remain held.
             next = RouteTo(current.Instance, id => !_clearedRooms.Contains(id) && !reserved.Contains(id), false);
             return next ?? RouteTo(current.Instance, id => !_clearedRooms.Contains(id), false);
+        }
+
+        private Room NextCombatSweepRoom(Room current)
+        {
+            Func<int, bool> needsCheck = id => !_clearedRooms.Contains(id) &&
+                !_combatCheckedRooms.Contains(id);
+            return RouteTo(current.Instance, needsCheck, true) ??
+                RouteTo(current.Instance, needsCheck, false);
         }
 
         private Room RouteTo(int current, Func<int, bool> isGoal, bool avoidObjectiveRooms)

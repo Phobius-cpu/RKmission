@@ -39,6 +39,7 @@ namespace RKmission
         public bool Returning => _record.Kind == RkMissionKind.ReturnItem;
         public IEnumerable<int> Rooms => _rooms.Values.Distinct();
         public bool HasSteps => _steps.Count > 0;
+        public bool HasKillTarget => _steps.Any(x => x.Action is KillPersonAction);
         public bool CollectedReturnItem => Returning && ReturnItem != null;
         public Item ReturnItem => Inventory.Items.FirstOrDefault(item =>
             _pickedUpItems.Contains(item.UniqueIdentity) ||
@@ -111,7 +112,7 @@ namespace RKmission
         {
             if (Finale) return;
             Finale = true;
-            _say("Other rooms and enemies cleared; ordinary loot processed or skipped. Starting the reserved objective finale.");
+            _say("Other rooms checked and ordinary enemies cleared; starting the reserved objective finale. Any loot deferred by combat will be collected before exit.");
         }
 
         public void ObserveAcknowledgement()

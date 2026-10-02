@@ -2498,3 +2498,18 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
   verified `Scottyboi4` reply, assigned `Warpdude32`, accepted inviter
   identity `1624483346`, and joined the team. No Scotty invite logic change
   was needed for that observed run.
+
+## Early objective aggro and deferred mission loot (2026-10-02)
+
+- A kill-objective attacking early no longer stops the dungeon. RKMission
+  cancels attacks on that reserved target, sweeps every mapped room for
+  ordinary enemies even while the objective keeps combat active, then
+  releases the objective only after every room is checked and no ordinary
+  enemy remains. Chest interaction stays paused during combat.
+- Rooms checked under combat can contain deferred loot. After the objective
+  dies, normal room processing reopens them. The exit now checks all rooms
+  for remaining ordinary enemies and unprocessed containers, even after
+  objective acknowledgement, and resumes clearing before crossing outside.
+  Existing low-inventory optional-loot and unreachable-loot policies remain.
+- Compilation passed; actual combat, deferred chest collection, and exit
+  still require an AO client run.
