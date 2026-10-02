@@ -36,6 +36,8 @@ namespace RKmission
         private int _autoZone, _autoRollCount, _maxAutoRolls = 100, _rollTerminalPlayfield;
         private int _maxAutoMissions, _autoAcceptedCount;
         private readonly HashSet<int> _autoAcceptedIds = new HashSet<int>();
+        private readonly HashSet<int> _awaitingQuestDetails = new HashSet<int>();
+        private readonly Dictionary<int, int> _autoAcceptedPlayfields = new Dictionary<int, int>();
         private Vector3 _rollTerminalPosition;
         private DateTime _nextReturnMove, _returnStarted;
         private bool _running, _dungeonStarted, _clearanceReported, _verifiedRun, _travelInvalidated;
@@ -158,7 +160,7 @@ namespace RKmission
                     if (!_roller.ShowRoller())
                     { Say("Roller window could not be reopened; automatic cycle was not started."); break; }
                     if (!_running || !_autoCycle)
-                    { _autoAcceptedCount = 0; _autoAcceptedIds.Clear(); }
+                    { _autoAcceptedCount = 0; _autoAcceptedIds.Clear(); _autoAcceptedPlayfields.Clear(); _awaitingQuestDetails.Clear(); }
                     Dynel? visibleTerminal = FindVisibleRollTerminal();
                     if (visibleTerminal != null) RememberRollTerminal(visibleTerminal);
                     _autoCycle = true; Start(); Say("Automatic mission cycle armed."); break;
@@ -341,6 +343,8 @@ namespace RKmission
             try
             {
                 _missions.Refresh(); // Track acceptance/removal even while local automation is disarmed.
+                _awaitingQuestDetails.RemoveWhere(id => _missions.Records.Any(x =>
+                    x.Id.Instance == id && x.Present && x.IsRubiKaDestination));
                 if (_pendingCheckpointResume) TryResumeCheckpoint();
                 if (!_running) return;
                 if (!DynelManager.LocalPlayer.IsAlive)
@@ -452,6 +456,11 @@ namespace RKmission
                             if (_autoRolling) return;
                             if (_maxAutoMissions > 0 && _autoAcceptedCount >= _maxAutoMissions)
                             {
+                                if (_awaitingQuestDetails.Count > 0)
+                                {
+                                    Wait($"Waiting for AO# to resolve {_awaitingQuestDetails.Count} accepted mission destination(s) before travel.");
+                                    return;
+                                }
                                 int completed = _autoAcceptedCount;
                                 Stop();
                                 Say($"Automatic cycle finished after {completed} accepted mission(s). Use /rkm auto to start a new cycle.");
@@ -691,15 +700,24 @@ namespace RKmission
             int pending = window.PendingAutoMissionId;
             if (pending > 0)
             {
+                _missions.Refresh(true);
                 AcceptedMission accepted = _missions.Records.FirstOrDefault(x =>
-                    x.Id.Instance == pending && x.Present && x.IsRubiKaDestination);
-                if (accepted != null)
+                    x.Id.Instance == pending && x.Present);
+                bool questAcknowledged = _missions.ObservedQuestUpdate(pending, window.AutoAcceptRequestedAtUtc);
+                if (accepted != null || questAcknowledged)
                 {
+                    int destination = window.PendingAutoPlayfieldId;
                     if (_autoAcceptedIds.Add(pending)) _autoAcceptedCount++;
+                    _autoAcceptedPlayfields[pending] = destination;
+                    if (accepted == null || !accepted.IsRubiKaDestination)
+                        _awaitingQuestDetails.Add(pending);
                     window.StopZoneRolling();
                     _autoRolling = false;
                     Say($"Automatic acceptance confirmed: mission {pending}; " +
-                        $"{_autoAcceptedCount}/{(_maxAutoMissions == 0 ? "unlimited" : _maxAutoMissions.ToString())} this cycle.");
+                        $"destination playfield {destination}, " +
+                        $"{_autoAcceptedCount}/{(_maxAutoMissions == 0 ? "unlimited" : _maxAutoMissions.ToString())} this cycle" +
+                        (accepted == null || !accepted.IsRubiKaDestination
+                            ? "; waiting for AO# quest-list destination." : "."));
                     return false;
                 }
                 if (DateTime.UtcNow - window.AutoAcceptRequestedAtUtc < TimeSpan.FromSeconds(20))
@@ -708,7 +726,7 @@ namespace RKmission
                     return false;
                 }
                 Stop();
-                Say($"Mission {pending} was offered, but acceptance was not confirmed. Check the quest list before restarting /rkm auto.");
+                Say($"Mission {pending} was offered, but neither the quest list nor an exact server quest update confirmed acceptance within 20 seconds. Check the quest list before restarting /rkm auto.");
                 return false;
             }
             if (Inventory.NumFreeSlots < 2 ||
@@ -760,6 +778,11 @@ namespace RKmission
             { Stop(); Say($"Rolling zone {_autoZone} is not a configured Rubi-Ka mission destination."); return; }
             if (_autoZone == 0 && !MaliMissionRoller2.Main.Window.HasEnabledAutoDestination)
             { Stop(); Say("No Rubi-Ka destination is enabled in the roller. Enable a location or use /rkm zone <id>."); return; }
+            MaliMissionRoller2.Main.Window.AutoAcceptedCountForPlayfield = playfield =>
+                _autoAcceptedPlayfields.Values.Count(x => x == playfield) +
+                _missions.Records.Count(x => x.Present && x.IsRubiKaDestination &&
+                    !x.Completed && x.PlayfieldId == playfield &&
+                    !_autoAcceptedPlayfields.ContainsKey(x.Id.Instance));
             Dynel? terminal = FindVisibleRollTerminal(7.5f);
             if (terminal == null)
             { Wait("Mission terminal is not yet in range; automatic cycle remains armed and will retry."); return; }
@@ -773,7 +796,7 @@ namespace RKmission
                 string reason = MaliMissionRoller2.Main.Window.LastAutoError ?? "The mission terminal did not start rolling.";
                 Stop(); Say(reason); return;
             }
-            Say($"Mission roller is rolling for {(_autoZone == 0 ? "enabled Rubi-Ka playfields" : $"playfield {_autoZone}")}; " +
+            Say($"Mission roller is rolling for {(_autoZone == 0 ? $"{MaliMissionRoller2.Main.Window.EnabledAutoDestinationCount} enabled Rubi-Ka playfield(s)" : $"playfield {_autoZone}")}; " +
                 $"offer limit {_maxAutoRolls}, mission limit {(_maxAutoMissions == 0 ? "unlimited" : _maxAutoMissions.ToString())}.");
         }
 

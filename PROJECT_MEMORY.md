@@ -2539,3 +2539,19 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 - Old checkpoints have no terminal bookmark. If none is visible in the current
   playfield, the cycle stays armed and asks the character to come within sight
   of one terminal once; future returns can use the saved bookmark.
+
+## Auto-roll acceptance and destination spread (2026-10-02)
+
+- A live run in playfield 540 accepted mission 1442852655 (the game said a new
+  mission was received), yet RKMission timed out because it required the
+  accepted quest's destination to resolve within 20 seconds. Exact server
+  `QuestFullUpdateMessage` evidence or presence in `Mission.List` now confirms
+  acceptance; unresolved destination details remain a separate travel wait.
+- The roller previously preferred an offer in the current playfield and then
+  the lowest playfield ID. Auto selection now favors enabled destinations with
+  fewer accepted missions, preferring a different playfield on a tie. It logs
+  the number of enabled destinations and the accepted offer's playfield.
+  Explicit `/rkm zone <id>` and user playfield toggles/bounds still apply.
+- Build passed; AO client validation is needed to confirm the server quest
+  update arrives for the accepted identity and that the enabled offer pool
+  contains missions outside playfield 540.

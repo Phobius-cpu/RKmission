@@ -27,8 +27,12 @@ namespace MaliMissionRoller2
         public bool IsAutoRolling => _rkAutoMode && _isRolling;
         public string LastAutoError { get; private set; }
         public int PendingAutoMissionId { get; private set; }
+        public int PendingAutoPlayfieldId { get; private set; }
         public DateTime AutoAcceptRequestedAtUtc { get; private set; }
         public DateTime LastAutoOfferAtUtc { get; private set; }
+        public Func<int, int>? AutoAcceptedCountForPlayfield { get; set; }
+        public int EnabledAutoDestinationCount => SettingsView?.Locations?.Entries?.Count(x =>
+            (bool)x.Toggle.Tag && RKmission.AcceptedMissions.IsRubiKaPlayfield(x.PfId)) ?? 0;
         public bool HasEnabledAutoDestination => SettingsView?.Locations?.Entries?.Any(x =>
             (bool)x.Toggle.Tag && RKmission.AcceptedMissions.IsRubiKaPlayfield(x.PfId)) == true;
 
@@ -45,6 +49,7 @@ namespace MaliMissionRoller2
             _isRolling = true;
             LastAutoError = null;
             PendingAutoMissionId = 0;
+            PendingAutoPlayfieldId = 0;
             AutoAcceptRequestedAtUtc = DateTime.MinValue;
             LastAutoOfferAtUtc = DateTime.UtcNow;
             _requestTimer = 1.5f;
@@ -57,6 +62,7 @@ namespace MaliMissionRoller2
             _rkAutoMode = false;
             _isRolling = false;
             PendingAutoMissionId = 0;
+            PendingAutoPlayfieldId = 0;
             AutoAcceptRequestedAtUtc = DateTime.MinValue;
         }
         private float _requestTimer;
@@ -279,7 +285,8 @@ namespace MaliMissionRoller2
                 Vector3 origin = DynelManager.LocalPlayer.Position;
                 MissionInfo nearest = missionList
                     .Where(IsAutoEligible)
-                    .OrderBy(x => x.Playfield.Instance == current ? 0 : 1)
+                    .OrderBy(x => AutoAcceptedCountForPlayfield?.Invoke(x.Playfield.Instance) ?? 0)
+                    .ThenBy(x => x.Playfield.Instance == current ? 1 : 0)
                     .ThenBy(x => x.Playfield.Instance)
                     .ThenBy(x => x.Playfield.Instance == current
                         ? Vector3.Distance(x.Location, origin) : 0f)
@@ -290,6 +297,7 @@ namespace MaliMissionRoller2
                     _rkAutoMode = false;
                     AutoZoneId = 0;
                     PendingAutoMissionId = nearest.MissionIdentity.Instance;
+                    PendingAutoPlayfieldId = nearest.Playfield.Instance;
                     AutoAcceptRequestedAtUtc = DateTime.UtcNow;
                     MissionView.AcceptMission(nearest.MissionIdentity);
                     return;

@@ -47,10 +47,13 @@ namespace RKmission
         };
         private readonly Dictionary<Identity, AcceptedMission> _records = new Dictionary<Identity, AcceptedMission>();
         private readonly Dictionary<Identity, RkMissionKind> _kinds = new Dictionary<Identity, RkMissionKind>();
+        private readonly Dictionary<int, DateTime> _questUpdateAt = new Dictionary<int, DateTime>();
         private DateTime _nextRefresh;
         public IEnumerable<AcceptedMission> Records => _records.Values;
         public static bool IsRubiKaPlayfield(int id) => RubiKaPlayfields.Contains(id);
         public AcceptedMission Find(Identity id) => _records.TryGetValue(id, out AcceptedMission record) ? record : null;
+        public bool ObservedQuestUpdate(int missionId, DateTime sinceUtc) =>
+            _questUpdateAt.TryGetValue(missionId, out DateTime receivedAt) && receivedAt >= sinceUtc;
         public IEnumerable<AcceptedMission> Eligible(int playfield) => Records.Where(x => x.Present && x.IsRubiKaDestination &&
             x.PlayfieldId == playfield && !x.Completed);
 
@@ -66,6 +69,7 @@ namespace RKmission
             if (!(message is QuestFullUpdateMessage update)) return;
             foreach (var quest in update.Quests ?? Array.Empty<SmokeLounge.AOtomation.Messaging.GameData.Quest>())
             {
+                _questUpdateAt[quest.QuestId.Instance] = DateTime.UtcNow;
                 RkMissionKind kind = FromIcon(quest.MissionIconId);
                 if (kind != RkMissionKind.Unknown) _kinds[quest.QuestId] = kind;
             }
