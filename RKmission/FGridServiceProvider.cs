@@ -754,11 +754,13 @@ namespace RKmission
                 Vector3 lift = UpLifts[floor];
                 if (Vector3.Distance(DynelManager.LocalPlayer.Position, lift) > 0.8f)
                 {
-                    // Prefer a user-recorded walkway. Direct movement is retained
-                    // only as fallback until that floor has recorded evidence.
-                    if (!_routes.TryNavigate(lift, _movement, MovementOwner.FGridTravel) &&
-                        (_movement.Owner != MovementOwner.FGridTravel || !SMovementController.IsNavigating()))
-                        _movement.SetDestination(MovementOwner.FGridTravel, lift);
+                    // FGrid has open gaps and no verified 4107 navmesh in the
+                    // supplied evidence. Never substitute a straight line here.
+                    if (!_routes.TryNavigate(lift, _movement, MovementOwner.FGridTravel))
+                    {
+                        Fail($"No recorded safe FGrid walkway reaches the floor {floor} lift. Record it manually with /rkm nav record fgrid-floor-{floor}-lift, then /rkm nav stop.");
+                        return FGridServiceResult.Failed;
+                    }
                 }
             }
 
@@ -797,11 +799,13 @@ namespace RKmission
                 }
                 if (Vector3.Distance(DynelManager.LocalPlayer.Position, _exit.Position) > 1.5f)
                 {
-                    // Recorded paths preserve the actual FGrid walkway/corners and
-                    // prevent the old straight-line cut across open gaps.
-                    if (!_routes.TryNavigate(_exit.Position, _movement, MovementOwner.FGridTravel) &&
-                        (_movement.Owner != MovementOwner.FGridTravel || !SMovementController.IsNavigating()))
-                        _movement.SetDestination(MovementOwner.FGridTravel, _exit.Position);
+                    // Recorded paths preserve the actual FGrid walkway/corners.
+                    // Without evidence, stop instead of cutting across a gap.
+                    if (!_routes.TryNavigate(_exit.Position, _movement, MovementOwner.FGridTravel))
+                    {
+                        Fail($"No recorded safe FGrid walkway reaches portal {_exit.Identity} on floor {_route.Floor}. Record the walkway manually with /rkm nav record fgrid-floor-{_route.Floor}-portal-{_exit.Identity.Instance}, then /rkm nav stop.");
+                        return FGridServiceResult.Failed;
+                    }
                 }
                 else if (DateTime.UtcNow - _lastUse > TimeSpan.FromSeconds(3))
                 {
