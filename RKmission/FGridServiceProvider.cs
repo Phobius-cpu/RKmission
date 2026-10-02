@@ -94,6 +94,7 @@ namespace RKmission
         private readonly HashSet<uint> _expectedInviters = new HashSet<uint>();
         private readonly Action<string> _say;
         private readonly MovementArbiter _movement;
+        private readonly NavigationRouteRecorder _routes;
         private State _state;
         private SimpleItem _terminal;
         private SimpleItem _exit;
@@ -140,10 +141,11 @@ namespace RKmission
                 $"{floor}={_knownExits.Values.SelectMany(x => x).Count(x => x.Floor == floor)}/{SurveyExitsPerFloor[floor - 1]}")) + ".";
         public string SurveyFilePath => _surveyPath;
 
-        public FGridServiceProvider(string pluginDir, Action<string> say, MovementArbiter movement)
+        public FGridServiceProvider(string pluginDir, Action<string> say, MovementArbiter movement, NavigationRouteRecorder routes)
         {
             _say = say;
             _movement = movement;
+            _routes = routes;
             _learnedExitPath = System.IO.Path.Combine(pluginDir, "RKMissionData", "fixer-grid-exits.json");
             _runtimeExitPath = System.IO.Path.Combine(pluginDir, "RKMissionData", "fixer-grid-exits-v2.json");
             _canonicalExitPath = System.IO.Path.Combine(pluginDir, "Data", "FixerGridSurveyExits.json");
@@ -750,9 +752,14 @@ namespace RKmission
                     return FGridServiceResult.Failed;
                 }
                 Vector3 lift = UpLifts[floor];
-                if (Vector3.Distance(DynelManager.LocalPlayer.Position, lift) > 0.8f &&
-                    (_movement.Owner != MovementOwner.FGridTravel || !SMovementController.IsNavigating()))
-                    _movement.SetDestination(MovementOwner.FGridTravel, lift);
+                if (Vector3.Distance(DynelManager.LocalPlayer.Position, lift) > 0.8f)
+                {
+                    // Prefer a user-recorded walkway. Direct movement is retained
+                    // only as fallback until that floor has recorded evidence.
+                    if (!_routes.TryNavigate(lift, _movement, MovementOwner.FGridTravel) &&
+                        (_movement.Owner != MovementOwner.FGridTravel || !SMovementController.IsNavigating()))
+                        _movement.SetDestination(MovementOwner.FGridTravel, lift);
+                }
             }
 
             if (_state == State.Exit)
@@ -790,7 +797,10 @@ namespace RKmission
                 }
                 if (Vector3.Distance(DynelManager.LocalPlayer.Position, _exit.Position) > 1.5f)
                 {
-                    if (_movement.Owner != MovementOwner.FGridTravel || !SMovementController.IsNavigating())
+                    // Recorded paths preserve the actual FGrid walkway/corners and
+                    // prevent the old straight-line cut across open gaps.
+                    if (!_routes.TryNavigate(_exit.Position, _movement, MovementOwner.FGridTravel) &&
+                        (_movement.Owner != MovementOwner.FGridTravel || !SMovementController.IsNavigating()))
                         _movement.SetDestination(MovementOwner.FGridTravel, _exit.Position);
                 }
                 else if (DateTime.UtcNow - _lastUse > TimeSpan.FromSeconds(3))
