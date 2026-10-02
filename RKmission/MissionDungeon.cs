@@ -572,6 +572,9 @@ namespace RKmission
             SimpleChar player = DynelManager.LocalPlayer;
             SimpleChar enemy = EnemyCandidates(room)
                 .Where(x => x.DistanceFrom(player) <= EngagementRange ||
+                    // Once selected, keep approaching this room's enemy even
+                    // if pathing briefly moves us across the 20m scan boundary.
+                    (x.Identity == _combat.Target && _layout.ContainsDynel(room.Instance, x)) ||
                     (player.IsAttacking && player.FightingTarget?.Identity == x.Identity))
                 .OrderByDescending(x => x.IsAttacking &&
                     x.FightingTarget?.Identity == player.Identity)

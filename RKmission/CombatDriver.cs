@@ -13,6 +13,7 @@ namespace RKmission
         private Identity _target = Identity.None;
         private DateTime _lastCombatTick;
         private TimeSpan _withoutAttackOpportunity;
+        public Identity Target => _target;
 
         public CombatDriver(Action<string> say) { _say = say; }
         public void Reset()

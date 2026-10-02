@@ -2577,3 +2577,8 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 
 - AO# opens its native team-invite window after `TeamRequest` unless the event is marked handled. RKMission buffered early invites pending warper identity verification without marking them handled, so the popup could remain after the verified invite was accepted.
 - Mark buffered invites handled immediately, then send the team accept only after the assigned warper lookup matches the inviter. Suppress repeat invites from the accepted warper while the team join is active. Local build passed; verify in the AO client on the next warp.
+
+## Combat approach reset at the 20 m boundary (2026-10-02)
+
+- A live log in room 3 repeated scan approach 1/7 and combat approach 1/9 against the same Veteran Ruffian while distance oscillated between 20.2 m and 19.8 m. The 20 m filter dropped the active combat target on every outward step and restarted both approaches.
+- Keep a previously selected enemy in the same mapped room as the combat target while approaching it, even if movement briefly exceeds 20 m. The existing 45-second unreachable-enemy deadline remains in force. Local build passed; AO client pathing needs a live check.
