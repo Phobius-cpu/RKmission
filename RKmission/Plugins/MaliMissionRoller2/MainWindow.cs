@@ -22,11 +22,18 @@ namespace MaliMissionRoller2
         private View? _tabContent;
         private View? _rollerContent;
         private View? _managerLootContent;
+        private View? _dungeonMapContent;
+        private View? _hostRoot;
         private Button? _rollerTab;
         private Button? _managerLootTab;
-        public bool IsManagerLootTabActive { get; private set; }
+        private Button? _dungeonMapTab;
+        private enum HostedTab { Roller, ManagerLoot, DungeonMap }
+        private HostedTab _activeTab = HostedTab.Roller;
+        public bool IsManagerLootTabActive => _activeTab == HostedTab.ManagerLoot;
+        public bool IsDungeonMapTabActive => _activeTab == HostedTab.DungeonMap;
         public event Action? WindowReady;
         public Action? EnsureManagerLootView { get; set; }
+        public Action? EnsureDungeonMapView { get; set; }
         private bool _isRolling;
         private bool _rkAutoMode;
         // RKMission drives the original request/response UI. A zero zone uses
@@ -95,14 +102,19 @@ namespace MaliMissionRoller2
             {
                 HelpWindow _helpWindow = new HelpWindow();
 
+                Window.FindView("HostRoot", out _hostRoot);
                 Window.FindView("TabContent", out _tabContent);
                 Window.FindView("RollerContent", out _rollerContent);
                 Window.FindView("RollerTab", out _rollerTab);
                 Window.FindView("ManagerLootTab", out _managerLootTab);
+                Window.FindView("DungeonMapTab", out _dungeonMapTab);
                 _managerLootContent = null;
-                IsManagerLootTabActive = false;
+                _dungeonMapContent = null;
+                _activeTab = HostedTab.Roller;
                 if (_rollerTab != null) _rollerTab.Clicked += (_, _) => ShowRollerTab();
                 if (_managerLootTab != null) _managerLootTab.Clicked += (_, _) => ShowManagerLootTab();
+                if (_dungeonMapTab != null) _dungeonMapTab.Clicked += (_, _) => ShowDungeonMapTab();
+                FitActiveTab();
                 UpdateTabAppearance();
 
                 if (Window.FindView("HeaderRoot", out View headerRoot))
@@ -141,40 +153,81 @@ namespace MaliMissionRoller2
         public void AttachManagerLootView(View view)
         {
             if (_tabContent == null || view == null) return;
-            if (IsManagerLootTabActive && _managerLootContent != null)
+            if (_activeTab == HostedTab.ManagerLoot && _managerLootContent != null)
                 _tabContent.RemoveChild(_managerLootContent);
             _managerLootContent = view;
-            if (IsManagerLootTabActive)
+            if (_activeTab == HostedTab.ManagerLoot)
                 _tabContent.AddChild(_managerLootContent, false);
-            _tabContent.FitToContents();
+            FitActiveTab();
+        }
+
+        public void AttachDungeonMapView(View view)
+        {
+            if (_tabContent == null || view == null) return;
+            if (_activeTab == HostedTab.DungeonMap && _dungeonMapContent != null)
+                _tabContent.RemoveChild(_dungeonMapContent);
+            _dungeonMapContent = view;
+            if (_activeTab == HostedTab.DungeonMap)
+                _tabContent.AddChild(_dungeonMapContent, false);
+            FitActiveTab();
         }
 
         public void ShowRollerTab()
         {
-            if (_tabContent == null || _rollerContent == null || !IsManagerLootTabActive) return;
-            if (_managerLootContent != null)
-                _tabContent.RemoveChild(_managerLootContent);
+            if (_tabContent == null || _rollerContent == null || _activeTab == HostedTab.Roller) return;
+            RemoveActiveContent();
             _tabContent.AddChild(_rollerContent, false);
-            IsManagerLootTabActive = false;
-            _tabContent.FitToContents();
+            _activeTab = HostedTab.Roller;
+            FitActiveTab();
             UpdateTabAppearance();
         }
 
         public void ShowManagerLootTab()
         {
             if (_managerLootContent == null) EnsureManagerLootView?.Invoke();
-            if (_tabContent == null || _rollerContent == null || _managerLootContent == null || IsManagerLootTabActive) return;
-            _tabContent.RemoveChild(_rollerContent);
+            if (_tabContent == null || _rollerContent == null || _managerLootContent == null ||
+                _activeTab == HostedTab.ManagerLoot) return;
+            RemoveActiveContent();
             _tabContent.AddChild(_managerLootContent, false);
-            IsManagerLootTabActive = true;
-            _tabContent.FitToContents();
+            _activeTab = HostedTab.ManagerLoot;
+            FitActiveTab();
             UpdateTabAppearance();
+        }
+
+        public void ShowDungeonMapTab()
+        {
+            if (_dungeonMapContent == null) EnsureDungeonMapView?.Invoke();
+            if (_tabContent == null || _rollerContent == null || _dungeonMapContent == null ||
+                _activeTab == HostedTab.DungeonMap) return;
+            RemoveActiveContent();
+            _tabContent.AddChild(_dungeonMapContent, false);
+            _activeTab = HostedTab.DungeonMap;
+            FitActiveTab();
+            UpdateTabAppearance();
+        }
+
+        private void RemoveActiveContent()
+        {
+            if (_tabContent == null) return;
+            if (_activeTab == HostedTab.Roller && _rollerContent != null)
+                _tabContent.RemoveChild(_rollerContent);
+            else if (_activeTab == HostedTab.ManagerLoot && _managerLootContent != null)
+                _tabContent.RemoveChild(_managerLootContent);
+            else if (_activeTab == HostedTab.DungeonMap && _dungeonMapContent != null)
+                _tabContent.RemoveChild(_dungeonMapContent);
+        }
+
+        private void FitActiveTab()
+        {
+            _tabContent?.FitToContents();
+            _hostRoot?.FitToContents();
         }
 
         private void UpdateTabAppearance()
         {
-            _rollerTab?.SetAlpha(IsManagerLootTabActive ? 0.65f : 1f);
-            _managerLootTab?.SetAlpha(IsManagerLootTabActive ? 1f : 0.65f);
+            _rollerTab?.SetAlpha(_activeTab == HostedTab.Roller ? 1f : 0.65f);
+            _managerLootTab?.SetAlpha(_activeTab == HostedTab.ManagerLoot ? 1f : 0.65f);
+            _dungeonMapTab?.SetAlpha(_activeTab == HostedTab.DungeonMap ? 1f : 0.65f);
         }
 
         private void HelpClick(object sender, ButtonBase e)
