@@ -129,7 +129,10 @@ namespace RKmission
                 raw.AddRange(straight.Take(vertices).Select(ToAO));
                 raw.Add(goal);
                 bool inset = false;
-                if (!ValidateRaw(raw, start.Y, out int failedSegment, out string segmentReason))
+                int failedSegment = 0;
+                string segmentReason = "supported";
+                for (int repair = 0; repair < 3 &&
+                    !ValidateRaw(raw, start.Y, out failedSegment, out segmentReason); repair++)
                 {
                     if (!segmentReason.EndsWith(" edge", StringComparison.Ordinal) ||
                         !TryInsetEdge(raw, failedSegment, start.Y, out List<Vector3> repaired))
@@ -140,6 +143,8 @@ namespace RKmission
                     raw = repaired;
                     inset = true;
                 }
+                if (!ValidateRaw(raw, start.Y, out failedSegment, out segmentReason))
+                { LastPath = $"rejected segment {failedSegment}/{raw.Count - 1}: {segmentReason}"; return false; }
                 var checkedPath = new List<Vector3> { start };
                 float length = 0;
                 for (int i = 1; i < raw.Count; i++)
@@ -179,26 +184,34 @@ namespace RKmission
             out List<Vector3> repaired)
         {
             repaired = new List<Vector3>();
-            if (points.Count > 32 || segment < 1 || segment >= points.Count ||
+            if (points.Count > 16 || segment < 1 || segment >= points.Count ||
                 LocalRoutePlanner.HorizontalDistance(points[segment - 1], points[segment]) > 8f)
                 return false;
             float routeLength = 0;
             for (int i = 1; i < points.Count; i++)
                 routeLength += LocalRoutePlanner.HorizontalDistance(points[i - 1], points[i]);
-            if (routeLength > 120f) return false;
+            if (routeLength > 60f) return false;
             Vector3 travel = points[segment] - points[segment - 1];
             Vector3 side = new Vector3(-travel.Z, 0, travel.X);
             if (side.Magnitude < 0.1f) return false;
             side = side.Normalize();
+            int bestProgress = segment;
             foreach (float offset in new[] { 0.35f, -0.35f, 0.7f, -0.7f, 1.05f, -1.05f })
             {
-                var candidate = new List<Vector3>(points);
-                if (segment - 1 > 0) candidate[segment - 1] += side * offset;
-                if (segment < candidate.Count - 1) candidate[segment] += side * offset;
-                if (ValidateRaw(candidate, floorHeight, out _, out _))
-                { repaired = candidate; return true; }
+                for (int mode = 0; mode < 3; mode++)
+                {
+                    var candidate = new List<Vector3>(points);
+                    if ((mode == 0 || mode == 1) && segment - 1 > 0)
+                        candidate[segment - 1] += side * offset;
+                    if ((mode == 0 || mode == 2) && segment < candidate.Count - 1)
+                        candidate[segment] += side * offset;
+                    if (ValidateRaw(candidate, floorHeight, out int nextFailure, out _))
+                    { repaired = candidate; return true; }
+                    if (nextFailure > bestProgress)
+                    { bestProgress = nextFailure; repaired = candidate; }
+                }
             }
-            return false;
+            return bestProgress > segment;
         }
 
         private static Vector3 ToAO(CVector point) => new Vector3(point.x, point.y, point.z);
