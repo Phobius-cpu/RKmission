@@ -14,11 +14,13 @@ namespace RKmission
     internal sealed class MissionObjective
     {
         private const float ObjectiveUseRange = 2f;
+        internal enum StepState { Pending, Approaching, ActionSent, ProofObserved, Completed, Blocked }
         internal sealed class Step
         {
             public MissionAction Action;
             public Identity Target;
             public bool Pickup, Sent, Done, DeathObserved, Proof;
+            public StepState State;
             public DateTime LastSent, ObservationStarted;
         }
 
@@ -26,6 +28,7 @@ namespace RKmission
         private readonly AcceptedMission _record;
         private readonly List<Step> _steps = new List<Step>();
         private readonly Dictionary<Identity, int> _rooms = new Dictionary<Identity, int>();
+        private readonly Dictionary<Identity, Vector3> _lastPositions = new Dictionary<Identity, Vector3>();
         private readonly HashSet<Identity> _pickedUpItems = new HashSet<Identity>();
         private readonly MissionCompletionTracker _completion = new MissionCompletionTracker();
         private DateTime _acknowledgementStarted, _approachStarted;
@@ -41,6 +44,7 @@ namespace RKmission
         public bool HasSteps => _steps.Count > 0;
         public bool HasKillTarget => _steps.Any(x => x.Action is KillPersonAction);
         public bool CollectedReturnItem => Returning && ReturnItem != null;
+        public string StepSummary => string.Join(", ", _steps.Select(x => $"{x.Action.Type}:{x.Target}={x.State}"));
         public Item ReturnItem => Inventory.Items.FirstOrDefault(item =>
             _pickedUpItems.Contains(item.UniqueIdentity) ||
             _steps.Any(step => step.Pickup && item.UniqueIdentity == step.Target) ||
@@ -80,6 +84,7 @@ namespace RKmission
             {
                 Dynel dynel = DynelManager.GetDynel(step.Target);
                 if (dynel == null) continue;
+                _lastPositions[step.Target] = dynel.Position;
                 Room room = Playfield.Rooms.FirstOrDefault(x => layout.ContainsDynel(x.Instance, dynel));
                 if (room != null && (!_rooms.TryGetValue(step.Target, out int previous) || previous != room.Instance))
                 {
@@ -115,6 +120,24 @@ namespace RKmission
             _say("Other rooms checked and ordinary enemies cleared; starting the reserved objective finale. Any loot deferred by combat will be collected before exit.");
         }
 
+        public bool PreflightFinale(out string reason)
+        {
+            reason = null;
+            if (_steps.Count == 0) { reason = "No supported objective step is bound to this mission."; return false; }
+            if (_record.DeletedByUser) { reason = "Bound mission was manually deleted."; return false; }
+            if (_steps.Any(x => x.Pickup && !x.Done) && Inventory.NumFreeSlots <= 1)
+            { reason = "Free main-inventory space is needed for the objective item."; return false; }
+            foreach (Step step in _steps.Where(x => x.Action is UseItemOnItemAction && !x.Pickup))
+            {
+                var use = (UseItemOnItemAction)step.Action;
+                if (Inventory.Items.Any(x => x.UniqueIdentity == use.Source) ||
+                    _steps.Any(x => x.Pickup && x.Target == use.Source)) continue;
+                reason = $"Objective source item {use.Source} is absent before finale.";
+                return false;
+            }
+            return true;
+        }
+
         public void ObserveAcknowledgement()
         {
             if (RewardConfirmed || !Finale || _record.DeletedByUser || Returning) return;
@@ -140,6 +163,7 @@ namespace RKmission
                     step.Proof |= Inventory.Items.Any(x => x.UniqueIdentity == step.Target || _pickedUpItems.Contains(x.UniqueIdentity));
                 else if (step.Action is UseItemOnItemAction use)
                     step.Proof |= !Inventory.Items.Any(x => x.UniqueIdentity == use.Source);
+                if (step.Proof) step.State = StepState.ProofObserved;
             }
             // Disappearance alone is never completion. It must follow our final
             // target/use/kill, with no observed manual Delete command.
@@ -150,6 +174,7 @@ namespace RKmission
                 _serverCompletion, _record.DeletedByUser, out string evidence)) return;
             RewardConfirmed = true;
             Evidence = evidence;
+            foreach (Step step in _steps) step.State = StepState.Completed;
             _say($"Mission {_record.Id.Instance}: objective acknowledged by removal of the bound quest after our finale action.");
         }
 
@@ -170,10 +195,11 @@ namespace RKmission
             Step step = _steps.FirstOrDefault(x => x.Target == enemy.Identity && x.Action is KillPersonAction);
             if (step == null || !Finale) return;
             step.Sent = true;
+            step.State = StepState.ActionSent;
             step.LastSent = DateTime.UtcNow; // Combat can take longer than the acknowledgement window.
         }
 
-        public bool Tick(Room room, DungeonLayout layout, Action<Vector3> navigate,
+        public bool Tick(Room room, DungeonLayout layout, Func<Vector3, bool> navigate,
             ManagerLoot.ManagerLoot loot)
         {
             foreach (Identity item in loot.MissionObjectiveItems) _pickedUpItems.Add(item);
@@ -186,26 +212,37 @@ namespace RKmission
             {
                 if (Returning && step.Action is UseItemOnItemAction && !step.Pickup) continue;
                 if (step.Pickup && Inventory.Items.Any(x => x.UniqueIdentity == step.Target || _pickedUpItems.Contains(x.UniqueIdentity))) step.Done = true;
+                if (step.Done) { step.State = StepState.Completed; continue; }
                 if (step.Action is KillPersonAction) continue; // The guarded combat path owns this step.
-                if (step.Done) continue;
+                if (step.Proof) continue; // Await the bound quest's server acknowledgement.
                 Dynel target = DynelManager.GetDynel(step.Target);
                 if (target == null || !layout.ContainsDynel(room.Instance, target)) continue;
                 if (_approaching != step.Target)
                 { _approaching = step.Target; _approachStarted = DateTime.UtcNow; }
+                step.State = StepState.Approaching;
                 if (DateTime.UtcNow - _approachStarted > TimeSpan.FromSeconds(60))
                 {
                     string sourceState = step.Action is UseItemOnItemAction timeoutUse
                         ? $", source={timeoutUse.Source}, source in inventory={Inventory.Items.Any(x => x.UniqueIdentity == timeoutUse.Source)}"
                         : "";
+                    step.State = StepState.Blocked;
                     Failure = $"Objective {step.Target} did not complete within 60 s " +
-                        $"(distance={target.DistanceFrom(DynelManager.LocalPlayer):0.0}m{sourceState}); " +
+                        $"(distance={target.DistanceFrom(DynelManager.LocalPlayer):0.0}m, last known={(_lastPositions.TryGetValue(step.Target, out Vector3 last) ? last.ToString() : "unknown")}{sourceState}); " +
                         "/rkm complete remains available after checking in game.";
                     return true;
                 }
                 float interactionRange = step.Pickup || step.Action is UseItemOnItemAction
                     ? ObjectiveUseRange : 4f;
-                if (target.DistanceFrom(DynelManager.LocalPlayer) > interactionRange)
-                { navigate(target.Position); return true; }
+                if (target.DistanceFrom(DynelManager.LocalPlayer) > interactionRange ||
+                    !LocalRoutePlanner.ClearInteractionSegment(DynelManager.LocalPlayer.Position, target.Position))
+                {
+                    if (!navigate(target.Position))
+                    {
+                        step.State = StepState.Blocked;
+                        Failure = $"No complete mapped route to objective {step.Target} in room {room.Instance}.";
+                    }
+                    return true;
+                }
                 MovementArbiter.Current.Halt(MovementOwner.Objective);
                 if (Spell.HasPendingCast || Item.HasPendingUse || loot.IsProcessingMissionLoot) return true;
                 if (DateTime.UtcNow - step.LastSent < TimeSpan.FromSeconds(3)) return true;
@@ -261,6 +298,7 @@ namespace RKmission
                 _say($"Final objective action: {step.Action.Type}, target={step.Target}{detail}.");
             }
             step.Sent = true;
+            step.State = StepState.ActionSent;
             step.LastSent = DateTime.UtcNow;
         }
 

@@ -1,5 +1,21 @@
 # RKMission Conversation History
 
+## 2026-10-03 — full mission lifecycle continuation
+
+The user requested reconciliation against latest `Phobius-cpu/RKmission` main
+and a cohesive implementation of the travel, doorway, exploration, combat,
+loot, objective, exit and watchdog improvements discussed in the referenced
+ChatGPT conversation. Work began at `d493802f2162bd280db0e330aa11c421018d50fd`.
+The base already contained guarded FGrid Recast/SharpNav routing. The changes
+preserve the established providers and plugins while tightening recorded FGrid
+walkways, adding source-side door geometry, weighted room routes, phase-specific
+recovery, explicit room/loot/objective states, shared complete-path approaches,
+post-kill corpse ordering, preflight and verified exit gates, diagnostic mission
+execution snapshots and a bounded dungeon progress watchdog. A .NET Framework
+4.8 source build passed; AO# behavior remains to be validated in game. Detailed
+scope and limitations are in
+`docs/history/2026-10-03-mission-lifecycle-optimization.md`.
+
 ## 2026-09-29 — implementation continuation
 
 The user requested implementation of the missing autonomous mission pieces on

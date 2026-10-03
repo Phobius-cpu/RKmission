@@ -23,10 +23,16 @@ namespace RKmission
         private bool _active, _requested, _wasInCombat, _seated;
         private DateTime _started, _lastProgress, _quietAt, _busyUntil, _nextAction;
         private float _observedHealth, _observedNano;
+        private DateTime _emergencyStarted;
         private string _buffSignature, _reason;
 
         public bool IsWaiting { get; private set; }
         public bool InCombat { get; private set; }
+        // A short HP safety gate may interrupt corpse looting. Full configured
+        // recovery waits until nearby threats and transient corpses are settled.
+        public bool EmergencyRecoveryNeeded => DynelManager.LocalPlayer != null &&
+            DynelManager.LocalPlayer.MaxHealth > 0 && DynelManager.LocalPlayer.HealthPercent < 35f;
+        public bool EmergencyRecoveryActive => _emergencyStarted != DateTime.MinValue;
         public string Failure { get; private set; }
         public string Status => Failure ?? (IsWaiting ? "preparing/recovering" : "ready");
 
@@ -48,6 +54,7 @@ namespace RKmission
             Stand();
             _active = _requested = _wasInCombat = IsWaiting = InCombat = false;
             _started = _busyUntil = _nextAction = DateTime.MinValue;
+            _emergencyStarted = DateTime.MinValue;
             _retryAfter.Clear();
             Failure = null;
         }
@@ -69,6 +76,7 @@ namespace RKmission
             {
                 if (IsWaiting) _say("Preparation interrupted by combat; defending before recovery.");
                 Stand(true);
+                _emergencyStarted = DateTime.MinValue;
                 _wasInCombat = true;
                 _requested = true;
                 IsWaiting = false;
@@ -96,6 +104,37 @@ namespace RKmission
             DateTime until = DateTime.UtcNow.AddSeconds(Math.Min(120, seconds));
             if (until > _busyUntil) _busyUntil = until;
             _quietAt = DateTime.UtcNow;
+        }
+
+        public bool HoldEmergency()
+        {
+            var player = DynelManager.LocalPlayer;
+            if (!_active || InCombat || player == null) return false;
+            if (player.HealthPercent >= 45f)
+            {
+                _emergencyStarted = DateTime.MinValue;
+                return Stand(true);
+            }
+            if (_emergencyStarted == DateTime.MinValue)
+            {
+                _emergencyStarted = DateTime.UtcNow;
+                _say($"Emergency recovery before nearby work: HP={player.HealthPercent:0.0}%.");
+            }
+            if (DateTime.UtcNow - _emergencyStarted > TimeSpan.FromSeconds(30))
+            {
+                Failure = "Emergency health recovery did not reach 45% within 30 seconds.";
+                return true;
+            }
+            MovementArbiter.Current.Halt(MovementOwner.Objective);
+            if (PendingAction() || DateTime.UtcNow < _nextAction) return true;
+            if (TryRecovery(true, false, DateTime.UtcNow)) return true;
+            if (player.MovementState != MovementState.Sit)
+            {
+                MovementArbiter.Current.SetMovement(MovementOwner.Objective, MovementAction.SwitchToSit);
+                _seated = true;
+                _nextAction = DateTime.UtcNow.AddSeconds(1);
+            }
+            return true;
         }
 
         // Called outside an active doorway transition, before objectives/loot or

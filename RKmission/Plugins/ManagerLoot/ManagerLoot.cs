@@ -82,6 +82,27 @@ namespace ManagerLoot
         private readonly HashSet<MissionIdentity> _unreachableMissionLoot = new HashSet<MissionIdentity>();
         private readonly HashSet<MissionIdentity> _seenMissionLoot = new HashSet<MissionIdentity>();
         private readonly HashSet<MissionIdentity> _finishedMissionLoot = new HashSet<MissionIdentity>();
+        private enum MissionSourceState
+        {
+            Discovered, PendingApproach, Opening, Lockpicking, Looting, Completed,
+            SkippedUnreachable, SkippedInsufficientSkill, SkippedNoLockpick,
+            SkippedRepeatedFailure, CriticalBlocked
+        }
+        private readonly Dictionary<MissionIdentity, MissionSourceState> _missionSources =
+            new Dictionary<MissionIdentity, MissionSourceState>();
+        public int MissionLootProgress { get; private set; }
+        private int _observedContainerCount;
+        private void SetMissionSource(MissionIdentity identity, MissionSourceState state)
+        {
+            if (MissionRoomId < 0 && !_missionSources.ContainsKey(identity)) return;
+            if (_missionSources.TryGetValue(identity, out MissionSourceState old) && old == state) return;
+            _missionSources[identity] = state;
+            MissionLootProgress++;
+        }
+        private static bool Settled(MissionSourceState state) =>
+            state == MissionSourceState.Completed || state == MissionSourceState.SkippedUnreachable ||
+            state == MissionSourceState.SkippedInsufficientSkill || state == MissionSourceState.SkippedNoLockpick ||
+            state == MissionSourceState.SkippedRepeatedFailure;
         private readonly HashSet<MissionIdentity> _objectiveLootItems = new HashSet<MissionIdentity>();
         private const int MaxMissionLockpickAttempts = 3;
         private const double LockpickRetryDelaySeconds = 1;
@@ -138,6 +159,9 @@ namespace ManagerLoot
             _unreachableMissionLoot.Clear();
             _seenMissionLoot.Clear();
             _finishedMissionLoot.Clear();
+            _missionSources.Clear();
+            MissionLootProgress = 0;
+            _observedContainerCount = 0;
             _objectiveLootItems.Clear();
             _missionLockpicks.Clear();
             _missionLootRooms.Clear();
@@ -152,18 +176,24 @@ namespace ManagerLoot
         public bool IsMissionCriticalLoot(MissionIdentity identity) =>
             ReservedMissionLoot(identity) || MissionObjectiveContainer == identity;
         public bool IgnoreOrdinaryMissionLoot { get; set; }
-        public int SkippedMissionLootCount => IgnoreOrdinaryMissionLoot ? 0 : _unreachableMissionLoot.Count(x =>
-            !IsMissionCriticalLoot(x));
-        public int UnfinishedMissionLootCount => IgnoreOrdinaryMissionLoot ? 0 : _seenMissionLoot.Count(x =>
-            !_finishedMissionLoot.Contains(x) && !_unreachableMissionLoot.Contains(x) && !IsMissionCriticalLoot(x));
-        public int ReservedPendingMissionLootCount => _seenMissionLoot.Count(x =>
-            !_finishedMissionLoot.Contains(x) && ReservedMissionLoot(x));
+        public int SkippedMissionLootCount => IgnoreOrdinaryMissionLoot ? 0 : _missionSources.Count(x =>
+            Settled(x.Value) && x.Value != MissionSourceState.Completed && !IsMissionCriticalLoot(x.Key));
+        public int UnfinishedMissionLootCount => IgnoreOrdinaryMissionLoot ? 0 : _missionSources.Count(x =>
+            !Settled(x.Value) && !IsMissionCriticalLoot(x.Key));
+        public int ReservedPendingMissionLootCount => _missionSources.Count(x =>
+            !Settled(x.Value) && ReservedMissionLoot(x.Key));
+        public int CriticalBlockedMissionLootCount => _missionSources.Count(x =>
+            x.Value == MissionSourceState.CriticalBlocked);
+        public bool HasPendingMissionCorpse(int roomId) => !IgnoreOrdinaryMissionLoot &&
+            (MissionRoomDynels?.Invoke(roomId) ?? DynelManager.AllDynels).Any(x =>
+                x.Identity.Type == IdentityType.Corpse && IsInMissionRoom(x, roomId) &&
+                !_finishedMissionLoot.Contains(x.Identity) && !_unreachableMissionLoot.Contains(x.Identity) &&
+                (MissionLootAllowed?.Invoke(x) ?? true));
         public string MissionLootBlockers => $"ordinary skipped={SkippedMissionLootCount}, ordinary unfinished={UnfinishedMissionLootCount}, " +
             $"reserved objective entries={ReservedPendingMissionLootCount}, process={CurrentProcess}, pending={_pendingMissionLoot}; " +
-            string.Join("; ", _seenMissionLoot.Where(x =>
-                !_finishedMissionLoot.Contains(x) && !_unreachableMissionLoot.Contains(x) && !IsMissionCriticalLoot(x)).Take(8).Select(x =>
-                $"{x} room={(_missionLootRooms.TryGetValue(x, out int room) ? room.ToString() : "unknown")} " +
-                (DynelManager.GetDynel(x) == null ? "not currently visible" : "still visible")));
+            string.Join("; ", _missionSources.Where(x => !Settled(x.Value)).Take(8).Select(x =>
+                $"{x.Key} state={x.Value} room={(_missionLootRooms.TryGetValue(x.Key, out int room) ? room.ToString() : "unknown")} " +
+                (DynelManager.GetDynel(x.Key) == null ? "not currently visible" : "still visible")));
         public IEnumerable<MissionIdentity> MissionObjectiveItems => _objectiveLootItems;
         private bool ProtectedMissionItem(Item item) =>
             _objectiveLootItems.Contains(item.UniqueIdentity) || (MissionItemProtected?.Invoke(item) ?? false);
@@ -176,6 +206,8 @@ namespace ManagerLoot
 
         public void SkipUnreachableMissionLoot(MissionIdentity identity)
         {
+            SetMissionSource(identity, IsMissionCriticalLoot(identity) ?
+                MissionSourceState.CriticalBlocked : MissionSourceState.SkippedUnreachable);
             _unreachableMissionLoot.Add(identity);
             if (CurrentCorpse?.Identity == identity && CorpseContainer == null)
             {
@@ -203,6 +235,7 @@ namespace ManagerLoot
             if (ReservedMissionLoot(identity) || MissionObjectiveContainer == identity)
             {
                 attempt.CriticalBlocked = true;
+                SetMissionSource(identity, MissionSourceState.CriticalBlocked);
                 Chat.WriteLine($"RKMission: Objective container {identity} cannot be lockpicked ({reason}); mission recovery required.");
                 // Keep pending ownership so RKMission's existing loot watchdog stops
                 // the mission instead of treating this objective as ordinary loot.
@@ -211,8 +244,10 @@ namespace ManagerLoot
                 return;
             }
             SkipUnreachableMissionLoot(identity);
-            // A known unpickable ordinary chest is settled for room and final
-            // clearance, unlike an unreachable chest that still needs review.
+            SetMissionSource(identity, reason == LockpickOutcome.InsufficientSkill ?
+                MissionSourceState.SkippedInsufficientSkill : reason == LockpickOutcome.NoLockPick ?
+                MissionSourceState.SkippedNoLockpick : MissionSourceState.SkippedRepeatedFailure);
+            // A known unpickable ordinary chest is settled for room and final clearance.
             _finishedMissionLoot.Add(identity);
             Chat.WriteLine($"RKMission: Skipping locked loot {identity}: {reason} after {attempt.Attempts} attempt(s).");
             CurrentCorpse = null;
@@ -244,11 +279,16 @@ namespace ManagerLoot
                 && IsInMissionRoom(x, roomId)
                 && (MissionLootAllowed?.Invoke(x) ?? true)).ToList();
             foreach (Dynel candidate in candidates) TrackMissionLoot(candidate.Identity, roomId);
-            return candidates.Where(x =>
+            Dynel selected = candidates.Where(x =>
                 !_unreachableMissionLoot.Contains(x.Identity)
                 && !_finishedMissionLoot.Contains(x.Identity))
             .OrderBy(x => x.Identity == _pendingMissionLoot ? 0 : 1)
+            .ThenBy(x => x.Identity.Type == IdentityType.Corpse ? 0 : 1)
             .ThenBy(x => x.DistanceFrom(DynelManager.LocalPlayer)).FirstOrDefault();
+            if (selected != null && _missionSources.TryGetValue(selected.Identity, out MissionSourceState state) &&
+                state == MissionSourceState.Discovered)
+                SetMissionSource(selected.Identity, MissionSourceState.PendingApproach);
+            return selected;
         }
 
         private void FinishMissionContainer()
@@ -258,6 +298,7 @@ namespace ManagerLoot
                 _unreachableMissionLoot.Remove(CorpseContainer.Identity);
                 if (_finishedMissionLoot.Add(CorpseContainer.Identity))
                     Chat.WriteLine($"RKMission: Loot processing finished {CorpseContainer.Identity}.");
+                SetMissionSource(CorpseContainer.Identity, MissionSourceState.Completed);
                 if (_pendingMissionLoot == CorpseContainer.Identity) _pendingMissionLoot = MissionIdentity.None;
             }
         }
@@ -266,6 +307,7 @@ namespace ManagerLoot
         {
             _seenMissionLoot.Add(identity);
             _missionLootRooms[identity] = roomId;
+            if (!_missionSources.ContainsKey(identity)) SetMissionSource(identity, MissionSourceState.Discovered);
         }
 
         private void BindMissionLoot(Dynel dynel)
@@ -273,6 +315,7 @@ namespace ManagerLoot
             if (MissionRoomId < 0) return;
             _pendingMissionLoot = dynel.Identity;
             TrackMissionLoot(dynel.Identity, MissionRoomId);
+            SetMissionSource(dynel.Identity, MissionSourceState.Opening);
         }
 
         public void BeginMissionObjectiveLoot(MissionIdentity identity)
@@ -285,6 +328,7 @@ namespace ManagerLoot
             _finishedMissionLoot.Remove(identity);
             openedContainers.Remove(identity.Instance);
             _missionLockpicks.Remove(identity);
+            SetMissionSource(identity, MissionSourceState.Discovered);
         }
 
         private bool IsInMissionRoom(Dynel dynel, int roomId) =>
@@ -546,7 +590,9 @@ namespace ManagerLoot
                 openedContainers[container.Identity.Instance] = Time.AONormalTime;
 
             CorpseContainer = container;
+            _observedContainerCount = container.Items?.Count ?? 0;
             CurrentCorpse = DynelManager.GetDynel(container.Identity);
+            SetMissionSource(container.Identity, MissionSourceState.Looting);
             if (_missionLockpicks.TryGetValue(container.Identity, out LockpickAttempt lockpick))
                 lockpick.Outcome = LockpickOutcome.Success;
 
@@ -647,7 +693,8 @@ namespace ManagerLoot
                         && (MissionLootAllowed?.Invoke(c) ?? true)
                         && (MissionRoomId < 0 || !_finishedMissionLoot.Contains(c.Identity))
                         && (MissionRoomId < 0 || IsInMissionRoom(c, MissionRoomId)))
-                            .OrderBy(d => d.Position.DistanceFrom(DynelManager.LocalPlayer.Position)).FirstOrDefault(c => DynelManager.LocalPlayer.Position.Distance2DFrom(c.Position) < 6);
+                            .OrderBy(d => MissionRoomId >= 0 && d.Identity.Type == IdentityType.Corpse ? 0 : 1)
+                            .ThenBy(d => d.Position.DistanceFrom(DynelManager.LocalPlayer.Position)).FirstOrDefault(c => DynelManager.LocalPlayer.Position.Distance2DFrom(c.Position) < 6);
 
                         if (dynel == null) return;
                         if (Spell.HasPendingCast || Item.HasPendingUse || PerkAction.List.Any(perk => perk.IsExecuting)) return;
@@ -687,6 +734,7 @@ namespace ManagerLoot
                                     attempt.Outcome = LockpickOutcome.None;
                                 }
                                 CurrentProcess = ProcessState.PickingLock;
+                                SetMissionSource(chest.Identity, MissionSourceState.Lockpicking);
                                 lockPick?.UseOn(chest);
                                 //Chat.WriteLine($"Picking lock on chest: {chest.Name}", ChatColor.Yellow);
                             }
@@ -736,6 +784,8 @@ namespace ManagerLoot
                         if (CorpseContainer == null) { CurrentProcess = ProcessState.Open_Corpse; break; }
                         var contents = CorpseContainer.Items;
                         if (contents == null) return; // Keep pending ownership until data is available.
+                        if (contents.Count < _observedContainerCount) MissionLootProgress++;
+                        _observedContainerCount = contents.Count;
                         if (contents.Count == 0)
                         {
                             FinishMissionContainer();

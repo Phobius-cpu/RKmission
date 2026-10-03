@@ -1010,8 +1010,9 @@ namespace RKmission
                         if (File.Exists(_navMeshPath) && SMovementController.NavAgent?.HasPathfinder != true &&
                             DateTime.UtcNow - _started < TimeSpan.FromSeconds(5))
                             return FGridServiceResult.InProgress;
-                        Fail($"No safe FGrid route reaches portal {_exit.Identity} on floor {_route.Floor} ({meshReason}). Record a verified walkway with /rkm nav record fgrid-floor-{_route.Floor}-portal-{_exit.Identity.Instance}, then /rkm nav stop.");
-                        return FGridServiceResult.Failed;
+                        string routeFailure = $"No safe FGrid route reaches portal {_exit.Identity} on floor {_route.Floor} ({meshReason}). " +
+                            $"Record a verified walkway with /rkm nav record fgrid-floor-{_route.Floor}-portal-{_exit.Identity.Instance}, then /rkm nav stop.";
+                        return TryNextExit(routeFailure) ? FGridServiceResult.InProgress : FGridServiceResult.Failed;
                     }
                     else if (_routes.IsPlaying) _activeNavSource = "recorded fallback";
                 }

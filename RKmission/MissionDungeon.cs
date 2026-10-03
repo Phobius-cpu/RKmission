@@ -30,6 +30,9 @@ namespace RKmission
         private readonly HashSet<int> _combatCheckedRooms = new HashSet<int>();
         private readonly HashSet<int> _visitedRooms = new HashSet<int>();
         private readonly HashSet<int> _surveyedRooms = new HashSet<int>();
+        private enum RoomClearanceState { Entered, Surveyed, CombatChecked, Cleared, Reopened }
+        private readonly Dictionary<int, RoomClearanceState> _roomStates = new Dictionary<int, RoomClearanceState>();
+        private readonly HashSet<int> _floorsVisited = new HashSet<int>();
         private readonly HashSet<int> _enemyOwners = new HashSet<int>();
         private readonly Dictionary<string, EdgeFailure> _edgeFailures = new Dictionary<string, EdgeFailure>();
         private readonly Dictionary<string, DateTime> _reverseCooldown = new Dictionary<string, DateTime>();
@@ -65,15 +68,21 @@ namespace RKmission
         private DateTime _lootLastProgress;
         private Identity _waitingForLoot = Identity.None;
         private readonly List<Vector3> _lootApproachPoints = new List<Vector3>();
+        private readonly List<Vector3> _objectiveApproaches = new List<Vector3>();
+        private Vector3? _objectiveApproachTarget;
+        private int _objectiveApproachIndex;
+        private float _objectiveBestDistance;
+        private DateTime _objectiveProgressAt;
         private int _lootApproachIndex;
         private Vector3 _lootLastPosition;
         private DateTime _lootNearStarted;
+        private int _lootProgressVersion;
         private bool _lootProbeNextSide;
         private int _floor;
         private DungeonLiftController.Lift _activeLift;
         private DateTime _liftStarted;
 
-        private enum TransitionPhase { ApproachDoor, ProbeDoor, OpenDoor, CrossDoor }
+        private enum TransitionPhase { SourceApproach, ProbeDoor, OpenDoor, TargetCenterline, SafeInterior }
         private sealed class Transition
         {
             public DungeonLayout.Connection Edge;
@@ -87,6 +96,8 @@ namespace RKmission
         private sealed class EdgeFailure
         {
             public int Count;
+            public int Successes;
+            public int ConsecutiveFailures;
             public DateTime Until;
             public bool Permanent;
         }
@@ -98,7 +109,26 @@ namespace RKmission
         public int Floor => _floor;
         public bool IsExiting => _exiting;
         public string Status => _exiting ? "returning to exit" : IsComplete ? "complete" : !IsRunning ? "idle" : _readiness.IsWaiting ? _readiness.Status :
-            $"visited {_visitedRooms.Count}, cleared {_clearedRooms.Count} rooms";
+            $"floor {_floor}, room {_currentRoom}, transition={_transition?.Phase.ToString() ?? "none"}, visited {_visitedRooms.Count}, cleared {_clearedRooms.Count} rooms";
+        public MissionExecutionRecord Snapshot() => _record == null ? null : new MissionExecutionRecord
+        {
+            MissionId = _record.Id.Instance,
+            DungeonInstance = Playfield.ModelIdentity.Instance,
+            EntryRoom = _entryRoom,
+            EntryPosition = _entryPosition,
+            CurrentRoom = _currentRoom,
+            Floor = _floor,
+            FloorsVisited = _floorsVisited.OrderBy(x => x).ToList(),
+            RoomStates = _roomStates.ToDictionary(x => x.Key, x => x.Value.ToString()),
+            EdgeFailures = _edgeFailures.ToDictionary(x => x.Key, x => x.Value.Count),
+            ObjectiveRooms = _objective?.Rooms.OrderBy(x => x).ToList() ?? new List<int>(),
+            ObjectiveSteps = _objective?.StepSummary,
+            LootBlockers = _loot.MissionLootBlockers,
+            ExitDoor = _exitDoor.ToString(),
+            Phase = _exiting ? "Exit" : _objective?.Finale == true ? "ObjectiveFinale" :
+                _transition != null ? "Door:" + _transition.Phase : "Exploration",
+            UpdatedAtUtc = DateTime.UtcNow
+        };
 
         public MissionDungeon(Action<string> say, ManagerLoot.ManagerLoot loot, MissionReadiness readiness, InventoryPolicy inventory)
         {
@@ -121,6 +151,8 @@ namespace RKmission
             _reservedAggroReported = false;
             _visitedRooms.Clear();
             _surveyedRooms.Clear();
+            _roomStates.Clear();
+            _floorsVisited.Clear();
             _enemyOwners.Clear();
             _edgeFailures.Clear();
             _reverseCooldown.Clear();
@@ -129,6 +161,8 @@ namespace RKmission
             _scanTarget = Identity.None;
             _scanWaypoints.Clear();
             _waitingForLoot = Identity.None;
+            _objectiveApproaches.Clear();
+            _objectiveApproachTarget = null;
             _loot.ResetMissionLootSkips();
             _loot.IgnoreOrdinaryMissionLoot = false;
             _lifts.Reset();
@@ -180,6 +214,7 @@ namespace RKmission
             _roomQuietAt = DateTime.MinValue;
             _observedRoom = -1;
             _floor = Math.Abs(DynelManager.LocalPlayer.Room.Floor);
+            _floorsVisited.Add(_floor);
             new DungeonNavMeshFactory().GenerateNavMeshAsync().ContinueWith(task =>
             {
                 if (!IsRunning)
@@ -234,9 +269,39 @@ namespace RKmission
         public void RecoverFromStuck(int tier)
         {
             if (!IsRunning) return;
-            if (tier >= 3 && _transition != null)
+            if (_transition != null)
             {
-                FailTransition("repeated stuck/rubberband events during doorway crossing");
+                Transition crossing = _transition;
+                switch (crossing.Phase)
+                {
+                    case TransitionPhase.SourceApproach:
+                        if (tier >= 3) FailTransition("source-side approach repeatedly stalled");
+                        else InvalidatePath();
+                        break;
+                    case TransitionPhase.ProbeDoor:
+                        crossing.Phase = TransitionPhase.OpenDoor;
+                        crossing.PhaseStarted = DateTime.UtcNow;
+                        _destination = null;
+                        MovementArbiter.Current.Halt(MovementOwner.DoorTransition);
+                        _say($"Transition {crossing.Edge.Source}->{crossing.Edge.Target}: probe stalled; trying door interaction.");
+                        break;
+                    case TransitionPhase.OpenDoor:
+                        if (tier >= 3) FailTransition("door-side interaction approach repeatedly stalled");
+                        else { crossing.LastApproachCommand = DateTime.MinValue; InvalidatePath(); }
+                        break;
+                    case TransitionPhase.TargetCenterline:
+                        crossing.Phase = TransitionPhase.SafeInterior;
+                        crossing.PushingDeeper = true;
+                        crossing.PhaseStarted = crossing.LastProgress = DateTime.UtcNow;
+                        _destination = null;
+                        _say($"Transition {crossing.Edge.Source}->{crossing.Edge.Target}: centerline stalled; trying safe interior.");
+                        break;
+                    case TransitionPhase.SafeInterior:
+                        if (++crossing.CrossingRetries > 3 || tier >= 3)
+                            FailTransition("safe interior repeatedly stalled without exact room confirmation");
+                        else { crossing.LastProgress = DateTime.UtcNow; _destination = null; }
+                        break;
+                }
                 return;
             }
             if (tier >= 2)
@@ -287,6 +352,7 @@ namespace RKmission
             {
                 MovementArbiter.Current.StopAll();
                 _floor = floor;
+                _floorsVisited.Add(floor);
                 LoadFloor();
                 _activeLift = null;
                 _liftStarted = DateTime.MinValue;
@@ -311,6 +377,7 @@ namespace RKmission
             {
                 _currentRoom = room.Instance;
                 _visitedRooms.Add(room.Instance);
+                if (!_clearedRooms.Contains(room.Instance)) _roomStates[room.Instance] = RoomClearanceState.Entered;
                 _roomQuietAt = DateTime.MinValue;
             }
             else if (room.Instance != _currentRoom)
@@ -326,6 +393,7 @@ namespace RKmission
                     return;
                 _currentRoom = room.Instance;
                 _visitedRooms.Add(room.Instance);
+                if (!_clearedRooms.Contains(room.Instance)) _roomStates[room.Instance] = RoomClearanceState.Entered;
                 _destination = null;
                 _observedRoom = -1;
                 _roomQuietAt = DateTime.MinValue;
@@ -341,6 +409,7 @@ namespace RKmission
             _loot.BeginMissionRoom(room.Instance);
             if (_surveyedRooms.Add(room.Instance))
             {
+                _roomStates[room.Instance] = RoomClearanceState.Surveyed;
                 var visible = _layout.VisibleRoomDynels(room.Instance).ToList();
                 int characters = visible.Where(x => x.Identity.Type == IdentityType.SimpleChar)
                     .Select(x => new SimpleChar(x))
@@ -365,11 +434,12 @@ namespace RKmission
                     // return for the deferred loot before exiting.
                     if (ScanRemainingRoom(room)) return;
                     _combatCheckedRooms.Add(room.Instance);
+                    _roomStates[room.Instance] = RoomClearanceState.CombatChecked;
                     if (Playfield.Rooms.All(x => _clearedRooms.Contains(x.Instance) ||
                             _combatCheckedRooms.Contains(x.Instance)) && !ordinaryEnemiesRemain)
                     {
                         _objective.FinalActionsAllowed = true;
-                        if (!_objective.Finale) _objective.BeginFinale();
+                        if (!_objective.Finale && !BeginObjectiveFinale()) return;
                         if (FightInRoom(room)) return;
                         if (ScanRemainingRoom(room)) return;
                         int? objectiveRoom = _objective.PendingRoom;
@@ -418,6 +488,7 @@ namespace RKmission
             }
 
             _clearedRooms.Add(room.Instance);
+            _roomStates[room.Instance] = RoomClearanceState.Cleared;
             if (_objective.Failure != null) { Stop(); _say(_objective.Failure); return; }
             Room next = NextRoom(room);
             if (next == null)
@@ -457,7 +528,7 @@ namespace RKmission
                         _say($"{_loot.SkippedMissionLootCount} ordinary loot source(s) skipped this mission; continuing to the reserved objective.");
                     if (_loot.ReservedPendingMissionLootCount > 0)
                         _say($"{_loot.ReservedPendingMissionLootCount} reserved objective loot entries are final work, excluded from the ordinary-loot gate.");
-                    _objective.BeginFinale();
+                    if (!BeginObjectiveFinale()) return;
                     _roomQuietAt = DateTime.MinValue;
                     return;
                 }
@@ -504,11 +575,78 @@ namespace RKmission
         private bool TickObjective(Room room)
         {
             _requestedOwner = MovementOwner.Objective;
-            return _objective.Tick(room, _layout, Navigate, _loot);
+            return _objective.Tick(room, _layout, target => NavigateObjective(room, target), _loot);
+        }
+
+        private bool BeginObjectiveFinale()
+        {
+            if (_objective.PreflightFinale(out string reason))
+            { _objective.BeginFinale(); return true; }
+            Stop();
+            _say("Objective finale preflight failed: " + reason);
+            return false;
+        }
+
+        private bool NavigateObjective(Room room, Vector3 target)
+        {
+            Vector3 position = DynelManager.LocalPlayer.Position;
+            DateTime now = DateTime.UtcNow;
+            if (!_objectiveApproachTarget.HasValue ||
+                Vector3.Distance(_objectiveApproachTarget.Value, target) > 1f)
+            {
+                _objectiveApproachTarget = target;
+                _objectiveApproaches.Clear();
+                _objectiveApproaches.AddRange(DungeonApproachPlanner.Candidates(_layout,
+                    room.Instance, position, target, new[] { 1.1f, 1.7f }, 0.25f));
+                _objectiveApproachIndex = 0;
+                _objectiveProgressAt = now;
+                _objectiveBestDistance = float.MaxValue;
+                _destination = null;
+                _say($"Objective approach: {_objectiveApproaches.Count} complete mapped route(s) to {target}.");
+            }
+            while (_objectiveApproachIndex < _objectiveApproaches.Count)
+            {
+                Vector3 point = _objectiveApproaches[_objectiveApproachIndex];
+                float distance = Vector3.Distance(position, point);
+                if (distance + 0.3f < _objectiveBestDistance)
+                { _objectiveBestDistance = distance; _objectiveProgressAt = now; }
+                if (_destination.HasValue && (distance < 0.8f ||
+                    now - _objectiveProgressAt > TimeSpan.FromSeconds(7)))
+                {
+                    _objectiveApproachIndex++;
+                    _destination = null;
+                    _objectiveBestDistance = float.MaxValue;
+                    _objectiveProgressAt = now;
+                    continue;
+                }
+                if (_destination.HasValue && SMovementController.IsNavigating()) return true;
+                if (MovementArbiter.Current.SetNavDestination(_requestedOwner, point))
+                { _destination = point; return true; }
+                _objectiveApproachIndex++;
+            }
+            return false;
         }
 
         private bool HoldForReadiness()
         {
+            Room liveRoom = DynelManager.LocalPlayer?.Room;
+            bool roomReady = !_exiting && _layout != null && liveRoom != null &&
+                _currentRoom == liveRoom.Instance;
+            bool threat = roomReady && EnemyCandidates(liveRoom).Any();
+            bool immediateWork = threat || (roomReady && _loot.HasPendingMissionCorpse(liveRoom.Instance));
+            if (immediateWork && !_readiness.InCombat)
+            {
+                if (threat || (!_readiness.EmergencyRecoveryNeeded && !_readiness.EmergencyRecoveryActive))
+                    return false;
+                if (_readiness.HoldEmergency())
+                {
+                    _combat.Pause();
+                    _loot.MissionActionsPaused = true;
+                    if (_readiness.Failure != null) { _say(_readiness.Failure); Stop(); }
+                    return true;
+                }
+                return false;
+            }
             if (!_readiness.Hold()) return false;
             _combat.Pause();
             _loot.MissionActionsPaused = true;
@@ -614,8 +752,8 @@ namespace RKmission
         {
             if (!_layout.ContainsDynel(roomId, enemy))
             {
-                // Preserve the existing defensive pursuit of an active attacker
-                // just outside this room; mapped alternatives apply in-room.
+                if (!LocalRoutePlanner.TryDungeonGroundCost(DynelManager.LocalPlayer.Position,
+                    enemy.Position, out _)) return false;
                 Navigate(enemy.Position);
                 return true;
             }
@@ -628,16 +766,8 @@ namespace RKmission
                 _combatApproachEnemyPosition = enemy.Position;
                 _combatApproaches.Clear();
                 _combatApproachIndex = 0;
-                Vector3 toward = player.Position - enemy.Position;
-                toward.Y = 0;
-                toward = toward.Magnitude > 0.1 ? toward.Normalize() : Vector3.Forward;
-                Vector3 side = new Vector3(-toward.Z, 0, toward.X);
-                foreach (float radius in new[] { 2f, 4f })
-                    foreach (Vector3 direction in new[] { toward, side, -side, -toward })
-                        AddCombatApproach(roomId, enemy.Position + direction * radius);
-                AddCombatApproach(roomId, enemy.Position);
-                if (_combatApproaches.Count == 0 && enemy.Room?.Instance == roomId)
-                    _combatApproaches.Add(enemy.Position); // Preserve AO's room assignment when Mali geometry is incomplete.
+                _combatApproaches.AddRange(DungeonApproachPlanner.Candidates(_layout, roomId,
+                    player.Position, enemy.Position, new[] { 2f, 4f }, 0.3f));
                 _destination = null;
                 _say($"Combat approach to {enemy.Identity} in room {roomId}: " +
                     $"{_combatApproaches.Count} mapped point(s), distance={enemy.DistanceFrom(player):0.0}m.");
@@ -673,13 +803,6 @@ namespace RKmission
                 _combatApproachIndex++;
             }
             return _destination.HasValue;
-        }
-
-        private void AddCombatApproach(int roomId, Vector3 point)
-        {
-            if (_layout.IsInside(roomId, point, 0.2f) &&
-                !_combatApproaches.Any(existing => Vector3.Distance(existing, point) < 1f))
-                _combatApproaches.Add(point);
         }
 
         private bool ScanRemainingRoom(Room room)
@@ -774,6 +897,7 @@ namespace RKmission
         private void AddScanWaypoint(int roomId, Vector3 point)
         {
             if (_layout.IsInside(roomId, point, 0.5f) &&
+                LocalRoutePlanner.TryDungeonGroundCost(DynelManager.LocalPlayer.Position, point, out _) &&
                 !_scanWaypoints.Any(existing => Vector3.Distance(existing, point) < 2f))
                 _scanWaypoints.Add(point);
         }
@@ -824,6 +948,7 @@ namespace RKmission
                 bool unfinishedLoot = pendingLoot != null && !_objective.IsObjective(pendingLoot.Identity);
                 if (enemy == null && !unfinishedLoot) continue;
                 _clearedRooms.Remove(id);
+                _roomStates[id] = RoomClearanceState.Reopened;
                 _say($"Reopening cleared room {id}: " + (enemy != null
                     ? $"live enemy {enemy.Identity} is inside this room."
                     : $"unfinished loot {pendingLoot.Identity} is inside this room."));
@@ -961,6 +1086,7 @@ namespace RKmission
                 _waitingForLoot = waitingIdentity;
                 _lootWaitStarted = now;
                 _lootLastProgress = _lootWaitStarted;
+                _lootProgressVersion = _loot.MissionLootProgress;
                 _lootLastPosition = DynelManager.LocalPlayer.Position;
                 _lootApproachIndex = 0;
                 _lootNearStarted = DateTime.MinValue;
@@ -976,6 +1102,18 @@ namespace RKmission
             }
             if (_loot.IsProcessingMissionLoot)
             {
+                if (_loot.CriticalBlockedMissionLootCount > 0)
+                {
+                    string blockers = _loot.MissionLootBlockers;
+                    Stop();
+                    _say("Mission-critical loot is blocked; objective completion and exit are held. " + blockers);
+                    return true;
+                }
+                if (_lootProgressVersion != _loot.MissionLootProgress)
+                {
+                    _lootProgressVersion = _loot.MissionLootProgress;
+                    _lootWaitStarted = now;
+                }
                 // A pending ordinary chest use can time out while the chest is
                 // still across an interior wall. Keep approaching that same
                 // identity; Manager.Loot retains ownership of opening it.
@@ -1083,31 +1221,9 @@ namespace RKmission
         private void BuildLootApproaches(Room room, Vector3 target)
         {
             Vector3 player = DynelManager.LocalPlayer.Position;
-            Vector3 toward = player - target;
-            toward.Y = 0;
-            toward = toward.Magnitude > 0.1 ? toward.Normalize() : Vector3.Forward;
-            Vector3 side = new Vector3(-toward.Z, 0, toward.X);
-            foreach (float radius in new[] { 3.5f, 5f })
-                foreach (Vector3 direction in new[] { toward, side, -side, -toward })
-                {
-                    Vector3 point = target + direction * radius;
-                    if (_layout.IsInside(room.Instance, point, 0.4f) &&
-                        !_lootApproachPoints.Any(existing => Vector3.Distance(existing, point) < 1f))
-                        _lootApproachPoints.Add(point);
-                }
-            if (_lootApproachPoints.Count == 0)
-                _lootApproachPoints.Add(target); // Preserve the original fallback when Mali geometry is incomplete.
-            var ordered = _lootApproachPoints.Select((point, index) => new
-                { Point = point, Index = index, Cost = LootRouteCost(player, point) })
-                .OrderBy(x => x.Cost).ThenBy(x => x.Index).Select(x => x.Point).ToList();
             _lootApproachPoints.Clear();
-            _lootApproachPoints.AddRange(ordered);
-        }
-
-        private static float LootRouteCost(Vector3 from, Vector3 to)
-        {
-            try { return LocalRoutePlanner.TryGroundCost(from, to, out float cost) ? cost : float.PositiveInfinity; }
-            catch { return float.PositiveInfinity; } // Advisory order; actual navigation is checked separately.
+            _lootApproachPoints.AddRange(DungeonApproachPlanner.Candidates(_layout,
+                room.Instance, player, target, new[] { 3.5f, 5f }, 0.4f));
         }
 
         private void SkipLoot(Dynel loot, int roomId, string reason)
@@ -1150,14 +1266,15 @@ namespace RKmission
         {
             if (_layout == null) return null;
             var reserved = new HashSet<int>(_objective.Rooms);
-            var queue = new Queue<int>();
+            var frontier = new HashSet<int> { current };
             var parent = new Dictionary<int, int>();
-            queue.Enqueue(current);
+            var cost = new Dictionary<int, float> { [current] = 0f };
             parent[current] = -1;
 
-            while (queue.Count > 0)
+            while (frontier.Count > 0)
             {
-                int index = queue.Dequeue();
+                int index = frontier.OrderBy(id => cost[id]).First();
+                frontier.Remove(index);
                 Room room = _layout.Room(index);
                 if (room == null)
                     continue;
@@ -1171,21 +1288,27 @@ namespace RKmission
                     return _layout.Room(index);
                 }
 
-                // Prefer the shortest available chain of room connections. The
-                // nearest doorway breaks ties between paths of equal depth.
+                // Door distance, prior failures and successful crossings form
+                // a bounded Dijkstra cost. A failed edge remains usable after
+                // its cooldown, but a reliable alternate route is preferred.
                 Vector3 entryPosition = index == current
                     ? DynelManager.LocalPlayer.Position
                     : _layout.Edge(parent[index], index).Interior;
                 foreach (int adjacentCandidate in _layout.Neighbors(index)
                     .Where(id => !IsUnavailable(index, id))
-                    .Where(id => !avoidObjectiveRooms || !reserved.Contains(id))
-                    .OrderBy(id => Vector3.Distance(_layout.Edge(index, id).Threshold,
-                        entryPosition)))
+                    .Where(id => !avoidObjectiveRooms || !reserved.Contains(id)))
                 {
-                    if (parent.ContainsKey(adjacentCandidate))
+                    DungeonLayout.Connection edge = _layout.Edge(index, adjacentCandidate);
+                    _edgeFailures.TryGetValue(EdgeKey(index, adjacentCandidate), out EdgeFailure history);
+                    float failures = history == null ? 0f :
+                        Math.Max(0, history.Count - history.Successes) * 12f;
+                    float proposed = cost[index] + 10f + failures +
+                        Vector3.Distance(edge.SourceApproach, entryPosition) * 0.3f;
+                    if (cost.TryGetValue(adjacentCandidate, out float previous) && previous <= proposed)
                         continue;
+                    cost[adjacentCandidate] = proposed;
                     parent[adjacentCandidate] = index;
-                    queue.Enqueue(adjacentCandidate);
+                    frontier.Add(adjacentCandidate);
                 }
             }
             return null;
@@ -1200,18 +1323,19 @@ namespace RKmission
             DateTime now = DateTime.UtcNow;
             _transition = new Transition
             {
-                Edge = edge, Phase = TransitionPhase.ApproachDoor,
+                Edge = edge, Phase = TransitionPhase.SourceApproach,
                 Started = now, PhaseStarted = now, LastProgress = now,
                 BestDistance = float.MaxValue
             };
             _loot.EndMissionRoom();
             _destination = null;
             _observedRoom = -1;
-            _say($"Transition {source}->{target}: approach doorway at {edge.Threshold}, door {door?.Identity.ToString() ?? "none"}; interior {edge.Interior}.");
+            _say($"Transition {source}->{target}: source approach {edge.SourceApproach}, door center {edge.DoorCenter}, " +
+                $"target centerline {edge.TargetCenterline}, safe interior {edge.Interior}, door {door?.Identity.ToString() ?? "none"}.");
             if (UseLiveDoorwayHeight(edge, edge.Interior, DynelManager.LocalPlayer.Position))
                 _say($"Transition {source}->{target}: Mali interior height {edge.Interior.Y:0.0} differs from the live floor " +
                     $"{DynelManager.LocalPlayer.Position.Y:0.0}; using live floor height for this same-floor crossing.");
-            Navigate(edge.Threshold);
+            Navigate(DoorwayWaypoint(edge, edge.SourceApproach, DynelManager.LocalPlayer.Position));
         }
 
         private void TickTransition(Room detectedRoom)
@@ -1269,12 +1393,12 @@ namespace RKmission
 
             // Room detection can switch before the approach phase sees the door.
             // Once we are across its Mali boundary, never steer back to the threshold.
-            if (crossing.Phase != TransitionPhase.CrossDoor &&
+            if (crossing.Phase != TransitionPhase.SafeInterior &&
                 detectedRoom.Instance == edge.Target &&
                 _layout.IsInside(edge.Target, position, 0.2f))
             {
                 _say($"Transition {edge.Source}->{edge.Target}: boundary crossed; moving into target interior.");
-                crossing.Phase = TransitionPhase.CrossDoor;
+                crossing.Phase = TransitionPhase.SafeInterior;
                 crossing.PhaseStarted = now;
                 crossing.LastProgress = now;
                 crossing.BestDistance = float.MaxValue;
@@ -1289,11 +1413,16 @@ namespace RKmission
                 return;
             }
 
-            if (crossing.Phase == TransitionPhase.ApproachDoor)
+            if (crossing.Phase == TransitionPhase.SourceApproach)
             {
-                if (Vector3.Distance(position, edge.Threshold) > 3.5f)
+                Vector3 approach = DoorwayWaypoint(edge, edge.SourceApproach, position);
+                if (Vector3.Distance(position, approach) > 1.1f)
                 {
-                    Navigate(edge.Threshold);
+                    if (now - crossing.LastProgress > TimeSpan.FromSeconds(7))
+                    { FailTransition("source-side doorway approach stalled"); return; }
+                    if (Vector3.Distance(position, approach) + 0.3f < crossing.BestDistance)
+                    { crossing.BestDistance = Vector3.Distance(position, approach); crossing.LastProgress = now; }
+                    Navigate(approach);
                     return;
                 }
                 string liveDoorRange = door == null ? "none" :
@@ -1348,7 +1477,7 @@ namespace RKmission
                 if (door == null || passageOpen)
                 {
                     _say($"Transition {edge.Source}->{edge.Target}: doorway open; crossing.");
-                    crossing.Phase = TransitionPhase.CrossDoor;
+                    crossing.Phase = TransitionPhase.TargetCenterline;
                     crossing.PhaseStarted = now;
                     crossing.LastProgress = now;
                     crossing.BestDistance = float.MaxValue;
@@ -1377,9 +1506,10 @@ namespace RKmission
                     }
                     if (now - crossing.LastApproachCommand >= TimeSpan.FromSeconds(1))
                     {
-                        MovementArbiter.Current.SetDestination(_requestedOwner, door.Position);
+                        MovementArbiter.Current.SetNavDestination(_requestedOwner,
+                            DoorwayWaypoint(edge, edge.SourceApproach, position));
                         crossing.LastApproachCommand = now;
-                        _destination = door.Position;
+                        _destination = DoorwayWaypoint(edge, edge.SourceApproach, position);
                     }
                     return;
                 }
@@ -1470,6 +1600,7 @@ namespace RKmission
                     return;
                 }
                 crossing.PushingDeeper = true;
+                crossing.Phase = TransitionPhase.SafeInterior;
                 crossing.PhaseStarted = now;
                 crossing.LastProgress = now;
                 crossing.BestDistance = float.MaxValue;
@@ -1486,7 +1617,15 @@ namespace RKmission
             _requestedOwner = MovementOwner.DungeonRoom;
             _currentRoom = edge.Target;
             _visitedRooms.Add(edge.Target);
-            _edgeFailures.Remove(EdgeKey(edge.Source, edge.Target));
+            if (!_roomStates.ContainsKey(edge.Target)) _roomStates[edge.Target] = RoomClearanceState.Entered;
+            string key = EdgeKey(edge.Source, edge.Target);
+            if (_edgeFailures.TryGetValue(key, out EdgeFailure history))
+            {
+                history.Successes++;
+                history.ConsecutiveFailures = 0;
+                history.Until = DateTime.MinValue;
+                history.Permanent = false;
+            }
             _reverseCooldown[EdgeKey(edge.Source, edge.Target)] = DateTime.UtcNow.AddSeconds(ReverseEdgeCooldownSeconds);
             _say($"Transition {edge.Source}->{edge.Target}: confirmed in " +
                 (_clearedRooms.Contains(edge.Target) ? "previously cleared room; no repeat clearance pause" : "target room") +
@@ -1509,9 +1648,10 @@ namespace RKmission
             if (!_edgeFailures.TryGetValue(key, out EdgeFailure failure))
                 _edgeFailures[key] = failure = new EdgeFailure();
             failure.Count++;
-            failure.Permanent = failure.Count >= 3;
-            failure.Until = DateTime.UtcNow.AddSeconds(failure.Count == 1 ? 30 : 90);
-            _say($"Transition {edge.Source}->{edge.Target}: {reason}; failure {failure.Count}/3, " +
+            int consecutive = ++failure.ConsecutiveFailures;
+            failure.Permanent = consecutive >= 3;
+            failure.Until = DateTime.UtcNow.AddSeconds(consecutive == 1 ? 30 : 90);
+            _say($"Transition {edge.Source}->{edge.Target}: {reason}; failure {consecutive}/3, " +
                 (failure.Permanent ? "edge blocked for this run." :
                     $"edge blacklisted until {failure.Until:HH:mm:ss} UTC; selecting the next closest reachable room."));
             _transition = null;
@@ -1550,16 +1690,23 @@ namespace RKmission
                 Vector3.Distance(_destination.Value, destination) > 1f ||
                 !SMovementController.IsNavigating())
             {
-                MovementArbiter.Current.SetNavDestination(_requestedOwner, destination);
-                _destination = destination;
+                if (MovementArbiter.Current.SetNavDestination(_requestedOwner, destination))
+                    _destination = destination;
             }
         }
 
         private Vector3 CrossingWaypoint(DungeonLayout.Connection edge, Vector3 position, bool deep = false)
         {
-            Vector3 waypoint = deep ? edge.DeepInterior : edge.Interior;
+            Vector3 waypoint = deep ? edge.DeepInterior :
+                _transition?.Phase == TransitionPhase.SafeInterior ? edge.Interior : edge.TargetCenterline;
             if (UseLiveDoorwayHeight(edge, waypoint, position))
                 waypoint.Y = position.Y;
+            return waypoint;
+        }
+
+        private Vector3 DoorwayWaypoint(DungeonLayout.Connection edge, Vector3 waypoint, Vector3 position)
+        {
+            if (UseLiveDoorwayHeight(edge, waypoint, position)) waypoint.Y = position.Y;
             return waypoint;
         }
 

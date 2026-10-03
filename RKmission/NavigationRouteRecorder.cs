@@ -90,27 +90,52 @@ namespace RKmission
                     Vector3 first = V(route.Points[0]), last = V(route.Points[route.Points.Count - 1]);
                     float forward = Vector3.Distance(player.Position, first) + Vector3.Distance(target, last);
                     float backward = Vector3.Distance(player.Position, last) + Vector3.Distance(target, first);
-                    if (Vector3.Distance(player.Position, first) <= endpointTolerance && Vector3.Distance(target, last) <= endpointTolerance && forward < bestCost)
+                    if (Vector3.Distance(player.Position, first) <= endpointTolerance && Vector3.Distance(target, last) <= endpointTolerance && forward < bestCost &&
+                        (Playfield.ModelIdentity.Instance != (int)PlayfieldId.FixerGrid ||
+                         SupportedRecordedFGridRoute(route.Points.Select(V).ToList(), player.Position, target)))
                     { best = route; reverse = false; bestCost = forward; }
-                    if (Vector3.Distance(player.Position, last) <= endpointTolerance && Vector3.Distance(target, first) <= endpointTolerance && backward < bestCost)
+                    if (Vector3.Distance(player.Position, last) <= endpointTolerance && Vector3.Distance(target, first) <= endpointTolerance && backward < bestCost &&
+                        (Playfield.ModelIdentity.Instance != (int)PlayfieldId.FixerGrid ||
+                         SupportedRecordedFGridRoute(route.Points.Select(V).Reverse().ToList(), player.Position, target)))
                     { best = route; reverse = true; bestCost = backward; }
                 }
                 if (best == null) return false;
+                List<Vector3> candidate = best.Points.Select(V).ToList();
+                if (reverse) candidate.Reverse();
+                if (Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid)
+                {
+                    // A manually recorded walkway is useful only when both
+                    // connectors and every saved leg remain on its floor.
+                    if (!SupportedRecordedFGridRoute(candidate, player.Position, target))
+                    {
+                        _say($"Recorded FGrid route '{best.Name}' rejected: endpoint or walkway connector is unsupported.");
+                        return false;
+                    }
+                }
                 _playing = best;
-                _playPoints = best.Points.Select(V).ToList();
-                if (reverse) _playPoints.Reverse();
+                _playPoints = candidate;
                 _playIndex = 0;
                 _say($"Using recorded nav route '{best.Name}' toward ({target.X:0.0},{target.Y:0.0},{target.Z:0.0}); no straight-line shortcut.");
             }
 
             while (_playIndex < _playPoints.Count - 1 && Vector3.Distance(player.Position, _playPoints[_playIndex]) <= 1.2f) _playIndex++;
             Vector3 waypoint = _playPoints[Math.Min(_playIndex, _playPoints.Count - 1)];
+            if (Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid &&
+                !LocalRoutePlanner.SupportedFGridSegment(player.Position, waypoint, player.Position.Y))
+            { StopPlayback(); return false; }
             if (Vector3.Distance(player.Position, target) <= 1.2f) { StopPlayback(); return true; }
-            if (movement.Owner != owner || !SMovementController.IsNavigating()) movement.SetDestination(owner, waypoint);
+            if (movement.Owner != owner || !SMovementController.IsNavigating())
+                if (!movement.SetDestination(owner, waypoint)) { StopPlayback(); return false; }
             return true;
         }
 
         public void StopPlayback() { _playing = null; _playPoints = null; _playIndex = 0; }
+
+        private static bool SupportedRecordedFGridRoute(List<Vector3> points, Vector3 start, Vector3 target) =>
+            points.Count >= 2 && Vector3.Distance(points[points.Count - 1], target) <= 1.5f &&
+            LocalRoutePlanner.SupportedFGridSegment(start, points[0], start.Y) &&
+            Enumerable.Range(1, points.Count - 1).All(i =>
+                LocalRoutePlanner.SupportedFGridSegment(points[i - 1], points[i], start.Y));
 
         private void OnUpdate(object sender, float deltaTime)
         {

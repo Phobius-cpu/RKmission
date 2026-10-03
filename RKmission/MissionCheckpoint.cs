@@ -28,6 +28,7 @@ namespace RKmission
         public int Floor { get; set; }
         public string TravelProvider { get; set; }
         public string ObjectiveState { get; set; }
+        public MissionExecutionRecord Execution { get; set; }
 
         private string _path;
         [JsonIgnore] private DateTime _nextWrite;

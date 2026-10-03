@@ -53,6 +53,10 @@ namespace RKmission
         private Vector3 _mapAnchor;
         private DateTime _dungeonObservedAt, _nextTick, _nextSelection, _handoffWaitStarted;
         private string _waitingReason;
+        private bool _exitZoningStarted;
+        private string _lifecycleSignature;
+        private Vector3 _lifecyclePosition;
+        private DateTime _lastLifecycleProgress, _watchdogRecoveryAt;
 
         public override void Run(string pluginDir)
         {
@@ -326,6 +330,10 @@ namespace RKmission
             _selected = null;
             _mapMission = _handoffDoor = Identity.None;
             _verifiedRun = false;
+            _exitZoningStarted = false;
+            _lifecycleSignature = null;
+            _lastLifecycleProgress = DateTime.UtcNow;
+            _watchdogRecoveryAt = DateTime.MinValue;
             _travelInvalidated = false;
             _handoffWaitStarted = DateTime.MinValue;
             _observedDungeon = Identity.None;
@@ -356,6 +364,7 @@ namespace RKmission
             _movement?.StopAll();
             _autoCycle = false;
             _recoveringDeath = false;
+            _exitZoningStarted = false;
             _deathRecovery?.Stop();
             if (!preserveCheckpoint && _checkpoint != null)
             { _checkpoint.Armed = false; _checkpoint.Phase = "Idle"; _checkpoint.Save(true, Say); }
@@ -364,6 +373,9 @@ namespace RKmission
 
         private void ZoningStarted(object sender, EventArgs args)
         {
+            if (_dungeonStarted && _dungeon.IsExiting && _verifiedRun &&
+                Playfield.ModelIdentity == _activeDungeon)
+                _exitZoningStarted = true;
             _handoffDoor = _travel.ActiveDoor;
             _mapMission = Identity.None; // Re-upload on the next outdoor selection after zoning.
             _travel.SuspendForZoning(); // Keep managed attempt until exact dungeon verification.
@@ -440,6 +452,7 @@ namespace RKmission
                     { Stop(); Say("Reclaim/readiness recovery timed out or could not complete."); return; }
                     _recoveringDeath = false;
                     _verifiedRun = false;
+                    _exitZoningStarted = false;
                     _selected = _selected != null && _selected.Present ? _selected : null;
                     _entranceResolver.Reset();
                     _nextSelection = DateTime.MinValue;
@@ -473,9 +486,20 @@ namespace RKmission
                         Wait("The previous mission has no confirmed reward. Check it and use /rkm complete; /rkm stop then start abandons this run binding.");
                         return;
                     }
+                    if (!_exitZoningStarted ||
+                        Playfield.ModelIdentity.Instance != _selected.PlayfieldId)
+                    {
+                        Wait($"Mission completion is confirmed, but exit proof is incomplete: " +
+                            $"exit zoning={_exitZoningStarted}, outdoor playfield={Playfield.ModelIdentity.Instance}, " +
+                            $"expected={_selected.PlayfieldId}. Chaining is held.");
+                        return;
+                    }
+                    Say($"Verified exit from mission {_selected.Id.Instance} to its outdoor playfield {_selected.PlayfieldId}.");
+                    if (_checkpoint?.Execution != null) _checkpoint.Execution.Phase = "ExitVerified";
                     int previousPlayfield = _selected.PlayfieldId;
                     _selected = null;
                     _verifiedRun = false;
+                    _exitZoningStarted = false;
                     _travel.Reset();
                     _nextSelection = DateTime.MinValue;
                     if (Playfield.ModelIdentity.Instance != previousPlayfield ||
@@ -583,6 +607,7 @@ namespace RKmission
                     if (entrance == EntranceResult.Failed)
                     { Stop(); Say("Mission-key entrance was accepted, but exact dungeon entry was not verified."); return; }
                 }
+                if (!PreflightSelectedMission()) return;
                 if (_selected.PlayfieldId != Playfield.ModelIdentity.Instance)
                 {
                     _travel.Reset();
@@ -692,6 +717,7 @@ namespace RKmission
             _checkpoint.Floor = _dungeon?.Floor ?? 0;
             _checkpoint.TravelProvider = _longTravel?.CurrentProvider ?? "Local";
             _checkpoint.ObjectiveState = _dungeon?.Objective?.Evidence ?? _selected?.CompletionEvidence;
+            if (_dungeon?.IsRunning == true) _checkpoint.Execution = _dungeon.Snapshot();
             _checkpoint.Save(false, Say);
         }
 
@@ -717,6 +743,51 @@ namespace RKmission
             return true;
         }
 
+        private bool PreflightSelectedMission()
+        {
+            if (_selected == null) return false;
+            if (!_selected.Present || !_selected.IsRubiKaDestination ||
+                !AcceptedMissions.Finite(_selected.Entrance))
+            { Wait("Selected mission metadata or entrance anchor is incomplete; travel is held."); return false; }
+            if ((_selected.Kind == RkMissionKind.FindItem || _selected.Kind == RkMissionKind.ReturnItem) &&
+                Inventory.NumFreeSlots <= 1)
+            { Wait("One free main-inventory slot is needed before traveling to this item objective."); return false; }
+            return true;
+        }
+
+        private bool ObserveDungeonProgress()
+        {
+            DateTime now = DateTime.UtcNow;
+            Vector3 position = DynelManager.LocalPlayer.Position;
+            string signature = _dungeon.Status + ":loot=" + _loot.MissionLootProgress +
+                ":objective=" + (_dungeon.Objective?.StepSummary ?? "none");
+            if (signature != _lifecycleSignature ||
+                Vector3.Distance(position, _lifecyclePosition) > 1f ||
+                _readiness.IsWaiting)
+            {
+                _lifecycleSignature = signature;
+                _lifecyclePosition = position;
+                _lastLifecycleProgress = now;
+                _watchdogRecoveryAt = DateTime.MinValue;
+                return true;
+            }
+            TimeSpan idle = now - _lastLifecycleProgress;
+            if (idle > TimeSpan.FromMinutes(4))
+            {
+                Say($"Mission progress watchdog stopped after {idle.TotalSeconds:0}s without room, movement, loot or objective progress. " +
+                    $"Phase={_dungeon.Status}; {_loot.MissionLootBlockers}.");
+                Stop();
+                return false;
+            }
+            if (idle > TimeSpan.FromMinutes(2) && _watchdogRecoveryAt == DateTime.MinValue)
+            {
+                _watchdogRecoveryAt = now;
+                _dungeon.RecoverFromStuck(1);
+                Say($"Mission progress watchdog replanned after {idle.TotalSeconds:0}s: {_dungeon.Status}.");
+            }
+            return true;
+        }
+
         private void TickDungeon()
         {
             if (_dungeonStarted)
@@ -732,6 +803,7 @@ namespace RKmission
                     Stop(); return;
                 }
                 _dungeon.Tick();
+                if (_dungeon.IsRunning && !ObserveDungeonProgress()) return;
                 if (_dungeon.IsComplete && !_clearanceReported)
                 {
                     _clearanceReported = true;
@@ -793,6 +865,9 @@ namespace RKmission
             _waitingReason = null;
             _dungeon.Start(record);
             _dungeonStarted = _dungeon.IsRunning;
+            _lifecycleSignature = null;
+            _lastLifecycleProgress = DateTime.UtcNow;
+            _watchdogRecoveryAt = DateTime.MinValue;
             _clearanceReported = false;
             if (_dungeonStarted) Say($"Verified mission {_selected.Id.Instance} in dungeon {Playfield.ModelIdentity.Instance}; existing dungeon logic resumed.");
         }

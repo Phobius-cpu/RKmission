@@ -13,7 +13,7 @@ namespace RKmission
         internal sealed class Connection
         {
             public int Source, Target;
-            public Vector3 Threshold, Interior, DeepInterior;
+            public Vector3 Threshold, DoorCenter, SourceApproach, TargetCenterline, Interior, DeepInterior;
         }
 
         private readonly Dictionary<int, Room> _rooms;
@@ -42,10 +42,19 @@ namespace RKmission
                         MissingConnections++;
                         continue;
                     }
+                    Vector3 sourceApproach = DoorwayPoint(room.Instance, threshold, 1.35f);
+                    Vector3 axis = interior - sourceApproach;
+                    axis.Y = 0;
+                    Vector3 targetCenterline = AlignedDoorwayPoint(adjacent, threshold, axis,
+                        1.8f, DoorwayPoint(adjacent, threshold, 1.8f));
+                    sourceApproach = AlignedDoorwayPoint(room.Instance, threshold, -axis,
+                        1.35f, sourceApproach);
                     _connections[Key(room.Instance, adjacent)] = new Connection
                     {
                         Source = room.Instance, Target = adjacent,
-                        Threshold = threshold,
+                        Threshold = threshold, DoorCenter = threshold,
+                        SourceApproach = sourceApproach,
+                        TargetCenterline = targetCenterline,
                         Interior = interior, DeepInterior = deepInterior
                     };
                     if (!_neighbors[room.Instance].Contains(adjacent)) _neighbors[room.Instance].Add(adjacent);
@@ -187,6 +196,39 @@ namespace RKmission
             }
             if (found && deepScore == float.MinValue) deepInterior = interior;
             return found;
+        }
+
+        // Choose a point on the room side of the doorway. The threshold itself
+        // is a boundary and is never a normal navigation destination.
+        private Vector3 DoorwayPoint(int roomId, Vector3 threshold, float preferredDistance)
+        {
+            if (!TryInterior(roomId, threshold, out Vector3 interior, out _))
+                return threshold;
+            Vector3 direction = interior - threshold;
+            direction.Y = 0;
+            if (direction.Magnitude < 0.1f) return interior;
+            direction = direction.Normalize();
+            for (float distance = preferredDistance; distance <= 2.5f; distance += 0.25f)
+            {
+                Vector3 candidate = threshold + direction * distance;
+                candidate.Y = interior.Y;
+                if (IsInside(roomId, candidate, 0.25f)) return candidate;
+            }
+            return interior;
+        }
+
+        private Vector3 AlignedDoorwayPoint(int roomId, Vector3 threshold,
+            Vector3 direction, float preferredDistance, Vector3 fallback)
+        {
+            if (direction.Magnitude < 0.1f) return fallback;
+            direction = direction.Normalize();
+            for (float distance = preferredDistance; distance <= 2.5f; distance += 0.25f)
+            {
+                Vector3 candidate = threshold + direction * distance;
+                candidate.Y = fallback.Y;
+                if (IsInside(roomId, candidate, 0.25f)) return candidate;
+            }
+            return fallback;
         }
 
         private static bool Inside(List<Edge> walls, Vector3 point, float clearance)

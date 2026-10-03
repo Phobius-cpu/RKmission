@@ -46,7 +46,10 @@ namespace RKmission
         // Optional complete-mesh cost. A failure here does not invalidate a direct local attempt.
         // Reject incomplete polygon paths: FindPath can succeed without reaching the destination polygon.
         public static bool TryGroundCost(Vector3 origin, Vector3 destination, out float cost)
-            => TryGroundCost(origin, destination, out cost, 5f, 4f, false);
+            => TryGroundCost(origin, destination, out cost, 5f, 4f, false, 4f);
+
+        public static bool TryDungeonGroundCost(Vector3 origin, Vector3 destination, out float cost)
+            => TryGroundCost(origin, destination, out cost, 1.5f, 1f, false, 1f);
 
         // Fixer Grid routes must remain on the current supported platform.
         // A full polygon corridor alone is insufficient if a mesh was baked
@@ -55,11 +58,11 @@ namespace RKmission
         {
             cost = float.PositiveInfinity;
             return Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid &&
-                TryGroundCost(origin, destination, out cost, 1f, 1f, true);
+                TryGroundCost(origin, destination, out cost, 1f, 1f, true, 1f);
         }
 
         private static bool TryGroundCost(Vector3 origin, Vector3 destination, out float cost,
-            float originSnap, float destinationSnap, bool verifyFGridFloor)
+            float originSnap, float destinationSnap, bool verifyFGridFloor, float finalTolerance)
         {
             cost = float.PositiveInfinity;
             if (!AcceptedMissions.Finite(origin) || !AcceptedMissions.Finite(destination) ||
@@ -87,7 +90,7 @@ namespace RKmission
                 length += Vector3.Distance(previous, point);
                 previous = point;
             }
-            if (Vector3.Distance(previous, destination) > 4) return false;
+            if (Vector3.Distance(previous, destination) > finalTolerance) return false;
             if (verifyFGridFloor && !SupportedFGridSegment(previous, destination, origin.Y)) return false;
             cost = length + Vector3.Distance(previous, destination);
             return !float.IsNaN(cost) && !float.IsInfinity(cost);
@@ -244,6 +247,16 @@ namespace RKmission
             if (Vector3.Distance(start, end) <= 0.05f) return true;
             try { return !Playfield.Raycast(start, end, out _, out _); }
             catch { return true; } // Unavailable geometry is inconclusive, never a launch gate.
+        }
+
+        public static bool ClearInteractionSegment(Vector3 start, Vector3 target)
+        {
+            try
+            {
+                return !Playfield.Raycast(start, target, out Vector3 hit, out _) ||
+                    Vector3.Distance(hit, target) <= 1f; // The target's own surface may be hit.
+            }
+            catch { return true; }
         }
 
         // AO surface rays are incomplete hints. Sample a small flight corridor

@@ -1,6 +1,25 @@
 # RKMission Project Memory
 
-_Last updated: 2026-10-01_
+_Last updated: 2026-10-03_
+
+## 2026-10-03 mission lifecycle continuation
+
+- Reconciled current GitHub `main` at `d493802f2162bd280db0e330aa11c421018d50fd`
+  before editing. It already included the 78-exit survey and guarded FGrid
+  portal routing. The continuation validates recorded FGrid walkway legs and
+  fallback endpoints and tries another verified exit after a route failure.
+- Dungeon doors now use source approach, target centerline, safe interior and
+  deep fallback with phase-specific recovery. Weighted room routing remembers
+  edge failures; observed room states and a diagnostic execution snapshot are
+  saved without trusting old clearance on restart.
+- Combat threat sweep and transient corpse loot precede full 95/95 recovery;
+  emergency HP recovery is bounded. Combat, loot and objective approaches share
+  complete dungeon navmesh checks. Manager.Loot tracks explicit source states,
+  terminal ordinary skips and critical blockers, and resets processing deadlines
+  on observed progress. Objective preflight, state/proof and last-known location
+  are stronger. Exact entry remains required and outdoor chaining now requires
+  verified exit zoning. See `docs/history/2026-10-03-mission-lifecycle-optimization.md`
+  for validation and remaining live checks.
 
 ## 2026-10-01 shared plugin UI palette checkpoint
 
