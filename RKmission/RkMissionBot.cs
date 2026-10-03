@@ -796,7 +796,7 @@ namespace RKmission
                 ":objective=" + (_dungeon.Objective?.StepSummary ?? "none");
             if (signature != _lifecycleSignature ||
                 Vector3.Distance(position, _lifecyclePosition) > 1f ||
-                _readiness.IsWaiting)
+                _readiness.IsWaiting || _dungeon.CombatRecoveryWaiting)
             {
                 _lifecycleSignature = signature;
                 _lifecyclePosition = position;

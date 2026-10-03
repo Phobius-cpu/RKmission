@@ -25,6 +25,12 @@ Combat corridor checks and bounded collision recovery were tightened; see
 `docs/history/2026-10-03-combat-geometry-recovery.md`. This revision also
 awaits the user's compile and in-game verification.
 
+The combat guard now defers an unreachable enemy room without ending the
+mission run. It can try one mapped alternate position, complete other reachable
+rooms, and revisit from a changed position. Deliberate combat-recovery holds
+remain armed and do not trip the global progress watchdog; see
+`docs/history/2026-10-03-combat-room-deferral.md`.
+
 **2026-10-03 lifecycle update:** Fixer Grid recorded routes now require
 supported walkway legs and a near-portal endpoint, with another verified exit
 attempted when the selected route is unavailable. Dungeon traversal uses

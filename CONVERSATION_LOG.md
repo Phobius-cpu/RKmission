@@ -1600,3 +1600,20 @@ straight navmesh segment, remembers headings rejected by actual stalls, tries
 one short mapped retreat, and halts after three stalls. See
 `docs/history/2026-10-03-combat-geometry-recovery.md`. The user will compile
 and test; no local build or new AO result is claimed.
+
+## 2026-10-03 - Preserve the mission after combat geometry stalls
+
+The user explicitly rejected terminating MissionDungeon/RKMission after three
+combat geometry stalls. The intended effect is to end the current movement
+attempt, keep the room unfinished, recover from a mapped alternate position,
+defer and revisit when other rooms are reachable, and stop only on truly fatal
+mission conditions. Source review confirmed that `CombatDriver.Tick` returned
+`false` for an unavailable approach and `FightInRoom` immediately called
+`Stop()`.
+
+The result is now an explicit combat-recovery outcome. Room routing excludes
+temporarily deferred combat rooms while other work is available, then revisits
+them after a position change and cooldown. A deliberate wait remains armed and
+is exempt from the global no-progress watchdog. See
+`docs/history/2026-10-03-combat-room-deferral.md`. No compile or AO client run
+was performed because the user will do those steps.

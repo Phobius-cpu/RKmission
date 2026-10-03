@@ -30,7 +30,7 @@ namespace RKmission
         private readonly HashSet<int> _combatCheckedRooms = new HashSet<int>();
         private readonly HashSet<int> _visitedRooms = new HashSet<int>();
         private readonly HashSet<int> _surveyedRooms = new HashSet<int>();
-        private enum RoomClearanceState { Entered, Surveyed, CombatChecked, Cleared, Reopened }
+        private enum RoomClearanceState { Entered, Surveyed, CombatChecked, CombatDeferred, Cleared, Reopened }
         private readonly Dictionary<int, RoomClearanceState> _roomStates = new Dictionary<int, RoomClearanceState>();
         private readonly HashSet<int> _floorsVisited = new HashSet<int>();
         private readonly HashSet<int> _enemyOwners = new HashSet<int>();
@@ -54,6 +54,17 @@ namespace RKmission
         private readonly List<CombatBlockedCorridor> _combatBlockedCorridors = new List<CombatBlockedCorridor>();
         private Vector3? _combatRetreat;
         private int _combatStalls;
+        private readonly Dictionary<int, CombatRecovery> _combatRecoveries = new Dictionary<int, CombatRecovery>();
+        private sealed class CombatRecovery
+        {
+            public Identity Enemy;
+            public Vector3 Anchor, EnemyPosition;
+            public DateTime RetryAt, WaypointStarted, LastProgress;
+            public Vector3 LastPosition;
+            public Vector3? Waypoint;
+            public int Failures;
+            public bool Active, HoldReported, UsedRoomDetour;
+        }
         private sealed class CombatBlockedCorridor
         {
             public Vector3 Origin, Direction;
@@ -116,8 +127,9 @@ namespace RKmission
         public int EntryRoom => _entryRoom;
         public int Floor => _floor;
         public bool IsExiting => _exiting;
+        public bool CombatRecoveryWaiting { get; private set; }
         public string Status => _exiting ? "returning to exit" : IsComplete ? "complete" : !IsRunning ? "idle" : _readiness.IsWaiting ? _readiness.Status :
-            $"floor {_floor}, room {_currentRoom}, transition={_transition?.Phase.ToString() ?? "none"}, visited {_visitedRooms.Count}, cleared {_clearedRooms.Count} rooms";
+            $"floor {_floor}, room {_currentRoom}, transition={_transition?.Phase.ToString() ?? "none"}, visited {_visitedRooms.Count}, cleared {_clearedRooms.Count} rooms, deferred combat {_combatRecoveries.Values.Count(x => x.Active)}";
         public MissionExecutionRecord Snapshot() => _record == null ? null : new MissionExecutionRecord
         {
             MissionId = _record.Id.Instance,
@@ -133,8 +145,9 @@ namespace RKmission
             ObjectiveSteps = _objective?.StepSummary,
             LootBlockers = _loot.MissionLootBlockers,
             ExitDoor = _exitDoor.ToString(),
-            Phase = _exiting ? "Exit" : _objective?.Finale == true ? "ObjectiveFinale" :
-                _transition != null ? "Door:" + _transition.Phase : "Exploration",
+            Phase = _exiting ? "Exit" : _transition != null ? "Door:" + _transition.Phase :
+                _combatRecoveries.Values.Any(x => x.Active) ? "CombatRecovery" :
+                _objective?.Finale == true ? "ObjectiveFinale" : "Exploration",
             UpdatedAtUtc = DateTime.UtcNow
         };
 
@@ -166,6 +179,8 @@ namespace RKmission
             _reverseCooldown.Clear();
             _combat.Reset();
             ResetCombatApproach();
+            _combatRecoveries.Clear();
+            CombatRecoveryWaiting = false;
             _scanTarget = Identity.None;
             _scanWaypoints.Clear();
             _waitingForLoot = Identity.None;
@@ -256,6 +271,8 @@ namespace RKmission
             _transition = null;
             _activeLift = null;
             _layout = null;
+            _combatRecoveries.Clear();
+            CombatRecoveryWaiting = false;
             MovementArbiter.Current.StopAll();
         }
 
@@ -277,6 +294,14 @@ namespace RKmission
         public void RecoverFromStuck(int tier)
         {
             if (!IsRunning) return;
+            if (_currentRoom >= 0 &&
+                _combatRecoveries.TryGetValue(_currentRoom, out CombatRecovery recovery) &&
+                recovery.Active && recovery.Waypoint.HasValue &&
+                MovementArbiter.Current.Owner == MovementOwner.CombatPosition)
+            {
+                FailCombatRecoveryWaypoint(recovery, "movement displacement");
+                return;
+            }
             if (_transition != null)
             {
                 Transition crossing = _transition;
@@ -363,6 +388,7 @@ namespace RKmission
             if (!IsRunning || !Playfield.IsDungeon || DynelManager.LocalPlayer.Room == null)
                 return;
             _requestedOwner = MovementOwner.DungeonRoom;
+            CombatRecoveryWaiting = false;
 
             _readiness.ObserveCombat();
             _inventory.Update(_say);
@@ -463,11 +489,19 @@ namespace RKmission
                 _say($"Mali room {room.Instance}: {characters} live enemy candidates, " +
                     $"{containers} containers, {corpses} corpses currently visible.");
             }
+            if (TickCombatRecovery(room)) return;
             if (_readiness.InCombat)
             {
                 if (FightInRoom(room))
                 {
                     _roomQuietAt = DateTime.MinValue;
+                    return;
+                }
+                if (_combatRecoveries.TryGetValue(room.Instance, out CombatRecovery activeCombat) &&
+                    activeCombat.Active)
+                {
+                    MovementArbiter.Current.Halt(_requestedOwner);
+                    CombatRecoveryWaiting = true;
                     return;
                 }
                 if (reservedAggro && _objective.HasKillTarget)
@@ -496,6 +530,11 @@ namespace RKmission
                         { BeginTransition(room.Instance, nextCombatRoom.Instance); return; }
                         if (!WaitingForRoute)
                         {
+                            if (_combatRecoveries.Count > 0)
+                            {
+                                CombatRecoveryWaiting = true;
+                                return;
+                            }
                             Stop();
                             _say("Ordinary-enemy sweep cannot reach every room; reserved objective remains held.");
                             return;
@@ -514,6 +553,21 @@ namespace RKmission
             if (roomAction)
             {
                 _roomQuietAt = DateTime.MinValue;
+                return;
+            }
+            if (_combatRecoveries.TryGetValue(room.Instance, out CombatRecovery deferredCombat) &&
+                deferredCombat.Active)
+            {
+                MovementArbiter.Current.Halt(_requestedOwner);
+                CombatRecoveryWaiting = true;
+                return;
+            }
+            SimpleChar remainingEnemy = EnemiesInRoom(room).FirstOrDefault();
+            if (remainingEnemy != null)
+            {
+                // A scan that found no usable waypoint is never clearance
+                // evidence while a live enemy still occupies this room.
+                BeginCombatRecovery(room, remainingEnemy);
                 return;
             }
 
@@ -550,6 +604,11 @@ namespace RKmission
                 if (_clearedRooms.Count < Playfield.Rooms.Count)
                 {
                     MovementArbiter.Current.Halt(_requestedOwner);
+                    if (_combatRecoveries.Count > 0)
+                    {
+                        CombatRecoveryWaiting = true;
+                        return; // Unfinished combat room remains a future route goal.
+                    }
                     if (WaitingForRoute) return;
                     Stop();
                     _say("No further reachable rooms; failed doors/routes or missing Mali room geometry remain.");
@@ -758,7 +817,9 @@ namespace RKmission
                     // if pathing briefly moves us across the 20m scan boundary.
                     (x.Identity == _combat.Target && _layout.ContainsDynel(room.Instance, x)) ||
                     (player.IsAttacking && player.FightingTarget?.Identity == x.Identity))
-                .OrderByDescending(x => x.IsAttacking &&
+                .OrderBy(x => _combatRecoveries.TryGetValue(room.Instance, out CombatRecovery deferred) &&
+                    deferred.Active && deferred.Enemy == x.Identity)
+                .ThenByDescending(x => x.IsAttacking &&
                     x.FightingTarget?.Identity == player.Identity)
                 .ThenBy(x => x.DistanceFrom(player))
                 .FirstOrDefault();
@@ -776,11 +837,201 @@ namespace RKmission
             if (enemy.IsInLineOfSight && enemy.IsInAttackRange(true))
                 ResetCombatApproach();
 
-            if (!_combat.Tick(enemy, room.Instance, target => ApproachCombatEnemy(target, room.Instance), () =>
-                { _waitingForLoot = Identity.None; ResetCombatApproach(); }, EngagementRange))
-                Stop();
+            CombatTickResult result = _combat.Tick(enemy, room.Instance,
+                target => ApproachCombatEnemy(target, room.Instance),
+                () => { _waitingForLoot = Identity.None; ResetCombatApproach(); }, EngagementRange);
+            if (result == CombatTickResult.ApproachUnavailable)
+                BeginCombatRecovery(room, enemy);
 
             return true;
+        }
+
+        private void BeginCombatRecovery(Room room, SimpleChar enemy)
+        {
+            DateTime now = DateTime.UtcNow;
+            Vector3 position = DynelManager.LocalPlayer.Position;
+            if (!_combatRecoveries.TryGetValue(room.Instance, out CombatRecovery recovery) ||
+                recovery.Enemy != enemy.Identity)
+                _combatRecoveries[room.Instance] = recovery = new CombatRecovery { Enemy = enemy.Identity };
+            bool changedPosition = recovery.Failures > 0 &&
+                Vector3.Distance(position, recovery.Anchor) >= 3f;
+            recovery.Failures++;
+            recovery.Anchor = position;
+            recovery.EnemyPosition = enemy.Position;
+            recovery.RetryAt = now.AddSeconds(recovery.Failures == 1 ? 5 :
+                recovery.Failures == 2 ? 15 : 30);
+            recovery.Active = true;
+            recovery.HoldReported = false;
+            recovery.Waypoint = recovery.Failures <= 2 || changedPosition
+                ? FindCombatRecoveryWaypoint(room, enemy, position) : null;
+            recovery.WaypointStarted = DateTime.MinValue;
+            _combatCheckedRooms.Remove(room.Instance);
+            _clearedRooms.Remove(room.Instance);
+            _roomStates[room.Instance] = RoomClearanceState.CombatDeferred;
+            _roomQuietAt = DateTime.MinValue;
+            _destination = null;
+            _combat.Reset();
+            MovementArbiter.Current.Halt(MovementOwner.CombatPosition);
+            _say($"Combat movement attempt ended for {enemy.Identity} in room {room.Instance}; " +
+                $"recovery {recovery.Failures}, alternate={recovery.Waypoint?.ToString() ?? "none"}, " +
+                $"retry no sooner than {recovery.RetryAt:HH:mm:ss} UTC. Room remains unfinished.");
+        }
+
+        private Vector3? FindCombatRecoveryWaypoint(Room room, SimpleChar enemy, Vector3 position)
+        {
+            Vector3 forward = enemy.Position - position;
+            forward.Y = 0;
+            if (forward.Magnitude < 0.5f) forward = Vector3.Forward;
+            forward = forward.Normalize();
+            Vector3 side = new Vector3(-forward.Z, 0, forward.X);
+            var options = new List<Vector3>();
+            foreach (int adjacent in _layout.Neighbors(room.Instance))
+            {
+                DungeonLayout.Connection edge = _layout.Edge(room.Instance, adjacent);
+                if (edge != null) options.Add(edge.SourceApproach);
+            }
+            options.AddRange(new[] { position + side * 4f, position - side * 4f,
+                position - forward * 4f, position + side * 7f,
+                position - side * 7f, position - forward * 7f });
+            return options.Select(point => { point.Y = position.Y; return point; })
+                .Where(point => Vector3.Distance(point, position) >= 3f &&
+                    _layout.IsInside(room.Instance, point, 0.6f) &&
+                    !RepeatsBlockedCombatCorridor(position, point))
+                .Select(point => new
+                {
+                    Point = point,
+                    Cost = CombatRecoveryRouteCost(position, point),
+                    Sight = LocalRoutePlanner.ClearInteractionSegment(
+                        point + Vector3.Up * 1.2f, enemy.Position + Vector3.Up * 1.2f)
+                })
+                .Where(x => !float.IsInfinity(x.Cost))
+                .OrderByDescending(x => x.Sight).ThenBy(x => x.Cost)
+                .Select(x => (Vector3?)x.Point).FirstOrDefault();
+        }
+
+        private static float CombatRecoveryRouteCost(Vector3 from, Vector3 to)
+        {
+            try
+            {
+                return LocalRoutePlanner.TryDungeonCombatCost(from, to, out float cost)
+                    ? cost : float.PositiveInfinity;
+            }
+            catch { return float.PositiveInfinity; }
+        }
+
+        private bool TickCombatRecovery(Room room)
+        {
+            if (!_combatRecoveries.TryGetValue(room.Instance, out CombatRecovery recovery))
+                return false;
+            SimpleChar enemy = EnemyCandidates(room).FirstOrDefault(x => x.Identity == recovery.Enemy);
+            if (enemy == null)
+            {
+                _combatRecoveries.Remove(room.Instance);
+                _roomStates[room.Instance] = RoomClearanceState.Reopened;
+                MovementArbiter.Current.Halt(MovementOwner.CombatPosition);
+                _combat.Reset();
+                ResetCombatApproach();
+                return false;
+            }
+            if (!recovery.Active) return false;
+            _roomStates[room.Instance] = RoomClearanceState.CombatDeferred;
+            if (EnemyCandidates(room).Any(x => x.Identity != recovery.Enemy &&
+                (x.IsAttacking && x.FightingTarget?.Identity == DynelManager.LocalPlayer.Identity ||
+                 x.IsInLineOfSight && x.IsInAttackRange(true))))
+                return false; // Handle an immediate different threat first.
+            Vector3 position = DynelManager.LocalPlayer.Position;
+            DateTime now = DateTime.UtcNow;
+            bool newVantage = Vector3.Distance(position, recovery.Anchor) >= 3f ||
+                Vector3.Distance(enemy.Position, recovery.EnemyPosition) >= 3f ||
+                (enemy.IsInLineOfSight && enemy.IsInAttackRange(true));
+            if (newVantage && (now >= recovery.RetryAt ||
+                enemy.IsInLineOfSight && enemy.IsInAttackRange(true)))
+            {
+                recovery.Active = false;
+                recovery.Waypoint = null;
+                _roomStates[room.Instance] = RoomClearanceState.Reopened;
+                _combat.Reset();
+                ResetCombatApproach();
+                _say($"Combat recovery found a new position or target opening in room {room.Instance}; rebuilding approaches to {enemy.Identity}.");
+                return false;
+            }
+            if (recovery.Waypoint.HasValue)
+            {
+                _requestedOwner = MovementOwner.CombatPosition;
+                Vector3 point = recovery.Waypoint.Value;
+                if (Vector3.Distance(position, point) < 1.1f)
+                {
+                    recovery.RetryAt = now;
+                    recovery.Waypoint = null;
+                    _destination = null;
+                    MovementArbiter.Current.Halt(MovementOwner.CombatPosition);
+                    return true; // Next tick rebuilds from the observed position.
+                }
+                if (!_destination.HasValue)
+                {
+                    if (!MovementArbiter.Current.SetNavDestination(_requestedOwner, point))
+                    { recovery.Waypoint = null; return true; }
+                    _destination = point;
+                    recovery.WaypointStarted = recovery.LastProgress = now;
+                    recovery.LastPosition = position;
+                    _say($"Combat recovery moving to mapped alternate position {point} in room {room.Instance}.");
+                }
+                if (Vector3.Distance(position, recovery.LastPosition) > 0.5f)
+                { recovery.LastPosition = position; recovery.LastProgress = now; }
+                if (now - recovery.LastProgress > TimeSpan.FromSeconds(7) ||
+                    now - recovery.WaypointStarted > TimeSpan.FromSeconds(15))
+                    FailCombatRecoveryWaypoint(recovery, "no movement progress");
+                return true;
+            }
+            bool playerThreatened = _readiness.InCombat ||
+                enemy.IsAttacking && enemy.FightingTarget?.Identity == DynelManager.LocalPlayer.Identity;
+            if (!playerThreatened)
+            {
+                Room next = NextRoom(room);
+                if (next != null)
+                {
+                    _say($"Deferring unfinished combat room {room.Instance}; routing through {next.Instance} to other work.");
+                    BeginTransition(room.Instance, next.Instance);
+                    return true;
+                }
+                if (!recovery.UsedRoomDetour && recovery.Failures <= 2)
+                {
+                    int? alternate = _layout.Neighbors(room.Instance)
+                        .Where(id => _layout.Edge(room.Instance, id) != null &&
+                            !IsUnavailable(room.Instance, id))
+                        .OrderByDescending(id => Vector3.Distance(
+                            _layout.Edge(room.Instance, id).SourceApproach, recovery.Anchor))
+                        .Select(id => (int?)id)
+                        .FirstOrDefault();
+                    if (alternate.HasValue)
+                    {
+                        recovery.UsedRoomDetour = true;
+                        _say($"Combat recovery using room {alternate.Value} as a bounded alternate entry to unfinished room {room.Instance}.");
+                        BeginTransition(room.Instance, alternate.Value);
+                        return true;
+                    }
+                }
+            }
+            MovementArbiter.Current.Halt(MovementOwner.CombatPosition);
+            CombatRecoveryWaiting = true;
+            if (!recovery.HoldReported)
+            {
+                recovery.HoldReported = true;
+                _say($"Combat room {room.Instance} remains unfinished. Waiting for a safe new position, " +
+                    "an enemy opening, or another reachable room; mission remains armed.");
+            }
+            return true;
+        }
+
+        private void FailCombatRecoveryWaypoint(CombatRecovery recovery, string reason)
+        {
+            Vector3 point = recovery.Waypoint.Value;
+            MovementArbiter.Current.Halt(MovementOwner.CombatPosition);
+            recovery.Waypoint = null;
+            recovery.RetryAt = DateTime.UtcNow.AddSeconds(15);
+            _destination = null;
+            _say($"Combat recovery alternate position {point} failed ({reason}); " +
+                $"deferring unfinished room {_currentRoom}.");
         }
 
         private void ResetCombatApproach()
@@ -807,7 +1058,7 @@ namespace RKmission
                 Vector3 point = position + offset;
                 point.Y = position.Y;
                 if (!_layout.IsInside(_currentRoom, point, 0.6f) ||
-                    !LocalRoutePlanner.TryDungeonCombatCost(position, point, out _) ||
+                    float.IsInfinity(CombatRecoveryRouteCost(position, point)) ||
                     !LocalRoutePlanner.ClearInteractionSegment(
                         position + Vector3.Up, point + Vector3.Up)) continue;
                 _combatRetreat = point;
@@ -830,8 +1081,8 @@ namespace RKmission
         {
             if (!_layout.ContainsDynel(roomId, enemy))
             {
-                if (!LocalRoutePlanner.TryDungeonGroundCost(DynelManager.LocalPlayer.Position,
-                    enemy.Position, out _)) return false;
+                if (float.IsInfinity(CombatRecoveryRouteCost(
+                    DynelManager.LocalPlayer.Position, enemy.Position))) return false;
                 Navigate(enemy.Position);
                 return true;
             }
@@ -1395,20 +1646,40 @@ namespace RKmission
         private Room NextRoom(Room current)
         {
             var reserved = new HashSet<int>(_objective.Rooms);
+            Func<int, bool> ordinary = id => !_clearedRooms.Contains(id) &&
+                (!_combatRecoveries.TryGetValue(id, out CombatRecovery recovery) || !recovery.Active);
             // Prefer routes that avoid entering the objective room entirely.
-            Room next = RouteTo(current.Instance, id => !_clearedRooms.Contains(id) && !reserved.Contains(id), true);
+            Room next = RouteTo(current.Instance, id => ordinary(id) && !reserved.Contains(id), true);
             if (next != null) return next;
             // A cut-through objective room may be unavoidable; its actions remain held.
-            next = RouteTo(current.Instance, id => !_clearedRooms.Contains(id) && !reserved.Contains(id), false);
-            return next ?? RouteTo(current.Instance, id => !_clearedRooms.Contains(id), false);
+            next = RouteTo(current.Instance, id => ordinary(id) && !reserved.Contains(id), false);
+            if (next != null) return next;
+            next = RouteTo(current.Instance, ordinary, false);
+            if (next != null) return next;
+            Func<int, bool> readyDeferred = id => !_clearedRooms.Contains(id) &&
+                _combatRecoveries.TryGetValue(id, out CombatRecovery recovery) &&
+                recovery.Active && CombatRoomAvailable(id);
+            return RouteTo(current.Instance, readyDeferred, false);
+        }
+
+        private bool CombatRoomAvailable(int roomId)
+        {
+            if (!_combatRecoveries.TryGetValue(roomId, out CombatRecovery recovery) ||
+                !recovery.Active) return true;
+            return DateTime.UtcNow >= recovery.RetryAt &&
+                Vector3.Distance(DynelManager.LocalPlayer.Position, recovery.Anchor) >= 3f;
         }
 
         private Room NextCombatSweepRoom(Room current)
         {
             Func<int, bool> needsCheck = id => !_clearedRooms.Contains(id) &&
                 !_combatCheckedRooms.Contains(id);
-            return RouteTo(current.Instance, needsCheck, true) ??
-                RouteTo(current.Instance, needsCheck, false);
+            Room next = RouteTo(current.Instance, id => needsCheck(id) &&
+                (!_combatRecoveries.TryGetValue(id, out CombatRecovery recovery) || !recovery.Active), true);
+            if (next != null) return next;
+            next = RouteTo(current.Instance, id => needsCheck(id) &&
+                (!_combatRecoveries.TryGetValue(id, out CombatRecovery recovery) || !recovery.Active), false);
+            return next ?? RouteTo(current.Instance, id => needsCheck(id) && CombatRoomAvailable(id), false);
         }
 
         private Room RouteTo(int current, Func<int, bool> isGoal, bool avoidObjectiveRooms)

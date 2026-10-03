@@ -4,6 +4,8 @@ using AOSharp.Core;
 
 namespace RKmission
 {
+    internal enum CombatTickResult { Engaging, ApproachUnavailable }
+
     // MissionDungeon chooses the enemy. This class owns approach, range/LOS,
     // attack initiation and the engagement deadline; profession handlers remain
     // responsible for nanos, perks, pets and heals.
@@ -24,10 +26,11 @@ namespace RKmission
         }
         public void Pause() { if (_target != Identity.None) _lastCombatTick = DateTime.UtcNow; }
 
-        public bool Tick(SimpleChar enemy, int roomId, Func<SimpleChar, bool> approach,
+        public CombatTickResult Tick(SimpleChar enemy, int roomId, Func<SimpleChar, bool> approach,
             Action onTargetChanged, float engagementRange)
         {
-            if (enemy == null || !enemy.IsValid || !enemy.IsAlive) { Reset(); return true; }
+            if (enemy == null || !enemy.IsValid || !enemy.IsAlive)
+            { Reset(); return CombatTickResult.Engaging; }
             var player = DynelManager.LocalPlayer;
             DateTime now = DateTime.UtcNow;
             if (_target != enemy.Identity)
@@ -62,16 +65,16 @@ namespace RKmission
                 _say($"Enemy {enemy.Name} {enemy.Identity} could not be reached in room {roomId}: " +
                     $"distance={enemy.DistanceFrom(player):0.0}m, line of sight={inSight}, weapon range={inRange}, " +
                     $"health={enemy.Health}, player={player.Position}, enemy={enemy.Position}.");
-                return false;
+                return CombatTickResult.ApproachUnavailable;
             }
             else if (!approach(enemy))
             {
                 _say($"Enemy {enemy.Name} {enemy.Identity} could not establish a mapped combat approach in room {roomId}: " +
                     $"distance={enemy.DistanceFrom(player):0.0}m, line of sight={inSight}, weapon range={inRange}, " +
                     $"movement owner={MovementArbiter.Current.Owner}, player={player.Position}, enemy={enemy.Position}.");
-                return false;
+                return CombatTickResult.ApproachUnavailable;
             }
-            return true;
+            return CombatTickResult.Engaging;
         }
     }
 }

@@ -11,6 +11,10 @@ The user supplied a room 3 screenshot and `/pos` output at 286.6, 210.5, 5.3. Th
 - The first stall can request one short side or backward retreat, constrained to the mapped room, a complete navmesh route, and a clear scene corridor. The same movement owner and controller execute it; no position writes or teleport recovery are used.
 - If the character still cannot move after three observed stalls, combat movement halts with a diagnostic. The mission stops through its existing unreachable-enemy gate instead of repeatedly pushing into geometry.
 
+The last sentence above describes the initial revision and is superseded by
+`2026-10-03-combat-room-deferral.md`: an unavailable combat approach now defers
+the unfinished room without stopping the mission run.
+
 ## Next live check
 
 After the user's compile, retry the same location. Record the first selected approach or retreat, the next `/pos`, any rejected-heading message, and whether line of sight is reached. If the corridor check yields zero candidates, the actor should stop cleanly; the captured navmesh/room geometry will then be needed for a route around this particular rock.
