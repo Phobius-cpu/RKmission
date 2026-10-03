@@ -128,23 +128,23 @@ namespace RKmission
                 var raw = new List<Vector3> { start };
                 raw.AddRange(straight.Take(vertices).Select(ToAO));
                 raw.Add(goal);
-                bool inset = false;
+                int repairs = 0;
                 int failedSegment = 0;
                 string segmentReason = "supported";
-                for (int repair = 0; repair < 3 &&
+                for (int repair = 0; repair < 4 &&
                     !ValidateRaw(raw, start.Y, out failedSegment, out segmentReason); repair++)
                 {
                     if (!segmentReason.EndsWith(" edge", StringComparison.Ordinal) ||
-                        !TryInsetEdge(raw, failedSegment, start.Y, out List<Vector3> repaired))
+                        !TryRepairEdge(raw, failedSegment, start.Y, out List<Vector3> repaired))
                     {
-                        LastPath = $"rejected segment {failedSegment}/{raw.Count - 1}: {segmentReason}";
+                        LastPath = Rejection(raw, failedSegment, segmentReason, repairs);
                         return false;
                     }
                     raw = repaired;
-                    inset = true;
+                    repairs++;
                 }
                 if (!ValidateRaw(raw, start.Y, out failedSegment, out segmentReason))
-                { LastPath = $"rejected segment {failedSegment}/{raw.Count - 1}: {segmentReason}"; return false; }
+                { LastPath = Rejection(raw, failedSegment, segmentReason, repairs); return false; }
                 var checkedPath = new List<Vector3> { start };
                 float length = 0;
                 for (int i = 1; i < raw.Count; i++)
@@ -160,7 +160,7 @@ namespace RKmission
                 { LastPath = "rejected: excessive path length or waypoints"; return false; }
                 waypoints = checkedPath;
                 LastPath = $"valid complete floor-supported path, {length:0.0} m, {checkedPath.Count - 1} legs" +
-                    (inset ? " (edge inset validated)" : "");
+                    (repairs > 0 ? $" ({repairs} edge repair(s) validated)" : "");
                 return true;
             }
             catch (Exception ex) { LastPath = "query failed: " + ex.Message; return false; }
@@ -177,10 +177,17 @@ namespace RKmission
             return true;
         }
 
-        // A funnel corner can skim a platform edge even when a small inset is
-        // walkable. Never relax the clearance test: move only internal vertices
-        // and accept a candidate only after validating every revised segment.
-        private static bool TryInsetEdge(List<Vector3> points, int segment, float floorHeight,
+        private static string Rejection(List<Vector3> points, int segment, string reason, int repairs)
+        {
+            Vector3 a = points[segment - 1], b = points[segment];
+            return $"rejected segment {segment}/{points.Count - 1} after {repairs} edge repair(s): " +
+                $"{reason}; leg ({a.X:0.00},{a.Z:0.00}) to ({b.X:0.00},{b.Z:0.00})";
+        }
+
+        // A funnel corner can skim a platform edge, or a straight funnel leg can
+        // cross a small gap. Try nearby corners and short doglegs, then require
+        // the entire revised route to pass the unchanged clearance test.
+        private static bool TryRepairEdge(List<Vector3> points, int segment, float floorHeight,
             out List<Vector3> repaired)
         {
             repaired = new List<Vector3>();
@@ -205,13 +212,45 @@ namespace RKmission
                         candidate[segment - 1] += side * offset;
                     if ((mode == 0 || mode == 2) && segment < candidate.Count - 1)
                         candidate[segment] += side * offset;
-                    if (ValidateRaw(candidate, floorHeight, out int nextFailure, out _))
-                    { repaired = candidate; return true; }
-                    if (nextFailure > bestProgress)
-                    { bestProgress = nextFailure; repaired = candidate; }
+                    if (ConsiderRepair(candidate, floorHeight, ref bestProgress, ref repaired)) return true;
+                }
+            }
+            // The original segment endpoints stay fixed. Insert one bend or a
+            // parallel two-corner dogleg so the path can go around a void.
+            foreach (float offset in new[] { 0.6f, -0.6f, 1.2f, -1.2f, 1.8f, -1.8f,
+                2.4f, -2.4f, 3.2f, -3.2f })
+            {
+                Vector3 a = points[segment - 1], b = points[segment];
+                if (points.Count < 16)
+                {
+                    var oneCorner = new List<Vector3>(points);
+                    oneCorner.Insert(segment, a + travel * 0.5f + side * offset);
+                    if (ConsiderRepair(oneCorner, floorHeight, ref bestProgress, ref repaired)) return true;
+                }
+                if (points.Count < 15)
+                {
+                    var twoCorners = new List<Vector3>(points);
+                    twoCorners.Insert(segment, a + travel * 0.25f + side * offset);
+                    twoCorners.Insert(segment + 1, a + travel * 0.75f + side * offset);
+                    if (ConsiderRepair(twoCorners, floorHeight, ref bestProgress, ref repaired)) return true;
                 }
             }
             return bestProgress > segment;
+        }
+
+        private static bool ConsiderRepair(List<Vector3> candidate, float floorHeight,
+            ref int bestProgress, ref List<Vector3> repaired)
+        {
+            if (candidate.Count > 16) return false;
+            float length = 0;
+            for (int i = 1; i < candidate.Count; i++)
+                length += LocalRoutePlanner.HorizontalDistance(candidate[i - 1], candidate[i]);
+            if (length > 60f) return false;
+            if (ValidateRaw(candidate, floorHeight, out int nextFailure, out _))
+            { repaired = candidate; return true; }
+            if (nextFailure > bestProgress)
+            { bestProgress = nextFailure; repaired = candidate; }
+            return false;
         }
 
         private static Vector3 ToAO(CVector point) => new Vector3(point.x, point.y, point.z);
