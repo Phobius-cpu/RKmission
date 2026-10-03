@@ -23,14 +23,17 @@ namespace MaliMissionRoller2
         private View? _rollerContent;
         private View? _managerLootContent;
         private View? _dungeonMapContent;
+        private View? _settingsContent;
         private View? _hostRoot;
         private Button? _rollerTab;
         private Button? _managerLootTab;
         private Button? _dungeonMapTab;
-        private enum HostedTab { Roller, ManagerLoot, DungeonMap }
+        private Button? _settingsTab;
+        private enum HostedTab { Roller, ManagerLoot, DungeonMap, Settings }
         private HostedTab _activeTab = HostedTab.Roller;
         public bool IsManagerLootTabActive => _activeTab == HostedTab.ManagerLoot;
         public bool IsDungeonMapTabActive => _activeTab == HostedTab.DungeonMap;
+        public bool IsSettingsTabActive => _activeTab == HostedTab.Settings;
         public event Action? WindowReady;
         public Action? EnsureManagerLootView { get; set; }
         public Action? EnsureDungeonMapView { get; set; }
@@ -105,17 +108,18 @@ namespace MaliMissionRoller2
                 Window.FindView("HostRoot", out _hostRoot);
                 Window.FindView("TabContent", out _tabContent);
                 Window.FindView("RollerContent", out _rollerContent);
+                Window.FindView("SettingsContent", out _settingsContent);
                 Window.FindView("RollerTab", out _rollerTab);
                 Window.FindView("ManagerLootTab", out _managerLootTab);
                 Window.FindView("DungeonMapTab", out _dungeonMapTab);
+                Window.FindView("SettingsTab", out _settingsTab);
                 _managerLootContent = null;
                 _dungeonMapContent = null;
                 _activeTab = HostedTab.Roller;
                 if (_rollerTab != null) _rollerTab.Clicked += (_, _) => ShowRollerTab();
                 if (_managerLootTab != null) _managerLootTab.Clicked += (_, _) => ShowManagerLootTab();
                 if (_dungeonMapTab != null) _dungeonMapTab.Clicked += (_, _) => ShowDungeonMapTab();
-                FitActiveTab();
-                UpdateTabAppearance();
+                if (_settingsTab != null) _settingsTab.Clicked += (_, _) => ShowSettingsTab();
 
                 if (Window.FindView("HeaderRoot", out View headerRoot))
                 {
@@ -140,8 +144,13 @@ namespace MaliMissionRoller2
                 {
                     SettingsView = new SettingsView(settingsRoot);
                     SettingsView.Locations.BoundsCheck();
-                    SettingsView.Hide();
                 }
+                // SettingsContent must exist during XML/view construction, but the
+                // Roller remains the default visible tab.
+                if (_tabContent != null && _settingsContent != null)
+                    _tabContent.RemoveChild(_settingsContent);
+                FitActiveTab();
+                UpdateTabAppearance();
                 WindowReady?.Invoke();
             }
             catch (Exception e)
@@ -178,6 +187,8 @@ namespace MaliMissionRoller2
             RemoveActiveContent();
             _tabContent.AddChild(_rollerContent, false);
             _activeTab = HostedTab.Roller;
+            InSettings = false;
+            if (HeaderView?.Settings != null) HeaderView.Settings.Tag = false;
             FitActiveTab();
             UpdateTabAppearance();
         }
@@ -190,6 +201,8 @@ namespace MaliMissionRoller2
             RemoveActiveContent();
             _tabContent.AddChild(_managerLootContent, false);
             _activeTab = HostedTab.ManagerLoot;
+            InSettings = false;
+            if (HeaderView?.Settings != null) HeaderView.Settings.Tag = false;
             FitActiveTab();
             UpdateTabAppearance();
         }
@@ -202,6 +215,20 @@ namespace MaliMissionRoller2
             RemoveActiveContent();
             _tabContent.AddChild(_dungeonMapContent, false);
             _activeTab = HostedTab.DungeonMap;
+            InSettings = false;
+            if (HeaderView?.Settings != null) HeaderView.Settings.Tag = false;
+            FitActiveTab();
+            UpdateTabAppearance();
+        }
+
+        public void ShowSettingsTab()
+        {
+            if (_tabContent == null || _settingsContent == null || _activeTab == HostedTab.Settings) return;
+            RemoveActiveContent();
+            _tabContent.AddChild(_settingsContent, false);
+            _activeTab = HostedTab.Settings;
+            InSettings = true;
+            if (HeaderView?.Settings != null) HeaderView.Settings.Tag = true;
             FitActiveTab();
             UpdateTabAppearance();
         }
@@ -215,6 +242,8 @@ namespace MaliMissionRoller2
                 _tabContent.RemoveChild(_managerLootContent);
             else if (_activeTab == HostedTab.DungeonMap && _dungeonMapContent != null)
                 _tabContent.RemoveChild(_dungeonMapContent);
+            else if (_activeTab == HostedTab.Settings && _settingsContent != null)
+                _tabContent.RemoveChild(_settingsContent);
         }
 
         private void FitActiveTab()
@@ -228,6 +257,7 @@ namespace MaliMissionRoller2
             _rollerTab?.SetAlpha(_activeTab == HostedTab.Roller ? 1f : 0.65f);
             _managerLootTab?.SetAlpha(_activeTab == HostedTab.ManagerLoot ? 1f : 0.65f);
             _dungeonMapTab?.SetAlpha(_activeTab == HostedTab.DungeonMap ? 1f : 0.65f);
+            _settingsTab?.SetAlpha(_activeTab == HostedTab.Settings ? 1f : 0.65f);
         }
 
         private void HelpClick(object sender, ButtonBase e)
@@ -252,35 +282,15 @@ namespace MaliMissionRoller2
         private void SettingsClick(object sender, ButtonBase e)
         {
             Midi.Play("Click");
-
-            if (InSettings)
-            {
-                MissionView.Show();
-                SettingsView.Hide();
-            }
-            else
-            {
-                MissionView.Hide();
-                SettingsView.Show();
-            }
-            InSettings = !InSettings;
-            HeaderView.Settings.Tag = InSettings;
+            ShowSettingsTab();
         }
 
         public void SwapViews()
         {
             Midi.Play("Click");
-
-            if (InSettings)
-            {
-                MissionView.Show();
-                SettingsView.Hide();
-                InSettings = false;
-            }
-            else
-            {
-                MissionView.Show();
-            }
+            ShowRollerTab();
+            MissionView.Show();
+            InSettings = false;
             HeaderView.Settings.Tag = false;
         }
 
@@ -517,7 +527,7 @@ namespace MaliMissionRoller2
         public void UpdateTerminal(MissionTerminal terminal)
         {
             CurrentTerminal = terminal;
-            if (!InSettings)
+            if (_activeTab == HostedTab.Roller)
                 MissionView.Show();
         }
     }
