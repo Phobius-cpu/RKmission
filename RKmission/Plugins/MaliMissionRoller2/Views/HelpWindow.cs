@@ -56,7 +56,7 @@ namespace MaliMissionRoller2
                     "  /ManagerLoot              Open ManagerLoot tab\n" +
                     "  /rkm map                  Open Dungeon Map tab\n" +
                     "  /mapsettings              Open Dungeon Map tab\n" +
-                    "  /rkm settings             Open Roller Settings tab\n" +
+                    "  /rkm settings             Open Roller settings view\n" +
                     "  /lm                       Toggle ManagerLoot enable state\n" +
                     "  /printitems               Toggle ManagerLoot item printing";
             }
