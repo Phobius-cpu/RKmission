@@ -29,6 +29,7 @@ namespace RKmission
         private RubiKaTravelPlanner _longTravel;
         private MissionEntranceResolver _entranceResolver;
         private NavigationRouteRecorder _navRoutes;
+        private NavigationRecorderWindow _navWindow;
         private PostZoneFlightSafety _postZoneSafety;
         private MissionCheckpoint _checkpoint;
         private bool _pendingCheckpointResume;
@@ -70,6 +71,7 @@ namespace RKmission
             _travel = new LocalMissionTravel(Say, pluginDir);
             _warp = new ScottyboiWarpProvider(Say, _movement);
             _navRoutes = new NavigationRouteRecorder(pluginDir, Say);
+            _navWindow = new NavigationRecorderWindow(pluginDir, _navRoutes, Say);
             _postZoneSafety = new PostZoneFlightSafety(_movement, Say);
             _fgrid = new FGridServiceProvider(pluginDir, Say, _movement, _navRoutes);
             _longTravel = new RubiKaTravelPlanner(pluginDir, _warp, _fgrid, _movement, Say);
@@ -110,6 +112,7 @@ namespace RKmission
         {
             _roller.RollerWindowClosed -= OnRollerWindowClosed;
             _postZoneSafety?.Dispose();
+            _navWindow?.Dispose();
             _navRoutes?.Dispose();
             Stop(true);
             Game.OnUpdate -= Update;
@@ -249,6 +252,11 @@ namespace RKmission
                     break;
                 case "complete": ConfirmCompletion(args); break;
                 case "nav":
+                    if (args.Length == 1)
+                    {
+                        _navWindow.Show();
+                        break;
+                    }
                     if (args.Length > 1 && args[1].Equals("record", StringComparison.OrdinalIgnoreCase))
                     {
                         string name = args.Length > 2 ? string.Join("-", args.Skip(2)) : null;
@@ -258,7 +266,9 @@ namespace RKmission
                     { _navRoutes.Stop(); break; }
                     if (args.Length > 1 && args[1].Equals("list", StringComparison.OrdinalIgnoreCase))
                     { _navRoutes.List(); break; }
-                    Say("Usage: /rkm nav record [name] | stop | list. Record FGrid walkways from endpoint to endpoint; playback is automatic when endpoints match.");
+                    if (args.Length > 1 && args[1].Equals("window", StringComparison.OrdinalIgnoreCase))
+                    { _navWindow.Show(); break; }
+                    Say("Usage: /rkm nav [window] | record [name] | stop | list. Record FGrid walkways from endpoint to endpoint; playback is automatic when endpoints match.");
                     break;
                 case "fgrid":
                     if (args.Length > 1 && args[1].Equals("scan", StringComparison.OrdinalIgnoreCase))
@@ -281,7 +291,12 @@ namespace RKmission
                     break;
                 case "loot": _loot.ShowSettingsTab(); break;
                 case "map": _map.ToggleWindow(); break;
-                default: Say("Commands: start, auto, local, stop, status, missions, zone <id|all>, rolls <count>, limit <count|off>, travel auto|ground|flying, fgrid [scan], nav record [name]|stop|list, complete [mission id], loot, map."); break;
+                case "settings":
+                    if (MaliMissionRoller2.Main.Window?.Window?.IsValid != true)
+                        _roller.ShowRoller();
+                    MaliMissionRoller2.Main.Window?.ShowSettingsTab();
+                    break;
+                default: Say("Commands: start, auto, local, stop, status, missions, zone <id|all>, rolls <count>, limit <count|off>, travel auto|ground|flying, fgrid [scan], nav [window]|record [name]|stop|list, complete [mission id], loot, map, settings."); break;
             }
         }
 
