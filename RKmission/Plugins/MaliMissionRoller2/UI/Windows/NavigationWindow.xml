@@ -1,0 +1,43 @@
+<?xml version="1.0" standalone="yes"?>
+<Root>
+	<View min_size="Point(500,0)">
+		<BorderView layout_borders="Rect(5,5,5,5)">
+			<View view_layout="vertical">
+				<View view_layout="horizontal" layout_borders="Rect(5,4,4,3)">
+					<TextView value="RKMission Navigation Diagnostics" font="BOLD"/>
+					<HLayoutSpacer/>
+					<Button name="Close" label="Close" min_size="Point(45,18)"/>
+				</View>
+				<TextView value="Temporary diagnostic tool for recording safe evidence-based routes. This window is intentionally separate from the permanent RKMission tool tabs." feature_flags="TVF_MULTILINE" min_size="Point(470,35)" layout_borders="Rect(5,2,5,5)"/>
+				<BorderView layout_borders="Rect(5,0,5,5)">
+					<View view_layout="vertical">
+						<View view_layout="horizontal" layout_borders="Rect(5,5,5,2)">
+							<TextView value="Route name:" min_size="Point(75,15)"/>
+							<TextInputView name="RouteName" min_size="Point(260,15)" max_size="Point(260,15)"/>
+							<HLayoutSpacer/>
+						</View>
+						<View view_layout="horizontal" layout_borders="Rect(5,2,5,5)">
+							<Button name="StartRecording" label="Start Recording" min_size="Point(105,20)"/>
+							<Button name="StopRecording" label="Stop / Save" min_size="Point(90,20)" layout_borders="Rect(5,0,0,0)"/>
+							<Button name="Refresh" label="Refresh" min_size="Point(65,20)" layout_borders="Rect(5,0,0,0)"/>
+							<HLayoutSpacer/>
+						</View>
+					</View>
+				</BorderView>
+				<BorderView layout_borders="Rect(5,0,5,5)">
+					<View view_layout="vertical">
+						<TextView value="Recorder status" font="BOLD"/>
+						<TextView name="Status" feature_flags="TVF_MULTILINE" min_size="Point(470,45)"/>
+					</View>
+				</BorderView>
+				<BorderView layout_borders="Rect(5,0,5,5)">
+					<View view_layout="vertical">
+						<TextView value="Saved routes" font="BOLD"/>
+						<TextView name="Routes" feature_flags="TVF_MULTILINE" min_size="Point(470,180)"/>
+					</View>
+				</BorderView>
+				<TextView value="Playback remains automatic: RKMission only uses a recording when its endpoints match the requested FGrid lift or portal. No direct shortcut is created from this window." feature_flags="TVF_MULTILINE" min_size="Point(470,40)" layout_borders="Rect(5,0,5,5)"/>
+			</View>
+		</BorderView>
+	</View>
+</Root>
