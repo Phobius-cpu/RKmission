@@ -32,6 +32,7 @@ namespace RKmission
         private bool _writable = true;
 
         public bool IsRecording => _recording != null;
+        public bool IsPlaying => _playing != null;
         public string Status => IsRecording ? $"recording '{_recording.Name}' ({_recording.Points.Count} points)" :
             _playing != null ? $"playing '{_playing.Name}' {_playIndex + 1}/{_playPoints.Count}" :
             $"{_routes.Count} saved route(s)";

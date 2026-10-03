@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using AOSharp.Common.GameData;
 using AOSharp.Core;
@@ -275,7 +276,16 @@ namespace RKmission
                     break;
                 case "fgrid":
                     if (args.Length > 1 && args[1].Equals("nav", StringComparison.OrdinalIgnoreCase))
-                    { Say(_fgrid.NavMeshStatus()); break; }
+                    {
+                        if (args.Length == 2) Say(_fgrid.NavMeshStatus());
+                        else if (args.Length == 5 &&
+                            float.TryParse(args[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float x) &&
+                            float.TryParse(args[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float y) &&
+                            float.TryParse(args[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float z))
+                            Say(_fgrid.NavMeshStatus(new Vector3(x, y, z)) + " Probe only; no movement requested.");
+                        else Say("Usage: /rkm fgrid nav [X Y Z] (optional current-position path probe; no movement).");
+                        break;
+                    }
                     if (args.Length > 1 && args[1].Equals("scan", StringComparison.OrdinalIgnoreCase))
                     {
                         Say(_fgrid.SurveySummary);

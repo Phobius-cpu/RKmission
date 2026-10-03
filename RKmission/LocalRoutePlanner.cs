@@ -93,24 +93,32 @@ namespace RKmission
             return !float.IsNaN(cost) && !float.IsInfinity(cost);
         }
 
-        private static bool SupportedFGridSegment(Vector3 start, Vector3 end, float floorHeight)
+        internal static bool SupportedFGridSegment(Vector3 start, Vector3 end, float floorHeight)
         {
             if (Math.Abs(start.Y - floorHeight) > 2f || Math.Abs(end.Y - floorHeight) > 2f)
                 return false;
             float length = Vector3.Distance(start, end);
-            int samples = Math.Max(1, (int)Math.Ceiling(length / 0.6f));
+            // Fine samples and two lateral tracks catch narrow voids that a
+            // polygon corridor (or a single centre ray) can bridge.
+            int samples = Math.Max(1, (int)Math.Ceiling(length / 0.25f));
+            Vector3 direction = end - start;
+            Vector3 side = new Vector3(-direction.Z, 0, direction.X);
+            side = side.Magnitude > 0.01f ? side.Normalize() * 0.3f : Vector3.Zero;
             for (int i = 0; i <= samples; i++)
             {
                 Vector3 point = start + (end - start) * (i / (float)samples);
-                Vector3 top = point + Vector3.Up * 1.5f;
-                Vector3 bottom = point - Vector3.Up * 2f;
-                try
+                foreach (Vector3 offset in new[] { Vector3.Zero, side, side * -1f })
                 {
-                    if (!Playfield.Raycast(top, bottom, out Vector3 floor, out Vector3 normal) ||
-                        !AcceptedMissions.Finite(floor) || normal.Y < 0.6f ||
-                        Math.Abs(floor.Y - point.Y) > 1.25f) return false;
+                    Vector3 top = point + offset + Vector3.Up * 1.5f;
+                    Vector3 bottom = point + offset - Vector3.Up * 2f;
+                    try
+                    {
+                        if (!Playfield.Raycast(top, bottom, out Vector3 floor, out Vector3 normal) ||
+                            !AcceptedMissions.Finite(floor) || normal.Y < 0.6f ||
+                            Math.Abs(floor.Y - point.Y) > 1.25f) return false;
+                    }
+                    catch { return false; }
                 }
-                catch { return false; }
             }
             if (length > 1f)
             {
