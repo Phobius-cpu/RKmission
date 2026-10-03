@@ -1,4 +1,5 @@
 using System;
+using AOSharp.Common.GameData.UI;
 using AOSharp.Core;
 using AOSharp.Core.UI;
 
