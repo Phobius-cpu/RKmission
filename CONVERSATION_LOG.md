@@ -1629,3 +1629,16 @@ from actual altitude when needed. A cruise clearance leg uses a longer
 diagonal runway. Precise entrance height gates remain unchanged. See
 `docs/history/2026-10-03-fly-cruise-height-tail.md`. The user will pull and
 compile; source review only, with no live flight verification claimed.
+
+## 2026-10-03 - Room 9 layered objective enemy scan
+
+The user reported a reserved objective enemy 26.3 m away in room 9, with
+zero mapped scan approaches. The player was at Y=5.01 and the enemy at
+Y=9.01; the room has corridor layers connected by ramps. The finale message
+correctly distinguished ordinary enemies from the reserved target, but scan
+exhaustion stopped RKMission and disabled ManagerLoot. Scan and combat
+approach candidates now retain distinct observed heights and require complete
+scene-checked mesh routes. Exhaustion enters bounded combat recovery, keeps
+the room unfinished, and can rebuild from a later position. See
+`docs/history/2026-10-03-layered-objective-room-scan.md`. The user will pull
+and compile; live ramp navigation remains unverified.

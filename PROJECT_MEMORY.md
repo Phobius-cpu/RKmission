@@ -2681,3 +2681,9 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 
 - A live `FlyToEntrance` trace reached the X/Z waypoint within about 0.1 m but remained 3.29 m below its target Y; the 3D movement executor stalled and incorrectly recorded a blocked corridor. Long cruise waypoints now settle as horizontal passes only when still more than 18 m from the mission anchor, then re-evaluate the actual altitude. A drop of more than 1.5 m below advisory cruise height requests a new diagonal clearance leg with 12–24 m of runway. The old waypoint is not added to obstruction memory.
 - Preserve exact 3D entrance, entry height, and interaction checks. The user handles compilation and live AO validation; inspect the horizontal-pass and subsequent clearance logs before considering this verified.
+
+## 2026-10-03 layered room 9 objective scan
+
+- Room 9 has stacked corridors and ramps. The live reserved objective enemy was 26.3 m from a player at Y=5.01, with the enemy at Y=9.01; the old scan had zero route-checked waypoints and called `Stop()`. Ordinary-enemy clearance before the reserved finale was not itself contradictory.
+- Scan candidates now test the player, enemy, and intermediate ramp heights with complete scene-checked navmesh routes. Multi-height combat firing-side selection uses the same observed height bands. Exhausted scan attempts enter combat recovery and leave the room unfinished instead of stopping RKMission; the scan is rebuilt after a new vantage.
+- The user handles pulling, compiling, and live AO verification. A proven ramp path depends on the loaded navmesh and in-game geometry; zero candidates after the bounded search should be reported with the layered scan log and navmesh evidence.

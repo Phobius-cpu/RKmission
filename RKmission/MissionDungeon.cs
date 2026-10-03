@@ -870,7 +870,11 @@ namespace RKmission
             _roomStates[room.Instance] = RoomClearanceState.CombatDeferred;
             _roomQuietAt = DateTime.MinValue;
             _destination = null;
+            _scanTarget = Identity.None;
+            _scanWaypoints.Clear();
+            _scanWaypointIndex = 0;
             _combat.Reset();
+            MovementArbiter.Current.Halt(_requestedOwner);
             MovementArbiter.Current.Halt(MovementOwner.CombatPosition);
             _say($"Combat movement attempt ended for {enemy.Identity} in room {room.Instance}; " +
                 $"recovery {recovery.Failures}, alternate={recovery.Waypoint?.ToString() ?? "none"}, " +
@@ -1214,14 +1218,22 @@ namespace RKmission
             bool newTarget = _scanTarget != distant.Identity;
             if (newTarget || Vector3.Distance(_scanEnemyPosition, distant.Position) > 5f)
             {
-                if (_scanTarget == Identity.None) _scanStarted = now;
+                if (newTarget) _scanStarted = now;
                 _scanTarget = distant.Identity;
                 _scanProgress = now;
                 _scanEnemyPosition = distant.Position;
                 _scanWaypoints.Clear();
                 _scanWaypointIndex = 0;
-                AddScanWaypoint(room.Instance, player.Position + (distant.Position - player.Position) *
-                    ((distance - 18f) / distance));
+                Vector3 first = player.Position + (distant.Position - player.Position) *
+                    ((distance - 18f) / distance);
+                AddScanWaypoint(room.Instance, first);
+                // A single AO room can contain stacked corridors joined by
+                // ramps. Never assume the enemy and player share one Y plane.
+                Vector3 levelPoint = first;
+                levelPoint.Y = player.Position.Y;
+                AddScanWaypoint(room.Instance, levelPoint);
+                levelPoint.Y = distant.Position.Y;
+                AddScanWaypoint(room.Instance, levelPoint);
                 Vector3 toward = player.Position - distant.Position;
                 toward.Y = 0;
                 if (toward.Magnitude > 0.1)
@@ -1231,19 +1243,49 @@ namespace RKmission
                     foreach (float radius in new[] { 14f, 8f })
                         foreach (Vector3 direction in new[] { toward, side, -side, -toward })
                             AddScanWaypoint(room.Instance, distant.Position + direction * radius);
+                    if (_scanWaypoints.Count == 0 &&
+                        SMovementController.NavAgent?.HasPathfinder == true)
+                    {
+                        // The first ring can land in a central void or on the
+                        // wrong gallery. Sample both observed heights and the
+                        // ramp band; only complete scene-clear mesh routes can
+                        // become movement targets.
+                        Vector3[] directions = { toward, side, -side, -toward,
+                            (toward + side).Normalize(), (toward - side).Normalize(),
+                            (-toward + side).Normalize(), (-toward - side).Normalize() };
+                        float[] levels = { player.Position.Y, distant.Position.Y,
+                            (player.Position.Y + distant.Position.Y) * 0.5f };
+                        foreach (float radius in new[] { 6f, 12f, 18f, 24f })
+                        {
+                            foreach (Vector3 direction in directions)
+                            {
+                                Vector3 candidate = distant.Position + direction * radius;
+                                foreach (float height in levels)
+                                {
+                                    candidate.Y = height;
+                                    AddScanWaypoint(room.Instance, candidate);
+                                }
+                            }
+                            if (_scanWaypoints.Count >= 12) break;
+                        }
+                        _say($"Room {room.Instance} layered scan: player Y={player.Position.Y:0.0}, " +
+                            $"enemy Y={distant.Position.Y:0.0}, complete mapped approaches={_scanWaypoints.Count}.");
+                    }
                 }
                 AddScanWaypoint(room.Instance, distant.Position);
                 _destination = null;
                 _say($"Room {room.Instance} still has an enemy {distance:0.0}m away; " +
-                    $"trying {_scanWaypoints.Count} mapped approach point(s) before the 20m engagement check.");
+                    $"trying {_scanWaypoints.Count} mapped approach point(s) before the 20m engagement check " +
+                    $"(player Y={player.Position.Y:0.0}, enemy Y={distant.Position.Y:0.0}, " +
+                    $"navmesh available={SMovementController.NavAgent?.HasPathfinder == true}).");
             }
             if (now - _scanStarted > TimeSpan.FromSeconds(60) || _scanWaypointIndex >= _scanWaypoints.Count)
             {
                 int tried = Math.Min(_scanWaypoints.Count, _scanWaypointIndex + (_destination.HasValue ? 1 : 0));
-                Stop();
                 _say($"Room {room.Instance} scan could not reach enemy {distant.Identity} within 20m " +
                     $"(remaining {distance:0.0}m, tried {tried}/{_scanWaypoints.Count} mapped points, " +
-                    $"player={player.Position}, enemy={distant.Position}); room is not marked cleared.");
+                    $"player={player.Position}, enemy={distant.Position}); deferring combat and keeping the room unfinished.");
+                BeginCombatRecovery(room, distant);
                 return true;
             }
             Vector3 point = _scanWaypoints[_scanWaypointIndex];
@@ -1290,8 +1332,8 @@ namespace RKmission
         private void AddScanWaypoint(int roomId, Vector3 point)
         {
             if (_layout.IsInside(roomId, point, 0.5f) &&
-                LocalRoutePlanner.TryDungeonGroundCost(DynelManager.LocalPlayer.Position, point, out _) &&
-                !_scanWaypoints.Any(existing => Vector3.Distance(existing, point) < 2f))
+                !_scanWaypoints.Any(existing => Vector3.Distance(existing, point) < 2f) &&
+                LocalRoutePlanner.TryDungeonCombatCost(DynelManager.LocalPlayer.Position, point, out _))
                 _scanWaypoints.Add(point);
         }
 

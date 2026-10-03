@@ -26,15 +26,22 @@ namespace RKmission
                 ? new[] { toward, diagonalA, side, -diagonalB,
                     -toward, -diagonalA, -side, diagonalB }
                 : new[] { toward, side, -side, -toward };
+            float[] heights = combatFiringSide && Math.Abs(target.Y - from.Y) > 1.5f
+                ? new[] { target.Y, from.Y, (target.Y + from.Y) * 0.5f }
+                : new[] { from.Y };
             foreach (float radius in radii)
                 foreach (Vector3 direction in directions)
-                {
-                    Vector3 point = target + direction * radius;
-                    point.Y = from.Y;
-                    if (layout.IsInside(roomId, point, clearance) &&
-                        !options.Any(other => Vector3.Distance(other, point) < 0.8f))
-                        options.Add(point);
-                }
+                    foreach (float height in heights)
+                    {
+                        Vector3 point = target + direction * radius;
+                        point.Y = height;
+                        // Multi-level rooms may connect galleries by ramps.
+                        // Keep distinct Y candidates; the complete mesh path
+                        // and scene corridor decide which level is reachable.
+                        if (layout.IsInside(roomId, point, clearance) &&
+                            !options.Any(other => Vector3.Distance(other, point) < 0.8f))
+                            options.Add(point);
+                    }
             if (layout.IsInside(roomId, target, clearance)) options.Add(target);
             var routed = options.Select((point, index) => new
                 {
