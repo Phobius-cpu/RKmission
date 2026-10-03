@@ -79,7 +79,13 @@ namespace RKmission
 
         public Vector3 ElevationLeg(Vector3 player, Vector3 goal, Vector3 anchor, float perimeterRadius, string stage)
         {
-            Choice best = ElevationChoices(player, goal, anchor, perimeterRadius, false).OrderBy(x => x.Score).First();
+            // Cruise clearance needs enough forward runway to regain a small
+            // height loss. A 3 m lateral leg toward a 3 m rise can repeat the
+            // near-vertical tail seen at the preceding long cruise waypoint.
+            float minimumRun = stage == "initial cruise clearance" && perimeterRadius <= 0 ?
+                Math.Min(24f, Math.Max(12f, Math.Abs(goal.Y - player.Y) * 2f)) : 0f;
+            Choice best = ElevationChoices(player, goal, anchor, perimeterRadius, false,
+                default(Vector3), minimumRun).OrderBy(x => x.Score).First();
             return ElevationTarget(player, best, stage);
         }
 
@@ -102,7 +108,7 @@ namespace RKmission
         }
 
         private List<Choice> ElevationChoices(Vector3 player, Vector3 goal, Vector3 anchor, float perimeterRadius, bool overpass,
-            Vector3 outward = default(Vector3))
+            Vector3 outward = default(Vector3), float minimumRun = 0)
         {
             outward.Y = 0; // The entry-side constraint is horizontal, independent of quest Y.
             Vector3 heading = goal - player; heading.Y = 0;
@@ -111,7 +117,7 @@ namespace RKmission
             if (LocalRoutePlanner.HorizontalDistance(heading, Vector3.Zero) < 0.1f) heading = new Vector3(1, 0, 0);
             double bearing = LocalRoutePlanner.Angle(heading);
             float radius = LocalRoutePlanner.HorizontalDistance(player, anchor);
-            float run = Math.Max(2, Math.Min(16, Math.Abs(goal.Y - player.Y)));
+            float run = Math.Max(minimumRun, Math.Max(2, Math.Min(16, Math.Abs(goal.Y - player.Y))));
             // At an entrance keep the diagonal slide near the reached side.
             // Short tangential/outward motion respects the existing footprint.
             if (perimeterRadius > 0) run = Math.Min(run, Math.Max(2, radius * 0.25f));

@@ -494,24 +494,68 @@ namespace RKmission
             if (_legActive)
             {
                 ContinueFlyCruise(player, now, remaining);
-                MovementResult result = _movement.Tick(); LogProgress(player, now);
-                if (_flying && result != MovementResult.Moving) RecordFlightLeg(_runRecord, player, result);
+                // Distant cruise waypoints are horizontal transit markers. The
+                // flight client can lose height while covering a long level leg;
+                // trying to finish its old Y at the reached X/Z creates a nearly
+                // vertical tail and falsely records an obstacle after four seconds.
+                // A clearance leg that finishes X/Z but misses Y also has no
+                // evidence that its flown corridor was obstructed.
+                bool horizontalEndpoint = _flying && _entrance == null &&
+                    LocalRoutePlanner.HorizontalDistance(player, _movement.Target) <= 1.5f &&
+                    Math.Abs(player.Y - _movement.Target.Y) > 0.8f;
+                bool passedCruiseWaypoint = horizontalEndpoint && _phase == Phase.FlyToEntrance &&
+                    remaining > FlightEntryRadius + 8;
+                bool incompleteClearance = horizontalEndpoint && _phase == Phase.FlyClearance;
+                if (passedCruiseWaypoint || incompleteClearance)
+                {
+                    Vector3 oldTarget = _movement.Target;
+                    float heightGap = oldTarget.Y - player.Y;
+                    RecordFlightLeg(_runRecord, player, MovementResult.Moving,
+                        $"{(passedCruiseWaypoint ? "cruise waypoint passed horizontally" : "clearance horizontal leg ended before height match")}; height gap={heightGap:F2} m");
+                    _movement.Halt(); _legActive = false;
+                    _runRecord.StallSeconds = 0;
+                    // Recheck the advisory cruise clearance from the observed
+                    // height. A new diagonal leg supplies horizontal runway;
+                    // the missed waypoint is not a failed flight corridor.
+                    bool needsClearance = passedCruiseWaypoint && !float.IsNaN(_flight.CruiseHeight) &&
+                        player.Y < _flight.CruiseHeight - 1.5f;
+                    if (needsClearance) _flyCruiseReady = false;
+                    // A clearance attempt which covered its horizontal run
+                    // without gaining height should enter reactive transit,
+                    // rather than repeat the same climb or invent a collision.
+                    if (incompleteClearance) { _recoveries++; _flyCruiseReady = true; }
+                    _say($"Fly {(passedCruiseWaypoint ? "cruise waypoint passed" : "clearance leg incomplete")} at X/Z: target=({LocalRoutePlanner.Coordinates(oldTarget)}), " +
+                        $"actual=({LocalRoutePlanner.Coordinates(player)}), height gap={heightGap:F2} m, " +
+                        $"clearance recheck={needsClearance}; continue from actual height without marking an obstruction.");
+                }
+                else
+                {
+                    MovementResult result = _movement.Tick(); LogProgress(player, now);
+                    if (_flying && result != MovementResult.Moving) RecordFlightLeg(_runRecord, player, result);
+                    _runRecord.StallSeconds = (float)_movement.StallSeconds;
+                    if (result == MovementResult.Moving)
+                    {
+                        _runRecord.LastPosition = NavigationPoint.From(player);
+                        _runRecord.LastTarget = NavigationPoint.From(_movement.Target);
+                        _runRecord.ProgressMetres = Math.Max(0,
+                            LocalRoutePlanner.HorizontalDistance(_route.Origin, _route.Anchor) - _coarseBest);
+                        return true;
+                    }
+                    _legActive = false;
+                    if (result == MovementResult.Stalled)
+                    {
+                        _recoveries++; if (_flying) _flight.Blocked(player, _movement.Target);
+                        if (_phase == Phase.FlyClearance)
+                        {
+                            _flyCruiseReady = true;
+                            _say("Fly initial clearance climb blocked; reactive over/around transit will seek clearance from actual position.");
+                        }
+                    }
+                    else if (_flying) _flight.Reached(player);
+                    if (_phase == Phase.FlyClearance && result == MovementResult.Reached) _flyCruiseReady = true;
+                }
                 _runRecord.LastPosition = NavigationPoint.From(player); _runRecord.LastTarget = NavigationPoint.From(_movement.Target);
                 _runRecord.ProgressMetres = Math.Max(0, LocalRoutePlanner.HorizontalDistance(_route.Origin, _route.Anchor) - _coarseBest);
-                _runRecord.StallSeconds = (float)_movement.StallSeconds;
-                if (result == MovementResult.Moving) return true;
-                _legActive = false;
-                if (result == MovementResult.Stalled)
-                {
-                    _recoveries++; if (_flying) _flight.Blocked(player, _movement.Target);
-                    if (_phase == Phase.FlyClearance)
-                    {
-                        _flyCruiseReady = true;
-                        _say("Fly initial clearance climb blocked; reactive over/around transit will seek clearance from actual position.");
-                    }
-                }
-                else if (_flying) _flight.Reached(player);
-                if (_phase == Phase.FlyClearance && result == MovementResult.Reached) _flyCruiseReady = true;
             }
             Vector3 destination = _route.Anchor; destination.Y = player.Y;
             if (_flying)

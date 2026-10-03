@@ -1617,3 +1617,15 @@ them after a position change and cooldown. A deliberate wait remains armed and
 is exempt from the global no-progress watchdog. See
 `docs/history/2026-10-03-combat-room-deferral.md`. No compile or AO client run
 was performed because the user will do those steps.
+
+## 2026-10-03 - Distant flight waypoint height tail
+
+The user reported a `FlyToEntrance` cruise leg whose X/Z waypoint had been
+reached while the player was 3.29 m below its saved Y. The controller then
+aimed almost vertically for four seconds and mislabeled that waypoint as an
+obstruction. Distant cruise now accepts horizontal waypoint passage without
+claiming 3D arrival, records the observed height gap, and replans clearance
+from actual altitude when needed. A cruise clearance leg uses a longer
+diagonal runway. Precise entrance height gates remain unchanged. See
+`docs/history/2026-10-03-fly-cruise-height-tail.md`. The user will pull and
+compile; source review only, with no live flight verification claimed.
