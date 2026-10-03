@@ -128,13 +128,23 @@ namespace RKmission
                 var raw = new List<Vector3> { start };
                 raw.AddRange(straight.Take(vertices).Select(ToAO));
                 raw.Add(goal);
+                bool inset = false;
+                if (!ValidateRaw(raw, start.Y, out int failedSegment, out string segmentReason))
+                {
+                    if (!segmentReason.EndsWith(" edge", StringComparison.Ordinal) ||
+                        !TryInsetEdge(raw, failedSegment, start.Y, out List<Vector3> repaired))
+                    {
+                        LastPath = $"rejected segment {failedSegment}/{raw.Count - 1}: {segmentReason}";
+                        return false;
+                    }
+                    raw = repaired;
+                    inset = true;
+                }
                 var checkedPath = new List<Vector3> { start };
                 float length = 0;
                 for (int i = 1; i < raw.Count; i++)
                 {
                     Vector3 a = raw[i - 1], b = raw[i];
-                    if (!LocalRoutePlanner.SupportedFGridSegment(a, b, start.Y, out string segmentReason))
-                    { LastPath = $"rejected segment {i}/{raw.Count - 1}: {segmentReason}"; return false; }
                     float segment = Vector3.Distance(a, b);
                     length += segment;
                     // Issue meaningful strides along the fully checked segment.
@@ -144,10 +154,51 @@ namespace RKmission
                 if (checkedPath.Count < 2 || checkedPath.Count > 2048 || length > 2000f)
                 { LastPath = "rejected: excessive path length or waypoints"; return false; }
                 waypoints = checkedPath;
-                LastPath = $"valid complete floor-supported path, {length:0.0} m, {checkedPath.Count - 1} legs";
+                LastPath = $"valid complete floor-supported path, {length:0.0} m, {checkedPath.Count - 1} legs" +
+                    (inset ? " (edge inset validated)" : "");
                 return true;
             }
             catch (Exception ex) { LastPath = "query failed: " + ex.Message; return false; }
+        }
+
+        private static bool ValidateRaw(List<Vector3> points, float floorHeight,
+            out int failedSegment, out string reason)
+        {
+            for (int i = 1; i < points.Count; i++)
+                if (!LocalRoutePlanner.SupportedFGridSegment(points[i - 1], points[i], floorHeight, out reason))
+                { failedSegment = i; return false; }
+            failedSegment = 0;
+            reason = "supported";
+            return true;
+        }
+
+        // A funnel corner can skim a platform edge even when a small inset is
+        // walkable. Never relax the clearance test: move only internal vertices
+        // and accept a candidate only after validating every revised segment.
+        private static bool TryInsetEdge(List<Vector3> points, int segment, float floorHeight,
+            out List<Vector3> repaired)
+        {
+            repaired = new List<Vector3>();
+            if (points.Count > 32 || segment < 1 || segment >= points.Count ||
+                LocalRoutePlanner.HorizontalDistance(points[segment - 1], points[segment]) > 8f)
+                return false;
+            float routeLength = 0;
+            for (int i = 1; i < points.Count; i++)
+                routeLength += LocalRoutePlanner.HorizontalDistance(points[i - 1], points[i]);
+            if (routeLength > 120f) return false;
+            Vector3 travel = points[segment] - points[segment - 1];
+            Vector3 side = new Vector3(-travel.Z, 0, travel.X);
+            if (side.Magnitude < 0.1f) return false;
+            side = side.Normalize();
+            foreach (float offset in new[] { 0.35f, -0.35f, 0.7f, -0.7f, 1.05f, -1.05f })
+            {
+                var candidate = new List<Vector3>(points);
+                if (segment - 1 > 0) candidate[segment - 1] += side * offset;
+                if (segment < candidate.Count - 1) candidate[segment] += side * offset;
+                if (ValidateRaw(candidate, floorHeight, out _, out _))
+                { repaired = candidate; return true; }
+            }
+            return false;
         }
 
         private static Vector3 ToAO(CVector point) => new Vector3(point.x, point.y, point.z);
