@@ -1586,3 +1586,17 @@ lookup, adds a guarded warp attempt after mission completion and before exit,
 and broadens combat firing-side selection with stall-driven candidate changes.
 See `docs/history/2026-10-03-scottyboi-combat-follow-up.md`. No compile or live
 in-game validation was performed at the user's request.
+
+## 2026-10-03 - Room 3 combat approaches still drive into geometry
+
+After pulling the previous combat change, the user reported a new 15-point
+approach where points 1–5 were issued, the third stalled, and the character
+remained stuck. Their screenshot and `/pos` fixed the player at 286.6, 210.5,
+5.3 in zone 3, the same X/Z position in the earlier failed-combat diagnostic.
+The approach points advanced toward the enemy despite no observed movement.
+
+The source correction adds a combat-only scene collision check to each
+straight navmesh segment, remembers headings rejected by actual stalls, tries
+one short mapped retreat, and halts after three stalls. See
+`docs/history/2026-10-03-combat-geometry-recovery.md`. The user will compile
+and test; no local build or new AO result is claimed.

@@ -19,6 +19,12 @@ firing sides around internal walls and advance after actual movement stalls.
 These source changes await the user's compile and live AO validation; see
 `docs/history/2026-10-03-scottyboi-combat-follow-up.md`.
 
+The subsequent room 3 live trace showed the character stationary at
+286.6, 210.5 while several combat destinations advanced toward a rock wall.
+Combat corridor checks and bounded collision recovery were tightened; see
+`docs/history/2026-10-03-combat-geometry-recovery.md`. This revision also
+awaits the user's compile and in-game verification.
+
 **2026-10-03 lifecycle update:** Fixer Grid recorded routes now require
 supported walkway legs and a near-portal endpoint, with another verified exit
 attempted when the selected route is unavailable. Dungeon traversal uses

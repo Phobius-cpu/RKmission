@@ -48,8 +48,16 @@ namespace RKmission
         private readonly List<Vector3> _combatApproaches = new List<Vector3>();
         private int _combatApproachIndex;
         private DateTime _combatApproachProgress;
+        private DateTime _combatApproachIssuedAt;
         private Vector3 _combatApproachLastPosition;
         private Vector3 _combatApproachEnemyPosition;
+        private readonly List<CombatBlockedCorridor> _combatBlockedCorridors = new List<CombatBlockedCorridor>();
+        private Vector3? _combatRetreat;
+        private int _combatStalls;
+        private sealed class CombatBlockedCorridor
+        {
+            public Vector3 Origin, Direction;
+        }
         private AcceptedMission _record;
         private MissionObjective _objective;
         private bool _exiting;
@@ -304,15 +312,39 @@ namespace RKmission
                 }
                 return;
             }
-            if (_requestedOwner == MovementOwner.CombatPosition &&
-                _combatApproachTarget != Identity.None && _combatApproachIndex < _combatApproaches.Count)
+            if ((MovementArbiter.Current.Owner == MovementOwner.CombatPosition ||
+                 _requestedOwner == MovementOwner.CombatPosition) &&
+                _combatApproachTarget != Identity.None &&
+                (_combatRetreat.HasValue || _combatApproachIndex < _combatApproaches.Count))
             {
-                _say($"Combat approach {_combatApproachIndex + 1}/{_combatApproaches.Count} stalled; trying another reachable firing side.");
-                _combatApproachIndex++;
+                Vector3 position = DynelManager.LocalPlayer.Position;
+                bool retreatStalled = _combatRetreat.HasValue;
+                Vector3 attempted = retreatStalled ? _combatRetreat.Value :
+                    _destination ?? _combatApproaches[_combatApproachIndex];
+                Vector3 direction = attempted - position;
+                direction.Y = 0;
+                if (direction.Magnitude > 0.5f)
+                    _combatBlockedCorridors.Add(new CombatBlockedCorridor
+                    { Origin = position, Direction = direction.Normalize() });
+                _combatStalls++;
+                if (!retreatStalled) _combatApproachIndex++;
+                _combatRetreat = null;
                 _destination = null;
                 _combatApproachProgress = DateTime.UtcNow;
-                _combatApproachLastPosition = DynelManager.LocalPlayer.Position;
+                _combatApproachLastPosition = position;
                 MovementArbiter.Current.Halt(MovementOwner.CombatPosition);
+                if (_combatStalls >= 3)
+                {
+                    _combatApproachIndex = _combatApproaches.Count;
+                    _say($"Combat approach halted after {_combatStalls} observed stalls near {position}; " +
+                        "no further movement into this geometry will be attempted.");
+                    return;
+                }
+                if (!retreatStalled && _combatStalls == 1)
+                    TryCombatRetreat(position, direction);
+                _say($"Combat approach stalled at {position}; rejected that heading and " +
+                    (_combatRetreat.HasValue ? $"trying mapped retreat {_combatRetreat.Value}." :
+                        "trying a different firing side."));
                 return;
             }
             if (tier >= 2)
@@ -757,7 +789,41 @@ namespace RKmission
             _combatApproaches.Clear();
             _combatApproachIndex = 0;
             _combatApproachProgress = DateTime.MinValue;
+            _combatApproachIssuedAt = DateTime.MinValue;
+            _combatBlockedCorridors.Clear();
+            _combatRetreat = null;
+            _combatStalls = 0;
             _destination = null;
+        }
+
+        private void TryCombatRetreat(Vector3 position, Vector3 blockedDirection)
+        {
+            if (blockedDirection.Magnitude < 0.5f || _currentRoom < 0) return;
+            Vector3 forward = blockedDirection.Normalize();
+            Vector3 side = new Vector3(-forward.Z, 0, forward.X);
+            foreach (Vector3 offset in new[] { side * 3f, -side * 3f, -forward * 3f,
+                side * 5f, -side * 5f, -forward * 5f })
+            {
+                Vector3 point = position + offset;
+                point.Y = position.Y;
+                if (!_layout.IsInside(_currentRoom, point, 0.6f) ||
+                    !LocalRoutePlanner.TryDungeonCombatCost(position, point, out _) ||
+                    !LocalRoutePlanner.ClearInteractionSegment(
+                        position + Vector3.Up, point + Vector3.Up)) continue;
+                _combatRetreat = point;
+                return;
+            }
+        }
+
+        private bool RepeatsBlockedCombatCorridor(Vector3 position, Vector3 point)
+        {
+            Vector3 toPoint = point - position;
+            toPoint.Y = 0;
+            if (toPoint.Magnitude < 0.5f) return false;
+            toPoint = toPoint.Normalize();
+            return _combatBlockedCorridors.Any(blocked =>
+                Vector3.Distance(position, blocked.Origin) < 6f &&
+                toPoint.X * blocked.Direction.X + toPoint.Z * blocked.Direction.Z > 0.82f);
         }
 
         private bool ApproachCombatEnemy(SimpleChar enemy, int roomId)
@@ -774,6 +840,13 @@ namespace RKmission
             if (_combatApproachTarget != enemy.Identity ||
                 Vector3.Distance(_combatApproachEnemyPosition, enemy.Position) > 3f)
             {
+                if (_combatApproachTarget != enemy.Identity ||
+                    Vector3.Distance(_combatApproachEnemyPosition, enemy.Position) > 6f)
+                {
+                    _combatBlockedCorridors.Clear();
+                    _combatStalls = 0;
+                    _combatRetreat = null;
+                }
                 _combatApproachTarget = enemy.Identity;
                 _combatApproachEnemyPosition = enemy.Position;
                 _combatApproaches.Clear();
@@ -783,7 +856,42 @@ namespace RKmission
                     combatFiringSide: true));
                 _destination = null;
                 _say($"Combat approach to {enemy.Identity} in room {roomId}: " +
-                    $"{_combatApproaches.Count} mapped point(s), distance={enemy.DistanceFrom(player):0.0}m.");
+                    $"{_combatApproaches.Count} mapped, scene-checked point(s), " +
+                    $"distance={enemy.DistanceFrom(player):0.0}m.");
+            }
+            if (_combatRetreat.HasValue)
+            {
+                Vector3 retreat = _combatRetreat.Value;
+                if (Vector3.Distance(player.Position, retreat) < 1.1f)
+                {
+                    _combatRetreat = null;
+                    _destination = null;
+                    MovementArbiter.Current.Halt(MovementOwner.CombatPosition);
+                    _say($"Combat retreat reached {retreat}; selecting a different firing side.");
+                }
+                else
+                {
+                    if (!_destination.HasValue)
+                    {
+                        if (!MovementArbiter.Current.SetNavDestination(_requestedOwner, retreat))
+                            return false;
+                        _destination = retreat;
+                        _combatApproachProgress = _combatApproachIssuedAt = now;
+                        _combatApproachLastPosition = player.Position;
+                        _say($"Combat retreat toward {retreat} after an observed collision.");
+                    }
+                    if (Vector3.Distance(player.Position, _combatApproachLastPosition) > 0.5f)
+                    {
+                        _combatApproachLastPosition = player.Position;
+                        _combatApproachProgress = now;
+                    }
+                    if (now - _combatApproachProgress > TimeSpan.FromSeconds(7) ||
+                        now - _combatApproachIssuedAt > TimeSpan.FromSeconds(12) ||
+                        (!SMovementController.IsNavigating() &&
+                         now - _combatApproachIssuedAt > TimeSpan.FromSeconds(2)))
+                        RecoverFromStuck(1);
+                    return true;
+                }
             }
             if (_combatApproachIndex >= _combatApproaches.Count) return false;
             Vector3 point = _combatApproaches[_combatApproachIndex];
@@ -797,18 +905,33 @@ namespace RKmission
                 _combatApproachLastPosition = player.Position;
                 _combatApproachProgress = now;
             }
-            if (_destination.HasValue &&
-                (distance < 1.1f || now - _combatApproachProgress > TimeSpan.FromSeconds(7) ||
-                 (!SMovementController.IsNavigating() && now - _combatApproachProgress > TimeSpan.FromSeconds(2))))
+            bool stalled = _destination.HasValue &&
+                (now - _combatApproachProgress > TimeSpan.FromSeconds(7) ||
+                 now - _combatApproachIssuedAt > TimeSpan.FromSeconds(30) ||
+                 (!SMovementController.IsNavigating() && now - _combatApproachProgress > TimeSpan.FromSeconds(2)));
+            if (stalled)
+            {
+                RecoverFromStuck(1);
+                if (_combatRetreat.HasValue || _combatApproachIndex >= _combatApproaches.Count)
+                    return _combatRetreat.HasValue;
+            }
+            else if (_destination.HasValue && distance < 1.1f)
             {
                 _combatApproachIndex++;
                 _destination = null;
             }
+            int rejectedHeadings = 0;
             while (!_destination.HasValue && _combatApproachIndex < _combatApproaches.Count)
             {
                 point = _combatApproaches[_combatApproachIndex];
+                if (RepeatsBlockedCombatCorridor(player.Position, point))
+                {
+                    _combatApproachIndex++;
+                    rejectedHeadings++;
+                    continue;
+                }
                 _combatApproachLastPosition = player.Position;
-                _combatApproachProgress = now;
+                _combatApproachProgress = _combatApproachIssuedAt = now;
                 if (MovementArbiter.Current.SetNavDestination(_requestedOwner, point))
                 {
                     _destination = point;
@@ -819,6 +942,8 @@ namespace RKmission
                     $"(owner={MovementArbiter.Current.Owner}, controller loaded={SMovementController.IsLoaded()}).");
                 _combatApproachIndex++;
             }
+            if (rejectedHeadings > 0)
+                _say($"Combat rejected {rejectedHeadings} mapped point(s) through an observed blocked heading.");
             return _destination.HasValue;
         }
 

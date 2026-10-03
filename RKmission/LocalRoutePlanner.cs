@@ -51,6 +51,11 @@ namespace RKmission
         public static bool TryDungeonGroundCost(Vector3 origin, Vector3 destination, out float cost)
             => TryGroundCost(origin, destination, out cost, 1.5f, 1f, false, 1f);
 
+        // Combat needs a second check: a generated polygon corridor may pass
+        // through visible collision geometry inside a single AO room.
+        public static bool TryDungeonCombatCost(Vector3 origin, Vector3 destination, out float cost)
+            => TryGroundCost(origin, destination, out cost, 1.5f, 1f, false, 1f, true);
+
         // Fixer Grid routes must remain on the current supported platform.
         // A full polygon corridor alone is insufficient if a mesh was baked
         // from terrain that also covers the empty space between platforms.
@@ -62,7 +67,8 @@ namespace RKmission
         }
 
         private static bool TryGroundCost(Vector3 origin, Vector3 destination, out float cost,
-            float originSnap, float destinationSnap, bool verifyFGridFloor, float finalTolerance)
+            float originSnap, float destinationSnap, bool verifyFGridFloor, float finalTolerance,
+            bool verifyCombatCorridor = false)
         {
             cost = float.PositiveInfinity;
             if (!AcceptedMissions.Finite(origin) || !AcceptedMissions.Finite(destination) ||
@@ -87,11 +93,15 @@ namespace RKmission
             {
                 Vector3 point = vertex.Position;
                 if (verifyFGridFloor && !SupportedFGridSegment(previous, point, origin.Y)) return false;
+                if (verifyCombatCorridor && !ClearInteractionSegment(
+                    previous + Vector3.Up * 1.2f, point + Vector3.Up * 1.2f)) return false;
                 length += Vector3.Distance(previous, point);
                 previous = point;
             }
             if (Vector3.Distance(previous, destination) > finalTolerance) return false;
             if (verifyFGridFloor && !SupportedFGridSegment(previous, destination, origin.Y)) return false;
+            if (verifyCombatCorridor && !ClearInteractionSegment(
+                previous + Vector3.Up * 1.2f, destination + Vector3.Up * 1.2f)) return false;
             cost = length + Vector3.Distance(previous, destination);
             return !float.IsNaN(cost) && !float.IsInfinity(cost);
         }

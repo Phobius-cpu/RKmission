@@ -39,7 +39,7 @@ namespace RKmission
             var routed = options.Select((point, index) => new
                 {
                     Point = point, Index = index,
-                    Cost = CompleteCost(from, point),
+                    Cost = CompleteCost(from, point, combatFiringSide),
                     Clear = !combatFiringSide || ClearTargetSegment(point, target)
                 })
                 .Where(x => !float.IsInfinity(x.Cost)).ToList();
@@ -60,9 +60,16 @@ namespace RKmission
             return LocalRoutePlanner.ClearInteractionSegment(eye, aim);
         }
 
-        private static float CompleteCost(Vector3 from, Vector3 to)
+        private static float CompleteCost(Vector3 from, Vector3 to, bool combatFiringSide)
         {
-            try { return LocalRoutePlanner.TryDungeonGroundCost(from, to, out float cost) ? cost : float.PositiveInfinity; }
+            try
+            {
+                float cost;
+                bool complete = combatFiringSide
+                    ? LocalRoutePlanner.TryDungeonCombatCost(from, to, out cost)
+                    : LocalRoutePlanner.TryDungeonGroundCost(from, to, out cost);
+                return complete ? cost : float.PositiveInfinity;
+            }
             catch { return float.PositiveInfinity; }
         }
     }

@@ -2664,3 +2664,9 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 - In automatic mode, once objective and clearance are confirmed, request a cross-playfield warp from inside the completed dungeon when the next destination is known. Pause exit walking during the bounded request; on failure or renewed combat, resume the ordinary dungeon exit. Chain after a warp only when Scotty verifies the settled destination; a manual exit to the mission's outdoor playfield keeps its original proof gate.
 - For combat behind internal walls, rank reachable candidate firing sides with clear target rays, expand the search to 10 m and diagonal directions, advance on stuck signals, measure actual displacement instead of straight-line progress toward the point, and allow up to 120 active seconds for the wider route.
 - The user will pull and compile from now on. This follow-up received source and diff checks only; no build or live AO result is claimed.
+
+## 2026-10-03 room 3 collision follow-up
+
+- The user supplied a screenshot and `/pos` reading 286.6, 210.5, 5.3 in zone 3 after a new combat trace tried mapped points 1–5 for the Tough Scoundrel. The character remained at the same X/Z position as before those commands, visibly pressed against room geometry. This is live evidence that a complete generated navmesh corridor did not produce movement; it does not establish the exact colliding polygon.
+- Combat-only route scoring now checks scene collision along each straight navmesh segment. Runtime combat stalls record an observed blocked heading; subsequent points through that heading are skipped while nearby. A short side/back retreat uses only a complete, scene-clear route. The attempt is bounded to three observed stalls, then halts instead of continuing into geometry. Ordinary loot and objective path scoring remain unchanged.
+- The user handles pulling and compiling. Source and diff checks only; follow-up live movement remains unverified.
