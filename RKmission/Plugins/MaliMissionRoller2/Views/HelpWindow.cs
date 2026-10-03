@@ -17,13 +17,11 @@ namespace MaliMissionRoller2
             if (StartupWindow.FindView("Purpose", out TextView purpose))
             {
                 purpose.Text =
-                    "RKMission coordinates Rubi-Ka mission rolling,\n" +
-                    "accepted-mission travel, exact mission entry, dungeon\n" +
-                    "exploration, combat, loot, objective completion, and\n" +
-                    "return/exit handling.\n\n" +
-                    "Roller, ManagerLoot, and Dungeon Map share one tabbed\n" +
-                    "tool window. Roller settings stay inside the Roller view.\n" +
-                    "Navigation recording remains a separate diagnostic window.";
+                    "RKMission is an AO# plugin designed to automate\n" +
+                    "Rubi-Ka missions from start to finish.\n\n" +
+                    "It combines mission rolling, travel, navigation, combat,\n" +
+                    "looting, and mission completion into one coordinated system,\n" +
+                    "with the goal of reliable long-term autonomous operation.";
             }
 
             SetText("MissionCommands",

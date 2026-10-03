@@ -22,26 +22,26 @@
 
 						<TextView value="MISSION CONTROL" font="BOLD" layout_borders="Rect(0,4,0,1)"/>
 						<View view_layout="horizontal">
-							<TextView name="MissionCommands" min_size="Point(215,100)" max_size="Point(215,100)" feature_flags="TVF_MULTILINE"/>
-							<TextView name="MissionDescriptions" min_size="Point(325,100)" max_size="Point(325,100)" feature_flags="TVF_MULTILINE"/>
+							<TextView name="MissionCommands" min_size="Point(215,100)" max_size="Point(215,100)" v_alignment="TOP" feature_flags="TVF_MULTILINE"/>
+							<TextView name="MissionDescriptions" min_size="Point(325,100)" max_size="Point(325,100)" v_alignment="TOP" feature_flags="TVF_MULTILINE"/>
 						</View>
 
 						<TextView value="ROLLER / DESTINATIONS" font="BOLD" layout_borders="Rect(0,4,0,1)"/>
 						<View view_layout="horizontal">
-							<TextView name="RollerCommands" min_size="Point(215,74)" max_size="Point(215,74)" feature_flags="TVF_MULTILINE"/>
-							<TextView name="RollerDescriptions" min_size="Point(325,74)" max_size="Point(325,74)" feature_flags="TVF_MULTILINE"/>
+							<TextView name="RollerCommands" min_size="Point(215,74)" max_size="Point(215,74)" v_alignment="TOP" feature_flags="TVF_MULTILINE"/>
+							<TextView name="RollerDescriptions" min_size="Point(325,74)" max_size="Point(325,74)" v_alignment="TOP" feature_flags="TVF_MULTILINE"/>
 						</View>
 
 						<TextView value="TRAVEL / FGRID" font="BOLD" layout_borders="Rect(0,4,0,1)"/>
 						<View view_layout="horizontal">
-							<TextView name="TravelCommands" min_size="Point(215,87)" max_size="Point(215,87)" feature_flags="TVF_MULTILINE"/>
-							<TextView name="TravelDescriptions" min_size="Point(325,87)" max_size="Point(325,87)" feature_flags="TVF_MULTILINE"/>
+							<TextView name="TravelCommands" min_size="Point(215,87)" max_size="Point(215,87)" v_alignment="TOP" feature_flags="TVF_MULTILINE"/>
+							<TextView name="TravelDescriptions" min_size="Point(325,87)" max_size="Point(325,87)" v_alignment="TOP" feature_flags="TVF_MULTILINE"/>
 						</View>
 
 						<TextView value="WINDOWS / TOOLS" font="BOLD" layout_borders="Rect(0,4,0,1)"/>
 						<View view_layout="horizontal">
-							<TextView name="ToolCommands" min_size="Point(215,100)" max_size="Point(215,100)" feature_flags="TVF_MULTILINE"/>
-							<TextView name="ToolDescriptions" min_size="Point(325,100)" max_size="Point(325,100)" feature_flags="TVF_MULTILINE"/>
+							<TextView name="ToolCommands" min_size="Point(215,100)" max_size="Point(215,100)" v_alignment="TOP" feature_flags="TVF_MULTILINE"/>
+							<TextView name="ToolDescriptions" min_size="Point(325,100)" max_size="Point(325,100)" v_alignment="TOP" feature_flags="TVF_MULTILINE"/>
 						</View>
 					</View>
 				</BorderView>
