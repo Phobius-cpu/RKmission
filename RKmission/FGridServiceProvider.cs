@@ -643,13 +643,18 @@ namespace RKmission
                 _routes.StopPlayback();
                 _say("FGrid Recast: " + _recast.LastPath + ".");
             }
-            if (Math.Abs(player.Y - _recastWaypoints[0].Y) > 2f ||
-                Vector3.Distance(player, _recastWaypoints[Math.Max(0, _recastIndex - 1)]) > 2.5f)
-            { reason = "deviated from validated Recast corridor"; goto Reject; }
             while (_recastIndex < _recastWaypoints.Count - 1 &&
                 Vector3.Distance(player, _recastWaypoints[_recastIndex]) < 0.9f) _recastIndex++;
             if (Vector3.Distance(player, target) < 0.6f) return true;
             Vector3 next = _recastWaypoints[_recastIndex];
+            Vector3 previous = _recastWaypoints[_recastIndex - 1];
+            Vector3 leg = next - previous;
+            float legSquared = Vector3.Dot(leg, leg);
+            float progress = legSquared < 0.01f ? 0f :
+                Math.Max(0f, Math.Min(1f, Vector3.Dot(player - previous, leg) / legSquared));
+            if (Math.Abs(player.Y - _recastWaypoints[0].Y) > 2f ||
+                Vector3.Distance(player, previous + leg * progress) > 1.25f)
+            { reason = "deviated from validated Recast corridor"; goto Reject; }
             if (!LocalRoutePlanner.SupportedFGridSegment(player, next, _recastWaypoints[0].Y))
             { reason = "next Recast leg lost floor support"; goto Reject; }
             if (Vector3.Distance(player, _recastLastPosition) > 0.4f)
@@ -944,7 +949,7 @@ namespace RKmission
                         if (File.Exists(_navMeshPath) && SMovementController.NavAgent?.HasPathfinder != true &&
                             DateTime.UtcNow - _started < TimeSpan.FromSeconds(5))
                             return FGridServiceResult.InProgress;
-                        Fail($"No safe FGrid route reaches the floor {floor} lift ({meshReason}). Provide a verified NavMeshes/4107.nav or record a walkway with /rkm nav record fgrid-floor-{floor}-lift, then /rkm nav stop.");
+                        Fail($"No safe FGrid route reaches the floor {floor} lift ({meshReason}). Record a verified walkway with /rkm nav record fgrid-floor-{floor}-lift, then /rkm nav stop.");
                         return FGridServiceResult.Failed;
                     }
                     else if (_routes.IsPlaying) _activeNavSource = "recorded fallback";
@@ -994,7 +999,7 @@ namespace RKmission
                         if (File.Exists(_navMeshPath) && SMovementController.NavAgent?.HasPathfinder != true &&
                             DateTime.UtcNow - _started < TimeSpan.FromSeconds(5))
                             return FGridServiceResult.InProgress;
-                        Fail($"No safe FGrid route reaches portal {_exit.Identity} on floor {_route.Floor} ({meshReason}). Provide a verified NavMeshes/4107.nav or record the walkway with /rkm nav record fgrid-floor-{_route.Floor}-portal-{_exit.Identity.Instance}, then /rkm nav stop.");
+                        Fail($"No safe FGrid route reaches portal {_exit.Identity} on floor {_route.Floor} ({meshReason}). Record a verified walkway with /rkm nav record fgrid-floor-{_route.Floor}-portal-{_exit.Identity.Instance}, then /rkm nav stop.");
                         return FGridServiceResult.Failed;
                     }
                     else if (_routes.IsPlaying) _activeNavSource = "recorded fallback";

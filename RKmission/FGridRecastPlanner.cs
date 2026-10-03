@@ -133,12 +133,12 @@ namespace RKmission
                 for (int i = 1; i < raw.Count; i++)
                 {
                     Vector3 a = raw[i - 1], b = raw[i];
-                    if (Math.Abs(b.Y - start.Y) > 2f || !LocalRoutePlanner.SupportedFGridSegment(a, b, start.Y))
-                    { LastPath = "rejected: unsupported floor or suspicious cross-gap segment"; return false; }
+                    if (!LocalRoutePlanner.SupportedFGridSegment(a, b, start.Y, out string segmentReason))
+                    { LastPath = $"rejected segment {i}/{raw.Count - 1}: {segmentReason}"; return false; }
                     float segment = Vector3.Distance(a, b);
                     length += segment;
-                    // SMovementController receives only short, checked direct legs.
-                    int pieces = Math.Max(1, (int)Math.Ceiling(segment / 1.5f));
+                    // Issue meaningful strides along the fully checked segment.
+                    int pieces = Math.Max(1, (int)Math.Ceiling(segment / 4f));
                     for (int j = 1; j <= pieces; j++) checkedPath.Add(a + (b - a) * (j / (float)pieces));
                 }
                 if (checkedPath.Count < 2 || checkedPath.Count > 2048 || length > 2000f)

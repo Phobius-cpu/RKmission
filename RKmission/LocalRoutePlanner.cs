@@ -94,9 +94,16 @@ namespace RKmission
         }
 
         internal static bool SupportedFGridSegment(Vector3 start, Vector3 end, float floorHeight)
+            => SupportedFGridSegment(start, end, floorHeight, out _);
+
+        internal static bool SupportedFGridSegment(Vector3 start, Vector3 end, float floorHeight, out string reason)
         {
+            reason = "supported";
             if (Math.Abs(start.Y - floorHeight) > 2f || Math.Abs(end.Y - floorHeight) > 2f)
+            {
+                reason = "segment changes floor";
                 return false;
+            }
             float length = Vector3.Distance(start, end);
             // Fine samples and two lateral tracks catch narrow voids that a
             // polygon corridor (or a single centre ray) can bridge.
@@ -115,9 +122,15 @@ namespace RKmission
                     {
                         if (!Playfield.Raycast(top, bottom, out Vector3 floor, out Vector3 normal) ||
                             !AcceptedMissions.Finite(floor) || normal.Y < 0.6f ||
-                            Math.Abs(floor.Y - point.Y) > 1.25f) return false;
+                            Math.Abs(floor.Y - point.Y) > 1.25f)
+                        {
+                            reason = $"missing floor support at ({point.X + offset.X:0.00}," +
+                                $"{point.Y:0.00},{point.Z + offset.Z:0.00}) " +
+                                (offset.Magnitude < 0.01f ? "centre" : "edge");
+                            return false;
+                        }
                     }
-                    catch { return false; }
+                    catch (Exception ex) { reason = "floor ray failed: " + ex.Message; return false; }
                 }
             }
             if (length > 1f)
@@ -125,9 +138,9 @@ namespace RKmission
                 try
                 {
                     if (Playfield.Raycast(start + Vector3.Up * 0.8f, end + Vector3.Up * 0.8f,
-                        out _, out _)) return false;
+                        out _, out _)) { reason = "segment intersects a wall"; return false; }
                 }
-                catch { return false; }
+                catch (Exception ex) { reason = "wall ray failed: " + ex.Message; return false; }
             }
             return true;
         }
