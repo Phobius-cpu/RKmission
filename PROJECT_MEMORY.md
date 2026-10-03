@@ -2623,7 +2623,7 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 ## 2026-10-03 permanent tabs, RKMission help and temporary Navigation UI
 
 - Starting from main `714d80cb`, retained the existing RKMission/Loot/Dungeon shared host and added a fourth permanent **Settings** tab.
-- The new Settings tab reuses Mali Mission Roller 2.0's existing `SettingsView`; no parallel settings model was introduced. The old Roller header Settings button routes to the same tab.
+- Follow-up UI inspection removed the duplicate top-level Settings tab. Mali Mission Roller 2.0's original header **Settings** button remains the single visible settings control and toggles the original `SettingsView` within the RKMission/Roller host.
 - Replaced Mali's roller-specific Help content with a concise RKMission purpose description and an organized command reference covering mission control, rolling, travel/FGrid, nav diagnostics and tool windows.
 - Added a separate `NavigationRecorderWindow` and `NavigationWindow.xml`. `/rkm nav` opens it; recording/list commands remain valid. It is explicitly diagnostic/temporary and is not part of the permanent tab cluster.
 - The diagnostic window reads recorder state and saved-route summaries without changing automatic endpoint-matched playback behavior.
