@@ -1,3 +1,4 @@
+using AOSharp.Common.GameData.UI;
 using AOSharp.Core.UI;
 
 namespace MaliMissionRoller2
