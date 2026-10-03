@@ -2618,3 +2618,13 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 - `/rkm auto` previously counted accepted Rubi-Ka missions, then gave the mission limit priority over mission selection. A partial accepted batch after any stop therefore sent the character back to the terminal to refill it before clearing the accepted missions.
 - A resumed automatic cycle now prioritizes every present, incomplete Rubi-Ka mission before terminal return, including another mission after the first exits. A fresh cycle with no accepted work still fills the configured batch as before. The interrupted checkpoint path can resume other accepted missions when the saved mission is gone and the character is outside a mission dungeon (including Fixer Grid); exact identity verification inside a mission dungeon remains mandatory. The bot waits for an unavailable quest list or pending accepted destination instead of assuming the batch is empty.
 - In game: stop with a partially filled batch, restart with `/rkm auto`, verify no terminal return until all those accepted missions are completed, then verify rolling resumes only for the remaining allowance. Check both another local mission and one in another playfield, and repeat after reinjection with an armed checkpoint. No AO client result is claimed here.
+
+
+## 2026-10-03 permanent tabs, RKMission help and temporary Navigation UI
+
+- Starting from main `714d80cb`, retained the existing RKMission/Loot/Dungeon shared host and added a fourth permanent **Settings** tab.
+- The new Settings tab reuses Mali Mission Roller 2.0's existing `SettingsView`; no parallel settings model was introduced. The old Roller header Settings button routes to the same tab.
+- Replaced Mali's roller-specific Help content with a concise RKMission purpose description and an organized command reference covering mission control, rolling, travel/FGrid, nav diagnostics and tool windows.
+- Added a separate `NavigationRecorderWindow` and `NavigationWindow.xml`. `/rkm nav` opens it; recording/list commands remain valid. It is explicitly diagnostic/temporary and is not part of the permanent tab cluster.
+- The diagnostic window reads recorder state and saved-route summaries without changing automatic endpoint-matched playback behavior.
+- No mission, combat, loot, dungeon, FGrid survey, exact-verification or doorway-crossing behavior was intentionally changed by this UI work.
