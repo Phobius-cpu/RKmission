@@ -82,6 +82,7 @@ namespace RKmission
             public float BestDistance;
             public int DoorAttempts, CrossingRetries;
             public bool PushingDeeper, DoorApproachLogged;
+            public Vector3 TargetObservedPosition;
         }
         private sealed class EdgeFailure
         {
@@ -1207,6 +1208,9 @@ namespace RKmission
             _destination = null;
             _observedRoom = -1;
             _say($"Transition {source}->{target}: approach doorway at {edge.Threshold}, door {door?.Identity.ToString() ?? "none"}; interior {edge.Interior}.");
+            if (UseLiveDoorwayHeight(edge, edge.Interior, DynelManager.LocalPlayer.Position))
+                _say($"Transition {source}->{target}: Mali interior height {edge.Interior.Y:0.0} differs from the live floor " +
+                    $"{DynelManager.LocalPlayer.Position.Y:0.0}; using live floor height for this same-floor crossing.");
             Navigate(edge.Threshold);
         }
 
@@ -1229,6 +1233,7 @@ namespace RKmission
                 {
                     _observedRoom = edge.Target;
                     _observedRoomAt = now;
+                    crossing.TargetObservedPosition = position;
                     _say($"Transition {edge.Source}->{edge.Target}: target room detected; confirming entry.");
                 }
                 if (safelyInsideTarget && now - _observedRoomAt >= TimeSpan.FromMilliseconds(500))
@@ -1238,14 +1243,9 @@ namespace RKmission
                 }
                 if (safelyInsideTarget)
                 {
-                    // Keep the interior route active during the brief stability
-                    // check. Cleared-room confirmation can continue onward.
-                    if (_clearedRooms.Contains(edge.Target) && !_readiness.InCombat &&
-                        !_loot.IsProcessingMissionLoot)
-                    {
-                        crossing.PushingDeeper = true;
-                        Navigate(edge.DeepInterior);
-                    }
+                    // Keep the existing crossing route during the brief stability
+                    // check. A new deep route here can turn the player back toward
+                    // an unrelated navmesh point just before confirmation.
                     return;
                 }
                 // Mali's polygon can disagree with the live room boundary at
@@ -1279,7 +1279,7 @@ namespace RKmission
                 crossing.LastProgress = now;
                 crossing.BestDistance = float.MaxValue;
                 _destination = null;
-                Navigate(edge.Interior);
+                Navigate(CrossingWaypoint(edge, position));
                 return;
             }
 
@@ -1328,7 +1328,7 @@ namespace RKmission
                 }
                 else if (now - crossing.PhaseStarted < TimeSpan.FromSeconds(3))
                 {
-                    Navigate(edge.Interior);
+                    Navigate(CrossingWaypoint(edge, position));
                     return;
                 }
                 else
@@ -1353,7 +1353,7 @@ namespace RKmission
                     crossing.LastProgress = now;
                     crossing.BestDistance = float.MaxValue;
                     _destination = null;
-                    Navigate(edge.Interior);
+                    Navigate(CrossingWaypoint(edge, position));
                     return;
                 }
                 float doorDistance = Vector3.Distance(position, door.Position);
@@ -1410,7 +1410,7 @@ namespace RKmission
                 return;
             }
 
-            Vector3 destination = crossing.PushingDeeper ? edge.DeepInterior : edge.Interior;
+            Vector3 destination = CrossingWaypoint(edge, position, crossing.PushingDeeper);
             float distance = Vector3.Distance(position, destination);
             if (distance + 0.5f < crossing.BestDistance)
             {
@@ -1423,18 +1423,22 @@ namespace RKmission
             bool stalled = now - crossing.LastProgress > TimeSpan.FromSeconds(6);
             if (targetDetected)
             {
-                // A target-room reading is progress, even if the player is still
-                // near the threshold. Only push deeper if the interior route
-                // actually ends or stops making progress before safe entry.
+                Vector3 observedProgress = position - crossing.TargetObservedPosition;
+                observedProgress.Y = 0;
+                // An AO room change can precede a safe physical crossing. If
+                // the navmesh turns in place at the doorway, use the short
+                // live-floor crossing without waiting for a full route stall.
                 if (!crossing.PushingDeeper &&
-                    now - _observedRoomAt > TimeSpan.FromSeconds(3) &&
-                    (stalled || !SMovementController.IsNavigating()))
+                    now - _observedRoomAt > TimeSpan.FromSeconds(1.2) &&
+                    (stalled || !SMovementController.IsNavigating() || observedProgress.Magnitude < 0.35f))
                 {
                     crossing.PushingDeeper = true;
                     crossing.LastProgress = now;
                     crossing.BestDistance = float.MaxValue;
                     _destination = null;
-                    _say($"Transition {edge.Source}->{edge.Target}: interior route stalled before safe entry; trying a short direct crossing at the live floor height.");
+                    _say($"Transition {edge.Source}->{edge.Target}: room changed but safe entry is unconfirmed " +
+                        $"({observedProgress.Magnitude:0.0}m horizontal progress, navigating={SMovementController.IsNavigating()}); " +
+                        "trying a short direct crossing at the live floor height.");
                 }
                 if (crossing.PushingDeeper)
                 {
@@ -1445,11 +1449,16 @@ namespace RKmission
                     {
                         Vector3 direct = edge.Threshold + inward.Normalize() * 2.5f;
                         direct.Y = position.Y;
-                        MovementArbiter.Current.SetDestination(_requestedOwner, direct);
+                        if (MovementArbiter.Current.Owner != _requestedOwner || !_destination.HasValue ||
+                            Vector3.Distance(_destination.Value, direct) > 0.5f || !SMovementController.IsNavigating())
+                        {
+                            if (MovementArbiter.Current.SetDestination(_requestedOwner, direct))
+                                _destination = direct;
+                        }
                         crossing.LastApproachCommand = now;
                     }
                 }
-                else Navigate(edge.Interior);
+                else Navigate(CrossingWaypoint(edge, position));
                 return;
             }
             if (detectedRoom.Instance == edge.Source && (arrivedWithoutEntry || stalled) &&
@@ -1467,7 +1476,7 @@ namespace RKmission
                 _destination = null;
                 _say($"Transition {edge.Source}->{edge.Target}: still in room {detectedRoom.Instance}; pushing deeper (retry {crossing.CrossingRetries}/3).");
             }
-            Navigate(crossing.PushingDeeper ? edge.DeepInterior : edge.Interior);
+            Navigate(CrossingWaypoint(edge, position, crossing.PushingDeeper));
         }
 
         private void ConfirmTransition()
@@ -1544,6 +1553,26 @@ namespace RKmission
                 MovementArbiter.Current.SetNavDestination(_requestedOwner, destination);
                 _destination = destination;
             }
+        }
+
+        private Vector3 CrossingWaypoint(DungeonLayout.Connection edge, Vector3 position, bool deep = false)
+        {
+            Vector3 waypoint = deep ? edge.DeepInterior : edge.Interior;
+            if (UseLiveDoorwayHeight(edge, waypoint, position))
+                waypoint.Y = position.Y;
+            return waypoint;
+        }
+
+        private bool UseLiveDoorwayHeight(DungeonLayout.Connection edge, Vector3 waypoint, Vector3 position)
+        {
+            Room source = _layout.Room(edge.Source), target = _layout.Room(edge.Target);
+            // Mali's wall mesh may carry a height several metres above the
+            // live walkable floor at a nearby doorway. Keep real height changes
+            // farther inside the room for ramps and multi-level geometry.
+            float dx = waypoint.X - edge.Threshold.X, dz = waypoint.Z - edge.Threshold.Z;
+            return source != null && target != null && source.Floor == target.Floor &&
+                Math.Abs(position.Y - edge.Threshold.Y) <= 1.5f &&
+                Math.Abs(waypoint.Y - position.Y) > 1f && dx * dx + dz * dz <= 16f;
         }
 
         private static string EdgeKey(int a, int b) =>

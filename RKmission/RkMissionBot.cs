@@ -35,6 +35,7 @@ namespace RKmission
         private DateTime _checkpointResumeAfter;
         private AcceptedMission _selected;
         private bool _autoCycle, _autoRolling, _hasRollTerminal, _recoveringDeath;
+        private bool _clearAcceptedBeforeRolling;
         private int _autoZone, _autoRollCount, _maxAutoRolls = 100, _rollTerminalPlayfield;
         private int _maxAutoMissions, _autoAcceptedCount;
         private readonly HashSet<int> _autoAcceptedIds = new HashSet<int>();
@@ -179,8 +180,10 @@ namespace RKmission
                             _autoAcceptedIds.Add(mission.Id.Instance);
                             _autoAcceptedPlayfields[mission.Id.Instance] = mission.PlayfieldId;
                         }
+                        _clearAcceptedBeforeRolling = existing.Count > 0 || Mission.List == null;
                         if (existing.Count > 0)
-                            Say($"Counting {existing.Count} already accepted Rubi-Ka mission(s) toward the automatic limit.");
+                            Say($"Counting {existing.Count} already accepted Rubi-Ka mission(s) toward the automatic limit; " +
+                                "clearing all accepted missions before returning to the roller terminal.");
                     }
                     Dynel? visibleTerminal = FindVisibleRollTerminal();
                     if (visibleTerminal != null) RememberRollTerminal(visibleTerminal);
@@ -188,6 +191,7 @@ namespace RKmission
                 case "local":
                     if (_autoRolling) MaliMissionRoller2.Main.Window?.StopZoneRolling();
                     _autoRolling = _autoCycle = false;
+                    _clearAcceptedBeforeRolling = false;
                     _longTravel.Reset();
                     Start(); Say("Local mission takeover armed."); break;
                 case "stop": Stop(); Say("Stopped. Use /rkm start for local takeover or /rkm auto for the automatic cycle."); break;
@@ -311,6 +315,7 @@ namespace RKmission
             if (!preserveCheckpoint) _pendingCheckpointResume = false;
             if (_autoRolling) MaliMissionRoller2.Main.Window?.StopZoneRolling();
             _autoRolling = false;
+            _clearAcceptedBeforeRolling = false;
             _running = false;
             _dungeonStarted = false;
             _travel?.Reset();
@@ -473,9 +478,22 @@ namespace RKmission
                 {
                     if (DateTime.UtcNow < _nextSelection) return;
                     _nextSelection = DateTime.UtcNow.AddSeconds(5);
-                    // Fill the requested mission batch before selecting a
-                    // destination. Keep the roller's existing two-slot guard.
-                    if (_autoCycle && !inFixerGrid && Inventory.NumFreeSlots >= 2 &&
+                    // After a stop/restart, finish every already accepted mission
+                    // before refilling the batch. An unavailable quest list is
+                    // not proof that the accepted work has disappeared.
+                    if (_autoCycle && Mission.List == null)
+                    { Wait("Waiting for AO# to load the accepted mission list before deciding whether to roll."); return; }
+                    if (_clearAcceptedBeforeRolling && !_missions.Records.Any(x =>
+                        x.Present && x.IsRubiKaDestination && !x.Completed) &&
+                        _awaitingQuestDetails.Count == 0)
+                    {
+                        _clearAcceptedBeforeRolling = false;
+                        Say("All previously accepted Rubi-Ka missions are cleared; the roller may refill the remaining limit.");
+                    }
+                    // Fresh cycles still fill the requested batch before travel.
+                    // A resumed cycle selects accepted work before this branch.
+                    if (_autoCycle && !_clearAcceptedBeforeRolling && !inFixerGrid &&
+                        _awaitingQuestDetails.Count == 0 && Inventory.NumFreeSlots >= 2 &&
                         (_maxAutoMissions == 0 || _autoAcceptedCount < _maxAutoMissions))
                     {
                         if (!_autoRolling && ReturnToRollTerminal()) StartAutoRolling();
@@ -491,18 +509,20 @@ namespace RKmission
                         if (_selected == null)
                         {
                             if (_autoRolling) return;
+                            if (_awaitingQuestDetails.Count > 0)
+                            {
+                                Wait($"Waiting for AO# to resolve {_awaitingQuestDetails.Count} accepted mission destination(s) before returning to the roller terminal.");
+                                return;
+                            }
                             if (_maxAutoMissions > 0 && _autoAcceptedCount >= _maxAutoMissions)
                             {
-                                if (_awaitingQuestDetails.Count > 0)
-                                {
-                                    Wait($"Waiting for AO# to resolve {_awaitingQuestDetails.Count} accepted mission destination(s) before travel.");
-                                    return;
-                                }
                                 int completed = _autoAcceptedCount;
                                 Stop();
                                 Say($"Automatic cycle finished after {completed} accepted mission(s). Use /rkm auto to start a new cycle.");
                                 return;
                             }
+                            if (Inventory.NumFreeSlots < 2)
+                            { Wait("Accepted missions are cleared; waiting for two free main-inventory slots before rolling."); return; }
                             if (ReturnToRollTerminal()) StartAutoRolling();
                             return;
                         }
@@ -568,17 +588,42 @@ namespace RKmission
             if (DateTime.UtcNow < _checkpointResumeAfter) return;
             if (Mission.List == null) return;
             _pendingCheckpointResume = false;
+            if (_checkpoint.AutoCycle)
+            {
+                var accepted = _missions.Records.Where(x => x.Present &&
+                    x.IsRubiKaDestination && !x.Completed).ToList();
+                _autoAcceptedCount = Math.Max(_autoAcceptedCount, accepted.Count);
+                foreach (AcceptedMission mission in accepted)
+                {
+                    _autoAcceptedIds.Add(mission.Id.Instance);
+                    _autoAcceptedPlayfields[mission.Id.Instance] = mission.PlayfieldId;
+                }
+            }
             AcceptedMission record = _missions.Records.FirstOrDefault(x =>
                 x.Present && x.Id.Instance == _checkpoint.MissionInstance &&
                 (int)x.Id.Type == _checkpoint.MissionType);
             if (record == null || !record.IsRubiKaDestination)
             {
+                // A saved automatic cycle can be interrupted between acceptance
+                // and selection, or after an earlier mission was removed. Recover
+                // only outdoors when other accepted RK missions are actually live.
+                if (_checkpoint.AutoCycle &&
+                    (!Playfield.IsDungeon || Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid) &&
+                    _missions.Records.Any(x => x.Present && x.IsRubiKaDestination && !x.Completed))
+                {
+                    _autoCycle = true;
+                    _clearAcceptedBeforeRolling = true;
+                    Start();
+                    Say("Reconciled the accepted Rubi-Ka missions after restart; clearing them before any new rolling.");
+                    return;
+                }
                 _checkpoint.Armed = false;
                 _checkpoint.Save(true, Say);
                 Say("Saved run could not be matched to an accepted Rubi-Ka mission; restart remains disarmed.");
                 return;
             }
             _autoCycle = _checkpoint.AutoCycle;
+            _clearAcceptedBeforeRolling = _autoCycle;
             Start();
             _selected = record;
             if (Playfield.IsDungeon && Playfield.ModelIdentity.Instance == _checkpoint.DungeonInstance &&
