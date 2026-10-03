@@ -840,3 +840,12 @@ Mission-key discovery accepts MissionKey identities even when Neko's dynamic `Mi
 The RKMission tool host now has three tabs: **RKMission**, **Loot**, and **Dungeon**. Each tab keeps the original tool's own layout dimensions instead of inheriting the widest tab. The Roller restores Mali Mission Roller 2.0's original 320 px settings layout (including its original vertical settings arrangement), ManagerLoot embeds its unchanged original settings XML, and Mali's Dungeon Map 2.0 embeds its unchanged settings XML. Switching tabs refits the common host to the active content.
 
 `/rkm loot` opens the Loot tab. `/rkm map` and `/mapsettings` open the Dungeon tab. Closing/reopening the shared host recreates embedded views while preserving each plugin's existing settings/config persistence.
+
+
+### Permanent tool tabs and temporary Navigation diagnostics
+
+The shared Mali/RKMission tool cluster now keeps four permanent tabs: **RKMission**, **Loot**, **Dungeon**, and **Settings**. The Settings tab is Mali Mission Roller 2.0's original settings interface promoted out of the Roller content instead of a duplicated replacement. The old header **Settings** button opens that same tab. **Dungeon** remains Mali Dungeon Map 2.0's embedded original settings view, while **Loot** remains ManagerLoot's original view.
+
+The Roller **Help** button now opens an RKMission-oriented help panel: a short description of the autonomous mission coordinator followed by commands grouped into Mission Control, Roller/Destinations, Travel/FGrid, and Windows/Tools.
+
+Navigation recording is intentionally **not** a permanent tab. Use `/rkm nav` (or `/rkm nav window`) to open the separate **RKMission Navigation Diagnostics** window. It shows the current recorder state, player playfield/position, saved recorded routes, and Start/Stop/Refresh controls. Command forms `/rkm nav record [name]`, `/rkm nav stop`, and `/rkm nav list` remain available. This diagnostic window is isolated so it can later be hidden or removed when route coverage and autonomous navigation are stable.
