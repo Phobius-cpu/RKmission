@@ -134,10 +134,16 @@ namespace RKmission
                 for (int repair = 0; repair < 4 &&
                     !ValidateRaw(raw, start.Y, out failedSegment, out segmentReason); repair++)
                 {
-                    if (!segmentReason.EndsWith(" edge", StringComparison.Ordinal) ||
-                        !TryRepairEdge(raw, failedSegment, start.Y, out List<Vector3> repaired))
+                    if (!segmentReason.EndsWith(" edge", StringComparison.Ordinal))
                     {
                         LastPath = Rejection(raw, failedSegment, segmentReason, repairs);
+                        return false;
+                    }
+                    if (!TryRepairEdge(raw, failedSegment, start.Y, out List<Vector3> repaired,
+                        out string repairReason))
+                    {
+                        LastPath = Rejection(raw, failedSegment, segmentReason, repairs) +
+                            "; " + repairReason;
                         return false;
                     }
                     raw = repaired;
@@ -188,16 +194,20 @@ namespace RKmission
         // cross a small gap. Try nearby corners and short doglegs, then require
         // the entire revised route to pass the unchanged clearance test.
         private static bool TryRepairEdge(List<Vector3> points, int segment, float floorHeight,
-            out List<Vector3> repaired)
+            out List<Vector3> repaired, out string reason)
         {
             repaired = new List<Vector3>();
-            if (points.Count > 16 || segment < 1 || segment >= points.Count ||
-                LocalRoutePlanner.HorizontalDistance(points[segment - 1], points[segment]) > 8f)
-                return false;
+            reason = "no nearby supported detour";
+            if (points.Count > 16 || segment < 1 || segment >= points.Count)
+            { reason = "repair vertex limit reached"; return false; }
+            float legLength = LocalRoutePlanner.HorizontalDistance(points[segment - 1], points[segment]);
+            if (legLength > 12f)
+            { reason = $"{legLength:0.0} m leg exceeds 12 m repair limit"; return false; }
             float routeLength = 0;
             for (int i = 1; i < points.Count; i++)
                 routeLength += LocalRoutePlanner.HorizontalDistance(points[i - 1], points[i]);
-            if (routeLength > 60f) return false;
+            if (routeLength > 60f)
+            { reason = "60 m repair route limit reached"; return false; }
             Vector3 travel = points[segment] - points[segment - 1];
             Vector3 side = new Vector3(-travel.Z, 0, travel.X);
             if (side.Magnitude < 0.1f) return false;
