@@ -35,6 +35,10 @@ namespace RKmission
         public string Status => IsRecording ? $"recording '{_recording.Name}' ({_recording.Points.Count} points)" :
             _playing != null ? $"playing '{_playing.Name}' {_playIndex + 1}/{_playPoints.Count}" :
             $"{_routes.Count} saved route(s)";
+        public IReadOnlyList<string> RouteSummaries => _routes
+            .OrderBy(x => x.Playfield).ThenBy(x => x.Name)
+            .Select(x => $"{x.Name}  |  PF {x.Playfield}  |  {x.Points.Count} pts  |  {x.RecordedAtUtc:u}")
+            .ToList();
 
         public NavigationRouteRecorder(string pluginDir, Action<string> say)
         {
