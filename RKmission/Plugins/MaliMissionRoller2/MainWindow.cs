@@ -103,9 +103,7 @@ namespace MaliMissionRoller2
         {
             try
             {
-                HelpWindow _helpWindow = new HelpWindow();
-
-                Window.FindView("HostRoot", out _hostRoot);
+                 Window.FindView("HostRoot", out _hostRoot);
                 Window.FindView("TabContent", out _tabContent);
                 Window.FindView("RollerContent", out _rollerContent);
                 Window.FindView("SettingsContent", out _settingsContent);
