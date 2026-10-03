@@ -172,6 +172,33 @@ namespace RKmission
             catch (Exception ex) { LastPath = "query failed: " + ex.Message; return false; }
         }
 
+        // Exit terminals can sit at a platform edge. The caller uses a terminal
+        // from within 1.5 m, so a supported approach point is enough. This is
+        // only for portal legs; lift paths still require the exact target.
+        public bool TryPortalApproach(Vector3 start, Vector3 portal, out List<Vector3> waypoints)
+        {
+            if (TryPath(start, portal, out waypoints)) return true;
+            string directFailure = LastPath;
+            Vector3 toward = start - portal;
+            toward.Y = 0;
+            if (toward.Magnitude < 0.1f) toward = new Vector3(1, 0, 0);
+            toward = toward.Normalize();
+            foreach (int degrees in new[] { 0, 45, -45, 90, -90, 135, -135, 180 })
+            {
+                double radians = degrees * Math.PI / 180;
+                float cosine = (float)Math.Cos(radians), sine = (float)Math.Sin(radians);
+                Vector3 offset = new Vector3(toward.X * cosine - toward.Z * sine, 0,
+                    toward.X * sine + toward.Z * cosine) * 1.2f;
+                Vector3 approach = portal + offset;
+                if (!LocalRoutePlanner.SupportedFGridSegment(approach, approach, start.Y)) continue;
+                if (!TryPath(start, approach, out waypoints)) continue;
+                LastPath += "; portal approach 1.2 m from terminal";
+                return true;
+            }
+            LastPath = directFailure + "; no complete supported portal approach within 1.2 m";
+            return false;
+        }
+
         private static bool ValidateRaw(List<Vector3> points, float floorHeight,
             out int failedSegment, out string reason)
         {

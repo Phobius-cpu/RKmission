@@ -583,7 +583,7 @@ namespace RKmission
                     ? new Vector3(_selectedExit.FGridPosition[0], _selectedExit.FGridPosition[1], _selectedExit.FGridPosition[2])
                     : (Vector3?)null));
             string recastPath = goal.HasValue && _recast.Available
-                ? RecastPathStatus(player, goal.Value)
+                ? RecastPathStatus(player, goal.Value, IsSurveyedPortal(goal.Value, floor))
                 : goal.HasValue ? "not queried (mesh unavailable)" : "no active lift/portal target";
             string sharp = !File.Exists(_navMeshPath) ? "missing" :
                 SMovementController.NavAgent?.HasPathfinder == true ? "loaded" : "file present, pathfinder unavailable";
@@ -596,9 +596,15 @@ namespace RKmission
                 $"SharpNav={sharp}, path={sharpPath}; active leg={_activeNavSource}; recorded fallback available when endpoints match.";
         }
 
-        private string RecastPathStatus(Vector3 player, Vector3 target)
+        private bool IsSurveyedPortal(Vector3 target, int floor) =>
+            _surveyExits.Values.Any(exit => exit.Floor == floor && exit.FGridPosition?.Length == 3 &&
+                Vector3.Distance(target, new Vector3(exit.FGridPosition[0], exit.FGridPosition[1],
+                    exit.FGridPosition[2])) < 0.5f);
+
+        private string RecastPathStatus(Vector3 player, Vector3 target, bool portal)
         {
-            _recast.TryPath(player, target, out _);
+            if (portal) _recast.TryPortalApproach(player, target, out _);
+            else _recast.TryPath(player, target, out _);
             return _recast.LastPath;
         }
 
@@ -614,7 +620,7 @@ namespace RKmission
             _activeNavSource = "none";
         }
 
-        private bool TryNavigateRecast(Vector3 target, out string reason)
+        private bool TryNavigateRecast(Vector3 target, bool portal, out string reason)
         {
             reason = _recast.LastPath;
             if (_routes.IsRecording || Game.IsZoning || DynelManager.LocalPlayer == null) return false;
@@ -631,7 +637,9 @@ namespace RKmission
             }
             if (_recastWaypoints == null)
             {
-                if (!_recast.TryPath(player, target, out _recastWaypoints))
+                if (!(portal
+                    ? _recast.TryPortalApproach(player, target, out _recastWaypoints)
+                    : _recast.TryPath(player, target, out _recastWaypoints)))
                 { reason = _recast.LastPath; return false; }
                 _recastDestination = target;
                 _recastFloor = floor;
@@ -682,11 +690,11 @@ namespace RKmission
             return false;
         }
 
-        private bool TryNavigateFGrid(Vector3 target, out string reason)
+        private bool TryNavigateFGrid(Vector3 target, bool portal, out string reason)
         {
             reason = "";
             if (_routes.IsRecording) { reason = "nav recorder is active"; return false; }
-            if (TryNavigateRecast(target, out string recastReason)) return true;
+            if (TryNavigateRecast(target, portal, out string recastReason)) return true;
             reason = "Recast: " + recastReason;
             if (!File.Exists(_navMeshPath)) { reason += "; NavMeshes/4107.nav is missing"; return false; }
             if (SMovementController.NavAgent?.HasPathfinder != true)
@@ -942,7 +950,7 @@ namespace RKmission
                 Vector3 lift = UpLifts[floor];
                 if (Vector3.Distance(DynelManager.LocalPlayer.Position, lift) > 0.8f)
                 {
-                    if (!TryNavigateFGrid(lift, out string meshReason) &&
+                    if (!TryNavigateFGrid(lift, false, out string meshReason) &&
                         !_routes.TryNavigate(lift, _movement, MovementOwner.FGridTravel))
                     {
                         // The zone loader can publish the playfield before the
@@ -994,7 +1002,7 @@ namespace RKmission
                 }
                 if (Vector3.Distance(DynelManager.LocalPlayer.Position, _exit.Position) > 1.5f)
                 {
-                    if (!TryNavigateFGrid(_exit.Position, out string meshReason) &&
+                    if (!TryNavigateFGrid(_exit.Position, true, out string meshReason) &&
                         !_routes.TryNavigate(_exit.Position, _movement, MovementOwner.FGridTravel))
                     {
                         if (_recast.Pending && DateTime.UtcNow - _started < TimeSpan.FromSeconds(60))
