@@ -1568,3 +1568,21 @@ Weighted room routing, profession action profiles, backpack capacity, and
 recovery/watchdog patterns remain staged ideas. The source inventory, rejected
 movement patterns, evidence, and limits are in
 `docs/history/2026-09-30-fgrid-loot-source-review.md`.
+
+## 2026-10-03 - Offline Scottyboi queue and unreachable combat approach
+
+The user reported that assigned Scottyboi warpers are normally offline until
+requested, asked for warp requests from inside completed missions, and supplied
+a combat trace where the bot tried seven mapped points for a Tough Scoundrel,
+stalled twice, then stopped 16 m away without line of sight. The user also
+asked to pull and compile personally from this point onward.
+
+On authoritative `main` at `af54ca0525623e93fc2ddfa21a65c164aa5d5b87`,
+the queue parser failed immediately on the offline phrase. The combat approach
+used only four cardinal directions at 2/4 m, counted straight-line distance
+to each candidate as progress, and had a 45-second no-attack limit. This
+follow-up holds the verified queue for up to 180 seconds with repeated warper
+lookup, adds a guarded warp attempt after mission completion and before exit,
+and broadens combat firing-side selection with stall-driven candidate changes.
+See `docs/history/2026-10-03-scottyboi-combat-follow-up.md`. No compile or live
+in-game validation was performed at the user's request.

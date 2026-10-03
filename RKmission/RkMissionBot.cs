@@ -54,6 +54,8 @@ namespace RKmission
         private DateTime _dungeonObservedAt, _nextTick, _nextSelection, _handoffWaitStarted;
         private string _waitingReason;
         private bool _exitZoningStarted;
+        private int _completedMissionWarpTarget;
+        private bool _completedMissionWarpAttempted;
         private string _lifecycleSignature;
         private Vector3 _lifecyclePosition;
         private DateTime _lastLifecycleProgress, _watchdogRecoveryAt;
@@ -331,6 +333,8 @@ namespace RKmission
             _mapMission = _handoffDoor = Identity.None;
             _verifiedRun = false;
             _exitZoningStarted = false;
+            _completedMissionWarpTarget = 0;
+            _completedMissionWarpAttempted = false;
             _lifecycleSignature = null;
             _lastLifecycleProgress = DateTime.UtcNow;
             _watchdogRecoveryAt = DateTime.MinValue;
@@ -365,6 +369,8 @@ namespace RKmission
             _autoCycle = false;
             _recoveringDeath = false;
             _exitZoningStarted = false;
+            _completedMissionWarpTarget = 0;
+            _completedMissionWarpAttempted = false;
             _deathRecovery?.Stop();
             if (!preserveCheckpoint && _checkpoint != null)
             { _checkpoint.Armed = false; _checkpoint.Phase = "Idle"; _checkpoint.Save(true, Say); }
@@ -439,6 +445,8 @@ namespace RKmission
                         _recoveringDeath = true;
                         _dungeon.Stop(); _dungeonStarted = false;
                         _travel.Reset(); _longTravel.Reset(); _movement.StopAll();
+                        _completedMissionWarpTarget = 0;
+                        _completedMissionWarpAttempted = false;
                         _deathRecovery.Begin();
                         Say("Character died; waiting for reclaim, then replanning the accepted mission.");
                     }
@@ -453,6 +461,8 @@ namespace RKmission
                     _recoveringDeath = false;
                     _verifiedRun = false;
                     _exitZoningStarted = false;
+                    _completedMissionWarpTarget = 0;
+                    _completedMissionWarpAttempted = false;
                     _selected = _selected != null && _selected.Present ? _selected : null;
                     _entranceResolver.Reset();
                     _nextSelection = DateTime.MinValue;
@@ -486,20 +496,43 @@ namespace RKmission
                         Wait("The previous mission has no confirmed reward. Check it and use /rkm complete; /rkm stop then start abandons this run binding.");
                         return;
                     }
-                    if (!_exitZoningStarted ||
-                        Playfield.ModelIdentity.Instance != _selected.PlayfieldId)
+                    bool warpExitVerified = false;
+                    if (_completedMissionWarpTarget != 0)
+                    {
+                        if (_exitZoningStarted && Playfield.ModelIdentity.Instance == _selected.PlayfieldId)
+                        {
+                            // A manual mission exit while queued is still a
+                            // verified ordinary exit, not a Scotty warp.
+                            _warp.Reset();
+                            _completedMissionWarpTarget = 0;
+                        }
+                        else
+                        {
+                            WarpResult warpResult = _warp.Tick(_completedMissionWarpTarget);
+                            if (warpResult == WarpResult.InProgress) return;
+                            warpExitVerified = warpResult == WarpResult.Succeeded &&
+                                _warp.VerifiedDestination(_completedMissionWarpTarget);
+                            if (warpResult == WarpResult.Failed) _completedMissionWarpTarget = 0;
+                        }
+                    }
+                    if (!warpExitVerified && (!_exitZoningStarted ||
+                        Playfield.ModelIdentity.Instance != _selected.PlayfieldId))
                     {
                         Wait($"Mission completion is confirmed, but exit proof is incomplete: " +
                             $"exit zoning={_exitZoningStarted}, outdoor playfield={Playfield.ModelIdentity.Instance}, " +
                             $"expected={_selected.PlayfieldId}. Chaining is held.");
                         return;
                     }
-                    Say($"Verified exit from mission {_selected.Id.Instance} to its outdoor playfield {_selected.PlayfieldId}.");
+                    Say(warpExitVerified
+                        ? $"Verified Scottyboi warp from completed mission {_selected.Id.Instance} to playfield {_completedMissionWarpTarget}."
+                        : $"Verified exit from mission {_selected.Id.Instance} to its outdoor playfield {_selected.PlayfieldId}.");
                     if (_checkpoint?.Execution != null) _checkpoint.Execution.Phase = "ExitVerified";
                     int previousPlayfield = _selected.PlayfieldId;
                     _selected = null;
                     _verifiedRun = false;
                     _exitZoningStarted = false;
+                    _completedMissionWarpTarget = 0;
+                    _completedMissionWarpAttempted = false;
                     _travel.Reset();
                     _nextSelection = DateTime.MinValue;
                     if (Playfield.ModelIdentity.Instance != previousPlayfield ||
@@ -802,6 +835,8 @@ namespace RKmission
                     { Wait("Automatic exit is held; leave manually to resume the armed local mission chain. See the exit diagnostic."); return; }
                     Stop(); return;
                 }
+                if (_selected.Completed && _dungeon.IsComplete && _dungeon.IsExiting &&
+                    TickCompletedMissionWarp()) return;
                 _dungeon.Tick();
                 if (_dungeon.IsRunning && !ObserveDungeonProgress()) return;
                 if (_dungeon.IsComplete && !_clearanceReported)
@@ -870,6 +905,52 @@ namespace RKmission
             _watchdogRecoveryAt = DateTime.MinValue;
             _clearanceReported = false;
             if (_dungeonStarted) Say($"Verified mission {_selected.Id.Instance} in dungeon {Playfield.ModelIdentity.Instance}; existing dungeon logic resumed.");
+        }
+
+        private bool TickCompletedMissionWarp()
+        {
+            if (!_autoCycle || _completedMissionWarpAttempted && _completedMissionWarpTarget == 0)
+                return false;
+            if (!_completedMissionWarpAttempted)
+            {
+                _completedMissionWarpAttempted = true;
+                // Mirror outdoor selection: refill the batch at the saved
+                // terminal first, then travel to the next accepted mission.
+                bool refill = !_clearAcceptedBeforeRolling && _hasRollTerminal &&
+                    _awaitingQuestDetails.Count == 0 && Inventory.NumFreeSlots >= 2 &&
+                    (_maxAutoMissions == 0 || _autoAcceptedCount < _maxAutoMissions);
+                if (refill) _completedMissionWarpTarget = _rollTerminalPlayfield;
+                else if (!_missions.Eligible(_selected.PlayfieldId).Any())
+                    _completedMissionWarpTarget = _missions.Records
+                        .Where(x => x.Present && x.IsRubiKaDestination && !x.Completed)
+                        .OrderBy(x => x.PlayfieldId).ThenBy(x => x.Id.Instance)
+                        .Select(x => x.PlayfieldId).FirstOrDefault();
+                if (_completedMissionWarpTarget == _selected.PlayfieldId)
+                    _completedMissionWarpTarget = 0;
+                if (_completedMissionWarpTarget != 0)
+                    Say($"Mission complete; requesting Scottyboi warp to playfield {_completedMissionWarpTarget} before leaving the dungeon.");
+            }
+            if (_completedMissionWarpTarget == 0) return false;
+            _readiness.ObserveCombat();
+            if (_readiness.InCombat)
+            {
+                _warp.Reset();
+                _completedMissionWarpTarget = 0;
+                _dungeon.ResumeExitAfterWarpWait();
+                Say("Combat resumed during the completed-mission warp wait; returning to dungeon exit handling.");
+                return false;
+            }
+            WarpResult result = _warp.Tick(_completedMissionWarpTarget);
+            if (result == WarpResult.InProgress) return true;
+            if (result == WarpResult.Failed)
+            {
+                Say($"Scottyboi did not warp from inside the completed mission: {_warp.LastFailure}. Using the verified dungeon exit.");
+                _warp.Reset();
+                _completedMissionWarpTarget = 0;
+                _dungeon.ResumeExitAfterWarpWait();
+                return false;
+            }
+            return true; // Outdoor zoning must verify the exact warp destination.
         }
 
         private void Wait(string reason)

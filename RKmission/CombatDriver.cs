@@ -57,7 +57,7 @@ namespace RKmission
                     (!player.IsAttacking || player.FightingTarget?.Identity != enemy.Identity))
                     player.Attack(enemy);
             }
-            else if (_withoutAttackOpportunity > TimeSpan.FromSeconds(45))
+            else if (_withoutAttackOpportunity > TimeSpan.FromSeconds(120))
             {
                 _say($"Enemy {enemy.Name} {enemy.Identity} could not be reached in room {roomId}: " +
                     $"distance={enemy.DistanceFrom(player):0.0}m, line of sight={inSight}, weapon range={inRange}, " +

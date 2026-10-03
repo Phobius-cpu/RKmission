@@ -9,6 +9,16 @@ waypoint and stops movement while safe entry is confirmed. Live in-game
 verification is still needed; see
 `docs/history/2026-10-03-door-crossing-side-step.md`.
 
+**2026-10-03 Scottyboi and combat follow-up:** An assigned offline warper now
+remains queued for up to three minutes while its identity is checked again;
+the invitation is accepted only after identity verification. In automatic
+mode, a completed mission can request the next cross-playfield Scottyboi warp
+before walking to its exit. Failure resumes normal verified exit, and chaining
+after a warp requires settled destination proof. Combat approaches sample more
+firing sides around internal walls and advance after actual movement stalls.
+These source changes await the user's compile and live AO validation; see
+`docs/history/2026-10-03-scottyboi-combat-follow-up.md`.
+
 **2026-10-03 lifecycle update:** Fixer Grid recorded routes now require
 supported walkway legs and a near-portal endpoint, with another verified exit
 attempted when the selected route is unavailable. Dungeon traversal uses

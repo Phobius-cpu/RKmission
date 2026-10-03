@@ -43,6 +43,7 @@ namespace RKmission
         private DateTime _started;
         private DateTime _backoffUntil;
         private DateTime _zonedAt;
+        private DateTime _nextWarperLookup;
         private bool _helpRetried, _teleportStarted, _queueReplySeen, _unverifiedQueueReplySeen;
         private bool _joinedByProvider;
         private readonly List<TeamRequestEventArgs> _pendingWarperInvites = new List<TeamRequestEventArgs>();
@@ -54,6 +55,7 @@ namespace RKmission
         private int _helpReplies, _menuPageCount;
         private readonly HashSet<int> _menuPages = new HashSet<int>();
         public string LastFailure { get; private set; }
+        public bool VerifiedDestination(int targetId) => _state == State.Done && _targetId == targetId;
 
         public ScottyboiWarpProvider(Action<string> say, MovementArbiter movement)
         {
@@ -87,6 +89,7 @@ namespace RKmission
                 _verifiedNumberedBotIds.Clear();
                 _pendingQueueReply = null;
                 _pendingCommand = null;
+                _nextWarperLookup = DateTime.MinValue;
                 _helpReplies = _menuPageCount = 0;
                 _menuPages.Clear();
                 LastFailure = null;
@@ -104,7 +107,7 @@ namespace RKmission
             if (_state == State.Lookup && _menuId == 0 && _botId != 0 &&
                 DateTime.UtcNow - _started > TimeSpan.FromSeconds(3))
                 StartHelp(_botId);
-            if ((_state == State.Invite || _state == State.Warp) &&
+            if (_state == State.Warp && _teleportStarted &&
                 Playfield.ModelIdentity.Instance == _targetId)
             {
                 _state = State.Settling;
@@ -148,8 +151,14 @@ namespace RKmission
                 _started = DateTime.UtcNow;
                 _say($"Joined assigned warper {_warperName}'s team; waiting for the warp and destination verification.");
             }
+            if (_state == State.Invite && _warperName != null &&
+                DateTime.UtcNow >= _nextWarperLookup)
+            {
+                Network.Send(new LookupMessage { Id = 0, Name = _warperName });
+                _nextWarperLookup = DateTime.UtcNow.AddSeconds(12);
+            }
             TimeSpan timeout = _state == State.Warp ? TimeSpan.FromSeconds(60) :
-                _state == State.Invite ? TimeSpan.FromSeconds(45) :
+                _state == State.Invite ? TimeSpan.FromSeconds(_warperName != null ? 180 : 45) :
                 _state == State.Help ? TimeSpan.FromSeconds(18) : TimeSpan.FromSeconds(12);
             if (DateTime.UtcNow - _started > timeout)
                 Fail(_state == State.Help
@@ -203,8 +212,8 @@ namespace RKmission
                 else if (_warperName != null &&
                     string.Equals(lookup.Name, _warperName, StringComparison.OrdinalIgnoreCase))
                 {
-                    _warperId = lookup.Id;
-                    if (_pendingWarperInvites.Count > 0)
+                    if (lookup.Id != 0) _warperId = lookup.Id;
+                    if (_warperId != 0 && _pendingWarperInvites.Count > 0)
                     {
                         TeamRequestEventArgs? pending = _pendingWarperInvites.FirstOrDefault(x =>
                             _warperId != 0 && _warperId == unchecked((uint)x.Requester.Instance));
@@ -335,18 +344,14 @@ namespace RKmission
             {
                 _warperName = assignedWarper;
                 _warperId = 0;
-                if (!offline)
-                {
-                    _started = DateTime.UtcNow;
-                    _say($"Scottyboi assigned warper {_warperName}; waiting for its team invite.");
-                }
-            }
-            if (_state == State.Invite && offline)
-            {
-                Fail($"Scottyboi queued '{_pendingCommand?.Text}', but warper {_warperName} is offline.", false);
-                return;
+                _started = DateTime.UtcNow;
+                _nextWarperLookup = DateTime.MinValue;
+                _say(offline
+                    ? $"Scottyboi assigned warper {_warperName}, currently offline; the request is queued while it logs in. Waiting for its verified team invite."
+                    : $"Scottyboi assigned warper {_warperName}; waiting for its team invite.");
             }
             Network.Send(new LookupMessage { Id = 0, Name = _warperName });
+            _nextWarperLookup = DateTime.UtcNow.AddSeconds(12);
         }
 
         private static string ShortReply(string text)
@@ -425,7 +430,7 @@ namespace RKmission
 
         private void OnTeleportStarted(object sender, EventArgs args)
         {
-            if (_state == State.Invite || _state == State.Warp)
+            if (_state == State.Warp && _joinedByProvider)
             {
                 _teleportStarted = true;
                 _state = State.Warp;
@@ -625,6 +630,7 @@ namespace RKmission
             _verifiedNumberedBotIds.Clear();
             _pendingQueueReply = null;
             _pendingCommand = null;
+            _nextWarperLookup = DateTime.MinValue;
             _targetAliases = null;
             _helpReplies = _menuPageCount = 0;
             _menuPages.Clear();

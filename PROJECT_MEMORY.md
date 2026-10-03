@@ -2657,3 +2657,10 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 - Added a separate `NavigationRecorderWindow` and `NavigationWindow.xml`. `/rkm nav` opens it; recording/list commands remain valid. It is explicitly diagnostic/temporary and is not part of the permanent tab cluster.
 - The diagnostic window reads recorder state and saved-route summaries without changing automatic endpoint-matched playback behavior.
 - No mission, combat, loot, dungeon, FGrid survey, exact-verification or doorway-crossing behavior was intentionally changed by this UI work.
+
+## 2026-10-03 assigned offline warpers, completed-mission warp, combat approach
+
+- Scottyboi's verified queue reply naming an offline warper is an expected queued state. Keep the request active up to 180 seconds, recheck the assigned name every 12 seconds, and accept only an identity-verified invite. An unresolved lookup must not discard a buffered invite. Zoning is attributed to Scotty only after joining the assigned warper's team.
+- In automatic mode, once objective and clearance are confirmed, request a cross-playfield warp from inside the completed dungeon when the next destination is known. Pause exit walking during the bounded request; on failure or renewed combat, resume the ordinary dungeon exit. Chain after a warp only when Scotty verifies the settled destination; a manual exit to the mission's outdoor playfield keeps its original proof gate.
+- For combat behind internal walls, rank reachable candidate firing sides with clear target rays, expand the search to 10 m and diagonal directions, advance on stuck signals, measure actual displacement instead of straight-line progress toward the point, and allow up to 120 active seconds for the wider route.
+- The user will pull and compile from now on. This follow-up received source and diff checks only; no build or live AO result is claimed.

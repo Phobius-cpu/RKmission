@@ -48,7 +48,7 @@ namespace RKmission
         private readonly List<Vector3> _combatApproaches = new List<Vector3>();
         private int _combatApproachIndex;
         private DateTime _combatApproachProgress;
-        private float _combatApproachBestDistance;
+        private Vector3 _combatApproachLastPosition;
         private Vector3 _combatApproachEnemyPosition;
         private AcceptedMission _record;
         private MissionObjective _objective;
@@ -302,6 +302,17 @@ namespace RKmission
                         else { crossing.LastProgress = DateTime.UtcNow; _destination = null; }
                         break;
                 }
+                return;
+            }
+            if (_requestedOwner == MovementOwner.CombatPosition &&
+                _combatApproachTarget != Identity.None && _combatApproachIndex < _combatApproaches.Count)
+            {
+                _say($"Combat approach {_combatApproachIndex + 1}/{_combatApproaches.Count} stalled; trying another reachable firing side.");
+                _combatApproachIndex++;
+                _destination = null;
+                _combatApproachProgress = DateTime.UtcNow;
+                _combatApproachLastPosition = DynelManager.LocalPlayer.Position;
+                MovementArbiter.Current.Halt(MovementOwner.CombatPosition);
                 return;
             }
             if (tier >= 2)
@@ -745,6 +756,7 @@ namespace RKmission
             _combatApproachTarget = Identity.None;
             _combatApproaches.Clear();
             _combatApproachIndex = 0;
+            _combatApproachProgress = DateTime.MinValue;
             _destination = null;
         }
 
@@ -767,7 +779,8 @@ namespace RKmission
                 _combatApproaches.Clear();
                 _combatApproachIndex = 0;
                 _combatApproaches.AddRange(DungeonApproachPlanner.Candidates(_layout, roomId,
-                    player.Position, enemy.Position, new[] { 2f, 4f }, 0.3f));
+                    player.Position, enemy.Position, new[] { 2f, 4f, 6f, 8f, 10f }, 0.3f,
+                    combatFiringSide: true));
                 _destination = null;
                 _say($"Combat approach to {enemy.Identity} in room {roomId}: " +
                     $"{_combatApproaches.Count} mapped point(s), distance={enemy.DistanceFrom(player):0.0}m.");
@@ -775,9 +788,13 @@ namespace RKmission
             if (_combatApproachIndex >= _combatApproaches.Count) return false;
             Vector3 point = _combatApproaches[_combatApproachIndex];
             float distance = Vector3.Distance(player.Position, point);
-            if (distance + 0.3f < _combatApproachBestDistance)
+            // A complete corridor may initially lead away from the target to
+            // pass around a wall. Count actual displacement, not straight-line
+            // distance to the firing point, as movement progress.
+            if (_destination.HasValue &&
+                Vector3.Distance(player.Position, _combatApproachLastPosition) > 0.5f)
             {
-                _combatApproachBestDistance = distance;
+                _combatApproachLastPosition = player.Position;
                 _combatApproachProgress = now;
             }
             if (_destination.HasValue &&
@@ -790,7 +807,7 @@ namespace RKmission
             while (!_destination.HasValue && _combatApproachIndex < _combatApproaches.Count)
             {
                 point = _combatApproaches[_combatApproachIndex];
-                _combatApproachBestDistance = Vector3.Distance(player.Position, point);
+                _combatApproachLastPosition = player.Position;
                 _combatApproachProgress = now;
                 if (MovementArbiter.Current.SetNavDestination(_requestedOwner, point))
                 {
@@ -968,6 +985,13 @@ namespace RKmission
             _loot.MissionActionsPaused = true;
             _loot.EndMissionRoom();
             _say("Returning through mapped rooms to the entry door; waiting for actual outdoor zoning before mission chaining.");
+        }
+
+        public void ResumeExitAfterWarpWait()
+        {
+            if (!_exiting || !IsRunning) return;
+            _exitStarted = DateTime.UtcNow;
+            _destination = null;
         }
 
         // All arbitrary room routes use the same failed-edge-aware graph and
