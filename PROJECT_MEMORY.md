@@ -2,6 +2,16 @@
 
 _Last updated: 2026-10-03_
 
+## 2026-10-03 post-crossing lateral motion follow-up
+
+- The user reports that a small sideways step persists after crossing doors.
+  `SafeInterior` was still navigating to Mali's possibly offset nearest sample,
+  and the path kept moving during the 500 ms target-room stability check.
+- Use an aligned safe point after AO reports the target room. Halt the door
+  owner as soon as safe interior or 1.5 m of inward progress is observed,
+  while the existing room proof settles. Direct fallback and diagnostics use
+  the doorway axis. See `docs/history/2026-10-03-door-crossing-side-step.md`.
+
 ## 2026-10-03 mission lifecycle continuation
 
 - Reconciled current GitHub `main` at `d493802f2162bd280db0e330aa11c421018d50fd`

@@ -1331,7 +1331,8 @@ namespace RKmission
             _destination = null;
             _observedRoom = -1;
             _say($"Transition {source}->{target}: source approach {edge.SourceApproach}, door center {edge.DoorCenter}, " +
-                $"target centerline {edge.TargetCenterline}, safe interior {edge.Interior}, door {door?.Identity.ToString() ?? "none"}.");
+                $"target centerline {edge.TargetCenterline}, aligned safe interior {edge.SafeInterior}, " +
+                $"deep fallback {edge.DeepInterior}, door {door?.Identity.ToString() ?? "none"}.");
             if (UseLiveDoorwayHeight(edge, edge.Interior, DynelManager.LocalPlayer.Position))
                 _say($"Transition {source}->{target}: Mali interior height {edge.Interior.Y:0.0} differs from the live floor " +
                     $"{DynelManager.LocalPlayer.Position.Y:0.0}; using live floor height for this same-floor crossing.");
@@ -1348,8 +1349,9 @@ namespace RKmission
             DateTime now = DateTime.UtcNow;
             Vector3 position = DynelManager.LocalPlayer.Position;
             bool targetDetected = detectedRoom.Instance == edge.Target;
+            float inwardProgress = InwardProgress(edge, position);
             bool safelyInsideTarget = targetDetected &&
-                Vector3.Distance(position, edge.Threshold) > 1.5f &&
+                LocalRoutePlanner.HorizontalDistance(position, edge.DoorCenter) > 1.5f &&
                 _layout.IsInside(edge.Target, position, 0.4f);
             if (targetDetected)
             {
@@ -1358,7 +1360,8 @@ namespace RKmission
                     _observedRoom = edge.Target;
                     _observedRoomAt = now;
                     crossing.TargetObservedPosition = position;
-                    _say($"Transition {edge.Source}->{edge.Target}: target room detected; confirming entry.");
+                    _say($"Transition {edge.Source}->{edge.Target}: target room detected at {position}; " +
+                        $"inward={inwardProgress:0.00}m, lateral={LateralOffset(edge, position):0.00}m; confirming entry.");
                 }
                 if (safelyInsideTarget && now - _observedRoomAt >= TimeSpan.FromMilliseconds(500))
                 {
@@ -1367,24 +1370,22 @@ namespace RKmission
                 }
                 if (safelyInsideTarget)
                 {
-                    // Keep the existing crossing route during the brief stability
-                    // check. A new deep route here can turn the player back toward
-                    // an unrelated navmesh point just before confirmation.
+                    // The route can still be heading to a laterally displaced
+                    // Mali sample. Stop immediately while room proof settles.
+                    MovementArbiter.Current.Halt(MovementOwner.DoorTransition);
                     return;
                 }
-                // Mali's polygon can disagree with the live room boundary at
-                // a doorway. A stable AO room identity plus physical progress
-                // toward this edge's interior is independent entry evidence.
-                Vector3 inward = edge.Interior - edge.Threshold;
-                inward.Y = 0;
-                Vector3 crossed = position - edge.Threshold;
-                crossed.Y = 0;
-                float inwardProgress = inward.Magnitude > 0.1f
-                    ? (crossed.X * inward.X + crossed.Z * inward.Z) / inward.Magnitude : 0f;
-                if (now - _observedRoomAt >= TimeSpan.FromSeconds(2) && inwardProgress >= 1.5f)
+                // A stable AO room identity plus forward progress is sufficient
+                // when the polygon margin disagrees. Do not drift sideways
+                // during that observation window.
+                if (inwardProgress >= 1.5f)
                 {
-                    _say($"Transition {edge.Source}->{edge.Target}: live room identity and {inwardProgress:0.0}m of inward crossing remained stable; confirming entry despite mapped margin disagreement.");
-                    ConfirmTransition();
+                    MovementArbiter.Current.Halt(MovementOwner.DoorTransition);
+                    if (now - _observedRoomAt >= TimeSpan.FromSeconds(2))
+                    {
+                        _say($"Transition {edge.Source}->{edge.Target}: live room identity and {inwardProgress:0.0}m of centerline crossing remained stable; confirming entry despite mapped margin disagreement.");
+                        ConfirmTransition();
+                    }
                     return;
                 }
             }
@@ -1572,12 +1573,12 @@ namespace RKmission
                 }
                 if (crossing.PushingDeeper)
                 {
-                    Vector3 inward = edge.Interior - edge.Threshold;
+                    Vector3 inward = edge.SafeInterior - edge.DoorCenter;
                     inward.Y = 0;
                     if (inward.Magnitude > 0.1f &&
                         now - crossing.LastApproachCommand >= TimeSpan.FromSeconds(1))
                     {
-                        Vector3 direct = edge.Threshold + inward.Normalize() * 2.5f;
+                        Vector3 direct = edge.SafeInterior;
                         direct.Y = position.Y;
                         if (MovementArbiter.Current.Owner != _requestedOwner || !_destination.HasValue ||
                             Vector3.Distance(_destination.Value, direct) > 0.5f || !SMovementController.IsNavigating())
@@ -1629,7 +1630,9 @@ namespace RKmission
             _reverseCooldown[EdgeKey(edge.Source, edge.Target)] = DateTime.UtcNow.AddSeconds(ReverseEdgeCooldownSeconds);
             _say($"Transition {edge.Source}->{edge.Target}: confirmed in " +
                 (_clearedRooms.Contains(edge.Target) ? "previously cleared room; no repeat clearance pause" : "target room") +
-                $"; reverse edge on {ReverseEdgeCooldownSeconds}-second cooldown.");
+                $"; inward={InwardProgress(edge, DynelManager.LocalPlayer.Position):0.00}m, " +
+                $"lateral={LateralOffset(edge, DynelManager.LocalPlayer.Position):0.00}m; " +
+                $"reverse edge on {ReverseEdgeCooldownSeconds}-second cooldown.");
             _transition = null;
             _destination = null;
             _observedRoom = -1;
@@ -1697,11 +1700,33 @@ namespace RKmission
 
         private Vector3 CrossingWaypoint(DungeonLayout.Connection edge, Vector3 position, bool deep = false)
         {
-            Vector3 waypoint = deep ? edge.DeepInterior :
-                _transition?.Phase == TransitionPhase.SafeInterior ? edge.Interior : edge.TargetCenterline;
+            Vector3 waypoint = _observedRoom == edge.Target ? edge.SafeInterior :
+                deep ? edge.DeepInterior :
+                _transition?.Phase == TransitionPhase.SafeInterior ? edge.SafeInterior : edge.TargetCenterline;
             if (UseLiveDoorwayHeight(edge, waypoint, position))
                 waypoint.Y = position.Y;
             return waypoint;
+        }
+
+        private static float InwardProgress(DungeonLayout.Connection edge, Vector3 position)
+        {
+            Vector3 inward = edge.TargetCenterline - edge.DoorCenter;
+            inward.Y = 0;
+            if (inward.Magnitude < 0.1f) return 0f;
+            Vector3 crossed = position - edge.DoorCenter;
+            crossed.Y = 0;
+            inward = inward.Normalize();
+            return crossed.X * inward.X + crossed.Z * inward.Z;
+        }
+
+        private static float LateralOffset(DungeonLayout.Connection edge, Vector3 position)
+        {
+            Vector3 inward = edge.TargetCenterline - edge.DoorCenter;
+            inward.Y = 0;
+            if (inward.Magnitude < 0.1f) return 0f;
+            inward = inward.Normalize();
+            Vector3 crossed = position - edge.DoorCenter;
+            return crossed.X * -inward.Z + crossed.Z * inward.X;
         }
 
         private Vector3 DoorwayWaypoint(DungeonLayout.Connection edge, Vector3 waypoint, Vector3 position)

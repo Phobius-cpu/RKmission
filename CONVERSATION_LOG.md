@@ -1,5 +1,14 @@
 # RKMission Conversation History
 
+## 2026-10-03 — door-crossing side movement follow-up
+
+The user reported a remaining small sideways movement after mission doorway
+crossings. The source review traced it to the post-crossing interior waypoint
+and movement continuing during room confirmation. The correction aligns the
+safe waypoint with the doorway axis, halts while proof settles, and logs
+inward/lateral displacement. See
+`docs/history/2026-10-03-door-crossing-side-step.md`.
+
 ## 2026-10-03 — full mission lifecycle continuation
 
 The user requested reconciliation against latest `Phobius-cpu/RKmission` main

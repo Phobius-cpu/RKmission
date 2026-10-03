@@ -13,7 +13,8 @@ namespace RKmission
         internal sealed class Connection
         {
             public int Source, Target;
-            public Vector3 Threshold, DoorCenter, SourceApproach, TargetCenterline, Interior, DeepInterior;
+            public Vector3 Threshold, DoorCenter, SourceApproach, TargetCenterline,
+                SafeInterior, Interior, DeepInterior;
         }
 
         private readonly Dictionary<int, Room> _rooms;
@@ -47,6 +48,8 @@ namespace RKmission
                     axis.Y = 0;
                     Vector3 targetCenterline = AlignedDoorwayPoint(adjacent, threshold, axis,
                         1.8f, DoorwayPoint(adjacent, threshold, 1.8f));
+                    Vector3 safeInterior = AlignedDoorwayPoint(adjacent, threshold, axis,
+                        2.4f, targetCenterline, 4f, 0.45f);
                     sourceApproach = AlignedDoorwayPoint(room.Instance, threshold, -axis,
                         1.35f, sourceApproach);
                     _connections[Key(room.Instance, adjacent)] = new Connection
@@ -55,6 +58,7 @@ namespace RKmission
                         Threshold = threshold, DoorCenter = threshold,
                         SourceApproach = sourceApproach,
                         TargetCenterline = targetCenterline,
+                        SafeInterior = safeInterior,
                         Interior = interior, DeepInterior = deepInterior
                     };
                     if (!_neighbors[room.Instance].Contains(adjacent)) _neighbors[room.Instance].Add(adjacent);
@@ -218,15 +222,16 @@ namespace RKmission
         }
 
         private Vector3 AlignedDoorwayPoint(int roomId, Vector3 threshold,
-            Vector3 direction, float preferredDistance, Vector3 fallback)
+            Vector3 direction, float preferredDistance, Vector3 fallback,
+            float maxDistance = 2.5f, float clearance = 0.25f)
         {
             if (direction.Magnitude < 0.1f) return fallback;
             direction = direction.Normalize();
-            for (float distance = preferredDistance; distance <= 2.5f; distance += 0.25f)
+            for (float distance = preferredDistance; distance <= maxDistance; distance += 0.25f)
             {
                 Vector3 candidate = threshold + direction * distance;
                 candidate.Y = fallback.Y;
-                if (IsInside(roomId, candidate, 0.25f)) return candidate;
+                if (IsInside(roomId, candidate, clearance)) return candidate;
             }
             return fallback;
         }
