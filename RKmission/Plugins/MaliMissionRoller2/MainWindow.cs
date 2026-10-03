@@ -275,7 +275,10 @@ namespace MaliMissionRoller2
         private void SettingsClick(object sender, ButtonBase e)
         {
             Midi.Play("Click");
-            ShowSettingsTab();
+            if (_activeTab == HostedTab.Settings)
+                ShowRollerTab();
+            else
+                ShowSettingsTab();
         }
 
         public void SwapViews()
