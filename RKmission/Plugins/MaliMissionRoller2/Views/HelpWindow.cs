@@ -1,109 +1,69 @@
-using AOSharp.Common.GameData;
-using AOSharp.Common.GameData.UI;
-using AOSharp.Common.Helpers;
-using AOSharp.Common.Unmanaged.Imports;
-using AOSharp.Common.Unmanaged.Interfaces;
-using AOSharp.Core;
 using AOSharp.Core.UI;
-using SmokeLounge.AOtomation.Messaging.GameData;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 
 namespace MaliMissionRoller2
 {
+    // RKMission now owns the shared tool cluster, so the old roller-specific
+    // help button documents the coordinator and its user-facing commands.
     public class HelpWindow
     {
         public Window StartupWindow;
-        private Window _graphicalWindow;
 
         public HelpWindow()
         {
-            StartupWindow = Window.CreateFromXml("MaliMissionRollerHelp", $"{Main.PluginDir}\\UI\\Windows\\HelpWindow.xml",
+            StartupWindow = Window.CreateFromXml("RKMissionHelp", $"{Main.PluginDir}\\UI\\Windows\\HelpWindow.xml",
                 WindowStyle.Default, WindowFlags.AutoScale | WindowFlags.NoFade);
 
-            _graphicalWindow = Window.CreateFromXml("MaliMissionRollerGraphicalHelp", $"{Main.PluginDir}\\UI\\Windows\\GraphicalHelpWindow.xml",
-                WindowStyle.Default, WindowFlags.AutoScale | WindowFlags.NoFade);
-
-            if (StartupWindow.FindView("Text", out TextView textView))
+            if (StartupWindow.FindView("Purpose", out TextView purpose))
             {
-                textView.Text = $"\n\n " +
-                $"- Take advantage over continuous rolls\n " +
-                $"- Roll with multiple clients simultaneously\n " +
-                $"- Never skip a good roll due to server lag\n " +
-                $"- Built in item db with filtering options\n " +
-                $"- Use the 'Auto Adjust Lvl Slider' option \n " +
-                $"  to automatically adjust the lvl slider\n " +
-                $"  inbetween rolls for full automation\n " +
-                $"- Press the Dev button next to 'Extras'\n " +
-                $"  for some bonus / in dev features\n " +
-                $"- Press Help in the roller window to reopen me\n\n" +
-                $"* QUICK ITEM BROWSER GUIDE *\n " +
-                $"- You can search for items based on\n " +
-                $"  their name or modifications or both\n " +
-                $"  Use the two blue textboxes provided\n " +
-                $"  after switching to 'DB Browser'\n " +
-                $"  Textbox1 example: eye imp ref\n " +
-                $"  Textbox2 example: assa rif,tutor'";
+                purpose.Text =
+                    "RKMission coordinates Rubi-Ka mission rolling, accepted-mission travel, exact mission entry, " +
+                    "dungeon exploration/combat/loot, objective completion and return/exit handling. " +
+                    "The Roller, ManagerLoot, Dungeon Map and Roller Settings share one tabbed tool window; " +
+                    "Navigation recording remains a separate diagnostic window.";
             }
 
-            if (StartupWindow.FindView("Text2", out TextView textView2))
+            if (StartupWindow.FindView("Commands", out TextView commands))
             {
-                textView2.Text =$"\n"+
-                $"- For bugs / glitches / requests:\n " +
-                $"  Discord:  Pixelmania#0349\n\n " +
-                $"       ~ Made with AOSharp SDK";
+                commands.Text =
+                    "MISSION CONTROL\n" +
+                    "/rkm auto                 Full automatic mission cycle\n" +
+                    "/rkm start                Arm local mission takeover\n" +
+                    "/rkm local                Local-only mode; user controls long travel\n" +
+                    "/rkm stop                 Stop RKMission automation\n" +
+                    "/rkm status               Current automation/travel/dungeon status\n" +
+                    "/rkm missions             List accepted mission state\n" +
+                    "/rkm complete [id]        Confirm the bound mission manually\n\n" +
+                    "ROLLER / DESTINATIONS\n" +
+                    "/rkm zone <id|all>        Restrict automatic rolling destination\n" +
+                    "/rkm rolls <count>        Maximum offers per rolling attempt\n" +
+                    "/rkm limit <count|off>    Accepted missions per automatic cycle\n" +
+                    "/mmr maxitems <count>     Roller displayed-item limit\n" +
+                    "/mmr shopvalue <value>    Roller shop-value factor\n\n" +
+                    "TRAVEL / FGRID\n" +
+                    "/rkm travel auto|ground|flying\n" +
+                    "/rkm fgrid [scan]         FGrid status / surveyed exits\n" +
+                    "/rkm nav                  Open Navigation diagnostics window\n" +
+                    "/rkm nav record [name]    Start recording a safe route\n" +
+                    "/rkm nav stop             Save the active recording\n" +
+                    "/rkm nav list             Print saved routes\n\n" +
+                    "WINDOWS / TOOLS\n" +
+                    "/rkm loot                 Open ManagerLoot tab\n" +
+                    "/ManagerLoot              Open ManagerLoot tab\n" +
+                    "/rkm map                  Open Dungeon Map tab\n" +
+                    "/mapsettings              Open Dungeon Map tab\n" +
+                    "/rkm settings             Open Roller Settings tab\n" +
+                    "/lm                       Toggle ManagerLoot enable state\n" +
+                    "/printitems               Toggle ManagerLoot item printing";
             }
 
-            if (StartupWindow.FindView("Close", out Button _closeHelp))
-            {
-                _closeHelp.Clicked = CloseHelpClick;
-            }
+            if (StartupWindow.FindView("Close", out Button close))
+                close.Clicked = (_, _) =>
+                {
+                    Midi.Play("Click");
+                    StartupWindow.Close();
+                };
 
-            if (StartupWindow.FindView("GraphicalGuide", out Button _graphicalGuide))
-            {
-                _graphicalGuide.Clicked = GraphicalGuideClick;
-            }
-
-            if (Main.Settings.Extras["StartHelp"])
-            {
-                StartupWindow.MoveToCenter();
-                StartupWindow.Show(true);
-            }
-        }
-
-        private void GraphicalGuideClick(object sender, ButtonBase e)
-        {
-            Midi.Play("Click");
-
-            _graphicalWindow = Window.CreateFromXml("MaliMissionRollerGraphicalHelp", $"{Main.PluginDir}\\UI\\Windows\\GraphicalHelpWindow.xml",
-                  WindowStyle.Default, WindowFlags.AutoScale | WindowFlags.NoFade);
-
-            if (_graphicalWindow.FindView("Close", out Button _closeGraphical))
-            {
-                _closeGraphical.Clicked = CloseGraphicalClick;
-            }
-
-            if (_graphicalWindow.FindView("Image", out BitmapView _graphical))
-            {
-                _graphical.SetBitmap("GraphicalGuide");
-            }
-
-            _graphicalWindow.MoveToCenter();
-            _graphicalWindow.Show(true);
-        }
-
-        private void CloseHelpClick(object sender, ButtonBase e)
-        {
-            Midi.Play("Click");
-            StartupWindow.Close();
-        }
-
-        private void CloseGraphicalClick(object sender, ButtonBase e)
-        {
-            Midi.Play("Click");
-            _graphicalWindow.Close();
+            StartupWindow.MoveToCenter();
         }
     }
 }
