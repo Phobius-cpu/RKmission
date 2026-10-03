@@ -828,7 +828,11 @@ persisted retries and the unchanged dungeon handoff in AO#.
 
 ### Recorded navigation and post-zone flight safety
 
-Use `/rkm nav record [name]` before manually walking a safe route and `/rkm nav stop` at its endpoint. `/rkm nav list` shows saved routes. Samples are persisted in `RKMissionData/navigation-routes.json`. Inside Fixer Grid, automatic lift/portal movement only replays a route whose recorded endpoints match the current position and requested endpoint; it no longer invents a straight-line shortcut across an unrecorded gap.
+Use `/rkm nav record [name]` before manually walking a safe route and `/rkm nav stop` at its endpoint. `/rkm nav list` shows saved routes. Samples are persisted in `RKMissionData/navigation-routes.json`.
+
+Inside Fixer Grid (playfield 4107), `/rkm fgrid nav` reports whether `NavMeshes/4107.nav` is present and loaded, and whether the current lift or selected exit has a complete floor-supported route. AO# labels this travel playfield as a dungeon, so RKMission explicitly enables its navmesh loader for 4107. With a compatible, verified SharpNav `.nav` mesh installed, RKMission checks both endpoint projections, the complete polygon corridor, and closely sampled physical floor support before navigating automatically to each lift and portal. Each floor is queried separately after the lift moves the character. A stalled or rejected mesh movement falls back to a recorded route for that target. If neither is available, movement stops with a specific reason; it never invents a straight-line shortcut across a gap.
+
+This project does not ship a verified 4107 mesh. Recast/SharpNav needs the actual walkable scene geometry to bake one; the surveyed exit coordinates alone cannot describe the platforms or gaps. AOSharp.Navigator's older `.Navmesh` assets use a different controller/format and should not be renamed to `.nav`. Until a compatible 4107.nav has been generated and checked in-game, the recorder remains the safe route source.
 
 When a flying character zones outdoors from Fixer Grid or a mission dungeon, RKMission performs a short diagonal climb (36 m vertical with lateral displacement) before normal routing. It does not run for ground movement, normal Grid/FGrid entrance approaches, mission-terminal approaches, or recorded internal FGrid routes.
 

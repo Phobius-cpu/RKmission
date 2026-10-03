@@ -92,7 +92,10 @@ namespace RKmission
             // The pinned SDK's default stuck action directly changes player
             // position. Replace that action; our Stuck event handles replanning.
             SMovementController.SetStuckLogic(() => { });
-            SMovementController.AutoLoadNavmeshes($"{pluginDir}\\NavMeshes", (id, dungeon) => !dungeon);
+            // AO# labels Fixer Grid a dungeon even though it is a travel playfield.
+            // Allow an explicitly supplied 4107.nav to load there as well.
+            SMovementController.AutoLoadNavmeshes($"{pluginDir}\\NavMeshes",
+                (id, dungeon) => !dungeon || id == (int)PlayfieldId.FixerGrid);
             SMovementController.OnRubberband += OnRubberband;
             SMovementController.Stuck += OnStuck;
             Chat.RegisterCommand("rkm", Command);
@@ -271,6 +274,8 @@ namespace RKmission
                     Say("Usage: /rkm nav [window] | record [name] | stop | list. Record FGrid walkways from endpoint to endpoint; playback is automatic when endpoints match.");
                     break;
                 case "fgrid":
+                    if (args.Length > 1 && args[1].Equals("nav", StringComparison.OrdinalIgnoreCase))
+                    { Say(_fgrid.NavMeshStatus()); break; }
                     if (args.Length > 1 && args[1].Equals("scan", StringComparison.OrdinalIgnoreCase))
                     {
                         Say(_fgrid.SurveySummary);
@@ -280,14 +285,14 @@ namespace RKmission
                     }
                     if (args.Length > 1)
                     {
-                        Say("Usage: /rkm fgrid [scan]");
+                        Say("Usage: /rkm fgrid [scan|nav]");
                         break;
                     }
                     Say($"FGrid service configured={_fgrid.IsConfigured}, mapped destinations={_fgrid.MappedDestinations}, " +
                         $"active={_fgrid.IsActive}, last issue={_fgrid.LastFailure ?? "none"}.");
                     Say($"Surveyed FGrid destinations={_fgrid.SurveyedDestinationCount}; " +
                         _fgrid.TargetStatus(_selected?.PlayfieldId ?? 0) + ".");
-                    Say(_fgrid.SurveySummary + " Use /rkm fgrid scan for floor counts and file path.");
+                    Say(_fgrid.SurveySummary + " Use /rkm fgrid scan for floor counts, or /rkm fgrid nav for mesh status.");
                     break;
                 case "loot": _loot.ShowSettingsTab(); break;
                 case "map": _map.ToggleWindow(); break;
@@ -296,7 +301,7 @@ namespace RKmission
                         _roller.ShowRoller();
                     MaliMissionRoller2.Main.Window?.ShowSettingsTab();
                     break;
-                default: Say("Commands: start, auto, local, stop, status, missions, zone <id|all>, rolls <count>, limit <count|off>, travel auto|ground|flying, fgrid [scan], nav [window]|record [name]|stop|list, complete [mission id], loot, map, settings."); break;
+                default: Say("Commands: start, auto, local, stop, status, missions, zone <id|all>, rolls <count>, limit <count|off>, travel auto|ground|flying, fgrid [scan|nav], nav [window]|record [name]|stop|list, complete [mission id], loot, map, settings."); break;
             }
         }
 

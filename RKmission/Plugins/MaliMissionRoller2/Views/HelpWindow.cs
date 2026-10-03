@@ -46,7 +46,7 @@ namespace MaliMissionRoller2
                     "TRAVEL / FGRID\n" +
                     "  /rkm travel auto|ground|flying\n" +
                     "                           Select local movement mode\n" +
-                    "  /rkm fgrid [scan]         FGrid status / surveyed exits\n" +
+                    "  /rkm fgrid [scan|nav]     Surveyed exits / mesh status\n" +
                     "  /rkm nav                  Open Navigation diagnostics\n" +
                     "  /rkm nav record [name]    Start recording a safe route\n" +
                     "  /rkm nav stop             Save the active recording\n" +

@@ -88,6 +88,7 @@ namespace RKmission
         private readonly string _learnedExitPath;
         private readonly string _runtimeExitPath;
         private readonly string _canonicalExitPath;
+        private readonly string _navMeshPath;
         private readonly Dictionary<int, SurveyExit> _surveyExits = new Dictionary<int, SurveyExit>();
         private readonly string _surveyPath;
         private readonly Dictionary<int, Vector3> _entrancePositions = new Dictionary<int, Vector3>();
@@ -115,6 +116,9 @@ namespace RKmission
         private DateTime _lastUse;
         private DateTime _zonedAt;
         private DateTime _backoffUntil;
+        private Vector3? _meshDestination, _meshRejectedDestination;
+        private Vector3 _meshLastPosition;
+        private DateTime _meshLastProgress;
         private LearnedExit _observedExit;
         private DateTime _observedExitZoneEnded;
         private int _observedDestination;
@@ -149,6 +153,7 @@ namespace RKmission
             _learnedExitPath = System.IO.Path.Combine(pluginDir, "RKMissionData", "fixer-grid-exits.json");
             _runtimeExitPath = System.IO.Path.Combine(pluginDir, "RKMissionData", "fixer-grid-exits-v2.json");
             _canonicalExitPath = System.IO.Path.Combine(pluginDir, "Data", "FixerGridSurveyExits.json");
+            _navMeshPath = System.IO.Path.Combine(pluginDir, "NavMeshes", $"{(int)PlayfieldId.FixerGrid}.nav");
             _surveyPath = System.IO.Path.Combine(pluginDir, "RKMissionData", "fixer-grid-survey.json");
             Load(System.IO.Path.Combine(pluginDir, "Data", "FGridServices.json"));
             LoadRoutes(pluginDir);
@@ -543,6 +548,8 @@ namespace RKmission
                 _started = DateTime.UtcNow;
                 _state = State.Ascending;
                 _movement.Release(MovementOwner.FGridTravel);
+                ResetMeshNavigation();
+                _routes.StopPlayback();
                 _say($"FGrid fallback portal {_selectedExit.PortalIdentity}, floor {_selectedExit.Floor}, " +
                     (_missionAnchor.HasValue
                         ? $"estimated {OutdoorCost(_selectedExit, _missionAnchor.Value):0}m to mission."
@@ -551,6 +558,90 @@ namespace RKmission
             }
             Fail(reason + " No reachable verified alternative remains.");
             return false;
+        }
+
+        public string NavMeshStatus()
+        {
+            if (Playfield.ModelIdentity.Instance != (int)PlayfieldId.FixerGrid ||
+                DynelManager.LocalPlayer == null)
+                return "FGrid navmesh check requires standing inside Fixer Grid.";
+            if (!File.Exists(_navMeshPath))
+                return $"FGrid navmesh missing: {_navMeshPath}; recorded walkways remain available.";
+            if (SMovementController.NavAgent?.HasPathfinder != true)
+                return "FGrid 4107.nav exists but AO# has no active pathfinder for this playfield.";
+            Vector3 player = DynelManager.LocalPlayer.Position;
+            int floor = Math.Max(0, (int)(player.Y / 10f));
+            Vector3? goal = _route != null && floor < _route.Floor && floor < UpLifts.Length
+                ? UpLifts[floor]
+                : _exit?.Position ?? (_selectedExit != null && _selectedExit.Floor == floor
+                    ? new Vector3(_selectedExit.FGridPosition[0], _selectedExit.FGridPosition[1], _selectedExit.FGridPosition[2])
+                    : (Vector3?)null);
+            if (!goal.HasValue)
+                return $"FGrid 4107.nav loaded on floor {floor}; select a destination to check its corridor.";
+            try
+            {
+                return LocalRoutePlanner.TryFGridGroundCost(player, goal.Value, out float cost)
+                    ? $"FGrid 4107.nav: complete floor-supported route to current {(_route != null && floor < _route.Floor ? "lift" : "exit")}, {cost:0.0} m."
+                    : "FGrid 4107.nav loaded, but no complete floor-supported route to the current lift/exit; recorded walkway required.";
+            }
+            catch (Exception ex) { return "FGrid navmesh query failed: " + ex.Message; }
+        }
+
+        private void ResetMeshNavigation()
+        {
+            _meshDestination = _meshRejectedDestination = null;
+            _meshLastProgress = DateTime.MinValue;
+        }
+
+        private bool TryNavigateFGrid(Vector3 target, out string reason)
+        {
+            reason = "";
+            if (_routes.IsRecording) { reason = "nav recorder is active"; return false; }
+            if (!File.Exists(_navMeshPath)) { reason = "NavMeshes/4107.nav is missing"; return false; }
+            if (SMovementController.NavAgent?.HasPathfinder != true)
+            { reason = "4107.nav is not loaded by AO#"; return false; }
+            Vector3 player = DynelManager.LocalPlayer.Position;
+            if (_meshRejectedDestination.HasValue && Vector3.Distance(_meshRejectedDestination.Value, target) < 0.5f)
+            { reason = "mesh movement to this target previously stopped"; return false; }
+            if (_meshDestination.HasValue && Vector3.Distance(_meshDestination.Value, target) < 0.5f)
+            {
+                if (_movement.Owner == MovementOwner.FGridTravel && SMovementController.IsNavigating())
+                {
+                    if (Vector3.Distance(player, _meshLastPosition) > 0.6f)
+                    {
+                        _meshLastPosition = player;
+                        _meshLastProgress = DateTime.UtcNow;
+                    }
+                    if (DateTime.UtcNow - _meshLastProgress <= TimeSpan.FromSeconds(9)) return true;
+                    reason = "mesh movement made no progress for nine seconds";
+                }
+                else if (_movement.Owner == MovementOwner.FGridTravel &&
+                    DateTime.UtcNow - _meshLastProgress < TimeSpan.FromSeconds(2))
+                    return true; // AO# may pause briefly between mesh waypoints.
+                else reason = "mesh movement stopped before reaching the target";
+                _movement.Release(MovementOwner.FGridTravel);
+                _meshDestination = null;
+                _meshRejectedDestination = target;
+                return false;
+            }
+            try
+            {
+                if (!LocalRoutePlanner.TryFGridGroundCost(player, target, out float cost))
+                { reason = "no complete floor-supported mesh corridor"; return false; }
+                if (!_movement.SetNavDestination(MovementOwner.FGridTravel, target))
+                {
+                    _meshRejectedDestination = target;
+                    reason = "AO# rejected the mesh destination";
+                    return false;
+                }
+                _routes.StopPlayback();
+                _meshDestination = target;
+                _meshLastPosition = player;
+                _meshLastProgress = DateTime.UtcNow;
+                _say($"FGrid navmesh: complete supported corridor {cost:0.0} m to ({target.X:0.0},{target.Y:0.0},{target.Z:0.0}).");
+                return true;
+            }
+            catch (Exception ex) { reason = "mesh query failed: " + ex.Message; return false; }
         }
 
         public FGridServiceResult Tick(int targetId, Vector3? missionAnchor = null)
@@ -741,6 +832,8 @@ namespace RKmission
                 if (floor == _route.Floor)
                 {
                     _movement.Release(MovementOwner.FGridTravel);
+                    ResetMeshNavigation();
+                    _routes.StopPlayback();
                     _state = State.Exit;
                     _started = DateTime.UtcNow;
                     return FGridServiceResult.InProgress;
@@ -754,11 +847,15 @@ namespace RKmission
                 Vector3 lift = UpLifts[floor];
                 if (Vector3.Distance(DynelManager.LocalPlayer.Position, lift) > 0.8f)
                 {
-                    // FGrid has open gaps and no verified 4107 navmesh in the
-                    // supplied evidence. Never substitute a straight line here.
-                    if (!_routes.TryNavigate(lift, _movement, MovementOwner.FGridTravel))
+                    if (!TryNavigateFGrid(lift, out string meshReason) &&
+                        !_routes.TryNavigate(lift, _movement, MovementOwner.FGridTravel))
                     {
-                        Fail($"No recorded safe FGrid walkway reaches the floor {floor} lift. Record it manually with /rkm nav record fgrid-floor-{floor}-lift, then /rkm nav stop.");
+                        // The zone loader can publish the playfield before the
+                        // optional mesh has finished loading.
+                        if (File.Exists(_navMeshPath) && SMovementController.NavAgent?.HasPathfinder != true &&
+                            DateTime.UtcNow - _started < TimeSpan.FromSeconds(5))
+                            return FGridServiceResult.InProgress;
+                        Fail($"No safe FGrid route reaches the floor {floor} lift ({meshReason}). Provide a verified NavMeshes/4107.nav or record a walkway with /rkm nav record fgrid-floor-{floor}-lift, then /rkm nav stop.");
                         return FGridServiceResult.Failed;
                     }
                 }
@@ -799,16 +896,21 @@ namespace RKmission
                 }
                 if (Vector3.Distance(DynelManager.LocalPlayer.Position, _exit.Position) > 1.5f)
                 {
-                    // Recorded paths preserve the actual FGrid walkway/corners.
-                    // Without evidence, stop instead of cutting across a gap.
-                    if (!_routes.TryNavigate(_exit.Position, _movement, MovementOwner.FGridTravel))
+                    if (!TryNavigateFGrid(_exit.Position, out string meshReason) &&
+                        !_routes.TryNavigate(_exit.Position, _movement, MovementOwner.FGridTravel))
                     {
-                        Fail($"No recorded safe FGrid walkway reaches portal {_exit.Identity} on floor {_route.Floor}. Record the walkway manually with /rkm nav record fgrid-floor-{_route.Floor}-portal-{_exit.Identity.Instance}, then /rkm nav stop.");
+                        if (File.Exists(_navMeshPath) && SMovementController.NavAgent?.HasPathfinder != true &&
+                            DateTime.UtcNow - _started < TimeSpan.FromSeconds(5))
+                            return FGridServiceResult.InProgress;
+                        Fail($"No safe FGrid route reaches portal {_exit.Identity} on floor {_route.Floor} ({meshReason}). Provide a verified NavMeshes/4107.nav or record the walkway with /rkm nav record fgrid-floor-{_route.Floor}-portal-{_exit.Identity.Instance}, then /rkm nav stop.");
                         return FGridServiceResult.Failed;
                     }
                 }
                 else if (DateTime.UtcNow - _lastUse > TimeSpan.FromSeconds(3))
                 {
+                    _movement.Release(MovementOwner.FGridTravel);
+                    ResetMeshNavigation();
+                    _routes.StopPlayback();
                     _exit.Use();
                     _lastUse = DateTime.UtcNow;
                 }
@@ -1140,6 +1242,8 @@ namespace RKmission
             _state = State.Done;
             LastFailure = null;
             _movement.Release(MovementOwner.FGridTravel);
+            ResetMeshNavigation();
+            _routes.StopPlayback();
             if (_joinedByProvider && Team.IsInTeam)
                 Team.Leave();
             _joinedByProvider = false;
@@ -1153,6 +1257,8 @@ namespace RKmission
             if (applyBackoff)
                 _backoffUntil = DateTime.UtcNow.AddMinutes(2);
             _movement.Release(MovementOwner.FGridTravel);
+            ResetMeshNavigation();
+            _routes.StopPlayback();
             if (_joinedByProvider && Team.IsInTeam)
                 Team.Leave();
             _joinedByProvider = false;
@@ -1183,6 +1289,8 @@ namespace RKmission
             _teleportStarted = _exitLogged = false;
             LastFailure = null;
             _movement.Release(MovementOwner.FGridTravel);
+            ResetMeshNavigation();
+            _routes.StopPlayback();
         }
 
         public void Reset()

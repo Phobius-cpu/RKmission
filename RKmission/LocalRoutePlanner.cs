@@ -46,6 +46,20 @@ namespace RKmission
         // Optional complete-mesh cost. A failure here does not invalidate a direct local attempt.
         // Reject incomplete polygon paths: FindPath can succeed without reaching the destination polygon.
         public static bool TryGroundCost(Vector3 origin, Vector3 destination, out float cost)
+            => TryGroundCost(origin, destination, out cost, 5f, 4f, false);
+
+        // Fixer Grid routes must remain on the current supported platform.
+        // A full polygon corridor alone is insufficient if a mesh was baked
+        // from terrain that also covers the empty space between platforms.
+        public static bool TryFGridGroundCost(Vector3 origin, Vector3 destination, out float cost)
+        {
+            cost = float.PositiveInfinity;
+            return Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid &&
+                TryGroundCost(origin, destination, out cost, 1f, 1f, true);
+        }
+
+        private static bool TryGroundCost(Vector3 origin, Vector3 destination, out float cost,
+            float originSnap, float destinationSnap, bool verifyFGridFloor)
         {
             cost = float.PositiveInfinity;
             if (!AcceptedMissions.Finite(origin) || !AcceptedMissions.Finite(destination) ||
@@ -56,8 +70,8 @@ namespace RKmission
             if (!query.FindNearestPoly(ref from, ref extents, out NavPoint first) ||
                 !query.FindNearestPoly(ref to, ref extents, out NavPoint last) ||
                 first.Polygon == NavPolyId.Null || last.Polygon == NavPolyId.Null ||
-                Vector3.Distance(origin, ToAO(first.Position)) > 5 ||
-                Vector3.Distance(destination, ToAO(last.Position)) > 4) return false;
+                Vector3.Distance(origin, ToAO(first.Position)) > originSnap ||
+                Vector3.Distance(destination, ToAO(last.Position)) > destinationSnap) return false;
             var corridor = new SharpNav.Pathfinding.Path();
             if (!query.FindPath(ref first, ref last, new NavQueryFilter(), corridor) ||
                 corridor.Count == 0 || corridor[corridor.Count - 1] != last.Polygon) return false;
@@ -69,12 +83,45 @@ namespace RKmission
             foreach (var vertex in straight.Verts)
             {
                 Vector3 point = vertex.Position;
+                if (verifyFGridFloor && !SupportedFGridSegment(previous, point, origin.Y)) return false;
                 length += Vector3.Distance(previous, point);
                 previous = point;
             }
             if (Vector3.Distance(previous, destination) > 4) return false;
+            if (verifyFGridFloor && !SupportedFGridSegment(previous, destination, origin.Y)) return false;
             cost = length + Vector3.Distance(previous, destination);
             return !float.IsNaN(cost) && !float.IsInfinity(cost);
+        }
+
+        private static bool SupportedFGridSegment(Vector3 start, Vector3 end, float floorHeight)
+        {
+            if (Math.Abs(start.Y - floorHeight) > 2f || Math.Abs(end.Y - floorHeight) > 2f)
+                return false;
+            float length = Vector3.Distance(start, end);
+            int samples = Math.Max(1, (int)Math.Ceiling(length / 0.6f));
+            for (int i = 0; i <= samples; i++)
+            {
+                Vector3 point = start + (end - start) * (i / (float)samples);
+                Vector3 top = point + Vector3.Up * 1.5f;
+                Vector3 bottom = point - Vector3.Up * 2f;
+                try
+                {
+                    if (!Playfield.Raycast(top, bottom, out Vector3 floor, out Vector3 normal) ||
+                        !AcceptedMissions.Finite(floor) || normal.Y < 0.6f ||
+                        Math.Abs(floor.Y - point.Y) > 1.25f) return false;
+                }
+                catch { return false; }
+            }
+            if (length > 1f)
+            {
+                try
+                {
+                    if (Playfield.Raycast(start + Vector3.Up * 0.8f, end + Vector3.Up * 0.8f,
+                        out _, out _)) return false;
+                }
+                catch { return false; }
+            }
+            return true;
         }
 
         private struct SurfaceSample
