@@ -1,12 +1,11 @@
 ﻿<?xml version="1.0" standalone="yes"?>
 <Root>
 	<View name="HostRoot" view_layout="vertical">
-		<BorderView min_size="Point(300,30)" max_size="Point(300,30)" h_alignment="LEFT" layout_borders="Rect(5,4,5,4)">
+		<BorderView min_size="Point(220,30)" max_size="Point(220,30)" h_alignment="LEFT" layout_borders="Rect(5,4,5,4)">
 			<View view_layout="horizontal" layout_borders="Rect(4,3,4,3)">
 				<Button name="RollerTab" label="RKMission" min_size="Point(80,22)" max_size="Point(80,22)"/>
 				<Button name="ManagerLootTab" label="Loot" min_size="Point(60,22)" max_size="Point(60,22)" layout_borders="Rect(2,0,0,0)"/>
 				<Button name="DungeonMapTab" label="Dungeon" min_size="Point(76,22)" max_size="Point(76,22)" layout_borders="Rect(2,0,0,0)"/>
-				<Button name="SettingsTab" label="Settings" min_size="Point(70,22)" max_size="Point(70,22)" layout_borders="Rect(2,0,0,0)"/>
 				<HLayoutSpacer/>
 			</View>
 		</BorderView>
