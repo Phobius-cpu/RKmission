@@ -1,17 +1,25 @@
 <?xml version="1.0" standalone="yes"?>
 <Root>
-	<View>
+	<View min_size="Point(500,0)">
 		<BorderView name="HelpFrame" layout_borders="Rect(5,5,5,5)">
 			<View view_layout="vertical">
-			<View view_layout="horizontal" layout_borders="Rect(5,4,4,0)">
-				<TextView value="RKMission Roller Help" font="BOLD"/>
-				<HLayoutSpacer/>
-				<Button label="Close" min_size="Point(45,18)" name="Close"/>
-			</View>
-			<TextView layout_borders="Rect(5,2,5,0)" font="LARGE" feature_flags="TVF_MULTILINE" name="Text"/>
-			<Button layout_borders="Rect(5,5,5,5)" label="Visual guide" name="GraphicalGuide"/>
-			<TextView min_size="Point(270,70)" layout_borders="Rect(5,0,5,0)" font="LARGE" feature_flags="TVF_MULTILINE" name="Text2"/>
-			<VLayoutSpacer/>
+				<View view_layout="horizontal" layout_borders="Rect(5,4,4,0)">
+					<TextView value="RKMission Help" font="BOLD"/>
+					<HLayoutSpacer/>
+					<Button label="Close" min_size="Point(45,18)" name="Close"/>
+				</View>
+				<BorderView layout_borders="Rect(5,5,5,5)">
+					<View view_layout="vertical">
+						<TextView value="Purpose" font="BOLD"/>
+						<TextView name="Purpose" min_size="Point(470,60)" feature_flags="TVF_MULTILINE"/>
+					</View>
+				</BorderView>
+				<BorderView layout_borders="Rect(5,0,5,5)">
+					<View view_layout="vertical">
+						<TextView value="Commands" font="BOLD"/>
+						<TextView name="Commands" min_size="Point(470,420)" feature_flags="TVF_MULTILINE"/>
+					</View>
+				</BorderView>
 			</View>
 		</BorderView>
 	</View>
