@@ -844,7 +844,7 @@ The RKMission tool host now has three tabs: **RKMission**, **Loot**, and **Dunge
 
 ### Permanent tool tabs and temporary Navigation diagnostics
 
-The shared Mali/RKMission tool cluster now keeps four permanent tabs: **RKMission**, **Loot**, **Dungeon**, and **Settings**. The Settings tab is Mali Mission Roller 2.0's original settings interface promoted out of the Roller content instead of a duplicated replacement. The old header **Settings** button opens that same tab. **Dungeon** remains Mali Dungeon Map 2.0's embedded original settings view, while **Loot** remains ManagerLoot's original view.
+The shared Mali/RKMission tool cluster keeps three permanent tabs: **RKMission**, **Loot**, and **Dungeon**. Mali Mission Roller 2.0's original **Settings** button remains inside the RKMission/Roller interface and toggles its original settings view in the same host; there is no duplicate top-level Settings tab. **Dungeon** remains Mali Dungeon Map 2.0's embedded original settings view, while **Loot** remains ManagerLoot's original view.
 
 The Roller **Help** button now opens an RKMission-oriented help panel: a short description of the autonomous mission coordinator followed by commands grouped into Mission Control, Roller/Destinations, Travel/FGrid, and Windows/Tools.
 
