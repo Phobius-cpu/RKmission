@@ -11,13 +11,13 @@
 				<BorderView layout_borders="Rect(5,5,5,5)">
 					<View view_layout="vertical">
 						<TextView value="Purpose" font="BOLD"/>
-						<TextView name="Purpose" min_size="Point(470,60)" feature_flags="TVF_MULTILINE"/>
+						<TextView name="Purpose" min_size="Point(470,100)" feature_flags="TVF_MULTILINE"/>
 					</View>
 				</BorderView>
 				<BorderView layout_borders="Rect(5,0,5,5)">
 					<View view_layout="vertical">
 						<TextView value="Commands" font="BOLD"/>
-						<TextView name="Commands" min_size="Point(470,420)" feature_flags="TVF_MULTILINE"/>
+						<TextView name="Commands" min_size="Point(470,435)" feature_flags="TVF_MULTILINE"/>
 					</View>
 				</BorderView>
 			</View>
