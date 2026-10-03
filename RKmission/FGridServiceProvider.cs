@@ -644,7 +644,9 @@ namespace RKmission
                 _say("FGrid Recast: " + _recast.LastPath + ".");
             }
             while (_recastIndex < _recastWaypoints.Count - 1 &&
-                Vector3.Distance(player, _recastWaypoints[_recastIndex]) < 0.9f) _recastIndex++;
+                Vector3.Distance(player, _recastWaypoints[_recastIndex]) < 0.9f &&
+                LocalRoutePlanner.SupportedFGridSegment(player, _recastWaypoints[_recastIndex + 1],
+                    _recastWaypoints[0].Y)) _recastIndex++;
             if (Vector3.Distance(player, target) < 0.6f) return true;
             Vector3 next = _recastWaypoints[_recastIndex];
             Vector3 previous = _recastWaypoints[_recastIndex - 1];
@@ -655,8 +657,9 @@ namespace RKmission
             if (Math.Abs(player.Y - _recastWaypoints[0].Y) > 2f ||
                 Vector3.Distance(player, previous + leg * progress) > 1.25f)
             { reason = "deviated from validated Recast corridor"; goto Reject; }
-            if (!LocalRoutePlanner.SupportedFGridSegment(player, next, _recastWaypoints[0].Y))
-            { reason = "next Recast leg lost floor support"; goto Reject; }
+            if (!LocalRoutePlanner.SupportedFGridSegment(player, next, _recastWaypoints[0].Y,
+                out string legReason))
+            { reason = $"Recast leg {_recastIndex}/{_recastWaypoints.Count - 1} rejected: {legReason}"; goto Reject; }
             if (Vector3.Distance(player, _recastLastPosition) > 0.4f)
             { _recastLastPosition = player; _recastLastProgress = DateTime.UtcNow; }
             if (DateTime.UtcNow - _recastLastProgress > TimeSpan.FromSeconds(9))
