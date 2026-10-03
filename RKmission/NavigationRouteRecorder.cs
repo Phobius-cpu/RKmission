@@ -39,7 +39,7 @@ namespace RKmission
         public NavigationRouteRecorder(string pluginDir, Action<string> say)
         {
             _say = say;
-            _path = Path.Combine(pluginDir, "RKMissionData", "navigation-routes.json");
+            _path = System.IO.Path.Combine(pluginDir, "RKMissionData", "navigation-routes.json");
             Load();
             Game.OnUpdate += OnUpdate;
         }
@@ -143,7 +143,7 @@ namespace RKmission
             if (!_writable) return;
             try
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(_path));
+                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(_path));
                 string temp = _path + ".new";
                 File.WriteAllText(temp, JsonConvert.SerializeObject(new RouteFile { Routes = _routes }, Formatting.Indented));
                 if (File.Exists(_path)) File.Replace(temp, _path, null); else File.Move(temp, _path);

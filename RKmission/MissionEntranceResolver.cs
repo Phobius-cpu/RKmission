@@ -149,8 +149,9 @@ namespace RKmission
             foreach (MissionKeyCandidate key in keys)
             {
                 var ids = new List<int>();
+                List<uint> known = null;
                 bool hasKnownLabel = !string.IsNullOrWhiteSpace(key.Label) &&
-                    _entrances.TryGetValue(key.Label, out List<uint> known);
+                    _entrances.TryGetValue(key.Label, out known);
                 if (live.Count > 0 && matchingLiveKeys <= 1)
                 {
                     if (hasKnownLabel)
