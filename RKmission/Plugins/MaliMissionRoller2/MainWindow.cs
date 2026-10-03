@@ -28,12 +28,10 @@ namespace MaliMissionRoller2
         private Button? _rollerTab;
         private Button? _managerLootTab;
         private Button? _dungeonMapTab;
-        private Button? _settingsTab;
         private enum HostedTab { Roller, ManagerLoot, DungeonMap, Settings }
         private HostedTab _activeTab = HostedTab.Roller;
         public bool IsManagerLootTabActive => _activeTab == HostedTab.ManagerLoot;
         public bool IsDungeonMapTabActive => _activeTab == HostedTab.DungeonMap;
-        public bool IsSettingsTabActive => _activeTab == HostedTab.Settings;
         public event Action? WindowReady;
         public Action? EnsureManagerLootView { get; set; }
         public Action? EnsureDungeonMapView { get; set; }
@@ -110,14 +108,12 @@ namespace MaliMissionRoller2
                 Window.FindView("RollerTab", out _rollerTab);
                 Window.FindView("ManagerLootTab", out _managerLootTab);
                 Window.FindView("DungeonMapTab", out _dungeonMapTab);
-                Window.FindView("SettingsTab", out _settingsTab);
                 _managerLootContent = null;
                 _dungeonMapContent = null;
                 _activeTab = HostedTab.Roller;
                 if (_rollerTab != null) _rollerTab.Clicked += (_, _) => ShowRollerTab();
                 if (_managerLootTab != null) _managerLootTab.Clicked += (_, _) => ShowManagerLootTab();
                 if (_dungeonMapTab != null) _dungeonMapTab.Clicked += (_, _) => ShowDungeonMapTab();
-                if (_settingsTab != null) _settingsTab.Clicked += (_, _) => ShowSettingsTab();
 
                 if (Window.FindView("HeaderRoot", out View headerRoot))
                 {
@@ -252,10 +248,9 @@ namespace MaliMissionRoller2
 
         private void UpdateTabAppearance()
         {
-            _rollerTab?.SetAlpha(_activeTab == HostedTab.Roller ? 1f : 0.65f);
+            _rollerTab?.SetAlpha(_activeTab == HostedTab.Roller || _activeTab == HostedTab.Settings ? 1f : 0.65f);
             _managerLootTab?.SetAlpha(_activeTab == HostedTab.ManagerLoot ? 1f : 0.65f);
             _dungeonMapTab?.SetAlpha(_activeTab == HostedTab.DungeonMap ? 1f : 0.65f);
-            _settingsTab?.SetAlpha(_activeTab == HostedTab.Settings ? 1f : 0.65f);
         }
 
         private void HelpClick(object sender, ButtonBase e)
