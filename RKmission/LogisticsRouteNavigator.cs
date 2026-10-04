@@ -15,8 +15,9 @@ namespace RKmission
         private readonly Action<string> _say;
         private LogisticsRouteCatalog.Route _route;
         private int _stageIndex, _pointIndex;
-        private bool _awaitingZone, _atTarget;
-        private DateTime _nextTick, _lastSubmit, _lastProgress, _zoneDeadline;
+        private bool _awaitingZone, _atTarget, _crossingSubmitted, _crossingStopped;
+        private Vector3 _crossingTarget;
+        private DateTime _nextTick, _lastSubmit, _lastProgress, _zoneDeadline, _crossingStarted;
         private float _bestDistance;
 
         public bool IsActive => _route != null;
@@ -112,6 +113,7 @@ namespace RKmission
             {
                 if (DateTime.UtcNow > _zoneDeadline)
                     Fail($"no observed crossing from PF {stage.Playfield} to PF {stage.ExpectedNextPlayfield} at the recorded doorway");
+                else TickDoorwayCrossing(stage, player);
                 return;
             }
             while (_pointIndex < stage.Points.Count - 1 &&
@@ -150,11 +152,80 @@ namespace RKmission
             {
                 _awaitingZone = true;
                 _zoneDeadline = DateTime.UtcNow.AddSeconds(30);
-                _say($"At the surveyed doorway in PF {stage.Playfield}; waiting for PF {stage.ExpectedNextPlayfield}. " +
-                    "If the doorway does not trigger automatically, cross it manually before the route test times out.");
+                _crossingSubmitted = _crossingStopped = false;
+                _crossingStarted = DateTime.MinValue;
+                _say($"At the surveyed doorway in PF {stage.Playfield}; trying a bounded forward crossing, " +
+                    $"then waiting for PF {stage.ExpectedNextPlayfield}.");
             }
             else if (stage.Name == "ToTarget") ArrivedAtTarget();
             else if (stage.Name == "ToOrigin") Finish("Returned to the surveyed mission terminal area; route test complete.");
+        }
+
+        private void TickDoorwayCrossing(LogisticsRouteCatalog.Stage stage, Vector3 player)
+        {
+            if (_crossingStopped) return;
+            if (!_crossingSubmitted)
+            {
+                Vector3 last = V(stage.Points[stage.Points.Count - 1]);
+                Vector3 previous = V(stage.Points[stage.Points.Count - 2]);
+                Vector3 direction = last - previous;
+                direction.Y = 0;
+                if (Vector3.Distance(direction, Vector3.Zero) < 0.15f ||
+                    Vector3.Distance(player, last) > 2.5f ||
+                    ReversesNearDoorway(stage))
+                {
+                    _crossingStopped = true;
+                    _say("Automatic doorway crossing held: recorded approach direction or position is uncertain. " +
+                        "Cross manually within the route test timeout.");
+                    return;
+                }
+                direction = direction.Normalize();
+                _crossingTarget = last + direction * 2f;
+                _crossingTarget.Y = last.Y;
+                if (Vector3.Distance(player, _crossingTarget) > 4.5f ||
+                    !_movement.SetDestination(MovementOwner.LogisticsTravel, _crossingTarget))
+                {
+                    _crossingStopped = true;
+                    _say("Automatic doorway crossing was declined. Cross manually within the route test timeout.");
+                    return;
+                }
+                _crossingSubmitted = true;
+                _crossingStarted = _lastSubmit = DateTime.UtcNow;
+                _say($"Bounded doorway crossing target ({LocalRoutePlanner.Coordinates(_crossingTarget)}); " +
+                    "zone arrival remains unverified until the playfield changes.");
+                return;
+            }
+            if (DateTime.UtcNow - _crossingStarted > TimeSpan.FromSeconds(6))
+            {
+                _movement.Release(MovementOwner.LogisticsTravel);
+                _crossingStopped = true;
+                _say("Bounded crossing did not trigger zoning; cross the doorway manually within the route test timeout.");
+                return;
+            }
+            if (!SMovementController.IsNavigating() &&
+                DateTime.UtcNow - _lastSubmit > TimeSpan.FromSeconds(1))
+            {
+                _movement.SetDestination(MovementOwner.LogisticsTravel, _crossingTarget);
+                _lastSubmit = DateTime.UtcNow;
+            }
+        }
+
+        private static bool ReversesNearDoorway(LogisticsRouteCatalog.Stage stage)
+        {
+            // Some surveys include a turn back toward the room after reaching the threshold.
+            // Extending that final movement would send the character away from the zone.
+            for (int i = stage.Points.Count - 2; i >= Math.Max(1, stage.Points.Count - 3); i--)
+            {
+                Vector3 current = V(stage.Points[i + 1]) - V(stage.Points[i]);
+                Vector3 prior = V(stage.Points[i]) - V(stage.Points[i - 1]);
+                current.Y = prior.Y = 0;
+                float currentLength = Vector3.Distance(current, Vector3.Zero);
+                float priorLength = Vector3.Distance(prior, Vector3.Zero);
+                if (currentLength > 0.15f && priorLength > 0.15f &&
+                    current.X * prior.X + current.Z * prior.Z < -0.25f * currentLength * priorLength)
+                    return true;
+            }
+            return false;
         }
 
         private void ArrivedAtTarget()
@@ -189,6 +260,7 @@ namespace RKmission
             _stageIndex = index;
             _pointIndex = 0;
             _awaitingZone = false;
+            _crossingSubmitted = _crossingStopped = false;
             _nextTick = _lastSubmit = DateTime.MinValue;
             _lastProgress = DateTime.UtcNow;
             _bestDistance = float.MaxValue;
