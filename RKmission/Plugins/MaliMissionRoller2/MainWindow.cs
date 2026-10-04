@@ -177,10 +177,13 @@ namespace MaliMissionRoller2
 
         public void ShowRollerTab()
         {
-            if (_tabContent == null || _rollerContent == null || _activeTab == HostedTab.Roller) return;
-            RemoveActiveContent();
-            _tabContent.AddChild(_rollerContent, false);
-            _activeTab = HostedTab.Roller;
+            if (_tabContent == null || _rollerContent == null) return;
+            if (_activeTab != HostedTab.Roller)
+            {
+                RemoveActiveContent();
+                _tabContent.AddChild(_rollerContent, false);
+                _activeTab = HostedTab.Roller;
+            }
             InSettings = false;
             if (HeaderView?.Settings != null) HeaderView.Settings.Tag = false;
             FitActiveTab();
@@ -285,9 +288,15 @@ namespace MaliMissionRoller2
         {
             Midi.Play("Click");
             ShowRollerTab();
-            MissionView.Show();
+            ShowMissionView();
             InSettings = false;
             HeaderView.Settings.Tag = false;
+        }
+
+        private void ShowMissionView()
+        {
+            MissionView.Show();
+            FitActiveTab();
         }
 
         private void RequestClick(object sender, ButtonBase e)
@@ -524,7 +533,7 @@ namespace MaliMissionRoller2
         {
             CurrentTerminal = terminal;
             if (_activeTab == HostedTab.Roller)
-                MissionView.Show();
+                ShowMissionView();
         }
     }
 }
