@@ -134,6 +134,22 @@ need in-game validation. AO# reports Fixer Grid as a
 dungeon, but RKMission keeps its travel provider active there and can resume
 the mapped exit route after `/rkm auto` is restarted inside it.
 
+With a known mission entrance, cross-playfield travel compares candidates by
+horizontal outdoor distance from a verified arrival to that entrance, plus
+bounded access, traversal, and service penalties. FGrid uses each surveyed
+portal arrival and keeps its own nearest-reachable-exit and alternate-portal
+sequence. Scotty uses only observed, settled landings saved under
+`RKMissionData/scottyboi-landings.json`, keyed by destination and assigned
+warper; before the next assignment is known, its estimate uses the farthest
+recorded landing. Mapped Grid, border, and teleporter travel is scored only
+after the final link's outdoor arrival has been observed and saved under
+`RKMissionData/playfield-link-landings.json`. Both files are local, validated,
+and Git-ignored. Unobserved arrivals remain `Unknown`; the established
+Scotty, FGrid, mapped-link fallback order applies after scored candidates.
+Nearby direct links have priority among unknown candidates. Travel logs show
+each candidate's distance, penalty, and selected order. In the destination
+playfield, local mission travel starts after the provider's arrival check.
+
 Normal Grid/mapped travel remains the fallback. Scotty warpers
 reported offline are also treated as expected availability failures and no
 longer impose the normal two-minute integration-error cooldown.
@@ -257,9 +273,9 @@ its identity through the game chat server before trusting the assigned warper.
 For Mort, the confirmed `scty` command `hope` is used when the Mort menu page
 does not arrive. An offline warper reply ends that request and reports why no
 team invite can follow.
-If the warp fails, travel uses mapped Grid, Fixer Grid (with a Data
-Receptacle), border, and teleporter links; a visible Grid terminal can also
-supply an entry link.
+If the selected provider fails, travel tries the remaining candidates. Mapped
+travel can use Grid, Fixer Grid (with a Data Receptacle), border, and
+teleporter links; a visible Grid terminal can also supply an entry link.
 The graph is sparse, so some terminal-to-mission routes still have no mapped
 path. If a Fixer Grid route is mapped but the Data Receptacle is missing, the
 travel error names the missing item. `/rkm status` shows the current provider

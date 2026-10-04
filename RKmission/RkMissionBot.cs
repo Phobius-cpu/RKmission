@@ -89,7 +89,7 @@ namespace RKmission
             _dungeon = new MissionDungeon(Say, _loot, _readiness, _inventory);
             _deathRecovery = new DeathRecoveryController(_readiness, _movement, Say);
             _travel = new LocalMissionTravel(Say, pluginDir);
-            _warp = new ScottyboiWarpProvider(Say, _movement);
+            _warp = new ScottyboiWarpProvider(pluginDir, Say, _movement);
             _navRoutes = new NavigationRouteRecorder(pluginDir, Say);
             _navWindow = new NavigationRecorderWindow(pluginDir, _navRoutes, Say);
             _postZoneSafety = new PostZoneFlightSafety(_movement, Say);
@@ -735,13 +735,13 @@ namespace RKmission
                     { Stop(); Say("Mission-key entrance was accepted, but exact dungeon entry was not verified."); return; }
                 }
                 if (!PreflightSelectedMission()) return;
-                if (_selected.PlayfieldId != Playfield.ModelIdentity.Instance)
+                if (_selected.PlayfieldId != Playfield.ModelIdentity.Instance || _longTravel.IsActive)
                 {
                     _travel.Reset();
                     TravelResult longResult = _longTravel.Tick(_selected.PlayfieldId, _selected.Entrance);
                     if (longResult == TravelResult.Blocked)
-                    { string reason = _longTravel.LastFailure; Stop(); Say(reason); }
-                    return;
+                    { string reason = _longTravel.LastFailure; Stop(); Say(reason); return; }
+                    if (longResult == TravelResult.InProgress) return;
                 }
                 if (_longTravel.IsActive) _longTravel.Reset();
                 if (_autoCycle && !_travel.MatchesAnchor(_selected) &&
@@ -1256,12 +1256,12 @@ namespace RKmission
                 }
                 RememberRollTerminal(visible);
             }
-            if (Playfield.ModelIdentity.Instance != _rollTerminalPlayfield)
+            if (Playfield.ModelIdentity.Instance != _rollTerminalPlayfield || _longTravel.IsActive)
             {
                 TravelResult result = _longTravel.Tick(_rollTerminalPlayfield);
                 if (result == TravelResult.Blocked)
-                { string reason = _longTravel.LastFailure; Stop(); Say("Return to roller stopped: " + reason); }
-                return false;
+                { string reason = _longTravel.LastFailure; Stop(); Say("Return to roller stopped: " + reason); return false; }
+                if (result == TravelResult.InProgress) return false;
             }
             if (_longTravel.IsActive) _longTravel.Reset();
             if (_returnStarted == DateTime.MinValue) _returnStarted = DateTime.UtcNow;
@@ -1298,7 +1298,7 @@ namespace RKmission
                     $"but its verified issuing terminal is {issuingTerminal}. No item was used.");
                 return false;
             }
-            if (Playfield.ModelIdentity.Instance != origin.TerminalPlayfield)
+            if (Playfield.ModelIdentity.Instance != origin.TerminalPlayfield || _longTravel.IsActive)
             {
                 TravelResult travel = _longTravel.Tick(origin.TerminalPlayfield, origin.TerminalPosition);
                 if (travel == TravelResult.Blocked)
@@ -1306,7 +1306,7 @@ namespace RKmission
                     string reason = _longTravel.LastFailure;
                     Stop(); Say("Return to the issuing terminal stopped: " + reason);
                 }
-                return false;
+                if (travel == TravelResult.InProgress || travel == TravelResult.Blocked) return false;
             }
             if (_longTravel.IsActive) _longTravel.Reset();
             Dynel target = DynelManager.GetDynel(issuingTerminal);

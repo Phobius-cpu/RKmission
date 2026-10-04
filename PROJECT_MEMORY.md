@@ -1,6 +1,6 @@
 # RKMission Project Memory
 
-_Last updated: 2026-10-03_
+_Last updated: 2026-10-04_
 
 ## 2026-10-03 post-crossing lateral motion follow-up
 
@@ -2702,3 +2702,11 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 - Verification at that checkpoint: pinned AOSharp SDK build succeeded with 0 errors and 512 warnings; nine bag-family cases, ordering, and three destination/warper-pair cases passed focused reflection checks. No live AO client test was performed.
 - On resumption, fetch latest `main` first. Check live three-stall combat recovery, objective-room navigation, ManagerLoot rule/editor and backpack behavior, post-exit item classification, and Milky Way alternate Scottyboi assignment/fallback. Preserve all later commits. Use logs from actual AO runs to adjust bounded retries or safe movement.
 - Bank/archive, vendor sale, bag creation, and movement of active objective items to `RKM Mission` remain deferred until their AOSharp interfaces and in-game behavior are verified. No automated sale, deletion, or bank transfer was introduced by this checkpoint.
+
+## 2026-10-04 arrival-scored cross-playfield travel
+
+- Fetched upstream `main` `14db9ed` before editing; the old local backup remains untracked and untouched.
+- With a known entrance anchor, `RubiKaTravelPlanner` ranks verified Scottyboi, FGrid, and mapped-link outdoor arrivals by horizontal distance plus bounded provider penalties. Unknown arrivals retain safe provider fallback; nearby direct links keep priority among unknown candidates. The destination playfield itself uses local mission travel after settling.
+- FGrid shares its currently reachable nearest surveyed portal estimate. Scottyboi learns settled landings per destination/assigned warper in `RKMissionData/scottyboi-landings.json`; mapped links learn settled destination positions in `RKMissionData/playfield-link-landings.json`. Both runtime files are validated, atomic, and Git-ignored. Warpdude31 remains excluded for Milky Way.
+- The coordinator now continues ticking an active cross-playfield planner after entering the target playfield so arrival verification and learning complete. Portal fallback, Recast/recorded paths, movement ownership, and other mission logic remain in their providers.
+- `dotnet build RKmission/RKmission.csproj` passed with zero errors. Live AO validation is still needed. See `docs/history/2026-10-04-arrival-scored-cross-playfield-travel.md`.

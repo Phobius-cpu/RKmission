@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
 using System.Net;
 using System.Text.RegularExpressions;
 using AOSharp.Common.GameData;
 using AOSharp.Core;
 using AOSharp.Core.UI;
+using Newtonsoft.Json;
 using SmokeLounge.AOtomation.Messaging.Messages;
 using SmokeLounge.AOtomation.Messaging.Messages.ChatMessages;
 
@@ -24,6 +26,13 @@ namespace RKmission
             public WarpCommand(string recipient, string text, string? destination = null)
             { Recipient = recipient; Text = text; Destination = Normalize(destination); }
         }
+        private sealed class ObservedLanding
+        {
+            public int DestinationPlayfield { get; set; }
+            public string Warper { get; set; }
+            public float[] ArrivalPosition { get; set; }
+            public DateTime VerifiedUtc { get; set; }
+        }
         private const string BotName = "Scottyboi";
         private const string MenuName = "scty";
         private const string ReplyName = "Scottyboi1";
@@ -33,6 +42,9 @@ namespace RKmission
                 .Select(Normalize), StringComparer.OrdinalIgnoreCase);
         private readonly Action<string> _say;
         private readonly MovementArbiter _movement;
+        private readonly string _landingPath;
+        private readonly List<ObservedLanding> _landings = new List<ObservedLanding>();
+        private bool _landingsWritable = true;
         private State _state;
         private uint _botId, _menuId, _replyId, _helpId, _recipientId, _warperId;
         private string _warperName;
@@ -60,10 +72,32 @@ namespace RKmission
         public string LastFailure { get; private set; }
         public bool VerifiedDestination(int targetId) => _state == State.Done && _targetId == targetId;
 
-        public ScottyboiWarpProvider(Action<string> say, MovementArbiter movement)
+        // The next assignment is unknown; use the farthest observed landing so
+        // an old favorable warper cannot make the estimate optimistic.
+        public bool TryGetObservedArrival(int targetId, Vector3 anchor,
+            out Vector3 arrival, out float distance, out string warper)
+        {
+            arrival = default;
+            distance = 0;
+            warper = null;
+            if (!AcceptedMissions.Finite(anchor)) return false;
+            ObservedLanding known = _landings.Where(x => x.DestinationPlayfield == targetId)
+                .OrderByDescending(x => HorizontalDistance(x.ArrivalPosition, anchor))
+                .FirstOrDefault();
+            if (known == null) return false;
+            arrival = new Vector3(known.ArrivalPosition[0], known.ArrivalPosition[1],
+                known.ArrivalPosition[2]);
+            distance = HorizontalDistance(known.ArrivalPosition, anchor);
+            warper = known.Warper;
+            return true;
+        }
+
+        public ScottyboiWarpProvider(string pluginDir, Action<string> say, MovementArbiter movement)
         {
             _say = say;
             _movement = movement;
+            _landingPath = Path.Combine(pluginDir, "RKMissionData", "scottyboi-landings.json");
+            LoadLandings();
             Network.ChatMessageReceived += OnChatMessage;
             Team.TeamRequest += OnTeamRequest;
             Game.TeleportStarted += OnTeleportStarted;
@@ -129,6 +163,7 @@ namespace RKmission
                 _movement.Release(MovementOwner.WarpTravel);
                 if (_joinedByProvider && Team.IsInTeam) Team.Leave();
                 _joinedByProvider = false;
+                RecordLanding();
                 _say($"Warp to playfield {_targetId} verified after zoning settled.");
                 return WarpResult.Succeeded;
             }
@@ -670,6 +705,79 @@ namespace RKmission
                 default:
                     return new[] { enumName };
             }
+        }
+
+        private static float HorizontalDistance(float[] point, Vector3 anchor)
+        {
+            float dx = point[0] - anchor.X, dz = point[2] - anchor.Z;
+            return (float)Math.Sqrt(dx * dx + dz * dz);
+        }
+
+        private static bool ValidLanding(ObservedLanding landing) =>
+            landing != null && landing.DestinationPlayfield > 0 &&
+            landing.DestinationPlayfield != (int)PlayfieldId.FixerGrid &&
+            !string.IsNullOrWhiteSpace(landing.Warper) &&
+            Regex.IsMatch(landing.Warper, "^[a-z][a-z0-9_-]{2,24}$",
+                RegexOptions.IgnoreCase) &&
+            !IsBlacklistedRoute(landing.DestinationPlayfield, landing.Warper) &&
+            landing.ArrivalPosition != null && landing.ArrivalPosition.Length == 3 &&
+            landing.ArrivalPosition.All(x => !float.IsNaN(x) && !float.IsInfinity(x) &&
+                Math.Abs(x) <= 100000f) &&
+            landing.ArrivalPosition.Any(x => x != 0f) &&
+            landing.VerifiedUtc > new DateTime(2020, 1, 1) &&
+            landing.VerifiedUtc <= DateTime.UtcNow.AddDays(1);
+
+        private void LoadLandings()
+        {
+            try
+            {
+                if (!File.Exists(_landingPath)) return;
+                var records = JsonConvert.DeserializeObject<List<ObservedLanding>>(
+                    File.ReadAllText(_landingPath));
+                if (records == null || records.Count > 1000 || records.Any(x => !ValidLanding(x)))
+                    throw new InvalidDataException("Invalid Scottyboi landing records.");
+                foreach (ObservedLanding record in records.OrderBy(x => x.VerifiedUtc))
+                {
+                    _landings.RemoveAll(x => x.DestinationPlayfield == record.DestinationPlayfield &&
+                        string.Equals(x.Warper, record.Warper, StringComparison.OrdinalIgnoreCase));
+                    _landings.Add(record);
+                }
+            }
+            catch (Exception ex)
+            {
+                _landingsWritable = false;
+                _say("Scottyboi landing data ignored and original file preserved: " + ex.Message);
+            }
+        }
+
+        private void RecordLanding()
+        {
+            if (string.IsNullOrWhiteSpace(_warperName) || DynelManager.LocalPlayer == null ||
+                Playfield.ModelIdentity.Instance != _targetId ||
+                !AcceptedMissions.Finite(DynelManager.LocalPlayer.Position)) return;
+            Vector3 position = DynelManager.LocalPlayer.Position;
+            var record = new ObservedLanding
+            {
+                DestinationPlayfield = _targetId,
+                Warper = _warperName,
+                ArrivalPosition = new[] { position.X, position.Y, position.Z },
+                VerifiedUtc = DateTime.UtcNow
+            };
+            if (!ValidLanding(record)) return;
+            _landings.RemoveAll(x => x.DestinationPlayfield == _targetId &&
+                string.Equals(x.Warper, _warperName, StringComparison.OrdinalIgnoreCase));
+            _landings.Add(record);
+            if (!_landingsWritable) return;
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(_landingPath));
+                string temp = _landingPath + ".new";
+                File.WriteAllText(temp, JsonConvert.SerializeObject(_landings, Formatting.Indented));
+                if (File.Exists(_landingPath)) File.Replace(temp, _landingPath, null);
+                else File.Move(temp, _landingPath);
+                _say($"Recorded verified Scottyboi landing for {_targetId} via {_warperName}.");
+            }
+            catch (Exception ex) { _say("Could not save Scottyboi landing: " + ex.Message); }
         }
 
         public void Reset()

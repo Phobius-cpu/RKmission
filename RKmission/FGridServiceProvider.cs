@@ -135,8 +135,32 @@ namespace RKmission
 
         public string LastFailure { get; private set; }
         public bool IsConfigured => _services.Count > 0;
+        public bool CanStartFromCurrentPlayfield =>
+            Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid ||
+            _services.Any(x => x.PlayfieldId <= 0 ||
+                x.PlayfieldId == Playfield.ModelIdentity.Instance);
         public bool IsActive => _state != State.Idle && _state != State.Done && _state != State.Failed;
         public bool CanRoute(int targetId) => _knownExits.ContainsKey(targetId) || _exitRoutes.ContainsKey(targetId);
+        public bool TryGetBestArrival(int targetId, Vector3 anchor, out Vector3 arrival,
+            out float distance, out int portalIdentity)
+        {
+            arrival = default;
+            distance = 0;
+            portalIdentity = 0;
+            if (!AcceptedMissions.Finite(anchor) ||
+                !_knownExits.TryGetValue(targetId, out List<SurveyExit> exits)) return false;
+            int minimumFloor = Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid &&
+                DynelManager.LocalPlayer != null
+                ? Math.Max(0, (int)(DynelManager.LocalPlayer.Position.Y / 10f)) : 0;
+            SurveyExit best = exits.Where(x => x.Floor >= minimumFloor)
+                .OrderBy(x => OutdoorCost(x, anchor)).FirstOrDefault();
+            if (best == null) return false;
+            arrival = new Vector3(best.ArrivalPosition[0], best.ArrivalPosition[1],
+                best.ArrivalPosition[2]);
+            distance = OutdoorCost(best, anchor);
+            portalIdentity = best.PortalIdentity;
+            return true;
+        }
         public int SurveyedDestinationCount => _knownExits.Count;
         public string MappedDestinations => !_exitRoutes.Any() && !_knownExits.Any() ? "none" :
             string.Join(",", _exitRoutes.Keys.Concat(_knownExits.Keys).Distinct().OrderBy(x => x));
