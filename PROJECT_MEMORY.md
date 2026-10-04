@@ -2695,3 +2695,10 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 - Dungeon entry snapshots inventory identities; verified exit classifies newly acquired items and records a `LogisticsRequired` capacity marker without selling/banking or waiting to mark the mission complete. Active mission items stay in main inventory until their objective interaction is done.
 - For Milky Way only, Scottyboi's `Warpdude31` assignment is excluded due to the 22:27 mission `1442967240` post-warp `FlyAvoidObstacle` hard failure. Retry a verified destination command for another warper, then fall back through ordinary travel when bounded retries fail. No arrival coordinate was supplied.
 - Build with pinned AOSharp SDK passed with zero errors. Live AO verification and vendor/bank interface evidence remain outstanding. See `docs/history/2026-10-04-managerloot-milky-way-follow-up.md`.
+
+## 2026-10-04 pause checkpoint for next session
+
+- The user asked to save memory and conversation history on GitHub and resume work later. The implementation checkpoint was pushed to `main` as commits `b3e2648`, `2c9334d`, and `40cc1af828a80541e2dbf91fefd25cb54fa68064`; the final one was confirmed on remote `main`. The working tree was clean before this documentation checkpoint.
+- Verification at that checkpoint: pinned AOSharp SDK build succeeded with 0 errors and 512 warnings; nine bag-family cases, ordering, and three destination/warper-pair cases passed focused reflection checks. No live AO client test was performed.
+- On resumption, fetch latest `main` first. Check live three-stall combat recovery, objective-room navigation, ManagerLoot rule/editor and backpack behavior, post-exit item classification, and Milky Way alternate Scottyboi assignment/fallback. Preserve all later commits. Use logs from actual AO runs to adjust bounded retries or safe movement.
+- Bank/archive, vendor sale, bag creation, and movement of active objective items to `RKM Mission` remain deferred until their AOSharp interfaces and in-game behavior are verified. No automated sale, deletion, or bank transfer was introduced by this checkpoint.

@@ -1646,3 +1646,7 @@ and compile; live ramp navigation remains unverified.
 ## 2026-10-04 - ManagerLoot policy and Milky Way Scottyboi exclusion
 
 The user asked to continue on the latest `main`, preserve recent combat/dungeon/travel changes, make ManagerLoot authoritative for permanent item value, add safe RKM bag-family behavior and a single classification API, prepare only evidence-backed logistics hooks, and exclude `Warpdude31` for Milky Way after a verified post-warp local-travel hard failure. Latest `main` was `2ff3e6c`; it already contained the recoverable three-stall combat result and room deferral. This follow-up retained those changes and implemented the loot, storage, post-exit classification and destination/warper exclusion described in `docs/history/2026-10-04-managerloot-milky-way-follow-up.md`. The pinned SDK build passed with zero errors; live AO behavior remains unverified.
+
+## 2026-10-04 - Save handoff before resuming later
+
+The user requested: "save memories and conversations on github, we retake work later." The implementation was already pushed to `main` in commits `b3e2648`, `2c9334d`, and `40cc1af828a80541e2dbf91fefd25cb54fa68064`. This documentation checkpoint records the pause and next-session handoff in `PROJECT_MEMORY.md`. The next session should inspect the then-current remote `main` before editing, retain newer work, and use live AO evidence to verify combat recovery, ManagerLoot storage/classification and the Milky Way Scottyboi alternate/fallback. Vendor/bank automation awaits verified interfaces.
