@@ -835,6 +835,10 @@ namespace RKmission
                     _terminalPosition = _terminal.Position;
                 else if (CurrentService.GridTerminalPosition is float[] configured && configured.Length == 3)
                     _terminalPosition = new Vector3(configured[0], configured[1], configured[2]);
+                else if (Playfield.ModelIdentity.Instance == 655 &&
+                    _routes.TryGetEndpoint("Terminal to grid ICC", 655,
+                        DynelManager.LocalPlayer.Position, out Vector3 recordedTerminal))
+                    _terminalPosition = recordedTerminal;
                 else if (!_entrancePositions.TryGetValue(Playfield.ModelIdentity.Instance,
                     out _terminalPosition))
                 {
@@ -857,7 +861,8 @@ namespace RKmission
                 }
                 if (Vector3.Distance(DynelManager.LocalPlayer.Position, _terminalPosition) > 3f)
                 {
-                    if (_movement.Owner != MovementOwner.FGridTravel || !SMovementController.IsNavigating())
+                    if (!_routes.TryNavigate(_terminalPosition, _movement, MovementOwner.FGridTravel) &&
+                        (_movement.Owner != MovementOwner.FGridTravel || !SMovementController.IsNavigating()))
                         _movement.SetDestination(MovementOwner.FGridTravel, _terminalPosition);
                     return FGridServiceResult.InProgress;
                 }

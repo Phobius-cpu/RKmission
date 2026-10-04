@@ -3,11 +3,14 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using AOSharp.Common.GameData;
+using AOSharp.Core;
 using AOSharp.Core.Inventory;
 using Newtonsoft.Json;
 
 namespace RKmission
 {
+    internal enum InventorySettlement { Moving, Ready, NeedsSpace, Blocked }
+
     // Only optional corpse/chest work is suppressed; objective interactions
     // continue through MissionObjective and retain their own free-slot checks.
     internal sealed class InventoryPolicy
@@ -15,13 +18,97 @@ namespace RKmission
         public int MinimumFreeSlots { get; set; } = 3;
         [JsonIgnore] public bool SkipOptionalLoot { get; private set; }
         private HashSet<Identity>? _inventoryAtDungeonEntry;
+        private Identity _pendingItem = Identity.None, _pendingBag = Identity.None;
+        private DateTime _moveSent;
+        private DateTime _settlementStarted;
+        private int _moveAttempts;
+        private int _stagedRejects;
+        [JsonIgnore] public string? SettlementFailure { get; private set; }
 
         public void BeginMissionInventorySnapshot()
         {
+            _pendingItem = _pendingBag = Identity.None;
+            _moveAttempts = 0;
+            _stagedRejects = 0;
+            _settlementStarted = DateTime.MinValue;
+            SettlementFailure = null;
             _inventoryAtDungeonEntry = new HashSet<Identity>(Inventory.Items
                 .Where(item => item.Slot.Type == IdentityType.Inventory &&
                     item.UniqueIdentity.Type != IdentityType.Container)
                 .Select(item => item.UniqueIdentity));
+        }
+
+        // Reuse Manager.Loot's value decision and the AOSharp item transfer.
+        // Only newly collected rejects enter a pre-existing RKM Sell bag. This
+        // staging move is checked against both inventories; it is not a sale.
+        public InventorySettlement TickAfterVerifiedExit(ManagerLoot.ManagerLoot loot, Action<string> say)
+        {
+            if (_settlementStarted == DateTime.MinValue)
+                _settlementStarted = DateTime.UtcNow;
+            if (DateTime.UtcNow - _settlementStarted > TimeSpan.FromMinutes(2))
+            {
+                SettlementFailure = "Post-exit item staging made no safe completion within two minutes.";
+                return InventorySettlement.Blocked;
+            }
+            if (_pendingItem != Identity.None)
+            {
+                bool inMain = Inventory.Items.Any(x => x.Slot.Type == IdentityType.Inventory &&
+                    x.UniqueIdentity == _pendingItem);
+                bool inBag = Inventory.GetContainerItems(_pendingBag).Any(x =>
+                    x.UniqueIdentity == _pendingItem);
+                if (!inMain && inBag)
+                {
+                    _pendingItem = _pendingBag = Identity.None;
+                    _moveAttempts = 0;
+                    _stagedRejects++;
+                }
+                else if (DateTime.UtcNow - _moveSent < TimeSpan.FromSeconds(5))
+                    return InventorySettlement.Moving;
+                else if (!inMain || _moveAttempts >= 2)
+                {
+                    SettlementFailure = $"Move to RKM Sell was not verified for item {_pendingItem}.";
+                    return InventorySettlement.Blocked;
+                }
+            }
+            if (_inventoryAtDungeonEntry != null)
+            {
+                foreach (Item item in Inventory.Items.Where(x =>
+                    x.Slot.Type == IdentityType.Inventory &&
+                    x.UniqueIdentity.Type != IdentityType.Container &&
+                    !_inventoryAtDungeonEntry.Contains(x.UniqueIdentity) &&
+                    (_pendingItem == Identity.None || x.UniqueIdentity == _pendingItem)))
+                {
+                    if (loot.Classify(item, newlyAcquiredDuringMission: true) !=
+                        ManagerLoot.ItemClassification.Reject) continue;
+                    var bag = Inventory.Backpacks
+                        .Where(x => ManagerLoot.ManagedBagFamily.Matches(x.Name,
+                            ManagerLoot.ManagedBagFamily.Sell) && x.Items.Count < 21)
+                        .OrderBy(x => ManagerLoot.ManagedBagFamily.Order(x.Name,
+                            ManagerLoot.ManagedBagFamily.Sell)).FirstOrDefault();
+                    if (bag == null) break;
+                    if (_pendingItem != item.UniqueIdentity)
+                    {
+                        _pendingItem = item.UniqueIdentity;
+                        _moveAttempts = 0;
+                    }
+                    _pendingBag = bag.Identity;
+                    if (Item.HasPendingUse || Spell.HasPendingCast)
+                        return InventorySettlement.Moving;
+                    item.MoveToContainer(bag);
+                    _moveSent = DateTime.UtcNow;
+                    _moveAttempts++;
+                    return InventorySettlement.Moving;
+                }
+            }
+            if (_pendingItem != Identity.None)
+            {
+                SettlementFailure = $"No available RKM Sell bag to verify/retry item {_pendingItem}.";
+                return InventorySettlement.Blocked;
+            }
+            if (_stagedRejects > 0)
+                say($"Verified {_stagedRejects} newly collected reject item(s) staged in RKM Sell bag(s); no sale was performed.");
+            bool enough = ClassifyAfterVerifiedExit(loot, say);
+            return enough ? InventorySettlement.Ready : InventorySettlement.NeedsSpace;
         }
 
         public static InventoryPolicy Load(string pluginDir, Action<string> say)
@@ -50,8 +137,7 @@ namespace RKmission
                 : $"Inventory recovered to {Inventory.NumFreeSlots} free slots; optional loot resumed.");
         }
 
-        // Called only after the dungeon exit is verified. Classification is
-        // informational until bank/vendor interactions have live API evidence.
+        // Called after verified staging, if any. No bank/vendor action occurs.
         public bool ClassifyAfterVerifiedExit(ManagerLoot.ManagerLoot loot, Action<string> say)
         {
             var classes = Inventory.Items
