@@ -8,7 +8,7 @@ using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
 
 namespace RKmission
 {
-    internal enum MissionProgress { Accepted, InProgress, RemovedUnconfirmed, CompletedAutomatically, CompletedByUser }
+    internal enum MissionProgress { Accepted, InProgress, AwaitingHandIn, RemovedUnconfirmed, CompletedAutomatically, CompletedByUser }
     internal enum RkMissionKind { Unknown, FindItem, ReturnItem, Repair, FindPerson, KillPerson }
 
     // Managed snapshots only: AO# Mission pointers are refreshed, never retained across zoning/removal.

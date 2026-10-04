@@ -28,6 +28,8 @@ namespace RKmission
         public int Floor { get; set; }
         public string TravelProvider { get; set; }
         public string ObjectiveState { get; set; }
+        // Set only after observed zoning out of the exact completed dungeon.
+        public bool PendingHandInExitVerified { get; set; }
         public MissionExecutionRecord Execution { get; set; }
 
         private string _path;

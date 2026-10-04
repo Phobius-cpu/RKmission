@@ -23,6 +23,8 @@ namespace RKmission
         private InventoryPolicy _inventory;
         private DeathRecoveryController _deathRecovery;
         private readonly AcceptedMissions _missions = new AcceptedMissions();
+        private readonly ReturnItemHandIn _handIn = new ReturnItemHandIn();
+        private LogisticsProbe _logisticsProbe;
         private LocalMissionTravel _travel;
         private MovementArbiter _movement;
         private ScottyboiWarpProvider _warp;
@@ -54,6 +56,8 @@ namespace RKmission
         private DateTime _dungeonObservedAt, _nextTick, _nextSelection, _handoffWaitStarted;
         private string _waitingReason;
         private bool _exitZoningStarted;
+        private bool _handInExitVerified;
+        private DateTime _handInLocateStarted;
         private int _completedMissionWarpTarget;
         private bool _completedMissionWarpAttempted;
         private string _lifecycleSignature;
@@ -73,6 +77,7 @@ namespace RKmission
             _loot.RunEmbedded(System.IO.Path.Combine(pluginDir, "Plugins", "ManagerLoot"), MaliMissionRoller2.Main.Window, _roller.ShowRoller);
             _readiness = new MissionReadiness(Say, MissionReadinessSettings.Load(pluginDir, Say));
             _inventory = InventoryPolicy.Load(pluginDir, Say);
+            _logisticsProbe = new LogisticsProbe(Say);
             _dungeon = new MissionDungeon(Say, _loot, _readiness, _inventory);
             _deathRecovery = new DeathRecoveryController(_readiness, _movement, Say);
             _travel = new LocalMissionTravel(Say, pluginDir);
@@ -124,6 +129,7 @@ namespace RKmission
             _postZoneSafety?.Dispose();
             _navWindow?.Dispose();
             _navRoutes?.Dispose();
+            _logisticsProbe?.Dispose();
             Stop(true);
             Game.OnUpdate -= Update;
             Game.TeleportStarted -= ZoningStarted;
@@ -257,7 +263,7 @@ namespace RKmission
                     foreach (AcceptedMission record in _missions.Records.OrderBy(x => x.Id.Instance))
                         Say($"{record.Id.Instance}: {record.Name}; playfield={record.PlayfieldId}, entrance={record.Entrance}; " +
                             $"type={record.Kind}, objective={record.Objectives}; state={record.State}, accepted={record.Present}, RK destination={record.IsRubiKaDestination}, " +
-                            $"rooms cleared={record.RoomsCleared}, manual return hand-in pending={record.ReturnHandInPending}, evidence={record.CompletionEvidence ?? "none"}.");
+                            $"rooms cleared={record.RoomsCleared}, return hand-in pending={record.ReturnHandInPending}, evidence={record.CompletionEvidence ?? "none"}.");
                     if (!_missions.Records.Any()) Say("No accepted Rubi-Ka mission destinations detected.");
                     break;
                 case "complete": ConfirmCompletion(args); break;
@@ -311,13 +317,24 @@ namespace RKmission
                     Say(_fgrid.SurveySummary + " Use /rkm fgrid scan for floor counts, or /rkm fgrid nav for mesh status.");
                     break;
                 case "loot": _loot.ShowSettingsTab(); break;
+                case "logistics":
+                    if (args.Length == 3 && args[1].Equals("probe", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (args[2].Equals("start", StringComparison.OrdinalIgnoreCase))
+                            _logisticsProbe.Start();
+                        else if (args[2].Equals("stop", StringComparison.OrdinalIgnoreCase))
+                            _logisticsProbe.Stop();
+                        else Say("Usage: /rkm logistics probe start|stop.");
+                    }
+                    else Say("Usage: /rkm logistics probe start|stop.");
+                    break;
                 case "map": _map.ToggleWindow(); break;
                 case "settings":
                     if (MaliMissionRoller2.Main.Window?.Window?.IsValid != true)
                         _roller.ShowRoller();
                     MaliMissionRoller2.Main.Window?.ShowSettingsTab();
                     break;
-                default: Say("Commands: start, auto, local, stop, status, missions, zone <id|all>, rolls <count>, limit <count|off>, travel auto|ground|flying, fgrid [scan|nav], nav [window]|record [name]|stop|list, complete [mission id], loot, map, settings."); break;
+                default: Say("Commands: start, auto, local, stop, status, missions, zone <id|all>, rolls <count>, limit <count|off>, travel auto|ground|flying, fgrid [scan|nav], nav [window]|record [name]|stop|list, logistics probe start|stop, complete [mission id], loot, map, settings."); break;
             }
         }
 
@@ -333,6 +350,9 @@ namespace RKmission
             _mapMission = _handoffDoor = Identity.None;
             _verifiedRun = false;
             _exitZoningStarted = false;
+            _handInExitVerified = false;
+            _handInLocateStarted = DateTime.MinValue;
+            _handIn.Reset();
             _completedMissionWarpTarget = 0;
             _completedMissionWarpAttempted = false;
             _lifecycleSignature = null;
@@ -369,6 +389,9 @@ namespace RKmission
             _autoCycle = false;
             _recoveringDeath = false;
             _exitZoningStarted = false;
+            _handInExitVerified = false;
+            _handInLocateStarted = DateTime.MinValue;
+            _handIn.Reset();
             _completedMissionWarpTarget = 0;
             _completedMissionWarpAttempted = false;
             _deathRecovery?.Stop();
@@ -409,6 +432,8 @@ namespace RKmission
                 return;
             }
             _selected.State = MissionProgress.CompletedByUser;
+            _selected.ReturnHandInPending = false;
+            _handIn.Reset();
             _selected.CompletionEvidence = "User confirmed the objective/reward with /rkm complete";
             _travel.Reset();
             _waitingReason = null;
@@ -491,11 +516,6 @@ namespace RKmission
                 _handoffWaitStarted = DateTime.MinValue;
                 if (_selected != null && _verifiedRun)
                 {
-                    if (!_selected.Completed)
-                    {
-                        Wait("The previous mission has no confirmed reward. Check it and use /rkm complete; /rkm stop then start abandons this run binding.");
-                        return;
-                    }
                     bool warpExitVerified = false;
                     if (_completedMissionWarpTarget != 0)
                     {
@@ -515,19 +535,37 @@ namespace RKmission
                             if (warpResult == WarpResult.Failed) _completedMissionWarpTarget = 0;
                         }
                     }
-                    if (!warpExitVerified && (!_exitZoningStarted ||
+                    if (!warpExitVerified && !_handInExitVerified && (!_exitZoningStarted ||
                         Playfield.ModelIdentity.Instance != _selected.PlayfieldId))
                     {
-                        Wait($"Mission completion is confirmed, but exit proof is incomplete: " +
+                        Wait($"Mission exit proof is incomplete: " +
                             $"exit zoning={_exitZoningStarted}, outdoor playfield={Playfield.ModelIdentity.Instance}, " +
                             $"expected={_selected.PlayfieldId}. Chaining is held.");
                         return;
                     }
-                    Say(warpExitVerified
-                        ? $"Verified Scottyboi warp from completed mission {_selected.Id.Instance} to playfield {_completedMissionWarpTarget}."
-                        : $"Verified exit from mission {_selected.Id.Instance} to its outdoor playfield {_selected.PlayfieldId}.");
+                    if (!_handInExitVerified)
+                        Say(warpExitVerified
+                            ? $"Verified Scottyboi warp from completed mission {_selected.Id.Instance} to playfield {_completedMissionWarpTarget}."
+                            : $"Verified exit from mission {_selected.Id.Instance} to its outdoor playfield {_selected.PlayfieldId}.");
+                    if (_selected.ReturnHandInPending)
+                    {
+                        _handInExitVerified = true;
+                        if (!TickReturnHandIn()) return;
+                    }
+                    if (!_selected.Completed)
+                    {
+                        Wait("The previous mission has no confirmed reward. Check it and use /rkm complete; /rkm stop then start abandons this run binding.");
+                        return;
+                    }
                     if (_checkpoint?.Execution != null) _checkpoint.Execution.Phase = "InventoryClassification";
-                    bool capacityReady = _inventory.ClassifyAfterVerifiedExit(_loot, Say);
+                    InventorySettlement settlement = _inventory.TickAfterVerifiedExit(_loot, Say);
+                    if (settlement == InventorySettlement.Moving) return;
+                    if (settlement == InventorySettlement.Blocked)
+                    {
+                        string reason = _inventory.SettlementFailure;
+                        Stop(); Say("Post-mission item staging stopped: " + reason); return;
+                    }
+                    bool capacityReady = settlement == InventorySettlement.Ready;
                     if (_checkpoint?.Execution != null)
                         _checkpoint.Execution.Phase = capacityReady ? "ExitVerified" : "LogisticsRequired";
                     int previousPlayfield = _selected.PlayfieldId;
@@ -536,6 +574,8 @@ namespace RKmission
                     _exitZoningStarted = false;
                     _completedMissionWarpTarget = 0;
                     _completedMissionWarpAttempted = false;
+                    _handInExitVerified = false;
+                    _handIn.Reset();
                     _travel.Reset();
                     _nextSelection = DateTime.MinValue;
                     if (Playfield.ModelIdentity.Instance != previousPlayfield ||
@@ -568,6 +608,12 @@ namespace RKmission
                 {
                     if (DateTime.UtcNow < _nextSelection) return;
                     _nextSelection = DateTime.UtcNow.AddSeconds(5);
+                    if (_autoCycle && Inventory.NumFreeSlots < _inventory.MinimumFreeSlots)
+                    {
+                        Wait($"Inventory needs {_inventory.MinimumFreeSlots} free main slots before another mission; " +
+                            "RKM Sell staging has no verified vendor/bank disposal step.");
+                        return;
+                    }
                     // After a stop/restart, finish every already accepted mission
                     // before refilling the batch. An unavailable quest list is
                     // not proof that the accepted work has disappeared.
@@ -717,6 +763,18 @@ namespace RKmission
             _clearAcceptedBeforeRolling = _autoCycle;
             Start();
             _selected = record;
+            if (_checkpoint.PendingHandInExitVerified && !Playfield.IsDungeon &&
+                record.Kind == RkMissionKind.ReturnItem && record.Present &&
+                record.Actions?.OfType<UseItemOnItemAction>().Any(x =>
+                    x.Destination == record.Source && Inventory.Items.Any(item =>
+                        item.Slot.Type == IdentityType.Inventory && item.UniqueIdentity == x.Source)) == true)
+            {
+                record.ReturnHandInPending = true;
+                record.RoomsCleared = true;
+                record.State = MissionProgress.AwaitingHandIn;
+                _verifiedRun = _handInExitVerified = true;
+                Say($"Reconciled verified exit for return-item mission {record.Id.Instance}; resuming exact-source hand-in.");
+            }
             if (Playfield.IsDungeon && Playfield.ModelIdentity.Instance == _checkpoint.DungeonInstance &&
                 MissionEntranceResolver.VerifyCurrentDungeon(Mission.List.FirstOrDefault(x => x.Identity == record.Id), out _))
             {
@@ -753,6 +811,8 @@ namespace RKmission
             _checkpoint.Floor = _dungeon?.Floor ?? 0;
             _checkpoint.TravelProvider = _longTravel?.CurrentProvider ?? "Local";
             _checkpoint.ObjectiveState = _dungeon?.Objective?.Evidence ?? _selected?.CompletionEvidence;
+            _checkpoint.PendingHandInExitVerified = _handInExitVerified &&
+                _selected?.ReturnHandInPending == true;
             if (_dungeon?.IsRunning == true) _checkpoint.Execution = _dungeon.Snapshot();
             _checkpoint.Save(false, Say);
         }
@@ -846,15 +906,18 @@ namespace RKmission
                 {
                     _clearanceReported = true;
                     _selected.RoomsCleared = true;
-                    if (!_selected.Completed)
+                    if (_selected.ReturnHandInPending)
+                    {
+                        _selected.State = MissionProgress.AwaitingHandIn;
+                        _selected.CompletionEvidence = "Return item collected; bound quest hand-in/reward is pending";
+                    }
+                    else if (!_selected.Completed)
                     {
                         _selected.State = MissionProgress.CompletedAutomatically;
-                        _selected.CompletionEvidence = _selected.ReturnHandInPending
-                            ? "Return objective item collected after dungeon clearance; terminal hand-in/reward remains manual"
-                            : _dungeon.Objective.Evidence;
+                        _selected.CompletionEvidence = _dungeon.Objective.Evidence;
                     }
                     Say(_selected.ReturnHandInPending
-                        ? "Return item collected, all rooms cleared and loot processed. Run marked completed; hand-in is manual. Automatically exiting."
+                        ? "Return item collected, all rooms cleared and loot processed. Exiting for exact-source hand-in; reward remains pending."
                         : "Objective acknowledged, all rooms cleared and loot processed. Automatically returning to the mission exit.");
                 }
                 return;
@@ -1131,6 +1194,56 @@ namespace RKmission
                 _movement.SetDestination(MovementOwner.OutdoorTravel, _rollTerminalPosition);
                 _nextReturnMove = DateTime.UtcNow.AddSeconds(3);
             }
+            return false;
+        }
+
+        private bool TickReturnHandIn()
+        {
+            UseItemOnItemAction action = _selected.Actions?.OfType<UseItemOnItemAction>()
+                .FirstOrDefault(x => x.Destination == _selected.Source);
+            Dynel target = action == null ? null : DynelManager.GetDynel(action.Destination);
+            if (target != null &&
+                Vector3.Distance(DynelManager.LocalPlayer.Position, target.Position) <= 2.5f)
+                _movement.Halt(MovementOwner.OutdoorTravel);
+            HandInResult result = _handIn.Tick(_selected);
+            if (result == HandInResult.Confirmed)
+            {
+                _movement.Release(MovementOwner.OutdoorTravel);
+                _selected.ReturnHandInPending = false;
+                _selected.State = MissionProgress.CompletedAutomatically;
+                _selected.CompletionEvidence =
+                    "Exact return item used on the bound mission source; item consumed and bound quest absent for 2 s";
+                _handInLocateStarted = DateTime.MinValue;
+                Say($"Return-item hand-in confirmed for mission {_selected.Id.Instance}; the bound quest cleared and chaining may proceed.");
+                return true;
+            }
+            if (result == HandInResult.Blocked)
+            {
+                string reason = _handIn.Failure;
+                Stop();
+                Say("Automatic return-item hand-in stopped: " + reason);
+                return false;
+            }
+            if (target != null)
+            {
+                _handInLocateStarted = DateTime.MinValue;
+                if (Vector3.Distance(DynelManager.LocalPlayer.Position, target.Position) > 2.5f)
+                    _movement.SetDestination(MovementOwner.OutdoorTravel, target.Position);
+                else _movement.Halt(MovementOwner.OutdoorTravel);
+                return false;
+            }
+            if (_handInLocateStarted == DateTime.MinValue)
+                _handInLocateStarted = DateTime.UtcNow;
+            if (_hasRollTerminal && _selected.Source.Type == IdentityType.MissionTerminal)
+            {
+                if (!ReturnToRollTerminal()) return false;
+                if (DateTime.UtcNow - _handInLocateStarted < TimeSpan.FromSeconds(30))
+                { Wait("At the saved roller location; waiting for the exact return terminal identity to appear."); return false; }
+            }
+            else if (DateTime.UtcNow - _handInLocateStarted < TimeSpan.FromMinutes(4))
+            { Wait("Waiting for the bound return terminal to become visible; its location is not verified."); return false; }
+            Stop();
+            Say("Automatic hand-in stopped: the exact mission source was not visible at a verified terminal location.");
             return false;
         }
 
