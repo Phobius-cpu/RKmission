@@ -44,6 +44,27 @@ namespace RKmission
                 .Where(terminal => terminal != null).ToList();
             return matches.Count == 1 ? matches[0] : null;
         }
+        public Dynel FindVerifiedShopActor(string requiredIdentity = null)
+        {
+            if (Game.IsZoning || DynelManager.LocalPlayer == null) return null;
+            var routes = _route == null ? _catalog.Routes.Where(x => x.Purpose == "shop") :
+                _atTarget && _route.Purpose == "shop" ? new[] { _route } :
+                Enumerable.Empty<LogisticsRouteCatalog.Route>();
+            Vector3 player = DynelManager.LocalPlayer.Position;
+            var matches = routes.Where(route =>
+                    Playfield.ModelIdentity.Instance == route.DestinationPlayfield &&
+                    Vector3.Distance(player, V(route.DestinationPosition)) <= 8f)
+                .Select(route => DynelManager.AllDynels.FirstOrDefault(actor =>
+                    actor.Identity.Type == IdentityType.VendingMachine &&
+                    string.Equals(actor.Identity.ToString(), route.DestinationIdentity,
+                        StringComparison.OrdinalIgnoreCase) &&
+                    (requiredIdentity == null || string.Equals(actor.Identity.ToString(), requiredIdentity,
+                        StringComparison.OrdinalIgnoreCase)) &&
+                    Vector3.Distance(actor.Position, V(route.DestinationPosition)) <= 8f &&
+                    Vector3.Distance(actor.Position, player) <= 8f))
+                .Where(actor => actor != null).ToList();
+            return matches.Count == 1 ? matches[0] : null;
+        }
         public string BankTargetDiagnostic()
         {
             if (Game.IsZoning || DynelManager.LocalPlayer == null) return "player is zoning or unavailable";
@@ -281,16 +302,15 @@ namespace RKmission
             }
             else
             {
-                Dynel actor = DynelManager.AllDynels.FirstOrDefault(x =>
-                    string.Equals(x.Identity.ToString(), _route.DestinationIdentity,
-                        StringComparison.OrdinalIgnoreCase) && Vector3.Distance(x.Position, target) <= 8f);
+                Dynel actor = FindVerifiedShopActor();
                 liveTarget = actor == null ? "shop actor identity not verified by the live dynel list" :
                     $"surveyed shop actor {actor.Identity} visible";
             }
             string action = _route.Purpose == "bank"
                 ? "Use /rkm logistics bank test or bank store [1-20] for verified Keep-item transfers, " +
                   "or use the bank manually; then /rkm logistics return"
-                : "Use the shop manually, then /rkm logistics return";
+                : "Use /rkm logistics shop test to sell one verified Reject item, " +
+                  "or use the shop manually; then /rkm logistics return";
             _say($"Reached the surveyed {_route.Site}/{_route.Purpose} position in PF {_route.DestinationPlayfield}. " +
                 $"{liveTarget}. {action}; no item was moved by the route test.");
         }
