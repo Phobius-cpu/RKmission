@@ -81,7 +81,7 @@ namespace RKmission
             _loot.RunEmbedded(System.IO.Path.Combine(pluginDir, "Plugins", "ManagerLoot"), MaliMissionRoller2.Main.Window, _roller.ShowRoller);
             _readiness = new MissionReadiness(Say, MissionReadinessSettings.Load(pluginDir, Say));
             _inventory = InventoryPolicy.Load(pluginDir, Say);
-            _logisticsProbe = new LogisticsProbe(pluginDir, Say);
+            _logisticsProbe = new LogisticsProbe(pluginDir, _loot, Say);
             _dungeon = new MissionDungeon(Say, _loot, _readiness, _inventory);
             _deathRecovery = new DeathRecoveryController(_readiness, _movement, Say);
             _travel = new LocalMissionTravel(Say, pluginDir);
@@ -329,17 +329,24 @@ namespace RKmission
                         if (args[2].Equals("start", StringComparison.OrdinalIgnoreCase))
                         {
                             if (args.Length == 3) _logisticsProbe.Start();
+                            else if (args.Length == 4 &&
+                                (args[3].Equals("bank", StringComparison.OrdinalIgnoreCase) ||
+                                 args[3].Equals("shop", StringComparison.OrdinalIgnoreCase)))
+                                _logisticsProbe.Start(null, args[3]);
+                            else if (args.Length == 4) _logisticsProbe.Start(args[3]);
                             else if (args.Length == 5 &&
                                 (args[4].Equals("bank", StringComparison.OrdinalIgnoreCase) ||
                                  args[4].Equals("shop", StringComparison.OrdinalIgnoreCase)))
                                 _logisticsProbe.Start(args[3], args[4]);
-                            else Say("Usage: /rkm logistics probe start <site> <bank|shop> (or start without a label).");
+                            else Say("Usage: /rkm logistics probe start [site] [bank|shop].");
                         }
                         else if (args.Length == 3 && args[2].Equals("stop", StringComparison.OrdinalIgnoreCase))
                             _logisticsProbe.Stop();
-                        else Say("Usage: /rkm logistics probe start <site> <bank|shop> | stop.");
+                        else if (args.Length == 3 && args[2].Equals("status", StringComparison.OrdinalIgnoreCase))
+                            Say("Logistics probe " + _logisticsProbe.Status + ".");
+                        else Say("Usage: /rkm logistics probe start [site] [bank|shop] | stop | status.");
                     }
-                    else Say("Usage: /rkm logistics probe start <site> <bank|shop> | stop.");
+                    else Say("Usage: /rkm logistics probe start [site] [bank|shop] | stop | status.");
                     break;
                 case "map": _map.ToggleWindow(); break;
                 case "settings":
@@ -347,7 +354,7 @@ namespace RKmission
                         _roller.ShowRoller();
                     MaliMissionRoller2.Main.Window?.ShowSettingsTab();
                     break;
-                default: Say("Commands: start, auto, local, stop, status, missions, zone <id|all>, rolls <count>, limit <count|off>, travel auto|ground|flying, fgrid [scan|nav], nav [window]|record [name]|stop|list, logistics probe start <site> <bank|shop>|stop, complete [mission id], loot, map, settings."); break;
+                default: Say("Commands: start, auto, local, stop, status, missions, zone <id|all>, rolls <count>, limit <count|off>, travel auto|ground|flying, fgrid [scan|nav], nav [window]|record [name]|stop|list, logistics probe start [site] [bank|shop]|stop|status, complete [mission id], loot, map, settings."); break;
             }
         }
 
