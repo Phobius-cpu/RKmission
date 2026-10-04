@@ -85,6 +85,7 @@ namespace RKmission
             _loot.RunEmbedded(System.IO.Path.Combine(pluginDir, "Plugins", "ManagerLoot"), MaliMissionRoller2.Main.Window, _roller.ShowRoller);
             _readiness = new MissionReadiness(Say, MissionReadinessSettings.Load(pluginDir, Say));
             _inventory = InventoryPolicy.Load(pluginDir, Say);
+            _loot.OperationalItemProtected = _inventory.IsOperationalItem;
             _logisticsProbe = new LogisticsProbe(pluginDir, _loot, Say);
             _logisticsRoutes = new LogisticsRouteCatalog(pluginDir, Say);
             _logisticsNavigator = new LogisticsRouteNavigator(_logisticsRoutes, _movement, Say);
@@ -384,6 +385,9 @@ namespace RKmission
                         args[2].Equals("stop", StringComparison.OrdinalIgnoreCase))
                         _bankTransactions.Stop();
                     else if (args.Length == 3 && args[1].Equals("shop", StringComparison.OrdinalIgnoreCase) &&
+                        args[2].Equals("preview", StringComparison.OrdinalIgnoreCase))
+                        _shopSale.Preview();
+                    else if (args.Length == 3 && args[1].Equals("shop", StringComparison.OrdinalIgnoreCase) &&
                         args[2].Equals("test", StringComparison.OrdinalIgnoreCase))
                     {
                         if (_running || _autoRolling || _pendingCheckpointResume)
@@ -423,7 +427,7 @@ namespace RKmission
                             Say("Logistics probe " + _logisticsProbe.Status + ".");
                         else Say("Usage: /rkm logistics probe start [site] [bank|shop] | stop | status.");
                     }
-                    else Say("Usage: /rkm logistics routes | travel <site> <bank|shop> | bank <test|store [1-20]|stop> | shop <test|stop> | return | stop | status | probe start [site] [bank|shop] | probe stop.");
+                    else Say("Usage: /rkm logistics routes | travel <site> <bank|shop> | bank <test|store [1-20]|stop> | shop <preview|test|stop> | return | stop | status | probe start [site] [bank|shop] | probe stop.");
                     break;
                 case "map": _map.ToggleWindow(); break;
                 case "settings":

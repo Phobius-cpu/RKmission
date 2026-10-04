@@ -2729,3 +2729,9 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 - At 21:35 the user confirmed a persistent OA bank deposit: QL 200 Cold Stone Keep, main/bank 1/0 -> 0/1, with storage completion logged. This validates the exact OA terminal and `MoveToBank` with count verification.
 - `/rkm logistics shop test` is the next explicit diagnostic. It requires the exact surveyed vending-machine actor, trade-open and ShopUpdate packets, a unique ManagerLoot Reject item (or one verified move from RKM Sell to main), matching AddItem server echo, zero-parameter NPC Accept, actor-bound Complete, item absence and nondecreasing cash. Never retry an uncertain trade action. See `docs/history/2026-10-04-shop-sale-diagnostic.md`.
 - Shop sale behavior still needs live verification before batch recycling or `/rkm auto` integration. Borealis/ICC bank/shop routes and transactions also remain live checkpoints.
+
+## 2026-10-04 OA shop sale verified; operational item protection
+
+- The user's 21:50 OA shop test confirmed one item sale, actor-bound trade completion, and a cash increase from 19,922,833 to 19,923,499. The item was an ammo box, revealing that a generic ManagerLoot Reject in main inventory is not a safe sale candidate.
+- Shop tests now select only unique Reject items from an existing RKM Sell bag, verify staging into main, and recheck classification before submission. Shared ManagerLoot classification protects ammo, lockpicks, health/nano recharge supplies, backpacks, and vehicles regardless of Reject rules. `inventory-policy.json` accepts additional protected item ids and name fragments. `/rkm logistics shop preview` reports candidates and protected items without moving anything.
+- Automatic sale remains unwired. User should compile/pull and verify preview and one sale with an expendable item already in RKM Sell. See `docs/history/2026-10-04-shop-sale-diagnostic.md`.

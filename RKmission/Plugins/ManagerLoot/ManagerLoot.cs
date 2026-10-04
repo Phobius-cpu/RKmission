@@ -131,6 +131,7 @@ namespace ManagerLoot
         // even if it entered the discovery ledger before its metadata arrived.
         public Func<MissionIdentity, bool> MissionLootReserved { get; set; }
         public Func<Item, bool> MissionItemProtected { get; set; }
+        public Func<Item, bool> OperationalItemProtected { get; set; }
         public MissionIdentity MissionObjectiveContainer { get; set; } = MissionIdentity.None;
         // RKMission temporarily owns the stationary recovery window. Preserve
         // original settings/process state and resume it after preparation.
@@ -219,7 +220,8 @@ namespace ManagerLoot
         public ItemClassification Classify(Item item, bool newlyAcquiredDuringMission = false)
         {
             if (item == null) return ItemClassification.Unknown;
-            if (ProtectedMissionItem(item) || Inventory.Backpacks.Any(bag =>
+            if (ProtectedMissionItem(item) || (OperationalItemProtected?.Invoke(item) ?? false) ||
+                Inventory.Backpacks.Any(bag =>
                 ManagedBagFamily.IsProtected(bag.Name) &&
                 Inventory.GetContainerItems(bag.Identity).Any(stored =>
                     stored.UniqueIdentity == item.UniqueIdentity)))

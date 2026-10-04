@@ -14,8 +14,7 @@ client trade target must remain that actor before an item is submitted or
 accepted.
 
 Only a ManagerLoot `Reject` item with a unique id/quality/name fingerprint in
-main inventory is selected. If none is in main inventory, one Reject from an
-existing RKM Sell bag may be moved to main and verified first. The test sends
+an existing RKM Sell bag is selected. It is moved to main and verified first. The test sends
 `Trade.AddItem` once and waits for the matching server echo and the item
 leaving main inventory. It then sends the zero-parameter NPC-shop Accept
 observed in the OA, Borealis and ICC manual probes via
@@ -26,4 +25,12 @@ trade action and tells the operator to inspect the shop window and item.
 
 This test sells exactly one item and is not connected to `/rkm auto`.
 Automatic shop recycling and full bank/shop travel scheduling remain open.
-The pinned SDK build passed; live sale behavior remains unverified.
+At 21:50 the OA shop test sold one ammo box and verified trade completion and
+cash increase. This exposed an unsafe selection rule: ammo in main inventory
+could be selected when ManagerLoot classified it Reject. The follow-up limits
+selection to RKM Sell bags and protects ammo, lockpicks, health/nano recharge
+supplies, backpacks, and vehicles in ManagerLoot's shared classification.
+Additional item ids and name fragments can be protected through
+`RKMissionData/inventory-policy.json`. `/rkm logistics shop preview` lists
+eligible and protected items without moving anything. Existing RKM Sell bag
+contents are reclassified at selection and immediately before AddItem.

@@ -38,6 +38,26 @@ namespace RKmission
             Network.N3MessageReceived += OnMessage;
         }
 
+        public void Preview()
+        {
+            Item[] main = MainItems();
+            Item[] sell = Inventory.Backpacks
+                .Where(bag => ManagerLoot.ManagedBagFamily.Matches(bag.Name,
+                    ManagerLoot.ManagedBagFamily.Sell))
+                .SelectMany(bag => Inventory.GetContainerItems(bag.Identity)).Where(x => x != null).ToArray();
+            Item[] eligible = sell.Where(x => _loot.Classify(x) == ManagerLoot.ItemClassification.Reject &&
+                main.All(y => !SameItem(x, y)) && sell.Count(y => SameItem(x, y)) == 1).ToArray();
+            Item[] protectedItems = main.Concat(sell)
+                .Where(x => _loot.Classify(x) == ManagerLoot.ItemClassification.Protected).ToArray();
+            _say($"Shop preview: {eligible.Length} unique Reject item(s) eligible from RKM Sell, " +
+                $"{protectedItems.Length} protected item(s) in main/RKM Sell, " +
+                $"main free slots={Inventory.NumFreeSlots}; no item moved.");
+            foreach (Item item in eligible.Take(8))
+                _say($"Shop eligible: '{item.Name}', id={item.Id}, QL={item.QualityLevel}.");
+            foreach (Item item in protectedItems.Take(8))
+                _say($"Shop protected: '{item.Name}', id={item.Id}, QL={item.QualityLevel}.");
+        }
+
         public void Start()
         {
             if (IsActive) { _say("A shop sale test is already active."); return; }
@@ -113,7 +133,7 @@ namespace RKmission
                 {
                     _phase = Phase.Selecting;
                     _phaseStarted = DateTime.UtcNow;
-                    _say("Exact shop trade opened and inventory update received; selecting one ManagerLoot Reject item.");
+                    _say("Exact shop trade opened and inventory update received; selecting one unprotected Reject from RKM Sell.");
                 }
                 else if (TimedOut(10)) Fail($"shop did not finish opening (trade={_openSeen}, inventory={_shopSeen})");
                 return;
@@ -126,24 +146,23 @@ namespace RKmission
                 if (Item.HasPendingUse || Spell.HasPendingCast)
                 { if (TimedOut(10)) Fail("another item use or spell remained pending"); return; }
                 Item[] main = MainItems();
-                Item item = main.Where(x => _loot.Classify(x) == ManagerLoot.ItemClassification.Reject)
-                    .Where(x => main.Count(y => SameItem(x, y)) == 1)
-                    .OrderBy(x => x.Name).ThenBy(x => x.Id).FirstOrDefault();
-                if (item != null) { BeginAdd(item); return; }
                 if (Inventory.NumFreeSlots < 1)
                 { Fail("no free main-inventory slot to stage a Reject from RKM Sell"); return; }
-                var staged = Inventory.Backpacks
+                var sellItems = Inventory.Backpacks
                     .Where(bag => ManagerLoot.ManagedBagFamily.Matches(bag.Name,
                         ManagerLoot.ManagedBagFamily.Sell))
                     .OrderBy(bag => ManagerLoot.ManagedBagFamily.Order(bag.Name,
                         ManagerLoot.ManagedBagFamily.Sell))
                     .SelectMany(bag => Inventory.GetContainerItems(bag.Identity)
-                        .Where(x => x != null && _loot.Classify(x) == ManagerLoot.ItemClassification.Reject)
-                        .Select(x => new { Bag = bag.Identity, Item = x }))
+                        .Where(x => x != null)
+                        .Select(x => new { Bag = bag.Identity, Item = x })).ToArray();
+                var staged = sellItems
+                    .Where(x => _loot.Classify(x.Item) == ManagerLoot.ItemClassification.Reject)
                     .Where(x => main.All(y => !SameItem(x.Item, y)))
+                    .Where(x => sellItems.Count(y => SameItem(x.Item, y.Item)) == 1)
                     .FirstOrDefault();
                 if (staged == null)
-                { Fail("no unambiguous ManagerLoot Reject item in main inventory or an RKM Sell bag"); return; }
+                { Fail("no unprotected, unambiguous ManagerLoot Reject item in an RKM Sell bag"); return; }
                 Remember(staged.Item);
                 _sourceBag = staged.Bag;
                 _mainBefore = main.Count(Matches);

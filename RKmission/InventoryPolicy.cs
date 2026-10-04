@@ -15,7 +15,18 @@ namespace RKmission
     // continue through MissionObjective and retain their own free-slot checks.
     internal sealed class InventoryPolicy
     {
+        private static readonly string[] BuiltInOperationalFragments = {
+            "lock pick", "lockpick", "lock-pick",
+            "nano recharg", "nano kit", "nano stim", "health laboratory",
+            "health kit", "health stim", "treatment laboratory", "treatment kit",
+            "first aid", "medical kit", "free movement", "backpack", "back pack",
+            "yalmaha", "jetbike", "kodiak", "kodaik", "vehicle", "stiletto"
+        };
         public int MinimumFreeSlots { get; set; } = 3;
+        // Additive exceptions in RKMissionData/inventory-policy.json. Built-in
+        // supply and vehicle protection remains active if these lists are empty.
+        public List<int> ProtectedItemIds { get; set; } = new List<int>();
+        public List<string> ProtectedNameFragments { get; set; } = new List<string>();
         [JsonIgnore] public bool SkipOptionalLoot { get; private set; }
         private HashSet<Identity>? _inventoryAtDungeonEntry;
         private Identity _pendingItem = Identity.None, _pendingBag = Identity.None;
@@ -24,6 +35,34 @@ namespace RKmission
         private int _moveAttempts;
         private int _stagedRejects;
         [JsonIgnore] public string? SettlementFailure { get; private set; }
+
+        // RKMission's operational inventory must never become shop input just
+        // because a value rule did not list it. ManagerLoot calls this before
+        // its Keep/Reject decision, including for items already in RKM Sell.
+        public bool IsOperationalItem(Item item)
+        {
+            if (item == null) return false;
+            if (item.UniqueIdentity.Type == IdentityType.Container) return true;
+            try { if (item.GetStat(Stat.IsVehicle) > 0) return true; }
+            catch { /* Some item views do not expose this stat; names still guard them. */ }
+            if (ProtectedItemIds.Contains(item.Id)) return true;
+            string name = item.Name?.Trim() ?? string.Empty;
+            if (ProtectedNameFragments.Any(x => !string.IsNullOrWhiteSpace(x) &&
+                name.IndexOf(x.Trim(), StringComparison.OrdinalIgnoreCase) >= 0)) return true;
+            return IsBuiltInOperationalName(name);
+        }
+
+        internal static bool IsBuiltInOperationalName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return false;
+            if (name.StartsWith("Ammo:", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("Ammo ", StringComparison.OrdinalIgnoreCase) ||
+                name.IndexOf(" Ammo", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                name.IndexOf("Ammunition", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            return BuiltInOperationalFragments.Any(x =>
+                name.IndexOf(x, StringComparison.OrdinalIgnoreCase) >= 0);
+        }
 
         public void BeginMissionInventorySnapshot()
         {
@@ -124,6 +163,11 @@ namespace RKmission
             }
             catch (Exception ex) { say("Inventory policy unavailable; using defaults: " + ex.Message); }
             policy.MinimumFreeSlots = Math.Max(1, Math.Min(20, policy.MinimumFreeSlots));
+            policy.ProtectedItemIds = policy.ProtectedItemIds?.Where(x => x > 0).Distinct().ToList() ??
+                new List<int>();
+            policy.ProtectedNameFragments = policy.ProtectedNameFragments?
+                .Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList() ?? new List<string>();
             return policy;
         }
 
