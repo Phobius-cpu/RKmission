@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using AOSharp.Common.GameData;
@@ -13,6 +14,15 @@ namespace RKmission
     {
         public int MinimumFreeSlots { get; set; } = 3;
         [JsonIgnore] public bool SkipOptionalLoot { get; private set; }
+        private HashSet<Identity>? _inventoryAtDungeonEntry;
+
+        public void BeginMissionInventorySnapshot()
+        {
+            _inventoryAtDungeonEntry = new HashSet<Identity>(Inventory.Items
+                .Where(item => item.Slot.Type == IdentityType.Inventory &&
+                    item.UniqueIdentity.Type != IdentityType.Container)
+                .Select(item => item.UniqueIdentity));
+        }
 
         public static InventoryPolicy Load(string pluginDir, Action<string> say)
         {
@@ -47,7 +57,10 @@ namespace RKmission
             var classes = Inventory.Items
                 .Where(item => item.Slot.Type == IdentityType.Inventory &&
                     item.UniqueIdentity.Type != IdentityType.Container)
-                .Select(item => loot.Classify(item)).ToList();
+                .Select(item => loot.Classify(item,
+                    newlyAcquiredDuringMission: _inventoryAtDungeonEntry != null &&
+                        !_inventoryAtDungeonEntry.Contains(item.UniqueIdentity))).ToList();
+            _inventoryAtDungeonEntry = null;
             bool enoughCapacity = Inventory.NumFreeSlots >= MinimumFreeSlots;
             say($"Post-exit inventory classification: protected={classes.Count(x => x == ManagerLoot.ItemClassification.Protected)}, " +
                 $"keep={classes.Count(x => x == ManagerLoot.ItemClassification.Keep)}, " +

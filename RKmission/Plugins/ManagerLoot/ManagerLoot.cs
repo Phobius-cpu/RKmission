@@ -213,10 +213,10 @@ namespace ManagerLoot
             _rememberedMissionItems.Contains(item.UniqueIdentity) ||
             (MissionItemProtected?.Invoke(item) ?? false);
 
-        // Classification is the only rule decision exposed to RKMission. Reward origin
-        // does not confer permanent value; it only explains why an unlisted item may
-        // already be in inventory. No classification performs disposal.
-        public ItemClassification Classify(Item item, bool acquiredMissionReward = false)
+        // Classification is the only rule decision exposed to RKMission. A new
+        // unselected inventory item has no permanent value solely because the
+        // mission added it. No classification performs disposal.
+        public ItemClassification Classify(Item item, bool newlyAcquiredDuringMission = false)
         {
             if (item == null) return ItemClassification.Unknown;
             if (ProtectedMissionItem(item) || Inventory.Backpacks.Any(bag =>
@@ -227,7 +227,7 @@ namespace ManagerLoot
             if (_selectedItems.Contains(item.UniqueIdentity)) return ItemClassification.Keep;
             if (_settings == null || Rules == null) return ItemClassification.Unknown;
             bool listed = GetMatchingRule(item) != null;
-            if (acquiredMissionReward) return listed ? ItemClassification.Keep : ItemClassification.Reject;
+            if (newlyAcquiredDuringMission) return listed ? ItemClassification.Keep : ItemClassification.Reject;
             return (_settings["Reverse"].AsBool() ? !listed : listed)
                 ? ItemClassification.Keep : ItemClassification.Reject;
         }

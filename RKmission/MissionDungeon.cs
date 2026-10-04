@@ -166,6 +166,7 @@ namespace RKmission
                 return;
             if (!Playfield.IsDungeon || DynelManager.LocalPlayer?.Room == null)
                 return;
+            _inventory.BeginMissionInventorySnapshot();
             MovementArbiter.Current.StopAll();
             _clearedRooms.Clear();
             _combatCheckedRooms.Clear();
