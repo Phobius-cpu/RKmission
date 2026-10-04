@@ -2739,4 +2739,9 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 ## 2026-10-04 22:09 shop preview follow-up
 
 - The user's first protected preview showed zero eligible RKM Sell Rejects, 15 protected main/RKM Sell items, and six free main slots. No item moved. The old output did not show whether a Sell bag existed or what it contained.
-- Preview now reports observed RKM Sell bag/item counts and classifications, main Rejects excluded from sale, duplicate exclusions, and each displayed protection reason. Broad `vehicle` substring matching was narrowed to avoid treating a Vehicle Air implant as an operational vehicle. Actual vehicle stats and specific vehicle names remain protected. See `docs/history/2026-10-04-shop-sale-diagnostic.md`.
+- Preview now reports observed RKM Sell bag/item counts and classifications, main Rejects excluded from sale, duplicate exclusions, and each displayed protection reason. Broad `vehicle` substring matching was narrowed to avoid treating a Vehicle Air implant as an operational vehicle. See the 22:21 correction below for the later removal of the unreliable vehicle stat check.
+
+## 2026-10-04 22:21 live classification correction
+
+- Preview showed one RKM Sell bag with two observed items, both Protected for "operational item": a Vehicle Air implant and Nano Formula Recompiler. Jobe-Made Bladestaff and Cluster Bullets in main were similarly labeled. The live inventory policy file has no custom exceptions.
+- `Item.GetStat(Stat.IsVehicle) > 0` was falsely positive across those unrelated items. Removed as a vehicle discriminator; retained known vehicle-name and configurable ID/fragment protection. Added Cluster Bullets to built-in consumables. The next live preview must show the bag items under normal ManagerLoot Keep/Reject rules. See `docs/history/2026-10-04-shop-sale-diagnostic.md`.

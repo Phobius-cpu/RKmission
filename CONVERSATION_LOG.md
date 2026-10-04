@@ -1678,3 +1678,7 @@ At 21:50 the user verified that the OA shop sold one ammo box and increased cash
 ## 2026-10-04 - 22:09 shop preview follow-up
 
 The user reported zero eligible RKM Sell Rejects and 15 protected items in the first preview, including an ammo box, Jobe-Made Bladestaff, Vehicle Air implant, recharge item, recompiler, and mission keys. No item moved. The preview did not disclose the Sell bag state or why each item was protected. The diagnostic now reports bag counts and observed classification, main Rejects excluded from sale, duplicate exclusions, and each displayed protection reason. The generic vehicle-name substring was narrowed to avoid matching a Vehicle Air implant while retaining stat-based and specific-name vehicle protection. Details: `docs/history/2026-10-04-shop-sale-diagnostic.md`.
+
+## 2026-10-04 - 22:21 shop classification correction
+
+The improved preview revealed one RKM Sell bag containing a Vehicle Air implant and Nano Formula Recompiler, both marked operational despite not matching built-in supply names. Main inventory also labeled a Jobe-Made Bladestaff and Cluster Bullets operational. The live `inventory-policy.json` contains no custom exceptions. The shared cause was `Item.GetStat(Stat.IsVehicle) > 0`, which is not a reliable inventory item-type test here. Removed it, retained vehicle name/ID protection, and added Cluster Bullets to built-in consumables. Release build and focused names passed; user should rerun preview before another shop sale. Details: `docs/history/2026-10-04-shop-sale-diagnostic.md`.

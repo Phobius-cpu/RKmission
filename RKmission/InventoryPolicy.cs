@@ -16,7 +16,7 @@ namespace RKmission
     internal sealed class InventoryPolicy
     {
         private static readonly string[] BuiltInOperationalFragments = {
-            "lock pick", "lockpick", "lock-pick",
+            "lock pick", "lockpick", "lock-pick", "cluster bullets",
             "nano recharg", "nano kit", "nano stim", "health laboratory",
             "health kit", "health stim", "treatment laboratory", "treatment kit",
             "first aid", "medical kit", "free movement", "backpack", "back pack",
@@ -44,8 +44,9 @@ namespace RKmission
         {
             if (item == null) return false;
             if (item.UniqueIdentity.Type == IdentityType.Container) return true;
-            try { if (item.GetStat(Stat.IsVehicle) > 0) return true; }
-            catch { /* Some item views do not expose this stat; names still guard them. */ }
+            // Item.GetStat(Stat.IsVehicle) is not a reliable item-kind test in
+            // live AO: implants, NCU equipment, and weapons returned positive.
+            // Guard vehicles by known names plus configurable item IDs instead.
             if (ProtectedItemIds.Contains(item.Id)) return true;
             string name = item.Name?.Trim() ?? string.Empty;
             if (ProtectedNameFragments.Any(x => !string.IsNullOrWhiteSpace(x) &&

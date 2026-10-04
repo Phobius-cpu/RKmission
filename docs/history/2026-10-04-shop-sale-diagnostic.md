@@ -46,3 +46,16 @@ generic `vehicle` name fragment was narrowed because an implant named
 protected by the item stat and specific vehicle names. A Release build and
 focused name checks passed. The next live preview will establish why no
 candidate was available.
+
+At 22:21 the next preview established one RKM Sell bag with two observed
+items, both classified Protected: a Vehicle Air eye implant and Nano Formula
+Recompiler. A Jobe-Made Bladestaff in main was also labeled operational.
+The user's runtime `inventory-policy.json` contained only `MinimumFreeSlots`,
+so no custom protection produced these results. The common cause was the
+`Item.GetStat(Stat.IsVehicle) > 0` check: in live AO this is not a trustworthy
+vehicle type indicator for inventory items. That check was removed. Vehicle
+name patterns and configured protected item IDs remain, and Cluster Bullets
+was added to built-in consumable protection. The implant and recompiler will
+be classified by ManagerLoot's normal Keep/Reject rules on the next preview;
+neither is submitted for sale by a preview. The Release build and focused
+name cases passed; live classification awaits the user's next pull.
