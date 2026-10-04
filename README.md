@@ -850,7 +850,8 @@ settings remain in their deployed plugin folders.
   processing state and up to eight blocking identities with room/visibility.
   Resolve aggro, missing items/free space or locked routes. After checking the
   objective in game, `/rkm complete` can override completion while keeping automatic
-  exit available when armed. Return-item hand-ins are always manual.
+  exit available when armed. Return-item hand-in uses the exact bound source
+  and waits for the item and quest to clear before another mission starts.
 - **Dungeon map missing:** Mali recommends `Direct 3D T&L HAL` in the launcher.
 - **Interior door/loot issues:** check existing transition/skip logs, Lock Pick,
   skill, loot rules and free space; unfinished loot holds completion.
@@ -869,6 +870,8 @@ persisted retries and the unchanged dungeon handoff in AO#.
 ### Recorded navigation and post-zone flight safety
 
 Use `/rkm nav record [name]` before manually walking a safe route and `/rkm nav stop` at its endpoint. `/rkm nav list` shows saved routes. Samples are persisted in `RKMissionData/navigation-routes.json`.
+
+Bank and shop terminals can be inside buildings or backyards on a different playfield from the mission roller. `/rkm logistics probe start` records a manual trip from the outdoor playfield through the building, a bank deposit or shop sale, and the trip back out. `/rkm logistics probe stop` saves `RKMissionData/logistics-probe-*.json` with the observed zone endpoints, nearby terminal candidates and relevant transaction messages. These observations are evidence for future logistics routes; the bot still waits for free space instead of assuming the roller location is a bank/shop or entering an unverified interior.
 
 Inside Fixer Grid (playfield 4107), `/rkm fgrid nav` reports whether `NavMeshes/4107.nav` is present and loaded, and whether the current lift or selected exit has a complete floor-supported route. AO# labels this travel playfield as a dungeon, so RKMission explicitly enables its navmesh loader for 4107. With a compatible, verified SharpNav `.nav` mesh installed, RKMission checks both endpoint projections, the complete polygon corridor, and closely sampled physical floor support before navigating automatically to each lift and portal. Each floor is queried separately after the lift moves the character. A stalled or rejected mesh movement falls back to a recorded route for that target. If neither is available, movement stops with a specific reason; it never invents a straight-line shortcut across a gap.
 

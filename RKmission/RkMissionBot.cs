@@ -77,7 +77,7 @@ namespace RKmission
             _loot.RunEmbedded(System.IO.Path.Combine(pluginDir, "Plugins", "ManagerLoot"), MaliMissionRoller2.Main.Window, _roller.ShowRoller);
             _readiness = new MissionReadiness(Say, MissionReadinessSettings.Load(pluginDir, Say));
             _inventory = InventoryPolicy.Load(pluginDir, Say);
-            _logisticsProbe = new LogisticsProbe(Say);
+            _logisticsProbe = new LogisticsProbe(pluginDir, Say);
             _dungeon = new MissionDungeon(Say, _loot, _readiness, _inventory);
             _deathRecovery = new DeathRecoveryController(_readiness, _movement, Say);
             _travel = new LocalMissionTravel(Say, pluginDir);
@@ -611,7 +611,7 @@ namespace RKmission
                     if (_autoCycle && Inventory.NumFreeSlots < _inventory.MinimumFreeSlots)
                     {
                         Wait($"Inventory needs {_inventory.MinimumFreeSlots} free main slots before another mission; " +
-                            "RKM Sell staging has no verified vendor/bank disposal step.");
+                            "RKM Sell staging has no verified route into a bank/shop building or disposal step.");
                         return;
                     }
                     // After a stop/restart, finish every already accepted mission
