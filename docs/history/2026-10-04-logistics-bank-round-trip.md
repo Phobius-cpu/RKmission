@@ -38,3 +38,17 @@ with the number of deposits already verified. It does not retrieve items or
 retry an uncertain transfer. Mission keys and remembered active objective
 items remain under ManagerLoot's `Protected` classification. This command is
 explicit; the automatic mission cycle and shop sales remain separate work.
+
+## 21:29 direct-bank location gate
+
+The user then ran a bank command and received "Bank test held: finish a surveyed
+bank route and stand near its exact recorded terminal." No item was moved. The
+original gate required the route-test state to remain active, so a plugin
+restart or manual arrival at the surveyed bank prevented an otherwise valid
+transaction. Bank commands now accept a direct visit only when no route test
+is active and exactly one live banking terminal matches a bundled survey's
+playfield, identity, name and position. During an active route test, only its
+reached bank target is valid. The selected terminal identity is held for the
+whole transaction, preventing a switch between the Borealis and ICC surveys
+that share PF 1186. A rejected command reports the relevant surveyed sites,
+distances and terminal visibility, and still moves no item.

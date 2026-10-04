@@ -22,7 +22,7 @@ namespace RKmission
         private DateTime _phaseStarted, _nextTick;
         private int _itemId, _itemQl, _mainBefore, _bankBefore;
         private int _requested, _completed;
-        private string _itemName;
+        private string _itemName, _terminalIdentity;
 
         public bool IsActive => _phase != Phase.Idle;
         public string Status => _phase == Phase.Idle ? "inactive" :
@@ -48,9 +48,13 @@ namespace RKmission
             SimpleItem terminal = _route.FindVerifiedBankTerminal();
             if (terminal == null)
             {
-                _say("Bank test held: finish a surveyed bank route and stand near its exact recorded terminal.");
+                _say("Bank transaction held: " +
+                    (_route.IsActive ? "active route target or its exact bank terminal is not verified" :
+                        "no unique recorded bank terminal is visible within 8 m") +
+                    "; no item was moved. " + _route.BankTargetDiagnostic() + ".");
                 return;
             }
+            _terminalIdentity = terminal.Identity.ToString();
             _itemName = null;
             _itemId = _itemQl = 0;
             _operation = operation;
@@ -93,8 +97,8 @@ namespace RKmission
 
         private void Tick()
         {
-            if (!_route.IsAtBankTarget)
-            { Fail("surveyed bank target or playfield was lost"); return; }
+            if (_route.FindVerifiedBankTerminal(_terminalIdentity) == null)
+            { Fail("exact surveyed bank terminal, position, or playfield was lost"); return; }
             bool bankOpen = Inventory.Bank?.IsOpen == true;
             if (_phase == Phase.Opening)
             {

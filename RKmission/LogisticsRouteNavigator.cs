@@ -21,21 +21,44 @@ namespace RKmission
         private float _bestDistance;
 
         public bool IsActive => _route != null;
-        public bool IsAtBankTarget => _route != null && _atTarget &&
-            _route.Purpose == "bank" && !Game.IsZoning &&
-            DynelManager.LocalPlayer != null &&
-            Playfield.ModelIdentity.Instance == _route.DestinationPlayfield &&
-            Vector3.Distance(DynelManager.LocalPlayer.Position, V(_route.DestinationPosition)) <= 8f;
-        public SimpleItem FindVerifiedBankTerminal()
+        public SimpleItem FindVerifiedBankTerminal(string requiredIdentity = null)
         {
-            if (!IsAtBankTarget) return null;
-            Vector3 target = V(_route.DestinationPosition);
-            return DynelManager.Terminals.FirstOrDefault(x =>
-                string.Equals(x.Identity.ToString(), _route.DestinationIdentity,
-                    StringComparison.OrdinalIgnoreCase) &&
-                x.Name?.IndexOf("Banking Service Terminal", StringComparison.OrdinalIgnoreCase) >= 0 &&
-                Vector3.Distance(x.Position, target) <= 8f &&
-                Vector3.Distance(x.Position, DynelManager.LocalPlayer.Position) <= 8f);
+            if (Game.IsZoning || DynelManager.LocalPlayer == null) return null;
+            // An active route owns its destination. A direct bank visit can use
+            // the same survey only when no route test is running.
+            var routes = _route == null ? _catalog.Routes.Where(x => x.Purpose == "bank") :
+                _atTarget && _route.Purpose == "bank" ? new[] { _route } :
+                Enumerable.Empty<LogisticsRouteCatalog.Route>();
+            Vector3 player = DynelManager.LocalPlayer.Position;
+            var matches = routes.Where(route =>
+                    Playfield.ModelIdentity.Instance == route.DestinationPlayfield &&
+                    Vector3.Distance(player, V(route.DestinationPosition)) <= 8f)
+                .Select(route => DynelManager.Terminals.FirstOrDefault(terminal =>
+                    string.Equals(terminal.Identity.ToString(), route.DestinationIdentity,
+                        StringComparison.OrdinalIgnoreCase) &&
+                    (requiredIdentity == null || string.Equals(terminal.Identity.ToString(), requiredIdentity,
+                        StringComparison.OrdinalIgnoreCase)) &&
+                    terminal.Name?.IndexOf("Banking Service Terminal", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    Vector3.Distance(terminal.Position, V(route.DestinationPosition)) <= 8f &&
+                    Vector3.Distance(terminal.Position, player) <= 8f))
+                .Where(terminal => terminal != null).ToList();
+            return matches.Count == 1 ? matches[0] : null;
+        }
+        public string BankTargetDiagnostic()
+        {
+            if (Game.IsZoning || DynelManager.LocalPlayer == null) return "player is zoning or unavailable";
+            int playfield = Playfield.ModelIdentity.Instance;
+            Vector3 player = DynelManager.LocalPlayer.Position;
+            var sites = _catalog.Routes.Where(x => x.Purpose == "bank" &&
+                    x.DestinationPlayfield == playfield)
+                .OrderBy(x => Vector3.Distance(player, V(x.DestinationPosition)))
+                .Take(3).Select(route =>
+                    $"{route.Site} {Vector3.Distance(player, V(route.DestinationPosition)):F1} m " +
+                    $"terminal {route.DestinationIdentity} visible=" +
+                    DynelManager.Terminals.Any(x => string.Equals(x.Identity.ToString(),
+                        route.DestinationIdentity, StringComparison.OrdinalIgnoreCase))).ToArray();
+            return sites.Length == 0 ? $"no surveyed bank destination for PF {playfield}" :
+                $"PF {playfield}; " + string.Join("; ", sites) + $"; route={Status}";
         }
         public string Status => _route == null ? "inactive" :
             $"{_route.Site}/{_route.Purpose}: " + (_atTarget ? "at surveyed target; use /rkm logistics return" :
