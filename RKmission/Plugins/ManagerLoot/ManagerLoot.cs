@@ -1469,10 +1469,14 @@ namespace ManagerLoot
                         bags.DeleteItem(i);
 
                     bags.AppendItem("Inventory");
+                    // The family remains selectable even when only numbered
+                    // keep bags exist (or a bag will be added later).
+                    bags.AppendItem(ManagedBagFamily.Keep);
 
                     foreach (var item in Inventory.Backpacks)
                     {
-                        if (!string.IsNullOrWhiteSpace(item.Name))
+                        if (!string.IsNullOrWhiteSpace(item.Name) &&
+                            !string.Equals(item.Name, ManagedBagFamily.Keep, StringComparison.OrdinalIgnoreCase))
                             bags.AppendItem(item.Name);
                     }
                 }
