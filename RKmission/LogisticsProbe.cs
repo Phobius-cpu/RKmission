@@ -53,7 +53,7 @@ namespace RKmission
         public bool Active { get; private set; }
         public string LastFilePath { get; private set; }
         public string Status => Active
-            ? $"active for site '{_site}' ({_purpose}); bank open={Inventory.Bank.IsOpen}; " +
+            ? $"active for site '{_site}' ({_purpose}); bank open={Inventory.Bank?.IsOpen == true}; " +
               $"{_messages} recognized packets, {_rawBankMessages} other bank-window packets, {_bankChanges} item changes"
             : LastFilePath == null ? "inactive; no trace saved in this session" :
               "inactive; last trace: " + LastFilePath;
@@ -105,13 +105,13 @@ namespace RKmission
             else start.Details = "No mission terminal within 15 m at probe start; site origin needs manual verification.";
             _observations.Add(start);
             SampleStable();
-            ObserveBankState();
             _say($"Logistics probe for site '{_site}', purpose '{_purpose}' active. " +
                 (missionTerminal == null ? "No mission terminal was nearby at start. " :
                     $"Mission terminal {missionTerminal.Identity} recorded. ") +
                 "Walk the actual route into the bank/shop building or backyard, " +
                 "use the terminal, and walk back out; then use /rkm logistics probe stop. " +
                 "Playfield changes and terminal positions will be saved with the transaction trace.");
+            ObserveBankState();
         }
 
         public void Stop()
@@ -200,11 +200,21 @@ namespace RKmission
                     string key = item.Slot == Identity.None ? $"index:{index}" : item.Slot.ToString();
                     snapshot[key] = $"item='{item.Name}', id={item.Id}, QL={item.QualityLevel}, " +
                         $"unique={item.UniqueIdentity}" +
-                        (classify ? $"; ManagerLoot={_loot.Classify(item)}" : "");
+                        (classify ? $"; ManagerLoot={ClassifyForProbe(item)}" : "");
                 }
                 index++;
             }
             return snapshot;
+        }
+
+        private string ClassifyForProbe(Item item)
+        {
+            try { return _loot.Classify(item).ToString(); }
+            catch (Exception ex)
+            {
+                ReportProbeError("Item classification", ex);
+                return "Unavailable";
+            }
         }
 
         private void ObserveBankState(bool force = false)
@@ -215,28 +225,34 @@ namespace RKmission
 
         private void ObserveBankStateCore(bool force)
         {
-            bool open = Inventory.Bank.IsOpen;
+            bool open = Inventory.Bank?.IsOpen == true;
             if (!force && open == _bankWasOpen && DateTime.UtcNow < _nextBankPoll) return;
             _nextBankPoll = DateTime.UtcNow.AddMilliseconds(open ? 250 : 1000);
-            Dictionary<string, string> main = Snapshot(Inventory.Items.Where(x =>
-                x.Slot.Type == IdentityType.Inventory), true);
+            if (!open)
+            {
+                if (_bankWasOpen)
+                {
+                    _bankWasOpen = false;
+                    _bankBaselineReady = false;
+                    Record("BankClosed", "Bank closed; inventory may still be loading after a playfield change.");
+                    _say("Logistics probe: bank closed; item and packet observations are in the saved trace after probe stop.");
+                }
+                _bankItems.Clear();
+                _mainItems.Clear();
+                return;
+            }
+            Dictionary<string, string> main = Snapshot(Inventory.Items?.Where(x =>
+                x != null && x.Slot.Type == IdentityType.Inventory), true);
             if (open != _bankWasOpen)
             {
                 _bankWasOpen = open;
                 _bankBaselineReady = false;
                 _bankOpenedAt = DateTime.UtcNow;
-                Record(open ? "BankOpened" : "BankClosed",
-                    $"bank items={Inventory.Bank.Items?.Count ?? 0}; main items={main.Count}; free slots={Inventory.NumFreeSlots}");
-                _say(open ? "Logistics probe: bank opened; inventory snapshots are starting." :
-                    "Logistics probe: bank closed; item and packet observations are in the saved trace after probe stop.");
+                Record("BankOpened",
+                    $"bank items={Inventory.Bank?.Items?.Count ?? 0}; main items={main.Count}; free slots={Inventory.NumFreeSlots}");
+                _say("Logistics probe: bank opened; inventory snapshots are starting.");
             }
-            if (!open)
-            {
-                _bankItems.Clear();
-                _mainItems = main;
-                return;
-            }
-            Dictionary<string, string> bank = Snapshot(Inventory.Bank.Items);
+            Dictionary<string, string> bank = Snapshot(Inventory.Bank?.Items);
             if (!_bankBaselineReady)
             {
                 if (DateTime.UtcNow - _bankOpenedAt < TimeSpan.FromSeconds(1)) return;
@@ -334,15 +350,16 @@ namespace RKmission
         {
             if (DateTime.UtcNow < _nextProbeErrorLog) return;
             _nextProbeErrorLog = DateTime.UtcNow.AddSeconds(5);
-            _say($"Logistics probe {stage} error: {ex.Message}");
+            _say($"Logistics probe {stage} error ({ex.GetType().Name}): {ex.Message}");
+            try { Record("ProbeError", $"{stage}: {ex}"); } catch { /* Keep the probe alive. */ }
         }
 
         private string DescribeMainSource(Identity slot)
         {
-            Item item = Inventory.Items.FirstOrDefault(x => x.Slot == slot);
+            Item item = Inventory.Items?.FirstOrDefault(x => x != null && x.Slot == slot);
             return item == null ? "source item unresolved" :
                 $"item='{item.Name}', unique={item.UniqueIdentity}, id={item.Id}, QL={item.QualityLevel}, " +
-                $"ManagerLoot={_loot.Classify(item)}";
+                $"ManagerLoot={ClassifyForProbe(item)}";
         }
 
         private void Observe(string direction, N3Message message)
@@ -373,17 +390,17 @@ namespace RKmission
                 details = $"Trade action={trade.Action}, params={trade.Param1}/{trade.Param2}/{trade.Param3}/{trade.Param4}";
             if (details == null)
             {
-                if (Inventory.Bank.IsOpen && _rawBankMessages < 160)
+                if (Inventory.Bank?.IsOpen == true && _rawBankMessages < 160)
                 {
                     Record(direction, $"Unclassified bank-window packet: {message.GetType().FullName}; identity={message.Identity}");
                     _rawBankMessages++;
                 }
                 return;
             }
-            Record(direction, $"{details}; bank open={Inventory.Bank.IsOpen}; main free slots={Inventory.NumFreeSlots}");
+            Record(direction, $"{details}; bank open={Inventory.Bank?.IsOpen == true}; main free slots={Inventory.NumFreeSlots}");
             Observation observed = _observations[_observations.Count - 1];
             _say($"Logistics probe {direction} in PF {observed.Playfield}: {details}; " +
-                $"bank open={Inventory.Bank.IsOpen}, main free slots={Inventory.NumFreeSlots}.");
+                $"bank open={Inventory.Bank?.IsOpen == true}, main free slots={Inventory.NumFreeSlots}.");
             if (++_messages >= 200) Stop();
         }
 
