@@ -226,7 +226,8 @@ namespace RKmission
                 (!_objective.IsObjective(dynel.Identity) || _loot.MissionObjectiveContainer == dynel.Identity);
             _loot.MissionItemProtected = item => _record.Actions != null && _record.Actions.Any(action =>
                 (action is UseItemOnItemAction use && item.UniqueIdentity == use.Source) ||
-                (action is FindItemAction find && item.UniqueIdentity == find.Target));
+                (action is FindItemAction find && item.UniqueIdentity == find.Target)) ||
+                _objective.ReturnItem?.UniqueIdentity == item.UniqueIdentity;
             _objective.Refresh(_layout);
             if (_layout.MissingConnections > 0)
                 _say($"Mali map has no safe interior point for {_layout.MissingConnections} room connections; those routes are unavailable.");
@@ -256,6 +257,9 @@ namespace RKmission
 
         public void Stop()
         {
+            _loot.RememberMissionCriticalInventory();
+            if (_objective?.CollectedReturnItem == true)
+                _loot.ProtectPendingHandIn(_objective.ReturnItem);
             IsRunning = false;
             _readiness.Stop();
             _loot.MissionActionsPaused = false;

@@ -44,6 +44,9 @@ namespace RKmission
         private DateTime _backoffUntil;
         private DateTime _zonedAt;
         private DateTime _nextWarperLookup;
+        private DateTime _requestWindowStarted, _nextAlternateRequest;
+        private int _alternateRequests;
+        private bool _blacklistedAssignment;
         private bool _helpRetried, _teleportStarted, _queueReplySeen, _unverifiedQueueReplySeen;
         private bool _joinedByProvider;
         private readonly List<TeamRequestEventArgs> _pendingWarperInvites = new List<TeamRequestEventArgs>();
@@ -89,6 +92,9 @@ namespace RKmission
                 _verifiedNumberedBotIds.Clear();
                 _pendingQueueReply = null;
                 _pendingCommand = null;
+                _alternateRequests = 0;
+                _blacklistedAssignment = false;
+                _requestWindowStarted = _nextAlternateRequest = DateTime.MinValue;
                 _nextWarperLookup = DateTime.MinValue;
                 _helpReplies = _menuPageCount = 0;
                 _menuPages.Clear();
@@ -156,6 +162,21 @@ namespace RKmission
             {
                 Network.Send(new LookupMessage { Id = 0, Name = _warperName });
                 _nextWarperLookup = DateTime.UtcNow.AddSeconds(12);
+            }
+            if (_state == State.Invite && _blacklistedAssignment &&
+                DateTime.UtcNow >= _nextAlternateRequest)
+            {
+                if (_alternateRequests >= 3 ||
+                    DateTime.UtcNow - _requestWindowStarted > TimeSpan.FromSeconds(180))
+                    Fail("Milky Way: no alternate Scottyboi warper was assigned after rejecting Warpdude31.");
+                else
+                {
+                    _alternateRequests++;
+                    _nextAlternateRequest = DateTime.UtcNow.AddSeconds(12);
+                    _started = DateTime.UtcNow;
+                    Chat.SendPrivateMessage(_recipientId, _pendingCommand.Text);
+                    _say($"Milky Way: requesting alternate Scottyboi warper ({_alternateRequests}/3) for the same verified destination command.");
+                }
             }
             TimeSpan timeout = _state == State.Warp ? TimeSpan.FromSeconds(60) :
                 _state == State.Invite ? TimeSpan.FromSeconds(_warperName != null ? 180 : 45) :
@@ -289,6 +310,7 @@ namespace RKmission
             _recipientId = recipientId;
             _state = State.Invite;
             _started = DateTime.UtcNow;
+            _requestWindowStarted = _started;
             Chat.SendPrivateMessage(recipientId, _pendingCommand.Text);
             _say($"Sent Scottyboi command '{_pendingCommand.Text}' to {_pendingCommand.Recipient} " +
                 $"for playfield {_targetId}; waiting for a team invite and zoning.");
@@ -340,6 +362,21 @@ namespace RKmission
             bool offline = Regex.IsMatch(text, @"\bis offline\b|\bneeds to log on\b",
                 RegexOptions.IgnoreCase);
             string assignedWarper = warper.Groups["name"].Value;
+            if (IsBlacklistedRoute(_targetId, assignedWarper))
+            {
+                // A late reply to an earlier request cannot replace a safe
+                // alternate assignment that is already being verified.
+                if (_warperName != null) return;
+                _warperName = null;
+                _warperId = 0;
+                _pendingWarperInvites.Clear();
+                _blacklistedAssignment = true;
+                _say("Milky Way: assigned warper Warpdude31 is blacklisted due to verified post-warp FlyAvoidObstacle hard failure; requesting alternate.");
+                if (_alternateRequests >= 3)
+                    Fail("Milky Way: Scottyboi repeatedly assigned blacklisted Warpdude31.");
+                return;
+            }
+            _blacklistedAssignment = false;
             if (!string.Equals(_warperName, assignedWarper, StringComparison.OrdinalIgnoreCase))
             {
                 _warperName = assignedWarper;
@@ -359,6 +396,12 @@ namespace RKmission
             string clean = Regex.Replace(text, @"\s+", " ").Trim();
             return clean.Length <= 160 ? clean : clean.Substring(0, 160) + "...";
         }
+
+        // Destination/warper pair verified by the 22:27 local-travel hard failure
+        // on mission 1442967240. No arrival coordinates were reported.
+        private static bool IsBlacklistedRoute(int destination, string warper) =>
+            destination == (int)PlayfieldId.MilkyWay &&
+            string.Equals(warper, "Warpdude31", StringComparison.OrdinalIgnoreCase);
 
         private static bool MatchesQueuedDestination(string text, string[] aliases, string expectedLocation)
         {
@@ -386,6 +429,20 @@ namespace RKmission
                 return;
             }
             if ((_state != State.Invite && _state != State.Warp) || Team.IsInTeam || requesterId == 0) return;
+            if (_blacklistedAssignment)
+            {
+                request.Ignore();
+                return;
+            }
+            if (_targetId == (int)PlayfieldId.MilkyWay &&
+                requesterId != _warperId)
+            {
+                request.Ignore();
+                if (_warperId == 0 && _pendingWarperInvites.Count < 4 &&
+                    !_pendingWarperInvites.Any(x => x.Requester == request.Requester))
+                    _pendingWarperInvites.Add(request);
+                return;
+            }
             if (requesterId == _botId || requesterId == _recipientId ||
                 requesterId == _menuId || requesterId == _replyId ||
                 (_warperId != 0 && requesterId == _warperId))
@@ -630,6 +687,9 @@ namespace RKmission
             _verifiedNumberedBotIds.Clear();
             _pendingQueueReply = null;
             _pendingCommand = null;
+            _alternateRequests = 0;
+            _blacklistedAssignment = false;
+            _requestWindowStarted = _nextAlternateRequest = DateTime.MinValue;
             _nextWarperLookup = DateTime.MinValue;
             _targetAliases = null;
             _helpReplies = _menuPageCount = 0;

@@ -526,7 +526,10 @@ namespace RKmission
                     Say(warpExitVerified
                         ? $"Verified Scottyboi warp from completed mission {_selected.Id.Instance} to playfield {_completedMissionWarpTarget}."
                         : $"Verified exit from mission {_selected.Id.Instance} to its outdoor playfield {_selected.PlayfieldId}.");
-                    if (_checkpoint?.Execution != null) _checkpoint.Execution.Phase = "ExitVerified";
+                    if (_checkpoint?.Execution != null) _checkpoint.Execution.Phase = "InventoryClassification";
+                    bool capacityReady = _inventory.ClassifyAfterVerifiedExit(_loot, Say);
+                    if (_checkpoint?.Execution != null)
+                        _checkpoint.Execution.Phase = capacityReady ? "ExitVerified" : "LogisticsRequired";
                     int previousPlayfield = _selected.PlayfieldId;
                     _selected = null;
                     _verifiedRun = false;

@@ -1642,3 +1642,7 @@ scene-checked mesh routes. Exhaustion enters bounded combat recovery, keeps
 the room unfinished, and can rebuild from a later position. See
 `docs/history/2026-10-03-layered-objective-room-scan.md`. The user will pull
 and compile; live ramp navigation remains unverified.
+
+## 2026-10-04 - ManagerLoot policy and Milky Way Scottyboi exclusion
+
+The user asked to continue on the latest `main`, preserve recent combat/dungeon/travel changes, make ManagerLoot authoritative for permanent item value, add safe RKM bag-family behavior and a single classification API, prepare only evidence-backed logistics hooks, and exclude `Warpdude31` for Milky Way after a verified post-warp local-travel hard failure. Latest `main` was `2ff3e6c`; it already contained the recoverable three-stall combat result and room deferral. This follow-up retained those changes and implemented the loot, storage, post-exit classification and destination/warper exclusion described in `docs/history/2026-10-04-managerloot-milky-way-follow-up.md`. The pinned SDK build passed with zero errors; live AO behavior remains unverified.

@@ -16,6 +16,8 @@ using MissionIdentity = AOSharp.Common.GameData.Identity;
 
 namespace ManagerLoot
 {
+    public enum ItemClassification { Protected, Keep, Reject, Unknown }
+
     // Hosted by RKmission's single AO# entry point.
     public class ManagerLoot
     {
@@ -86,7 +88,7 @@ namespace ManagerLoot
         {
             Discovered, PendingApproach, Opening, Lockpicking, Looting, Completed,
             SkippedUnreachable, SkippedInsufficientSkill, SkippedNoLockpick,
-            SkippedRepeatedFailure, CriticalBlocked
+            SkippedRepeatedFailure, SkippedNoCapacity, CriticalBlocked
         }
         private readonly Dictionary<MissionIdentity, MissionSourceState> _missionSources =
             new Dictionary<MissionIdentity, MissionSourceState>();
@@ -102,8 +104,10 @@ namespace ManagerLoot
         private static bool Settled(MissionSourceState state) =>
             state == MissionSourceState.Completed || state == MissionSourceState.SkippedUnreachable ||
             state == MissionSourceState.SkippedInsufficientSkill || state == MissionSourceState.SkippedNoLockpick ||
-            state == MissionSourceState.SkippedRepeatedFailure;
+            state == MissionSourceState.SkippedRepeatedFailure || state == MissionSourceState.SkippedNoCapacity;
         private readonly HashSet<MissionIdentity> _objectiveLootItems = new HashSet<MissionIdentity>();
+        private readonly HashSet<MissionIdentity> _rememberedMissionItems = new HashSet<MissionIdentity>();
+        private readonly HashSet<MissionIdentity> _selectedItems = new HashSet<MissionIdentity>();
         private const int MaxMissionLockpickAttempts = 3;
         private const double LockpickRetryDelaySeconds = 1;
         private readonly Dictionary<MissionIdentity, LockpickAttempt> _missionLockpicks = new Dictionary<MissionIdentity, LockpickAttempt>();
@@ -195,8 +199,38 @@ namespace ManagerLoot
                 $"{x.Key} state={x.Value} room={(_missionLootRooms.TryGetValue(x.Key, out int room) ? room.ToString() : "unknown")} " +
                 (DynelManager.GetDynel(x.Key) == null ? "not currently visible" : "still visible")));
         public IEnumerable<MissionIdentity> MissionObjectiveItems => _objectiveLootItems;
+        public void ProtectPendingHandIn(Item item)
+        {
+            if (item != null) _rememberedMissionItems.Add(item.UniqueIdentity);
+        }
+        public void RememberMissionCriticalInventory()
+        {
+            foreach (Item item in Inventory.Items.Where(i => i.Slot.Type == IdentityType.Inventory))
+                if (ProtectedMissionItem(item)) _rememberedMissionItems.Add(item.UniqueIdentity);
+        }
         private bool ProtectedMissionItem(Item item) =>
-            _objectiveLootItems.Contains(item.UniqueIdentity) || (MissionItemProtected?.Invoke(item) ?? false);
+            item.UniqueIdentity.Type == IdentityType.MissionKey ||
+            _rememberedMissionItems.Contains(item.UniqueIdentity) ||
+            (MissionItemProtected?.Invoke(item) ?? false);
+
+        // Classification is the only rule decision exposed to RKMission. Reward origin
+        // does not confer permanent value; it only explains why an unlisted item may
+        // already be in inventory. No classification performs disposal.
+        public ItemClassification Classify(Item item, bool acquiredMissionReward = false)
+        {
+            if (item == null) return ItemClassification.Unknown;
+            if (ProtectedMissionItem(item) || Inventory.Backpacks.Any(bag =>
+                ManagedBagFamily.IsProtected(bag.Name) &&
+                Inventory.GetContainerItems(bag.Identity).Any(stored =>
+                    stored.UniqueIdentity == item.UniqueIdentity)))
+                return ItemClassification.Protected;
+            if (_selectedItems.Contains(item.UniqueIdentity)) return ItemClassification.Keep;
+            if (_settings == null || Rules == null) return ItemClassification.Unknown;
+            bool listed = GetMatchingRule(item) != null;
+            if (acquiredMissionReward) return listed ? ItemClassification.Keep : ItemClassification.Reject;
+            return (_settings["Reverse"].AsBool() ? !listed : listed)
+                ? ItemClassification.Keep : ItemClassification.Reject;
+        }
         public bool HasUnprocessedMissionLoot(int roomId, Func<Dynel, bool> include = null) =>
             !IgnoreOrdinaryMissionLoot && (MissionRoomDynels?.Invoke(roomId) ?? DynelManager.AllDynels).Any(x =>
                 (x.Identity.Type == IdentityType.Corpse || x.Identity.Type == IdentityType.Container) &&
@@ -677,7 +711,8 @@ namespace ManagerLoot
                     case ProcessState.Open_Corpse:
                         if (CorpseContainer != null) { CurrentProcess = ProcessState.Move_To_Inventory; return; }
 
-                        if (Inventory.Items.Where(i => i.Slot.Type == IdentityType.Inventory && i.UniqueIdentity.Type != IdentityType.Container && !ProtectedMissionItem(i)).Select(i => new { Item = i, Rule = GetRuleForItem(i) }).FirstOrDefault(x => x.Rule != null && x.Rule.BagName != "")?.Item != null)
+                        if (Inventory.Items.Where(i => i.Slot.Type == IdentityType.Inventory && i.UniqueIdentity.Type != IdentityType.Container && !ProtectedMissionItem(i)).Select(i => new { Item = i, Rule = GetRuleForItem(i) }).Any(x => x.Rule != null && x.Rule.BagName != "" &&
+                            Inventory.Backpacks.Any(b => ManagedBagFamily.Matches(b.Name, x.Rule.BagName) && b.Items.Count < 21)))
                         { CurrentProcess = ProcessState.Move_To_BackPack; return; }
 
                         if (Spell.HasPendingCast || Item.HasPendingUse || PerkAction.List.Any(perk => perk.IsExecuting)) return;
@@ -799,16 +834,30 @@ namespace ManagerLoot
 
                         if (Inventory.NumFreeSlots <= 1)
                         {
+                            if (MissionRoomId >= 0 && !IsMissionCriticalLoot(CorpseContainer.Identity))
+                            {
+                                MissionIdentity skipped = CorpseContainer.Identity;
+                                _finishedMissionLoot.Add(skipped);
+                                SetMissionSource(skipped, MissionSourceState.SkippedNoCapacity);
+                                if (_pendingMissionLoot == skipped) _pendingMissionLoot = MissionIdentity.None;
+                                Chat.WriteLine($"RKMission: Optional loot {skipped} deferred because the main inventory has no safe free slot.");
+                                CurrentCorpse = null;
+                                CorpseContainer = null;
+                                CurrentProcess = ProcessState.Open_Corpse;
+                                break;
+                            }
                             CurrentProcess = ProcessState.Move_To_BackPack;
                             return;
                         }
 
                         var corpseItem = CorpseContainer.Items.FirstOrDefault(i =>
                             CorpseContainer.Identity == MissionObjectiveContainer ||
-                            (!_settings["Reverse"].AsBool() && CheckRules(i)) || (_settings["Reverse"].AsBool() && !CheckRules(i)));
+                            Classify(i) == ItemClassification.Keep);
 
                         if (corpseItem != null)
                         {
+                            if (Classify(corpseItem) == ItemClassification.Keep)
+                                _selectedItems.Add(corpseItem.UniqueIdentity);
                             if (CorpseContainer.Identity == MissionObjectiveContainer) _objectiveLootItems.Add(corpseItem.UniqueIdentity);
                             if (_settings["Reverse"].AsBool() && CorpseContainer.Identity != MissionObjectiveContainer) reverseItems.Add(corpseItem.Id);
                             corpseItem.MoveToInventory();
@@ -817,7 +866,7 @@ namespace ManagerLoot
                             return;
                         }
 
-                        if (_settings["Delete"].AsBool() && CorpseContainer.Items.Count > 0)
+                        if (MissionRoomId < 0 && _settings["Delete"].AsBool() && CorpseContainer.Items.Count > 0)
                         {
                             var delItem = CorpseContainer.Items.FirstOrDefault();
                             if (delItem != null)
@@ -841,7 +890,11 @@ namespace ManagerLoot
                         {
                             if (invItemWithBag.Item != null)
                             {
-                                var bag = Inventory.Backpacks.OrderBy(b => b.Name).FirstOrDefault(b => b.Name == invItemWithBag.Rule.BagName && b.Items.Count < 21);
+                                var bag = Inventory.Backpacks
+                                    .Where(b => ManagedBagFamily.Matches(b.Name, invItemWithBag.Rule.BagName))
+                                    .OrderBy(b => ManagedBagFamily.Order(b.Name, invItemWithBag.Rule.BagName))
+                                    .ThenBy(b => b.Name, StringComparer.OrdinalIgnoreCase)
+                                    .FirstOrDefault(b => b.Items.Count < 21);
 
                                 if (bag != null)
                                 {
@@ -858,6 +911,10 @@ namespace ManagerLoot
                         }
                         else if (invItemNoBag != null)
                         {
+                            foreach (Item selected in Inventory.Items.Where(i =>
+                                i.Slot.Type == IdentityType.Inventory &&
+                                GetMatchingRule(i) == invItemNoBag))
+                                _selectedItems.Add(selected.UniqueIdentity);
                             Rules.Remove(invItemNoBag);
                             SaveRules();
                             RefreshList();
@@ -946,141 +1003,47 @@ namespace ManagerLoot
             }
         }
 
-        private bool CheckRules(Item item)
+        private bool CheckRules(Item item) => GetMatchingRule(item) != null;
+
+        private Rule GetRuleForItem(Item item) =>
+            Classify(item) == ItemClassification.Keep ? GetMatchingRule(item) : null;
+
+        private Rule GetMatchingRule(Item item)
         {
+            if (item == null || Rules == null) return null;
             try
             {
-                var rule = Rules.FirstOrDefault(r =>
+                // First matching name/ID retains the original ordered-rule precedence.
+                Rule rule = Rules.FirstOrDefault(r =>
+                    !string.IsNullOrWhiteSpace(r.Name) &&
+                    (int.TryParse(r.Name, out int id) ? item.Id == id :
+                    string.Equals(r.Exact, "true", StringComparison.OrdinalIgnoreCase)
+                        ? string.Equals(item.Name, r.Name, StringComparison.OrdinalIgnoreCase)
+                        : r.Name.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries)
+                            .All(word => item.Name.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0)));
+                if (rule == null || !int.TryParse(rule.Quantity, out int quantity) || quantity < 1 ||
+                    !int.TryParse(rule.Lql, out int low) || !int.TryParse(rule.Hql, out int high) ||
+                    item.QualityLevel < low || item.QualityLevel > high) return null;
+                if (string.Equals(rule.OneEach, "true", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (string.IsNullOrEmpty(r.Name))
-                        return false;
-
-                    if (int.TryParse(r.Name, out int id))
-                        return item.Id == id;
-
-                    if (!string.IsNullOrEmpty(r.Exact) && r.Exact == "true")
-                        return string.Equals(item.Name, r.Name, StringComparison.OrdinalIgnoreCase);
-
-                    string[] words = r.Name.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                    foreach (string word in words)
-                    {
-                        if (item.Name.IndexOf(word, StringComparison.OrdinalIgnoreCase) < 0)
-                            return false;
-                    }
-
-                    return true;
-                });
-
-                if (rule == null)
-                    return false;
-
-                if (string.IsNullOrEmpty(rule.Quantity))
-                    return false;
-
-                if (Convert.ToInt32(rule.Quantity) < 1)
-                    return false;
-
-                if (string.IsNullOrEmpty(rule.Lql) || string.IsNullOrEmpty(rule.Hql))
-                    return false;
-
-                if (item.QualityLevel < Convert.ToInt32(rule.Lql) || item.QualityLevel > Convert.ToInt32(rule.Hql))
-                    return false;
-
-                if (!string.IsNullOrEmpty(rule.OneEach) && rule.OneEach == "true")
-                {
-                    foreach (var invItem in Inventory.Items.Where(c => c.Slot.Type == IdentityType.Inventory))
-                    {
-                        if (string.Equals(invItem.Name, item.Name, StringComparison.OrdinalIgnoreCase))
-                            return false;
-                    }
-
-                    if (!string.IsNullOrEmpty(rule.BagName))
-                    {
-                        foreach (var backpack in Inventory.Backpacks.Where(b => b.Name.Contains(rule.BagName)))
-                        {
-                            foreach (var containerItem in Inventory.GetContainerItems(backpack.Identity))
-                            {
-                                if (string.Equals(containerItem.Name, item.Name, StringComparison.OrdinalIgnoreCase))
-                                    return false;
-                            }
-                        }
-                    }
+                    // An item already in the main inventory is allowed to be the
+                    // first copy; later copies wait/reject while it is sorted.
+                    bool alreadyInInventory = Inventory.Items.Any(existing =>
+                        existing.UniqueIdentity == item.UniqueIdentity);
+                    IEnumerable<Item> earlierItems = alreadyInInventory
+                        ? Inventory.Items.TakeWhile(existing => existing.UniqueIdentity != item.UniqueIdentity)
+                        : Inventory.Items;
+                    if (earlierItems.Any(existing => existing.Slot.Type == IdentityType.Inventory &&
+                        string.Equals(existing.Name, item.Name, StringComparison.OrdinalIgnoreCase))) return null;
+                    if (!string.IsNullOrWhiteSpace(rule.BagName) && Inventory.Backpacks
+                        .Where(bag => ManagedBagFamily.Matches(bag.Name, rule.BagName))
+                        .Any(bag => Inventory.GetContainerItems(bag.Identity).Any(existing =>
+                            existing.UniqueIdentity != item.UniqueIdentity &&
+                            string.Equals(existing.Name, item.Name, StringComparison.OrdinalIgnoreCase)))) return null;
                 }
-
-                return true;
-            }
-            catch (Exception ex)
-            {
-                ErrorCatch(ex);
-                return false;
-            }
-        }
-
-        private Rule GetRuleForItem(Item item)
-        {
-            try
-            {
-                var rule = Rules.FirstOrDefault(r =>
-                {
-                    if (string.IsNullOrEmpty(r.Name))
-                        return false;
-
-                    if (int.TryParse(r.Name, out int id))
-                        return item.Id == id;
-
-                    if (!string.IsNullOrEmpty(r.Exact) && r.Exact == "true")
-                        return string.Equals(item.Name, r.Name, StringComparison.OrdinalIgnoreCase);
-
-                    if (item.Name.IndexOf(r.Name, StringComparison.OrdinalIgnoreCase) < 0)
-                        return false;
-
-
-                    return true;
-                });
-
-                if (rule == null)
-                    return null;
-
-                if (string.IsNullOrEmpty(rule.Quantity))
-                    return null;
-
-                if (Convert.ToInt32(rule.Quantity) < 1)
-                    return null;
-
-                if (string.IsNullOrEmpty(rule.Lql) || string.IsNullOrEmpty(rule.Hql))
-                    return null;
-
-                if (item.QualityLevel < Convert.ToInt32(rule.Lql) || item.QualityLevel > Convert.ToInt32(rule.Hql))
-                    return null;
-
-                if (!string.IsNullOrEmpty(rule.OneEach) && rule.OneEach == "true")
-                {
-                    foreach (var invItem in Inventory.Items.Where(c => c.Slot.Type == IdentityType.Inventory))
-                    {
-                        if (string.Equals(invItem.Name, item.Name, StringComparison.OrdinalIgnoreCase))
-                            return null;
-                    }
-
-                    if (!string.IsNullOrEmpty(rule.BagName))
-                    {
-                        foreach (var backpack in Inventory.Backpacks.Where(b => b.Name.Contains(rule.BagName)))
-                        {
-                            foreach (var containerItem in Inventory.GetContainerItems(backpack.Identity))
-                            {
-                                if (string.Equals(containerItem.Name, item.Name, StringComparison.OrdinalIgnoreCase))
-                                    return null;
-                            }
-                        }
-                    }
-                }
-
                 return rule;
             }
-            catch (Exception ex)
-            {
-                ErrorCatch(ex);
-                return null;
-            }
+            catch (Exception ex) { ErrorCatch(ex); return null; }
         }
 
         private void UpdateRule(Rule rule)
@@ -1621,7 +1584,9 @@ namespace ManagerLoot
             try {
             if (Time.AONormalTime >= ZoneDelay)
             {
-                var lootBags = Inventory.Backpacks.Where(bag => Rules.Any(r => !string.IsNullOrWhiteSpace(r.BagName) && bag.Name.StartsWith(r.BagName))).ToList();
+                var lootBags = Inventory.Backpacks.Where(bag =>
+                    ManagedBagFamily.IsProtected(bag.Name) ||
+                    Rules.Any(r => ManagedBagFamily.Matches(bag.Name, r.BagName))).ToList();
 
                 foreach (var item in Inventory.Items)
                 {
