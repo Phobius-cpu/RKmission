@@ -45,6 +45,10 @@ namespace RKmission
         private Vector3 _lastPathPoint;
         private int _messages;
         private int _rawBankMessages, _bankChanges;
+        private int _suppressedRawBankMessages, _suppressedEmptyVendingMessages;
+        private readonly Dictionary<string, int> _rawBankTypeCounts = new Dictionary<string, int>();
+        private DateTime _lastEmptyVendingAt;
+        private int _lastEmptyVendingPlayfield;
         private bool _bankWasOpen, _bankBaselineReady;
         private DateTime _bankOpenedAt;
         private DateTime _nextBankPoll, _nextProbeErrorLog;
@@ -74,6 +78,10 @@ namespace RKmission
             _purpose = string.IsNullOrWhiteSpace(purpose) ? "unspecified" : purpose.Trim().ToLowerInvariant();
             _messages = 0;
             _rawBankMessages = _bankChanges = 0;
+            _suppressedRawBankMessages = _suppressedEmptyVendingMessages = 0;
+            _rawBankTypeCounts.Clear();
+            _lastEmptyVendingAt = DateTime.MinValue;
+            _lastEmptyVendingPlayfield = 0;
             _bankWasOpen = _bankBaselineReady = false;
             _nextBankPoll = _nextProbeErrorLog = DateTime.MinValue;
             _bankItems.Clear();
@@ -135,7 +143,8 @@ namespace RKmission
                 File.WriteAllText(path, JsonConvert.SerializeObject(_observations, Formatting.Indented));
                 LastFilePath = path;
                 _say($"Logistics probe saved {_observations.Count} observations to {path}; " +
-                    $"bank item changes={_bankChanges}, other bank-window packets={_rawBankMessages}.");
+                    $"bank item changes={_bankChanges}, other bank-window packets={_rawBankMessages}; " +
+                    $"repeated packets suppressed={_suppressedRawBankMessages + _suppressedEmptyVendingMessages}.");
             }
             catch (Exception ex) { _say("Logistics probe could not save its route/transaction trace: " + ex.Message); }
         }
@@ -362,6 +371,18 @@ namespace RKmission
                 $"ManagerLoot={ClassifyForProbe(item)}";
         }
 
+        private string DescribeTradeCandidates(TradeMessage trade)
+        {
+            if (trade.Action.ToString() != "AddItem") return "";
+            var candidates = Inventory.Items?.Where(x => x != null &&
+                x.Slot.Type == IdentityType.Inventory &&
+                (x.Slot.Instance == trade.Param3 || x.Slot.Instance == trade.Param4))
+                .Select(x => $"slot={x.Slot}, item='{x.Name}', id={x.Id}, QL={x.QualityLevel}, " +
+                    $"ManagerLoot={ClassifyForProbe(x)}").ToArray();
+            return candidates == null || candidates.Length == 0 ? "; inventory slot candidate unresolved" :
+                "; inventory slot candidates: " + string.Join(" | ", candidates);
+        }
+
         private void Observe(string direction, N3Message message)
         {
             string details = null;
@@ -377,7 +398,21 @@ namespace RKmission
             else if (message is ShopUpdateMessage shop)
                 details = $"ShopUpdate slots={shop.VendingMachineSlots?.Length ?? 0}";
             else if (message is VendingMachineFullUpdateMessage vending)
+            {
+                if (Convert.ToInt64(vending.OwnerType) == 0 && Convert.ToInt64(vending.OwnerInstance) == 0)
+                {
+                    int playfield = Playfield.ModelIdentity.Instance;
+                    if (playfield == _lastEmptyVendingPlayfield &&
+                        DateTime.UtcNow - _lastEmptyVendingAt < TimeSpan.FromSeconds(10))
+                    {
+                        _suppressedEmptyVendingMessages++;
+                        return;
+                    }
+                    _lastEmptyVendingPlayfield = playfield;
+                    _lastEmptyVendingAt = DateTime.UtcNow;
+                }
                 details = $"VendingMachine owner={vending.OwnerType}:{vending.OwnerInstance}";
+            }
             else if (message is ClientContainerAddItem move)
                 details = $"MoveToContainer source={move.Source}, target={move.Target}; " +
                     (move.Source.Type == IdentityType.Inventory ? DescribeMainSource(move.Source) :
@@ -387,13 +422,21 @@ namespace RKmission
             else if (message is ClientMoveItemToInventory take)
                 details = $"MoveToInventory source={take.SourceContainer}, slot={take.Slot}";
             else if (message is TradeMessage trade)
-                details = $"Trade action={trade.Action}, params={trade.Param1}/{trade.Param2}/{trade.Param3}/{trade.Param4}";
+                details = $"Trade action={trade.Action}, params={trade.Param1}/{trade.Param2}/{trade.Param3}/{trade.Param4}" +
+                    DescribeTradeCandidates(trade);
             if (details == null)
             {
                 if (Inventory.Bank?.IsOpen == true && _rawBankMessages < 160)
                 {
-                    Record(direction, $"Unclassified bank-window packet: {message.GetType().FullName}; identity={message.Identity}");
-                    _rawBankMessages++;
+                    string typeName = message.GetType().FullName;
+                    _rawBankTypeCounts.TryGetValue(typeName, out int seen);
+                    _rawBankTypeCounts[typeName] = seen + 1;
+                    if (seen < 3)
+                    {
+                        Record(direction, $"Unclassified bank-window packet: {typeName}; identity={message.Identity}");
+                        _rawBankMessages++;
+                    }
+                    else _suppressedRawBankMessages++;
                 }
                 return;
             }
