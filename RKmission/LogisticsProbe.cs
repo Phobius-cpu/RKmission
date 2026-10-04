@@ -48,8 +48,8 @@ namespace RKmission
         private bool _bankWasOpen, _bankBaselineReady;
         private DateTime _bankOpenedAt;
         private DateTime _nextBankPoll, _nextProbeErrorLog;
-        private Dictionary<Identity, string> _bankItems = new Dictionary<Identity, string>();
-        private Dictionary<Identity, string> _mainItems = new Dictionary<Identity, string>();
+        private Dictionary<string, string> _bankItems = new Dictionary<string, string>();
+        private Dictionary<string, string> _mainItems = new Dictionary<string, string>();
         public bool Active { get; private set; }
         public string LastFilePath { get; private set; }
         public string Status => Active
@@ -187,12 +187,25 @@ namespace RKmission
             ObserveBankState();
         }
 
-        private Dictionary<Identity, string> Snapshot(IEnumerable<Item> items, bool classify = false) =>
-            (items ?? Enumerable.Empty<Item>())
-                .Where(x => x != null && x.UniqueIdentity != Identity.None)
-                .GroupBy(x => x.UniqueIdentity)
-                .ToDictionary(x => x.Key, x => $"{x.First().Name} at {x.First().Slot}" +
-                    (classify ? $"; ManagerLoot={_loot.Classify(x.First())}" : ""));
+        private Dictionary<string, string> Snapshot(IEnumerable<Item> items, bool classify = false)
+        {
+            var snapshot = new Dictionary<string, string>();
+            int index = 0;
+            foreach (Item item in items ?? Enumerable.Empty<Item>())
+            {
+                if (item != null)
+                {
+                    // AOSharp reports UniqueIdentity=None for some ordinary items.
+                    // The occupied slot still identifies a bank/main inventory change.
+                    string key = item.Slot == Identity.None ? $"index:{index}" : item.Slot.ToString();
+                    snapshot[key] = $"item='{item.Name}', id={item.Id}, QL={item.QualityLevel}, " +
+                        $"unique={item.UniqueIdentity}" +
+                        (classify ? $"; ManagerLoot={_loot.Classify(item)}" : "");
+                }
+                index++;
+            }
+            return snapshot;
+        }
 
         private void ObserveBankState(bool force = false)
         {
@@ -205,7 +218,7 @@ namespace RKmission
             bool open = Inventory.Bank.IsOpen;
             if (!force && open == _bankWasOpen && DateTime.UtcNow < _nextBankPoll) return;
             _nextBankPoll = DateTime.UtcNow.AddMilliseconds(open ? 250 : 1000);
-            Dictionary<Identity, string> main = Snapshot(Inventory.Items.Where(x =>
+            Dictionary<string, string> main = Snapshot(Inventory.Items.Where(x =>
                 x.Slot.Type == IdentityType.Inventory), true);
             if (open != _bankWasOpen)
             {
@@ -223,7 +236,7 @@ namespace RKmission
                 _mainItems = main;
                 return;
             }
-            Dictionary<Identity, string> bank = Snapshot(Inventory.Bank.Items);
+            Dictionary<string, string> bank = Snapshot(Inventory.Bank.Items);
             if (!_bankBaselineReady)
             {
                 if (DateTime.UtcNow - _bankOpenedAt < TimeSpan.FromSeconds(1)) return;
@@ -243,12 +256,13 @@ namespace RKmission
             _mainItems = main;
         }
 
-        private void RecordChanges(string eventName, Dictionary<Identity, string> after,
-            Dictionary<Identity, string> before)
+        private void RecordChanges(string eventName, Dictionary<string, string> after,
+            Dictionary<string, string> before)
         {
-            foreach (var item in after.Where(x => !before.ContainsKey(x.Key)))
+            foreach (var item in after.Where(x => !before.TryGetValue(x.Key, out string previous) ||
+                previous != x.Value))
             {
-                Record(eventName, $"item={item.Key}; {item.Value}; free slots={Inventory.NumFreeSlots}");
+                Record(eventName, $"slot={item.Key}; {item.Value}; free slots={Inventory.NumFreeSlots}");
                 _bankChanges++;
                 _say($"Logistics probe: {eventName} {item.Key} ({item.Value}).");
             }
