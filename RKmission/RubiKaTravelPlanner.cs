@@ -26,6 +26,7 @@ namespace RKmission
         private readonly ScottyboiWarpProvider _warp;
         private readonly FGridServiceProvider _fgrid;
         private readonly MovementArbiter _movement;
+        private readonly NavigationRouteRecorder _routes;
         private readonly Action<string> _say;
         private Link _step;
         private int _target;
@@ -49,11 +50,13 @@ namespace RKmission
         public string LastFailure { get; private set; }
 
         public RubiKaTravelPlanner(string pluginDir, ScottyboiWarpProvider warp,
-            FGridServiceProvider fgrid, MovementArbiter movement, Action<string> say)
+            FGridServiceProvider fgrid, MovementArbiter movement,
+            NavigationRouteRecorder routes, Action<string> say)
         {
             _warp = warp;
             _fgrid = fgrid;
             _movement = movement;
+            _routes = routes;
             _say = say;
 
             string path = Path.Combine(pluginDir, "Data", "PlayfieldLinks.json");
@@ -118,6 +121,7 @@ namespace RKmission
 
                 _movement.Release(MovementOwner.OutdoorTravel);
                 _movement.Release(MovementOwner.FGridTravel);
+                _routes.StopPlayback();
                 return TravelResult.Arrived;
             }
 
@@ -182,6 +186,9 @@ namespace RKmission
                 _step.Kind == "TeleporterLink" ? 2f : 3f;
             if (Vector3.Distance(DynelManager.LocalPlayer.Position, _step.Position) > arrivalRadius)
             {
+                if ((_step.Kind == "GridTerminalLink" || _step.Kind == "TerminalLink") &&
+                    _routes.TryNavigate(_step.Position, _movement, MovementOwner.OutdoorTravel))
+                    return TravelResult.InProgress;
                 if (!_movementIsNavigating())
                     _movement.SetDestination(MovementOwner.OutdoorTravel, _step.Position);
                 return TravelResult.InProgress;
@@ -232,6 +239,7 @@ namespace RKmission
             _say(reason + "; blacklisting this link and replanning.");
             _failedLinks.Add(LinkKey(_step));
             _movement.Release(MovementOwner.OutdoorTravel);
+            _routes.StopPlayback();
             _step = null;
         }
 
@@ -309,6 +317,7 @@ namespace RKmission
             LastFailure = null;
             _movement.Release(MovementOwner.OutdoorTravel);
             _movement.Release(MovementOwner.FGridTravel);
+            _routes.StopPlayback();
             _warp.Reset();
             _fgrid.Reset();
         }
@@ -317,6 +326,7 @@ namespace RKmission
         {
             _movement.Release(MovementOwner.OutdoorTravel);
             _movement.Release(MovementOwner.FGridTravel);
+            _routes.StopPlayback();
         }
     }
 }

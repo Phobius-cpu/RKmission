@@ -28,7 +28,7 @@ namespace RKmission
             Failure = null;
         }
 
-        public HandInResult Tick(AcceptedMission record)
+        public HandInResult Tick(AcceptedMission record, Identity issuingTerminal)
         {
             if (_mission != record.Id)
             {
@@ -38,6 +38,9 @@ namespace RKmission
             }
             if (record.DeletedByUser)
                 return Block("Bound return-item quest was deleted by the user.");
+            if (issuingTerminal.Type != IdentityType.MissionTerminal ||
+                record.Source != issuingTerminal)
+                return Block("The quest's return source does not match its verified issuing terminal.");
             UseItemOnItemAction[] actions = (record.Actions?.OfType<UseItemOnItemAction>() ??
                     Enumerable.Empty<UseItemOnItemAction>())
                 .Where(x => record.Source != Identity.None && x.Destination == record.Source)
@@ -63,7 +66,8 @@ namespace RKmission
             if (!Mission.List.Any(x => x.Identity == record.Id))
                 return Block("Bound quest is absent before a verified hand-in.");
             Dynel target = DynelManager.GetDynel(action.Destination);
-            if (target == null) return HandInResult.Waiting;
+            if (target == null || target.Identity != issuingTerminal)
+                return HandInResult.Waiting;
             if (Vector3.Distance(DynelManager.LocalPlayer.Position, target.Position) > 2.5f)
                 return HandInResult.Waiting;
             if (Item.HasPendingUse || Spell.HasPendingCast ||

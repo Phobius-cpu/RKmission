@@ -1,10 +1,35 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using AOSharp.Common.GameData;
 using Newtonsoft.Json;
 
 namespace RKmission
 {
+    internal sealed class MissionOriginBinding
+    {
+        public int QuestInstance { get; set; }
+        public int CharacterInstance { get; set; }
+        public int DestinationPlayfield { get; set; }
+        public Vector3 Destination { get; set; }
+        public int TerminalInstance { get; set; }
+        public int TerminalPlayfield { get; set; }
+        public Vector3 TerminalPosition { get; set; }
+        public DateTime AcceptedAtUtc { get; set; }
+
+        public bool Matches(AcceptedMission mission, Identity character) =>
+            mission != null && QuestInstance == mission.Id.Instance &&
+            CharacterInstance > 0 && CharacterInstance == character.Instance &&
+            DestinationPlayfield == mission.PlayfieldId &&
+            AcceptedMissions.Finite(Destination) &&
+            AcceptedMissions.Finite(mission.Entrance) &&
+            Vector3.Distance(Destination, mission.Entrance) <= 12f &&
+            TerminalInstance > 0 && TerminalPlayfield > 0 &&
+            AcceptedMissions.Finite(TerminalPosition);
+
+        public Identity TerminalIdentity => new Identity(IdentityType.MissionTerminal, TerminalInstance);
+    }
+
     // Durable intent only. No path, live dynel, room-clearance or movement command
     // is restored from disk. The coordinator reconciles identity against AO# first.
     internal sealed class MissionCheckpoint
@@ -16,6 +41,8 @@ namespace RKmission
         public bool HasRollTerminal { get; set; }
         public int RollTerminalPlayfield { get; set; }
         public Vector3 RollTerminalPosition { get; set; }
+        // Per-quest provenance. The global roller location can change among sites.
+        public List<MissionOriginBinding> OriginTerminals { get; set; } = new List<MissionOriginBinding>();
         public string Phase { get; set; } = "Idle";
         public int MissionType { get; set; }
         public int MissionInstance { get; set; }

@@ -20,6 +20,7 @@ namespace RKmission
             public int Playfield { get; set; }
             public List<float[]> Points { get; set; } = new List<float[]>();
             public DateTime RecordedAtUtc { get; set; }
+            [JsonIgnore] public bool Bundled { get; set; }
         }
 
         private readonly string _path;
@@ -45,6 +46,7 @@ namespace RKmission
         {
             _say = say;
             _path = System.IO.Path.Combine(pluginDir, "RKMissionData", "navigation-routes.json");
+            LoadBundled(System.IO.Path.Combine(pluginDir, "Data", "NavigationRoutes.json"));
             Load();
             Game.OnUpdate += OnUpdate;
         }
@@ -77,11 +79,25 @@ namespace RKmission
                 _say($"Nav route '{route.Name}': PF {route.Playfield}, {route.Points.Count} points, {route.RecordedAtUtc:u}.");
         }
 
+        // A route endpoint is a positioning hint, never proof that a Grid
+        // terminal exists there. The caller must verify the live terminal.
+        public bool TryGetEndpoint(string name, int playfield, Vector3 origin, out Vector3 endpoint)
+        {
+            endpoint = default(Vector3);
+            Route route = _routes.FirstOrDefault(x => x.Playfield == playfield &&
+                string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase) &&
+                x.Points.Count >= 2 && Vector3.Distance(V(x.Points[0]), origin) <= 6f);
+            if (route == null) return false;
+            endpoint = V(route.Points[route.Points.Count - 1]);
+            return true;
+        }
+
         public bool TryNavigate(Vector3 target, MovementArbiter movement, MovementOwner owner, float endpointTolerance = 6f)
         {
             var player = DynelManager.LocalPlayer;
             if (player == null || IsRecording || Game.IsZoning) return false;
-            if (_playing == null || _playPoints == null || Vector3.Distance(_playPoints[_playPoints.Count - 1], target) > endpointTolerance)
+            if (_playing == null || _playing.Playfield != Playfield.ModelIdentity.Instance ||
+                _playPoints == null || Vector3.Distance(_playPoints[_playPoints.Count - 1], target) > endpointTolerance)
             {
                 StopPlayback();
                 Route best = null; bool reverse = false; float bestCost = float.MaxValue;
@@ -160,12 +176,36 @@ namespace RKmission
             try
             {
                 if (!File.Exists(_path)) return;
-                RouteFile file = JsonConvert.DeserializeObject<RouteFile>(File.ReadAllText(_path)) ?? new RouteFile();
-                if (file.Routes.Any(x => x == null || x.Playfield <= 0 || x.Points == null || x.Points.Any(p => p == null || p.Length != 3)))
-                    throw new InvalidDataException("invalid route record");
+                RouteFile file = ReadRoutes(_path);
+                foreach (Route route in file.Routes)
+                    _routes.RemoveAll(x => x.Playfield == route.Playfield &&
+                        string.Equals(x.Name, route.Name, StringComparison.OrdinalIgnoreCase));
                 _routes.AddRange(file.Routes);
             }
             catch (Exception ex) { _writable = false; _say("Navigation route file could not be read; existing file preserved: " + ex.Message); }
+        }
+
+        private void LoadBundled(string path)
+        {
+            try
+            {
+                if (!File.Exists(path)) return;
+                RouteFile file = ReadRoutes(path);
+                foreach (Route route in file.Routes) route.Bundled = true;
+                _routes.AddRange(file.Routes);
+                _say($"Loaded {file.Routes.Count} bundled navigation route(s).");
+            }
+            catch (Exception ex) { _say("Bundled navigation routes were not loaded: " + ex.Message); }
+        }
+
+        private static RouteFile ReadRoutes(string path)
+        {
+            RouteFile file = JsonConvert.DeserializeObject<RouteFile>(File.ReadAllText(path)) ?? new RouteFile();
+            if (file.Routes == null || file.Routes.Any(x => x == null || x.Playfield <= 0 ||
+                x.Points == null || x.Points.Count < 2 || x.Points.Any(p => p == null || p.Length != 3 ||
+                    p.Any(c => float.IsNaN(c) || float.IsInfinity(c)))))
+                throw new InvalidDataException("invalid route record");
+            return file;
         }
 
         private void Save()
@@ -175,7 +215,8 @@ namespace RKmission
             {
                 Directory.CreateDirectory(System.IO.Path.GetDirectoryName(_path));
                 string temp = _path + ".new";
-                File.WriteAllText(temp, JsonConvert.SerializeObject(new RouteFile { Routes = _routes }, Formatting.Indented));
+                File.WriteAllText(temp, JsonConvert.SerializeObject(new RouteFile
+                { Routes = _routes.Where(x => !x.Bundled).ToList() }, Formatting.Indented));
                 if (File.Exists(_path)) File.Replace(temp, _path, null); else File.Move(temp, _path);
             }
             catch (Exception ex) { _say("Navigation route save failed: " + ex.Message); }

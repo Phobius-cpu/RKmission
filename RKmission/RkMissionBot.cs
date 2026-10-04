@@ -46,6 +46,10 @@ namespace RKmission
         private readonly HashSet<int> _awaitingQuestDetails = new HashSet<int>();
         private readonly Dictionary<int, int> _autoAcceptedPlayfields = new Dictionary<int, int>();
         private Vector3 _rollTerminalPosition;
+        private Identity _rollingTerminalIdentity = Identity.None;
+        private MissionTerminal _rollingTerminalReference;
+        private int _rollingTerminalPlayfield;
+        private Vector3 _rollingTerminalPosition;
         private DateTime _nextReturnMove, _returnStarted;
         private bool _running, _dungeonStarted, _clearanceReported, _verifiedRun, _travelInvalidated;
         private Identity _observedDungeon = Identity.None;
@@ -86,9 +90,11 @@ namespace RKmission
             _navWindow = new NavigationRecorderWindow(pluginDir, _navRoutes, Say);
             _postZoneSafety = new PostZoneFlightSafety(_movement, Say);
             _fgrid = new FGridServiceProvider(pluginDir, Say, _movement, _navRoutes);
-            _longTravel = new RubiKaTravelPlanner(pluginDir, _warp, _fgrid, _movement, Say);
+            _longTravel = new RubiKaTravelPlanner(pluginDir, _warp, _fgrid, _movement, _navRoutes, Say);
             _entranceResolver = new MissionEntranceResolver(pluginDir, Say);
             _checkpoint = MissionCheckpoint.Load(pluginDir, Say);
+            if (_checkpoint.OriginTerminals == null)
+                _checkpoint.OriginTerminals = new List<MissionOriginBinding>();
             _maxAutoMissions = Math.Max(0, _checkpoint.AutoMissionLimit);
             _autoAcceptedCount = Math.Max(0, _checkpoint.AutoAcceptedCount);
             _hasRollTerminal = _checkpoint.HasRollTerminal && _checkpoint.RollTerminalPlayfield > 0 &&
@@ -384,6 +390,8 @@ namespace RKmission
             if (!preserveCheckpoint) _pendingCheckpointResume = false;
             if (_autoRolling) MaliMissionRoller2.Main.Window?.StopZoneRolling();
             _autoRolling = false;
+            _rollingTerminalIdentity = Identity.None;
+            _rollingTerminalReference = null;
             _clearAcceptedBeforeRolling = false;
             _running = false;
             _dungeonStarted = false;
@@ -440,6 +448,8 @@ namespace RKmission
             }
             _selected.State = MissionProgress.CompletedByUser;
             _selected.ReturnHandInPending = false;
+            _checkpoint.OriginTerminals.RemoveAll(x => x.QuestInstance == _selected.Id.Instance);
+            _checkpoint.Save(true, Say);
             _handIn.Reset();
             _selected.CompletionEvidence = "User confirmed the objective/reward with /rkm complete";
             _travel.Reset();
@@ -1073,6 +1083,7 @@ namespace RKmission
                 if (accepted != null || updateId > 0 || exactQuestAcknowledged)
                 {
                     int acceptedId = accepted?.Id.Instance ?? (updateId > 0 ? updateId : pending);
+                    BindAcceptedMissionOrigin(acceptedId, destination, window.PendingAutoLocation);
                     if (_autoAcceptedIds.Add(acceptedId)) _autoAcceptedCount++;
                     _autoAcceptedPlayfields[acceptedId] = destination;
                     if (accepted == null || !accepted.IsRubiKaDestination)
@@ -1157,8 +1168,12 @@ namespace RKmission
             Dynel? terminal = FindVisibleRollTerminal(7.5f);
             if (terminal == null)
             { Wait("Mission terminal is not yet in range; automatic cycle remains armed and will retry."); return; }
-            MaliMissionRoller2.Main.Window.UpdateTerminal(new MissionTerminal(terminal));
+            _rollingTerminalReference = new MissionTerminal(terminal);
+            MaliMissionRoller2.Main.Window.UpdateTerminal(_rollingTerminalReference);
             RememberRollTerminal(terminal);
+            _rollingTerminalIdentity = terminal.Identity;
+            _rollingTerminalPlayfield = Playfield.ModelIdentity.Instance;
+            _rollingTerminalPosition = terminal.Position;
             _autoRollCount = 0;
             _autoRolling = true;
             _returnStarted = DateTime.MinValue;
@@ -1169,6 +1184,36 @@ namespace RKmission
             }
             Say($"Mission roller is rolling for {(_autoZone == 0 ? $"{MaliMissionRoller2.Main.Window.EnabledAutoDestinationCount} enabled Rubi-Ka playfield(s)" : $"playfield {_autoZone}")}; " +
                 $"offer limit {_maxAutoRolls}, mission limit {(_maxAutoMissions == 0 ? "unlimited" : _maxAutoMissions.ToString())}.");
+        }
+
+        private void BindAcceptedMissionOrigin(int questId, int destination, Vector3 entrance)
+        {
+            Dynel terminal = DynelManager.GetDynel(_rollingTerminalIdentity);
+            if (_rollingTerminalIdentity.Type != IdentityType.MissionTerminal ||
+                terminal == null || Playfield.ModelIdentity.Instance != _rollingTerminalPlayfield ||
+                Vector3.Distance(terminal.Position, _rollingTerminalPosition) > 1f ||
+                !ReferenceEquals(MaliMissionRoller2.MainWindow.CurrentTerminal,
+                    _rollingTerminalReference) ||
+                !AcceptedMissions.Finite(entrance) || destination <= 0)
+            {
+                Say($"Quest {questId} has no verified issuing terminal; automatic return-item hand-in will be held.");
+                return;
+            }
+            _checkpoint.OriginTerminals.RemoveAll(x => x.QuestInstance == questId);
+            _checkpoint.OriginTerminals.Add(new MissionOriginBinding
+            {
+                QuestInstance = questId,
+                CharacterInstance = DynelManager.LocalPlayer.Identity.Instance,
+                DestinationPlayfield = destination,
+                Destination = entrance,
+                TerminalInstance = _rollingTerminalIdentity.Instance,
+                TerminalPlayfield = _rollingTerminalPlayfield,
+                TerminalPosition = _rollingTerminalPosition,
+                AcceptedAtUtc = DateTime.UtcNow
+            });
+            _checkpoint.Save(true, Say);
+            Say($"Bound accepted quest {questId} to issuing terminal {_rollingTerminalIdentity} " +
+                $"at PF {_rollingTerminalPlayfield} ({LocalRoutePlanner.Coordinates(_rollingTerminalPosition)}).");
         }
 
         private bool ReturnToRollTerminal()
@@ -1206,20 +1251,56 @@ namespace RKmission
 
         private bool TickReturnHandIn()
         {
+            MissionOriginBinding origin = _checkpoint.OriginTerminals
+                .FirstOrDefault(x => x.Matches(_selected, DynelManager.LocalPlayer.Identity));
+            if (origin == null)
+            {
+                Stop();
+                Say("Automatic return-item hand-in stopped: this quest has no verified issuing terminal binding. Return it manually to the terminal where it was pulled.");
+                return false;
+            }
+            Identity issuingTerminal = origin.TerminalIdentity;
             UseItemOnItemAction action = _selected.Actions?.OfType<UseItemOnItemAction>()
                 .FirstOrDefault(x => x.Destination == _selected.Source);
-            Dynel target = action == null ? null : DynelManager.GetDynel(action.Destination);
+            if (_selected.Source != issuingTerminal || action == null ||
+                action.Destination != issuingTerminal)
+            {
+                Stop();
+                Say($"Automatic return-item hand-in stopped: quest {_selected.Id.Instance} names {_selected.Source} " +
+                    $"but its verified issuing terminal is {issuingTerminal}. No item was used.");
+                return false;
+            }
+            if (Playfield.ModelIdentity.Instance != origin.TerminalPlayfield)
+            {
+                TravelResult travel = _longTravel.Tick(origin.TerminalPlayfield, origin.TerminalPosition);
+                if (travel == TravelResult.Blocked)
+                {
+                    string reason = _longTravel.LastFailure;
+                    Stop(); Say("Return to the issuing terminal stopped: " + reason);
+                }
+                return false;
+            }
+            if (_longTravel.IsActive) _longTravel.Reset();
+            Dynel target = DynelManager.GetDynel(issuingTerminal);
+            if (target != null && Vector3.Distance(target.Position, origin.TerminalPosition) > 3f)
+            {
+                Stop();
+                Say("Automatic return-item hand-in stopped: the issuing terminal identity appeared at an unexpected position.");
+                return false;
+            }
             if (target != null &&
                 Vector3.Distance(DynelManager.LocalPlayer.Position, target.Position) <= 2.5f)
                 _movement.Halt(MovementOwner.OutdoorTravel);
-            HandInResult result = _handIn.Tick(_selected);
+            HandInResult result = _handIn.Tick(_selected, issuingTerminal);
             if (result == HandInResult.Confirmed)
             {
                 _movement.Release(MovementOwner.OutdoorTravel);
                 _selected.ReturnHandInPending = false;
                 _selected.State = MissionProgress.CompletedAutomatically;
                 _selected.CompletionEvidence =
-                    "Exact return item used on the bound mission source; item consumed and bound quest absent for 2 s";
+                    "Exact return item used on its verified issuing terminal; item consumed and bound quest absent for 2 s";
+                _checkpoint.OriginTerminals.Remove(origin);
+                _checkpoint.Save(true, Say);
                 _handInLocateStarted = DateTime.MinValue;
                 Say($"Return-item hand-in confirmed for mission {_selected.Id.Instance}; the bound quest cleared and chaining may proceed.");
                 return true;
@@ -1241,16 +1322,21 @@ namespace RKmission
             }
             if (_handInLocateStarted == DateTime.MinValue)
                 _handInLocateStarted = DateTime.UtcNow;
-            if (_hasRollTerminal && _selected.Source.Type == IdentityType.MissionTerminal)
+            if (DateTime.UtcNow - _handInLocateStarted > TimeSpan.FromMinutes(4))
             {
-                if (!ReturnToRollTerminal()) return false;
-                if (DateTime.UtcNow - _handInLocateStarted < TimeSpan.FromSeconds(30))
-                { Wait("At the saved roller location; waiting for the exact return terminal identity to appear."); return false; }
+                Stop();
+                Say("Automatic hand-in stopped: the verified issuing terminal did not become visible within four minutes.");
+                return false;
             }
-            else if (DateTime.UtcNow - _handInLocateStarted < TimeSpan.FromMinutes(4))
-            { Wait("Waiting for the bound return terminal to become visible; its location is not verified."); return false; }
-            Stop();
-            Say("Automatic hand-in stopped: the exact mission source was not visible at a verified terminal location.");
+            if (Vector3.Distance(DynelManager.LocalPlayer.Position, origin.TerminalPosition) > 6f)
+            {
+                if (DateTime.UtcNow >= _nextReturnMove)
+                {
+                    _movement.SetDestination(MovementOwner.OutdoorTravel, origin.TerminalPosition);
+                    _nextReturnMove = DateTime.UtcNow.AddSeconds(3);
+                }
+            }
+            else Wait("At the issuing terminal location; waiting for its exact identity to become visible.");
             return false;
         }
 
