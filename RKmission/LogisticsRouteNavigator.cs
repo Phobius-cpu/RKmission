@@ -21,6 +21,22 @@ namespace RKmission
         private float _bestDistance;
 
         public bool IsActive => _route != null;
+        public bool IsAtBankTarget => _route != null && _atTarget &&
+            _route.Purpose == "bank" && !Game.IsZoning &&
+            DynelManager.LocalPlayer != null &&
+            Playfield.ModelIdentity.Instance == _route.DestinationPlayfield &&
+            Vector3.Distance(DynelManager.LocalPlayer.Position, V(_route.DestinationPosition)) <= 8f;
+        public SimpleItem FindVerifiedBankTerminal()
+        {
+            if (!IsAtBankTarget) return null;
+            Vector3 target = V(_route.DestinationPosition);
+            return DynelManager.Terminals.FirstOrDefault(x =>
+                string.Equals(x.Identity.ToString(), _route.DestinationIdentity,
+                    StringComparison.OrdinalIgnoreCase) &&
+                x.Name?.IndexOf("Banking Service Terminal", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                Vector3.Distance(x.Position, target) <= 8f &&
+                Vector3.Distance(x.Position, DynelManager.LocalPlayer.Position) <= 8f);
+        }
         public string Status => _route == null ? "inactive" :
             $"{_route.Site}/{_route.Purpose}: " + (_atTarget ? "at surveyed target; use /rkm logistics return" :
                 $"{_route.Stages[_stageIndex].Name} point {_pointIndex + 1}/{_route.Stages[_stageIndex].Points.Count}" +
@@ -236,9 +252,7 @@ namespace RKmission
             string liveTarget;
             if (_route.Purpose == "bank")
             {
-                SimpleItem terminal = DynelManager.Terminals.FirstOrDefault(x =>
-                    x.Name?.IndexOf("Banking Service Terminal", StringComparison.OrdinalIgnoreCase) >= 0 &&
-                    Vector3.Distance(x.Position, target) <= 8f);
+                SimpleItem terminal = FindVerifiedBankTerminal();
                 liveTarget = terminal == null ? "live bank terminal not visible at the surveyed position" :
                     $"live bank terminal {terminal.Identity} visible at the surveyed position";
             }

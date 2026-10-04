@@ -2710,3 +2710,9 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 - FGrid shares its currently reachable nearest surveyed portal estimate. Scottyboi learns settled landings per destination/assigned warper in `RKMissionData/scottyboi-landings.json`; mapped links learn settled destination positions in `RKMissionData/playfield-link-landings.json`. Both runtime files are validated, atomic, and Git-ignored. Warpdude31 remains excluded for Milky Way.
 - The coordinator now continues ticking an active cross-playfield planner after entering the target playfield so arrival verification and learning complete. Portal fallback, Recast/recorded paths, movement ownership, and other mission logic remain in their providers.
 - `dotnet build RKmission/RKmission.csproj` passed with zero errors. Live AO validation is still needed. See `docs/history/2026-10-04-arrival-scored-cross-playfield-travel.md`.
+
+## 2026-10-04 OA bank route and transfer checkpoint
+
+- The user's 21:05 OA bank route log shows forward crossing targets and verified PF 540 -> 3135 -> 540 zoning, with both surveyed endpoints reached. No crossing timeout appeared. Borealis and ICC routes remain unverified in game.
+- The next explicit diagnostic is `/rkm logistics bank test` after `/rkm logistics travel oa bank`: it opens the exact surveyed bank terminal, selects one unambiguous ManagerLoot Keep item absent from the bank, deposits it once, verifies both inventories, retrieves it once, and verifies original counts. Stop or timeout never retries a transfer; inspect the item manually if verification fails.
+- This diagnostic is not wired to `/rkm auto`. Persistent deposits and shop sales still require live transaction verification. See `docs/history/2026-10-04-logistics-bank-round-trip.md`.
