@@ -6,25 +6,30 @@ using AOSharp.Core.Inventory;
 
 namespace RKmission
 {
-    // Explicit one-item bank API test. A transfer is never retried after being
-    // sent: the server may have accepted it before the inventory view updates.
-    internal sealed class BankRoundTrip : IDisposable
+    // Explicit bank transfers at an exact surveyed terminal. A transfer is
+    // never retried after being sent: the server may have accepted it before
+    // the inventory view updates.
+    internal sealed class BankTransactions : IDisposable
     {
+        private enum Operation { RoundTrip, Store }
         private enum Phase { Idle, Opening, Settling, DepositSent, WithdrawalSent }
 
         private readonly LogisticsRouteNavigator _route;
         private readonly ManagerLoot.ManagerLoot _loot;
         private readonly Action<string> _say;
+        private Operation _operation;
         private Phase _phase;
         private DateTime _phaseStarted, _nextTick;
         private int _itemId, _itemQl, _mainBefore, _bankBefore;
+        private int _requested, _completed;
         private string _itemName;
 
         public bool IsActive => _phase != Phase.Idle;
         public string Status => _phase == Phase.Idle ? "inactive" :
-            $"{_phase} for '{_itemName ?? "unselected"}' ({_itemId}, QL {_itemQl})";
+            $"{_operation} {_phase}, verified stores={_completed}/{_requested}, " +
+            $"item='{_itemName ?? "unselected"}' ({_itemId}, QL {_itemQl})";
 
-        public BankRoundTrip(LogisticsRouteNavigator route, ManagerLoot.ManagerLoot loot, Action<string> say)
+        public BankTransactions(LogisticsRouteNavigator route, ManagerLoot.ManagerLoot loot, Action<string> say)
         {
             _route = route;
             _loot = loot;
@@ -32,9 +37,14 @@ namespace RKmission
             Game.OnUpdate += OnUpdate;
         }
 
-        public void Start()
+        public void StartRoundTrip() => Start(Operation.RoundTrip, 1);
+        public void StartStore(int count) => Start(Operation.Store, count);
+
+        private void Start(Operation operation, int count)
         {
-            if (IsActive) { _say("Bank round-trip test is already active."); return; }
+            if (IsActive) { _say("A bank transaction is already active."); return; }
+            if (count < 1 || count > 20)
+            { _say("Bank storage count must be between 1 and 20."); return; }
             SimpleItem terminal = _route.FindVerifiedBankTerminal();
             if (terminal == null)
             {
@@ -43,6 +53,9 @@ namespace RKmission
             }
             _itemName = null;
             _itemId = _itemQl = 0;
+            _operation = operation;
+            _requested = count;
+            _completed = 0;
             _phase = Inventory.Bank?.IsOpen == true ? Phase.Settling : Phase.Opening;
             _phaseStarted = DateTime.UtcNow;
             _nextTick = DateTime.MinValue;
@@ -55,7 +68,9 @@ namespace RKmission
                 }
                 catch (Exception ex) { Fail("could not use bank terminal: " + ex.Message); }
             }
-            else _say("Verified bank is open; waiting for inventory to settle before selecting one Keep item.");
+            else _say($"Verified bank is open; waiting for inventory to settle before selecting " +
+                (operation == Operation.Store ? $"up to {count} Keep item(s) for storage." :
+                    "one Keep item for the round trip."));
         }
 
         public void Stop()
@@ -64,8 +79,8 @@ namespace RKmission
             bool transferPending = _phase == Phase.DepositSent || _phase == Phase.WithdrawalSent;
             _phase = Phase.Idle;
             _say(transferPending
-                ? "Bank test stopped while an item transfer may be pending. Inspect main inventory and bank before another test."
-                : "Bank round-trip test stopped; no item transfer was sent.");
+                ? $"Bank transaction stopped with {_completed} verified store(s) and an item transfer possibly pending. Inspect main inventory and bank before retrying."
+                : $"Bank transaction stopped; {_completed} item(s) remain verified in bank from this run.");
         }
 
         private void OnUpdate(object sender, float elapsed)
@@ -93,7 +108,7 @@ namespace RKmission
                 return;
             }
             if (!bankOpen)
-            { Fail("bank closed before round-trip verification"); return; }
+            { Fail("bank closed before transfer verification"); return; }
             if (_phase == Phase.Settling)
             {
                 if (Item.HasPendingUse || Spell.HasPendingCast)
@@ -104,13 +119,21 @@ namespace RKmission
                 if (!TimedOut(1)) return;
                 Item[] main = MainItems();
                 Item[] bank = BankItems();
-                Item item = main.Where(x => _loot.Classify(x) == ManagerLoot.ItemClassification.Keep)
-                    .Where(x => main.Count(y => SameItem(x, y)) == 1 &&
-                        bank.All(y => !SameItem(x, y)))
-                    .OrderBy(x => x.Name).FirstOrDefault();
+                var candidates = main.Where(x => _loot.Classify(x) == ManagerLoot.ItemClassification.Keep);
+                if (_operation == Operation.RoundTrip)
+                    candidates = candidates.Where(x => main.Count(y => SameItem(x, y)) == 1 &&
+                        bank.All(y => !SameItem(x, y)));
+                Item item = candidates.OrderBy(x => x.Name).ThenBy(x => x.Id).FirstOrDefault();
                 if (item == null)
                 {
-                    Fail("no unambiguous main-inventory Keep item absent from the bank was available");
+                    if (_operation == Operation.Store && _completed > 0)
+                    {
+                        _phase = Phase.Idle;
+                        _say($"Bank storage finished: {_completed} verified item(s); no further ManagerLoot Keep items in main inventory.");
+                    }
+                    else Fail(_operation == Operation.Store
+                        ? "no main-inventory ManagerLoot Keep item was available for storage"
+                        : "no unambiguous main-inventory Keep item absent from the bank was available");
                     return;
                 }
                 _itemId = item.Id;
@@ -121,7 +144,7 @@ namespace RKmission
                 _phase = Phase.DepositSent;
                 _phaseStarted = DateTime.UtcNow;
                 item.MoveToBank();
-                _say($"Bank test deposit sent: '{_itemName}', id={_itemId}, QL={_itemQl}, ManagerLoot=Keep; " +
+                _say($"Bank {_operation} deposit sent: '{_itemName}', id={_itemId}, QL={_itemQl}, ManagerLoot=Keep; " +
                     $"main={_mainBefore}, bank={_bankBefore} before transfer. Awaiting both inventory changes.");
                 return;
             }
@@ -131,6 +154,24 @@ namespace RKmission
             {
                 if (mainCount == _mainBefore - 1 && bankCount == _bankBefore + 1)
                 {
+                    if (_operation == Operation.Store)
+                    {
+                        _completed++;
+                        _say($"Bank storage verified: '{_itemName}', main={mainCount}, bank={bankCount}; " +
+                            $"{_completed}/{_requested} item(s) stored.");
+                        if (_completed >= _requested)
+                        {
+                            _phase = Phase.Idle;
+                            _say($"Bank storage complete: {_completed} item(s) remain in the bank. " +
+                                "You can now use /rkm logistics return.");
+                        }
+                        else
+                        {
+                            _phase = Phase.Settling;
+                            _phaseStarted = DateTime.UtcNow;
+                        }
+                        return;
+                    }
                     Item stored = BankItems().SingleOrDefault(Matches);
                     if (stored == null)
                     { Fail("deposited item could not be identified in bank snapshot"); return; }
@@ -171,9 +212,9 @@ namespace RKmission
         {
             bool transferSent = _phase == Phase.DepositSent || _phase == Phase.WithdrawalSent;
             _phase = Phase.Idle;
-            _say("Bank round-trip test stopped: " + reason + ". " + (transferSent
+            _say("Bank transaction stopped: " + reason + $". Verified stores={_completed}. " + (transferSent
                 ? $"Check whether '{_itemName}' is in main inventory or bank before retrying; no transfer was retried."
-                : "No item transfer was sent."));
+                : "No further item transfer was sent."));
         }
 
         public void Dispose() { Game.OnUpdate -= OnUpdate; Stop(); }

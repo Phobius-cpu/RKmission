@@ -264,9 +264,12 @@ namespace RKmission
                 liveTarget = actor == null ? "shop actor identity not verified by the live dynel list" :
                     $"surveyed shop actor {actor.Identity} visible";
             }
+            string action = _route.Purpose == "bank"
+                ? "Use /rkm logistics bank test or bank store [1-20] for verified Keep-item transfers, " +
+                  "or use the bank manually; then /rkm logistics return"
+                : "Use the shop manually, then /rkm logistics return";
             _say($"Reached the surveyed {_route.Site}/{_route.Purpose} position in PF {_route.DestinationPlayfield}. " +
-                $"{liveTarget}. Use the bank/shop manually, then /rkm logistics return; " +
-                "no item was moved by the route test.");
+                $"{liveTarget}. {action}; no item was moved by the route test.");
         }
 
         private void SetStage(int index)

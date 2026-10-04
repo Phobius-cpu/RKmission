@@ -21,3 +21,20 @@ The test performs no sale, deletion, or persistent deposit. It does not yet
 couple bank transfers to the automatic mission cycle. This checkpoint needs
 live AO validation before enabling those actions. The pinned SDK build passed
 with zero errors and warnings.
+
+## 21:18 live result and storage follow-up
+
+The user's OA log shows the exact bank terminal opened, a QL 200 Cold Stone
+classified `Keep` sent to the bank, main count 1 -> 0 and bank count 0 -> 1,
+then the same item retrieved with counts returning to 1 and 0. This verifies
+the round-trip API and snapshot checks for that item and location.
+
+`/rkm logistics bank store [1-20]` reuses the exact-terminal gate and the
+verified deposit step. It leaves each selected ManagerLoot `Keep` item in the
+bank, one transfer at a time; a new transfer is sent only after the previous
+main and bank counts both change as expected. The default is one item. A
+timeout, bank closure, route loss, or unavailable Keep item stops the operation
+with the number of deposits already verified. It does not retrieve items or
+retry an uncertain transfer. Mission keys and remembered active objective
+items remain under ManagerLoot's `Protected` classification. This command is
+explicit; the automatic mission cycle and shop sales remain separate work.

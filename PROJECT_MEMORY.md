@@ -2716,3 +2716,9 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 - The user's 21:05 OA bank route log shows forward crossing targets and verified PF 540 -> 3135 -> 540 zoning, with both surveyed endpoints reached. No crossing timeout appeared. Borealis and ICC routes remain unverified in game.
 - The next explicit diagnostic is `/rkm logistics bank test` after `/rkm logistics travel oa bank`: it opens the exact surveyed bank terminal, selects one unambiguous ManagerLoot Keep item absent from the bank, deposits it once, verifies both inventories, retrieves it once, and verifies original counts. Stop or timeout never retries a transfer; inspect the item manually if verification fails.
 - This diagnostic is not wired to `/rkm auto`. Persistent deposits and shop sales still require live transaction verification. See `docs/history/2026-10-04-logistics-bank-round-trip.md`.
+
+## 2026-10-04 OA bank round-trip result and explicit storage
+
+- At 21:18 the user's OA test opened the surveyed bank terminal and verified a QL 200 Cold Stone (`Keep`) moved from main to bank and back, with counts 1/0 -> 0/1 -> 1/0. This validates the explicit bank API sequence for this site and item.
+- `/rkm logistics bank store [1-20]` now leaves one Keep item (default) or up to the requested count in bank. Every deposit waits for main count to fall and bank count to rise before the next item; timeout and route loss stop without retries. The exact surveyed bank terminal and ManagerLoot classification are required.
+- Storage remains an explicit command. Automatic mission-cycle bank trips, shop sales, and Borealis/ICC route behavior still require separate live validation. See `docs/history/2026-10-04-logistics-bank-round-trip.md`.
