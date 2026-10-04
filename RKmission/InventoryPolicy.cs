@@ -20,7 +20,8 @@ namespace RKmission
             "nano recharg", "nano kit", "nano stim", "health laboratory",
             "health kit", "health stim", "treatment laboratory", "treatment kit",
             "first aid", "medical kit", "free movement", "backpack", "back pack",
-            "yalmaha", "jetbike", "kodiak", "kodaik", "vehicle", "stiletto"
+            "yalmaha", "jetbike", "kodiak", "kodaik", "personal vehicle",
+            "ground vehicle", "air vehicle", "stiletto"
         };
         public int MinimumFreeSlots { get; set; } = 3;
         // Additive exceptions in RKMissionData/inventory-policy.json. Built-in
@@ -59,6 +60,12 @@ namespace RKmission
                 name.StartsWith("Ammo ", StringComparison.OrdinalIgnoreCase) ||
                 name.IndexOf(" Ammo", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 name.IndexOf("Ammunition", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            if (name.StartsWith("Vehicle:", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("Vehicle -", StringComparison.OrdinalIgnoreCase)) return true;
+            if (name.IndexOf("vehicle", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                name.IndexOf("Implant:", StringComparison.OrdinalIgnoreCase) < 0 &&
+                name.IndexOf("Cluster", StringComparison.OrdinalIgnoreCase) < 0)
                 return true;
             return BuiltInOperationalFragments.Any(x =>
                 name.IndexOf(x, StringComparison.OrdinalIgnoreCase) >= 0);

@@ -2735,3 +2735,8 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 - The user's 21:50 OA shop test confirmed one item sale, actor-bound trade completion, and a cash increase from 19,922,833 to 19,923,499. The item was an ammo box, revealing that a generic ManagerLoot Reject in main inventory is not a safe sale candidate.
 - Shop tests now select only unique Reject items from an existing RKM Sell bag, verify staging into main, and recheck classification before submission. Shared ManagerLoot classification protects ammo, lockpicks, health/nano recharge supplies, backpacks, and vehicles regardless of Reject rules. `inventory-policy.json` accepts additional protected item ids and name fragments. `/rkm logistics shop preview` reports candidates and protected items without moving anything.
 - Automatic sale remains unwired. User should compile/pull and verify preview and one sale with an expendable item already in RKM Sell. See `docs/history/2026-10-04-shop-sale-diagnostic.md`.
+
+## 2026-10-04 22:09 shop preview follow-up
+
+- The user's first protected preview showed zero eligible RKM Sell Rejects, 15 protected main/RKM Sell items, and six free main slots. No item moved. The old output did not show whether a Sell bag existed or what it contained.
+- Preview now reports observed RKM Sell bag/item counts and classifications, main Rejects excluded from sale, duplicate exclusions, and each displayed protection reason. Broad `vehicle` substring matching was narrowed to avoid treating a Vehicle Air implant as an operational vehicle. Actual vehicle stats and specific vehicle names remain protected. See `docs/history/2026-10-04-shop-sale-diagnostic.md`.

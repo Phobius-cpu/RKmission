@@ -34,3 +34,15 @@ Additional item ids and name fragments can be protected through
 `RKMissionData/inventory-policy.json`. `/rkm logistics shop preview` lists
 eligible and protected items without moving anything. Existing RKM Sell bag
 contents are reclassified at selection and immediately before AddItem.
+
+At 22:09 the user ran the new preview: zero unique Reject candidates were
+available in RKM Sell, 15 items were protected across main/RKM Sell, and no
+item moved. That output did not reveal whether RKM Sell was absent, empty, or
+contained excluded items. Preview now reports the bag count and observed
+contents by classification, the number of main Rejects that cannot be sold,
+duplicate exclusions, and the reason for each displayed protection. The
+generic `vehicle` name fragment was narrowed because an implant named
+`Eye Implant: Vehicle Air, Shiny` could match it; actual vehicles remain
+protected by the item stat and specific vehicle names. A Release build and
+focused name checks passed. The next live preview will establish why no
+candidate was available.

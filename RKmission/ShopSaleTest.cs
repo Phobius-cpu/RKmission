@@ -40,22 +40,41 @@ namespace RKmission
 
         public void Preview()
         {
+            if (Game.IsZoning || DynelManager.LocalPlayer == null)
+            { _say("Shop preview unavailable while zoning or before inventory loads; no item moved."); return; }
             Item[] main = MainItems();
-            Item[] sell = Inventory.Backpacks
+            var sellBags = Inventory.Backpacks
                 .Where(bag => ManagerLoot.ManagedBagFamily.Matches(bag.Name,
                     ManagerLoot.ManagedBagFamily.Sell))
-                .SelectMany(bag => Inventory.GetContainerItems(bag.Identity)).Where(x => x != null).ToArray();
+                .ToArray();
+            Item[] sell = sellBags.SelectMany(bag => Inventory.GetContainerItems(bag.Identity))
+                .Where(x => x != null).ToArray();
             Item[] eligible = sell.Where(x => _loot.Classify(x) == ManagerLoot.ItemClassification.Reject &&
                 main.All(y => !SameItem(x, y)) && sell.Count(y => SameItem(x, y)) == 1).ToArray();
-            Item[] protectedItems = main.Concat(sell)
-                .Where(x => _loot.Classify(x) == ManagerLoot.ItemClassification.Protected).ToArray();
-            _say($"Shop preview: {eligible.Length} unique Reject item(s) eligible from RKM Sell, " +
-                $"{protectedItems.Length} protected item(s) in main/RKM Sell, " +
-                $"main free slots={Inventory.NumFreeSlots}; no item moved.");
+            var protectedItems = sell.Select(x => new { Item = x, Location = "RKM Sell" })
+                .Concat(main.Select(x => new { Item = x, Location = "main" }))
+                .Where(x => _loot.Classify(x.Item) == ManagerLoot.ItemClassification.Protected).ToArray();
+            int sellRejects = sell.Count(x => _loot.Classify(x) == ManagerLoot.ItemClassification.Reject);
+            int sellKeeps = sell.Count(x => _loot.Classify(x) == ManagerLoot.ItemClassification.Keep);
+            int sellProtected = sell.Count(x => _loot.Classify(x) == ManagerLoot.ItemClassification.Protected);
+            int sellUnknown = sell.Length - sellRejects - sellKeeps - sellProtected;
+            int mainRejects = main.Count(x => _loot.Classify(x) == ManagerLoot.ItemClassification.Reject);
+            _say($"Shop preview: {eligible.Length} eligible item(s) from {sellBags.Length} RKM Sell bag(s), " +
+                $"{sell.Length} observed bag item(s) [Reject={sellRejects}, Keep={sellKeeps}, " +
+                $"Protected={sellProtected}, Unknown={sellUnknown}]; " +
+                $"main Reject={mainRejects} (excluded), main free slots={Inventory.NumFreeSlots}; no item moved.");
+            if (sellBags.Length == 0)
+                _say("Shop preview: no RKM Sell bag was found. The shop test will not select from main inventory.");
+            else if (sell.Length == 0)
+                _say("Shop preview: no items were observed in RKM Sell. If it contains items, open the bag and preview again.");
+            else if (sellRejects > eligible.Length)
+                _say($"Shop preview: {sellRejects - eligible.Length} Reject item(s) were excluded because their id/QL/name is duplicated in RKM Sell or main inventory.");
             foreach (Item item in eligible.Take(8))
                 _say($"Shop eligible: '{item.Name}', id={item.Id}, QL={item.QualityLevel}.");
-            foreach (Item item in protectedItems.Take(8))
-                _say($"Shop protected: '{item.Name}', id={item.Id}, QL={item.QualityLevel}.");
+            _say($"Shop preview: {protectedItems.Length} protected item(s) in main/RKM Sell (first 8 below).");
+            foreach (var entry in protectedItems.Take(8))
+                _say($"Shop protected ({entry.Location}, {_loot.ProtectionReason(entry.Item)}): " +
+                    $"'{entry.Item.Name}', id={entry.Item.Id}, QL={entry.Item.QualityLevel}.");
         }
 
         public void Start()

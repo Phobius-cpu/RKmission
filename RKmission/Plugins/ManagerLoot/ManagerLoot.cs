@@ -214,17 +214,28 @@ namespace ManagerLoot
             _rememberedMissionItems.Contains(item.UniqueIdentity) ||
             (MissionItemProtected?.Invoke(item) ?? false);
 
+        internal string ProtectionReason(Item item)
+        {
+            if (item == null) return null;
+            if (item.UniqueIdentity.Type == IdentityType.MissionKey) return "mission key";
+            if (_rememberedMissionItems.Contains(item.UniqueIdentity)) return "reserved mission item";
+            if (MissionItemProtected?.Invoke(item) ?? false) return "mission objective";
+            if (OperationalItemProtected?.Invoke(item) ?? false) return "operational item";
+            if (Inventory.Backpacks.Any(bag =>
+                ManagedBagFamily.IsProtected(bag.Name) &&
+                Inventory.GetContainerItems(bag.Identity).Any(stored =>
+                    stored.UniqueIdentity == item.UniqueIdentity)))
+                return "RKM Keep/Mission bag";
+            return null;
+        }
+
         // Classification is the only rule decision exposed to RKMission. A new
         // unselected inventory item has no permanent value solely because the
         // mission added it. No classification performs disposal.
         public ItemClassification Classify(Item item, bool newlyAcquiredDuringMission = false)
         {
             if (item == null) return ItemClassification.Unknown;
-            if (ProtectedMissionItem(item) || (OperationalItemProtected?.Invoke(item) ?? false) ||
-                Inventory.Backpacks.Any(bag =>
-                ManagedBagFamily.IsProtected(bag.Name) &&
-                Inventory.GetContainerItems(bag.Identity).Any(stored =>
-                    stored.UniqueIdentity == item.UniqueIdentity)))
+            if (ProtectionReason(item) != null)
                 return ItemClassification.Protected;
             if (_selectedItems.Contains(item.UniqueIdentity)) return ItemClassification.Keep;
             if (_settings == null || Rules == null) return ItemClassification.Unknown;
