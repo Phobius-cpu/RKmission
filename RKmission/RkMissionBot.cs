@@ -318,15 +318,22 @@ namespace RKmission
                     break;
                 case "loot": _loot.ShowSettingsTab(); break;
                 case "logistics":
-                    if (args.Length == 3 && args[1].Equals("probe", StringComparison.OrdinalIgnoreCase))
+                    if (args.Length >= 3 && args[1].Equals("probe", StringComparison.OrdinalIgnoreCase))
                     {
                         if (args[2].Equals("start", StringComparison.OrdinalIgnoreCase))
-                            _logisticsProbe.Start();
-                        else if (args[2].Equals("stop", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (args.Length == 3) _logisticsProbe.Start();
+                            else if (args.Length == 5 &&
+                                (args[4].Equals("bank", StringComparison.OrdinalIgnoreCase) ||
+                                 args[4].Equals("shop", StringComparison.OrdinalIgnoreCase)))
+                                _logisticsProbe.Start(args[3], args[4]);
+                            else Say("Usage: /rkm logistics probe start <site> <bank|shop> (or start without a label).");
+                        }
+                        else if (args.Length == 3 && args[2].Equals("stop", StringComparison.OrdinalIgnoreCase))
                             _logisticsProbe.Stop();
-                        else Say("Usage: /rkm logistics probe start|stop.");
+                        else Say("Usage: /rkm logistics probe start <site> <bank|shop> | stop.");
                     }
-                    else Say("Usage: /rkm logistics probe start|stop.");
+                    else Say("Usage: /rkm logistics probe start <site> <bank|shop> | stop.");
                     break;
                 case "map": _map.ToggleWindow(); break;
                 case "settings":
@@ -334,7 +341,7 @@ namespace RKmission
                         _roller.ShowRoller();
                     MaliMissionRoller2.Main.Window?.ShowSettingsTab();
                     break;
-                default: Say("Commands: start, auto, local, stop, status, missions, zone <id|all>, rolls <count>, limit <count|off>, travel auto|ground|flying, fgrid [scan|nav], nav [window]|record [name]|stop|list, logistics probe start|stop, complete [mission id], loot, map, settings."); break;
+                default: Say("Commands: start, auto, local, stop, status, missions, zone <id|all>, rolls <count>, limit <count|off>, travel auto|ground|flying, fgrid [scan|nav], nav [window]|record [name]|stop|list, logistics probe start <site> <bank|shop>|stop, complete [mission id], loot, map, settings."); break;
             }
         }
 
