@@ -25,6 +25,8 @@ namespace RKmission
         private readonly AcceptedMissions _missions = new AcceptedMissions();
         private readonly ReturnItemHandIn _handIn = new ReturnItemHandIn();
         private LogisticsProbe _logisticsProbe;
+        private LogisticsRouteCatalog _logisticsRoutes;
+        private LogisticsRouteNavigator _logisticsNavigator;
         private LocalMissionTravel _travel;
         private MovementArbiter _movement;
         private ScottyboiWarpProvider _warp;
@@ -82,6 +84,8 @@ namespace RKmission
             _readiness = new MissionReadiness(Say, MissionReadinessSettings.Load(pluginDir, Say));
             _inventory = InventoryPolicy.Load(pluginDir, Say);
             _logisticsProbe = new LogisticsProbe(pluginDir, _loot, Say);
+            _logisticsRoutes = new LogisticsRouteCatalog(pluginDir, Say);
+            _logisticsNavigator = new LogisticsRouteNavigator(_logisticsRoutes, _movement, Say);
             _dungeon = new MissionDungeon(Say, _loot, _readiness, _inventory);
             _deathRecovery = new DeathRecoveryController(_readiness, _movement, Say);
             _travel = new LocalMissionTravel(Say, pluginDir);
@@ -136,6 +140,7 @@ namespace RKmission
             _navWindow?.Dispose();
             _navRoutes?.Dispose();
             _logisticsProbe?.Dispose();
+            _logisticsNavigator?.Dispose();
             Stop(true);
             Game.OnUpdate -= Update;
             Game.TeleportStarted -= ZoningStarted;
@@ -324,7 +329,21 @@ namespace RKmission
                     break;
                 case "loot": _loot.ShowSettingsTab(); break;
                 case "logistics":
-                    if (args.Length >= 3 && args[1].Equals("probe", StringComparison.OrdinalIgnoreCase))
+                    if (args.Length == 2 && args[1].Equals("routes", StringComparison.OrdinalIgnoreCase))
+                        _logisticsRoutes.Report(Say);
+                    else if (args.Length == 4 && args[1].Equals("travel", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (_running || _autoRolling || _pendingCheckpointResume)
+                            Say("Use /rkm stop to disarm the mission cycle before testing a logistics route.");
+                        else _logisticsNavigator.Start(args[2], args[3]);
+                    }
+                    else if (args.Length == 2 && args[1].Equals("return", StringComparison.OrdinalIgnoreCase))
+                        _logisticsNavigator.Return();
+                    else if (args.Length == 2 && args[1].Equals("stop", StringComparison.OrdinalIgnoreCase))
+                        _logisticsNavigator.Stop();
+                    else if (args.Length == 2 && args[1].Equals("status", StringComparison.OrdinalIgnoreCase))
+                        Say("Logistics route test " + _logisticsNavigator.Status + "; probe " + _logisticsProbe.Status + ".");
+                    else if (args.Length >= 3 && args[1].Equals("probe", StringComparison.OrdinalIgnoreCase))
                     {
                         if (args[2].Equals("start", StringComparison.OrdinalIgnoreCase))
                         {
@@ -346,7 +365,7 @@ namespace RKmission
                             Say("Logistics probe " + _logisticsProbe.Status + ".");
                         else Say("Usage: /rkm logistics probe start [site] [bank|shop] | stop | status.");
                     }
-                    else Say("Usage: /rkm logistics probe start [site] [bank|shop] | stop | status.");
+                    else Say("Usage: /rkm logistics routes | travel <site> <bank|shop> | return | stop | status | probe start [site] [bank|shop] | probe stop.");
                     break;
                 case "map": _map.ToggleWindow(); break;
                 case "settings":
@@ -354,13 +373,14 @@ namespace RKmission
                         _roller.ShowRoller();
                     MaliMissionRoller2.Main.Window?.ShowSettingsTab();
                     break;
-                default: Say("Commands: start, auto, local, stop, status, missions, zone <id|all>, rolls <count>, limit <count|off>, travel auto|ground|flying, fgrid [scan|nav], nav [window]|record [name]|stop|list, logistics probe start [site] [bank|shop]|stop|status, complete [mission id], loot, map, settings."); break;
+                default: Say("Commands: start, auto, local, stop, status, missions, zone <id|all>, rolls <count>, limit <count|off>, travel auto|ground|flying, fgrid [scan|nav], nav [window]|record [name]|stop|list, logistics routes|travel <site> <bank|shop>|return|stop|status|probe, complete [mission id], loot, map, settings."); break;
             }
         }
 
         private void Start()
         {
             if (_running) return;
+            _logisticsNavigator?.Stop(true);
             _pendingCheckpointResume = false;
             _running = true;
             _recoveringDeath = false;
@@ -406,6 +426,7 @@ namespace RKmission
             _longTravel?.Reset();
             _entranceResolver?.Reset();
             _navRoutes?.StopPlayback();
+            _logisticsNavigator?.Stop(true);
             _dungeon?.Stop();
             _movement?.StopAll();
             _autoCycle = false;
@@ -1385,6 +1406,12 @@ namespace RKmission
 
         private void RecoverMovement(string signal)
         {
+            if (_logisticsNavigator?.IsActive == true && _movement?.Owner == MovementOwner.LogisticsTravel)
+            {
+                _logisticsNavigator.Stop(true);
+                Say($"Logistics route test stopped after movement {signal}; no further waypoint was sent.");
+                return;
+            }
             int tier = _movement?.ObserveDisplacement() ?? 0;
             if (tier == 0) return;
             Say($"Movement {signal}: recovery tier {tier}, owner={_movement.Owner}.");

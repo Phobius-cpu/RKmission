@@ -7,7 +7,7 @@ namespace RKmission
     internal enum MovementOwner
     {
         None, OutdoorTravel, WarpTravel, FGridTravel, MissionEntrance, DungeonRoom, DoorTransition,
-        LiftTransition, CombatPosition, LootApproach, Objective, DungeonExit, Recovery
+        LiftTransition, CombatPosition, LootApproach, Objective, DungeonExit, Recovery, LogisticsTravel
     }
 
     // The only RKMission path to SMovementController. Ownership changes cancel
