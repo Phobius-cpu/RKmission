@@ -13,6 +13,8 @@ namespace RKmission
     // This deliberately does not synthesize FGrid paths across unobserved gaps.
     internal sealed class NavigationRouteRecorder : IDisposable
     {
+        private const float RecordedCorridorTolerance = 1f;
+        private const float RecordedHeightTolerance = 1.25f;
         private sealed class RouteFile { public List<Route> Routes { get; set; } = new List<Route>(); }
         private sealed class Route
         {
@@ -128,10 +130,16 @@ namespace RKmission
                         return false;
                     }
                 }
+                int recordedPointCount = candidate.Count;
+                if (IsTerminalToGridRoute(best.Name))
+                    candidate = SimplifyRecordedPath(candidate);
                 _playing = best;
                 _playPoints = candidate;
                 _playIndex = 0;
-                _say($"Using recorded nav route '{best.Name}' toward ({target.X:0.0},{target.Y:0.0},{target.Z:0.0}); no straight-line shortcut.");
+                _say(IsTerminalToGridRoute(best.Name)
+                    ? $"Using recorded nav route '{best.Name}' toward ({target.X:0.0},{target.Y:0.0},{target.Z:0.0}); " +
+                      $"{recordedPointCount} recorded samples reduced to {_playPoints.Count - 1} corridor-verified leg(s)."
+                    : $"Using recorded nav route '{best.Name}' toward ({target.X:0.0},{target.Y:0.0},{target.Z:0.0}); no straight-line shortcut.");
             }
 
             while (_playIndex < _playPoints.Count - 1 && Vector3.Distance(player.Position, _playPoints[_playIndex]) <= 1.2f) _playIndex++;
@@ -152,6 +160,73 @@ namespace RKmission
             LocalRoutePlanner.SupportedFGridSegment(start, points[0], start.Y) &&
             Enumerable.Range(1, points.Count - 1).All(i =>
                 LocalRoutePlanner.SupportedFGridSegment(points[i - 1], points[i], start.Y));
+
+        private static bool IsTerminalToGridRoute(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return false;
+            string normalized = name.Replace(" ", "").Replace("-", "");
+            return normalized.IndexOf("terminal", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                normalized.IndexOf("grid", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        // Recorder samples describe the authoritative walked corridor. Terminal-to-Grid
+        // approaches can skip samples only when every omitted point remains close to the
+        // proposed horizontal leg and its interpolated height. This retains real corners,
+        // ramps and both endpoints while avoiding a movement submission every 0.75 metres.
+        private static List<Vector3> SimplifyRecordedPath(List<Vector3> points)
+        {
+            if (points == null || points.Count < 3)
+                return points == null ? new List<Vector3>() : new List<Vector3>(points);
+            int[] legs = Enumerable.Repeat(int.MaxValue, points.Count).ToArray();
+            int[] previous = Enumerable.Repeat(-1, points.Count).ToArray();
+            legs[0] = 0;
+            for (int candidate = 1; candidate < points.Count; candidate++)
+            {
+                for (int anchor = 0; anchor < candidate; anchor++)
+                {
+                    if (legs[anchor] == int.MaxValue ||
+                        legs[anchor] + 1 >= legs[candidate] ||
+                        !RecordedShortcutSafe(points, anchor, candidate)) continue;
+                    legs[candidate] = legs[anchor] + 1;
+                    previous[candidate] = anchor;
+                }
+            }
+            if (previous[points.Count - 1] < 0) return new List<Vector3>(points);
+            var simplified = new List<Vector3>();
+            for (int at = points.Count - 1; at >= 0; at = previous[at])
+            {
+                simplified.Add(points[at]);
+                if (at == 0) break;
+            }
+            simplified.Reverse();
+            return simplified;
+        }
+
+        private static bool RecordedShortcutSafe(List<Vector3> points, int anchor, int candidate)
+        {
+            if (points == null || anchor < 0 || candidate <= anchor || candidate >= points.Count)
+                return false;
+            Vector3 start = points[anchor], end = points[candidate];
+            Vector3 horizontal = end - start;
+            horizontal.Y = 0;
+            float squared = horizontal.X * horizontal.X + horizontal.Z * horizontal.Z;
+            if (squared < 0.01f) return false;
+            for (int i = anchor + 1; i < candidate; i++)
+            {
+                Vector3 point = points[i];
+                float projection = ((point.X - start.X) * horizontal.X +
+                    (point.Z - start.Z) * horizontal.Z) / squared;
+                projection = Math.Max(0, Math.Min(1, projection));
+                Vector3 onSegment = new Vector3(start.X + horizontal.X * projection,
+                    start.Y + (end.Y - start.Y) * projection,
+                    start.Z + horizontal.Z * projection);
+                Vector3 offset = point - onSegment;
+                float horizontalOffset = (float)Math.Sqrt(offset.X * offset.X + offset.Z * offset.Z);
+                if (horizontalOffset > RecordedCorridorTolerance ||
+                    Math.Abs(offset.Y) > RecordedHeightTolerance) return false;
+            }
+            return true;
+        }
 
         private void OnUpdate(object sender, float deltaTime)
         {
