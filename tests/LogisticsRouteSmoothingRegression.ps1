@@ -29,9 +29,11 @@ foreach ($route in $data.Routes) {
             $points.Add([float[]]@($point[0], $point[1], $point[2]))
         }
         $stageType.GetProperty('Points').SetValue($stage, $points)
-        if ($route.Site -eq 'icc' -and $route.Purpose -eq 'bank' -and
-            $source.Name -eq 'ToEntry' -and $reverses.Invoke($null, @($stage))) {
-            throw 'ICC bank ToEntry still reverses at its recorded doorway.'
+        if ($source.Name -eq 'ToEntry' -and
+            (($route.Site -eq 'icc' -and $route.Purpose -eq 'bank') -or
+             ($route.Site -eq 'bor')) -and
+            $reverses.Invoke($null, @($stage))) {
+            throw "$($route.Site)/$($route.Purpose) ToEntry still reverses at its recorded doorway."
         }
         $at = 0
         $legs = 0
