@@ -14,6 +14,7 @@ $operationalName = $policy.GetMethod('IsBuiltInOperationalName',
 $bagFamily = $assembly.GetType('ManagerLoot.ManagedBagFamily', $true)
 $protectedBag = $bagFamily.GetMethod('IsProtected',
     [System.Reflection.BindingFlags]'Public,Static')
+$policyInstance = [System.Activator]::CreateInstance($policy, $true)
 
 function Assert-Equal($actual, $expected, $case) {
     if ($actual -ne $expected) { throw "$case`: expected $expected, got $actual" }
@@ -27,6 +28,8 @@ Assert-Equal ($operationalName.Invoke($null, @('Cluster Bullets'))) $false 'clus
 Assert-Equal ($protectedBag.Invoke($null, @('RKM Keep 01'))) $true 'numbered Keep bag is protected'
 Assert-Equal ($protectedBag.Invoke($null, @('RKM Mission'))) $true 'Mission bag is protected'
 Assert-Equal ($protectedBag.Invoke($null, @('RKM Sell 01'))) $false 'Sell bag is not hard protected'
+Assert-Equal ($policy.GetProperty('AutomaticSellTriggerItems').GetValue($policyInstance)) 15 'automatic Sell pressure defaults to 15 Rejects'
+Assert-Equal ($policy.GetProperty('AutomaticLogisticsItemLimit').GetValue($policyInstance)) 20 'automatic logistics defaults to 20 items per destination'
 
 # AOSharp inventory and Item construction require a running AO client. Check
 # the branch relationship in source so an unlisted Keep-bag item still wins

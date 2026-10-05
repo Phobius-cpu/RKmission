@@ -17,6 +17,8 @@ namespace RKmission
     {
         private readonly HashSet<int> _consumerItemIds = new HashSet<int>();
         public int MinimumFreeSlots { get; set; } = 3;
+        public int AutomaticSellTriggerItems { get; set; } = 15;
+        public int AutomaticLogisticsItemLimit { get; set; } = 20;
         // Explicit user overrides in RKMissionData/inventory-policy.json.
         public List<int> ProtectedItemIds { get; set; } = new List<int>();
         public List<string> ProtectedNameFragments { get; set; } = new List<string>();
@@ -28,6 +30,9 @@ namespace RKmission
         private int _moveAttempts;
         private int _stagedRejects;
         [JsonIgnore] public string? SettlementFailure { get; private set; }
+        [JsonIgnore] public bool AutomaticLogisticsRequired { get; private set; }
+        [JsonIgnore] public string? AutomaticLogisticsReason { get; private set; }
+        [JsonIgnore] public int ObservedSellRejects { get; private set; }
 
         // Handlers may register verified item IDs that they actually consume.
         // This does not turn a useful-looking name or arbitrary Use action into
@@ -66,6 +71,9 @@ namespace RKmission
             _stagedRejects = 0;
             _settlementStarted = DateTime.MinValue;
             SettlementFailure = null;
+            AutomaticLogisticsRequired = false;
+            AutomaticLogisticsReason = null;
+            ObservedSellRejects = 0;
             _inventoryAtDungeonEntry = new HashSet<Identity>(Inventory.Items
                 .Where(item => item.Slot.Type == IdentityType.Inventory &&
                     item.UniqueIdentity.Type != IdentityType.Container)
@@ -158,11 +166,17 @@ namespace RKmission
             }
             catch (Exception ex) { say("Inventory policy unavailable; using defaults: " + ex.Message); }
             policy.MinimumFreeSlots = Math.Max(1, Math.Min(20, policy.MinimumFreeSlots));
+            policy.AutomaticSellTriggerItems = Math.Max(1, Math.Min(21,
+                policy.AutomaticSellTriggerItems));
+            policy.AutomaticLogisticsItemLimit = Math.Max(1, Math.Min(20,
+                policy.AutomaticLogisticsItemLimit));
             policy.ProtectedItemIds = policy.ProtectedItemIds?.Where(x => x > 0).Distinct().ToList() ??
                 new List<int>();
             policy.ProtectedNameFragments = policy.ProtectedNameFragments?
                 .Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList() ?? new List<string>();
+            try { File.WriteAllText(path, JsonConvert.SerializeObject(policy, Formatting.Indented)); }
+            catch (Exception ex) { say("Inventory policy loaded but normalized settings could not be saved: " + ex.Message); }
             return policy;
         }
 
@@ -187,14 +201,47 @@ namespace RKmission
                         !_inventoryAtDungeonEntry.Contains(item.UniqueIdentity))).ToList();
             _inventoryAtDungeonEntry = null;
             bool enoughCapacity = Inventory.NumFreeSlots >= MinimumFreeSlots;
+            ObservedSellRejects = Inventory.Backpacks
+                .Where(bag => ManagerLoot.ManagedBagFamily.Matches(bag.Name,
+                    ManagerLoot.ManagedBagFamily.Sell))
+                .SelectMany(bag => Inventory.GetContainerItems(bag.Identity))
+                .Where(item => item != null)
+                .Count(item => loot.Classify(item) == ManagerLoot.ItemClassification.Reject);
+            bool sellPressure = ObservedSellRejects >= AutomaticSellTriggerItems;
+            AutomaticLogisticsRequired = !enoughCapacity || sellPressure;
+            AutomaticLogisticsReason = !enoughCapacity
+                ? $"main inventory has {Inventory.NumFreeSlots} free slot(s), below the {MinimumFreeSlots}-slot safety margin"
+                : sellPressure
+                    ? $"RKM Sell has {ObservedSellRejects} observed Reject item(s), reaching the {AutomaticSellTriggerItems}-item recycle threshold"
+                    : null;
             say($"Post-exit inventory classification: protected={classes.Count(x => x == ManagerLoot.ItemClassification.Protected)}, " +
                 $"keep={classes.Count(x => x == ManagerLoot.ItemClassification.Keep)}, " +
                 $"reject={classes.Count(x => x == ManagerLoot.ItemClassification.Reject)}, " +
                 $"unknown={classes.Count(x => x == ManagerLoot.ItemClassification.Unknown)}, " +
+                $"RKM Sell Reject={ObservedSellRejects}/{AutomaticSellTriggerItems}, " +
                 $"free slots={Inventory.NumFreeSlots}. " +
                 (enoughCapacity ? "Capacity is sufficient for the next mission." :
-                    "LogisticsRequired: capacity is low; no automatic sale, deletion or bank action is available."));
+                    "LogisticsRequired: capacity is low; automatic terminal logistics will be queued."));
             return enoughCapacity;
+        }
+
+        public bool NeedsAutomaticLogistics(out string reason)
+        {
+            if (Inventory.NumFreeSlots < MinimumFreeSlots)
+            {
+                reason = $"main inventory has {Inventory.NumFreeSlots} free slot(s), below the " +
+                    $"{MinimumFreeSlots}-slot safety margin";
+                return true;
+            }
+            reason = AutomaticLogisticsReason;
+            return AutomaticLogisticsRequired;
+        }
+
+        public void MarkAutomaticLogisticsCompleted()
+        {
+            AutomaticLogisticsRequired = false;
+            AutomaticLogisticsReason = null;
+            ObservedSellRejects = 0;
         }
     }
 }

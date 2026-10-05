@@ -37,7 +37,7 @@ namespace RKmission
         private DateTime _inventoryLoadStarted;
         private string _site;
         private int _maximumItems, _stored, _sold, _plannedRejects;
-        private bool _bankPlanned, _shopPlanned, _inventoryLoadRequested;
+        private bool _bankPlanned, _shopPlanned, _inventoryLoadRequested, _missionCycleRun;
         private string _deferredFailure;
         private readonly HashSet<Identity> _pendingSellBags = new HashSet<Identity>();
         private readonly Dictionary<Identity, int> _sellBagRefreshUses = new Dictionary<Identity, int>();
@@ -46,6 +46,8 @@ namespace RKmission
         public bool IsActive => _phase != Phase.Idle;
         public VerifiedOperationResult Result { get; private set; }
         public string LastFailure { get; private set; }
+        public int StoredCount => _stored;
+        public int SoldCount => _sold;
         public string Status => IsActive
             ? $"{_site} {_phase}, stored={_stored}, sold={_sold}, limit={_maximumItems}"
             : Result == VerifiedOperationResult.Failed
@@ -63,7 +65,7 @@ namespace RKmission
             Inventory.ContainerOpened += OnContainerOpened;
         }
 
-        public bool Start(int maximumItems)
+        public bool Start(int maximumItems, bool missionCycleRun = false)
         {
             if (IsActive)
             { _say("An automatic logistics cycle is already active."); return false; }
@@ -82,6 +84,7 @@ namespace RKmission
                 return false;
             }
             _maximumItems = maximumItems;
+            _missionCycleRun = missionCycleRun;
             _stored = _sold = 0;
             _plannedRejects = 0;
             _bankPlanned = _shopPlanned = false;
@@ -93,7 +96,8 @@ namespace RKmission
             Result = VerifiedOperationResult.Running;
             _phase = Phase.LoadingInventory;
             _nextTick = DateTime.MinValue;
-            _say($"Automatic logistics validation started at {_site}: loading RKM Sell bag snapshots before planning up to " +
+            _say($"{(_missionCycleRun ? "Automatic mission-cycle logistics" : "Automatic logistics validation")} " +
+                $"started at {_site}: loading RKM Sell bag snapshots before planning up to " +
                 $"{maximumItems} item(s) per destination.");
             return true;
         }
@@ -374,7 +378,8 @@ namespace RKmission
             ClearSellBagLoading();
             Result = VerifiedOperationResult.Succeeded;
             LastFailure = null;
-            _say($"Automatic logistics validation complete at {_site}: {_stored} Keep item(s) stored, " +
+            _say($"{(_missionCycleRun ? "Automatic mission-cycle logistics" : "Automatic logistics validation")} " +
+                $"complete at {_site}: {_stored} Keep item(s) stored, " +
                 $"{_sold} Reject item(s) sold, main free slots={Inventory.NumFreeSlots}; returned to the surveyed mission terminal.");
         }
 

@@ -45,6 +45,10 @@ namespace RKmission
         private AcceptedMission _selected;
         private bool _autoCycle, _autoRolling, _hasRollTerminal, _recoveringDeath;
         private bool _clearAcceptedBeforeRolling;
+        private bool _autoLogisticsPending, _autoLogisticsRunning, _autoLogisticsFinalPending;
+        private bool _autoLogisticsFinalRun, _autoFinalLogisticsComplete;
+        private int _autoLogisticsPasses;
+        private string _autoLogisticsReason;
         private int _autoZone, _autoRollCount, _maxAutoRolls = 100, _rollTerminalPlayfield;
         private int _maxAutoMissions, _autoAcceptedCount;
         private readonly HashSet<int> _autoAcceptedIds = new HashSet<int>();
@@ -199,6 +203,9 @@ namespace RKmission
                         $"rolling={_autoRolling}, offers={_autoRollCount}/{_maxAutoRolls}, " +
                         $"auto accepted={_autoAcceptedCount}/{(_maxAutoMissions == 0 ? "unlimited" : _maxAutoMissions.ToString())}, " +
                         $"mission={_selected?.Name ?? "none"} [{_selected?.State.ToString() ?? "none"}], dungeon={_dungeon.Status}.");
+                    if (_autoLogisticsPending || _autoLogisticsRunning)
+                        Say($"Mission-cycle logistics={(_autoLogisticsRunning ? _automaticLogistics.Status : "queued")}; " +
+                            $"reason={_autoLogisticsReason ?? "inventory policy"}.");
                     if (_longTravel.IsActive)
                         Say($"Cross-playfield provider={_longTravel.CurrentProvider}; last issue={_longTravel.LastFailure ?? _warp.LastFailure ?? "none"}.");
                     if (_waitingReason != null) Say(_waitingReason);
@@ -215,6 +222,10 @@ namespace RKmission
                     { Say("Roller window could not be reopened; automatic cycle was not started."); break; }
                     if (!_running || !_autoCycle)
                     {
+                        _autoLogisticsPending = _autoLogisticsRunning = _autoLogisticsFinalPending = false;
+                        _autoLogisticsFinalRun = _autoFinalLogisticsComplete = false;
+                        _autoLogisticsPasses = 0;
+                        _autoLogisticsReason = null;
                         _missions.Refresh(true);
                         var existing = _missions.Records.Where(x => x.Present &&
                             x.IsRubiKaDestination && !x.Completed).ToList();
@@ -241,6 +252,10 @@ namespace RKmission
                     if (_autoRolling) MaliMissionRoller2.Main.Window?.StopZoneRolling();
                     _autoRolling = _autoCycle = false;
                     _clearAcceptedBeforeRolling = false;
+                    _autoLogisticsPending = _autoLogisticsRunning = _autoLogisticsFinalPending = false;
+                    _autoLogisticsFinalRun = _autoFinalLogisticsComplete = false;
+                    _autoLogisticsPasses = 0;
+                    _autoLogisticsReason = null;
                     _longTravel.Reset();
                     Start(); Say("Local mission takeover armed."); break;
                 case "stop": Stop(); Say("Stopped. Use /rkm start for local takeover or /rkm auto for the automatic cycle."); break;
@@ -506,6 +521,10 @@ namespace RKmission
             _handoffWaitStarted = DateTime.MinValue;
             _observedDungeon = Identity.None;
             _waitingReason = null;
+            _autoLogisticsPending = _autoLogisticsRunning = _autoLogisticsFinalPending = false;
+            _autoLogisticsFinalRun = _autoFinalLogisticsComplete = false;
+            _autoLogisticsPasses = 0;
+            _autoLogisticsReason = null;
             _nextSelection = DateTime.MinValue;
             _travel.Reset();
             _longTravel.Reset();
@@ -537,6 +556,10 @@ namespace RKmission
             _dungeon?.Stop();
             _movement?.StopAll();
             _autoCycle = false;
+            _autoLogisticsPending = _autoLogisticsRunning = _autoLogisticsFinalPending = false;
+            _autoLogisticsFinalRun = _autoFinalLogisticsComplete = false;
+            _autoLogisticsPasses = 0;
+            _autoLogisticsReason = null;
             _recoveringDeath = false;
             _exitZoningStarted = false;
             _handInExitVerified = false;
@@ -611,6 +634,20 @@ namespace RKmission
                     x.Id.Instance == id && x.Present && x.IsRubiKaDestination));
                 if (_pendingCheckpointResume) TryResumeCheckpoint();
                 if (!_running) return;
+                if (_autoLogisticsRunning || _automaticLogistics.IsActive)
+                {
+                    if (!DynelManager.LocalPlayer.IsAlive)
+                    {
+                        string phase = _automaticLogistics.Status;
+                        Stop();
+                        Say("Automatic mission cycle stopped because the character died during logistics. " +
+                            $"Inspect the last route or transaction before restarting; phase={phase}.");
+                        return;
+                    }
+                    if (_automaticLogistics.IsActive) return;
+                    FinishScheduledAutomaticLogistics();
+                    return;
+                }
                 // Give a just-zoned flying character a short diagonal altitude
                 // escape before mission selection, terminal return or other travel.
                 if (_postZoneSafety.Tick()) return;
@@ -718,8 +755,15 @@ namespace RKmission
                         Stop(); Say("Post-mission item staging stopped: " + reason); return;
                     }
                     bool capacityReady = settlement == InventorySettlement.Ready;
+                    bool logisticsQueued = false;
+                    if (_autoCycle && _inventory.NeedsAutomaticLogistics(out string logisticsReason))
+                    {
+                        QueueAutomaticLogistics(logisticsReason);
+                        logisticsQueued = true;
+                    }
                     if (_checkpoint?.Execution != null)
-                        _checkpoint.Execution.Phase = capacityReady ? "ExitVerified" : "LogisticsRequired";
+                        _checkpoint.Execution.Phase = capacityReady && !logisticsQueued ?
+                            "ExitVerified" : "LogisticsRequired";
                     int previousPlayfield = _selected.PlayfieldId;
                     _selected = null;
                     _verifiedRun = false;
@@ -758,12 +802,13 @@ namespace RKmission
                 }
                 if (_selected == null)
                 {
+                    if (_autoCycle && TickScheduledAutomaticLogistics()) return;
                     if (DateTime.UtcNow < _nextSelection) return;
                     _nextSelection = DateTime.UtcNow.AddSeconds(5);
                     if (_autoCycle && Inventory.NumFreeSlots < _inventory.MinimumFreeSlots)
                     {
                         Wait($"Inventory needs {_inventory.MinimumFreeSlots} free main slots before another mission; " +
-                            "RKM Sell staging has no verified route into a bank/shop building or disposal step.");
+                            "automatic logistics could not restore the configured safety margin.");
                         return;
                     }
                     // After a stop/restart, finish every already accepted mission
@@ -804,6 +849,12 @@ namespace RKmission
                             }
                             if (_maxAutoMissions > 0 && _autoAcceptedCount >= _maxAutoMissions)
                             {
+                                if (!_autoFinalLogisticsComplete)
+                                {
+                                    QueueAutomaticLogistics("the finite mission batch is complete; running final bank/shop recycling", true);
+                                    _nextSelection = DateTime.MinValue;
+                                    return;
+                                }
                                 int completed = _autoAcceptedCount;
                                 Stop();
                                 Say($"Automatic cycle finished after {completed} accepted mission(s). Use /rkm auto to start a new cycle.");
@@ -989,6 +1040,97 @@ namespace RKmission
                 $"mission anchor=({LocalRoutePlanner.Coordinates(selected.Entrance)}), API=Mission.UploadToMap, " +
                 "result=selected mission upload command sent; native GUI has no marker acknowledgement.");
             return true;
+        }
+
+        private void QueueAutomaticLogistics(string reason, bool finalPass = false,
+            bool continuation = false)
+        {
+            if (_autoLogisticsRunning) return;
+            if (!continuation && !_autoLogisticsPending) _autoLogisticsPasses = 0;
+            _autoLogisticsPending = true;
+            _autoLogisticsFinalPending |= finalPass;
+            _autoLogisticsReason = reason;
+            _waitingReason = null;
+            Say($"Automatic logistics queued: {reason}. Returning to the saved surveyed mission terminal before any bank or shop action.");
+        }
+
+        private bool TickScheduledAutomaticLogistics()
+        {
+            if (!_autoCycle || _autoLogisticsRunning) return false;
+            if (!_autoLogisticsPending && _inventory.NeedsAutomaticLogistics(out string reason))
+                QueueAutomaticLogistics(reason);
+            if (!_autoLogisticsPending) return false;
+            if (!ReturnToRollTerminal()) return true;
+            string site = _logisticsNavigator.FindVerifiedOriginSite();
+            if (string.IsNullOrEmpty(site))
+            {
+                string failure = "the saved roller terminal is not one unique surveyed OA, Borealis, or ICC logistics origin";
+                Stop();
+                Say("Automatic mission cycle stopped before logistics: " + failure + ".");
+                return true;
+            }
+            bool finalRun = _autoLogisticsFinalPending;
+            string startReason = _autoLogisticsReason;
+            _autoLogisticsPending = false;
+            _autoLogisticsFinalPending = false;
+            _autoLogisticsFinalRun = finalRun;
+            _autoLogisticsPasses++;
+            if (!_automaticLogistics.Start(_inventory.AutomaticLogisticsItemLimit, true))
+            {
+                string failure = _automaticLogistics.LastFailure ?? "the verified logistics cycle did not start";
+                Stop();
+                Say("Automatic mission cycle stopped before logistics: " + failure + ".");
+                return true;
+            }
+            _autoLogisticsRunning = true;
+            if (_checkpoint?.Execution != null) _checkpoint.Execution.Phase = "AutomaticLogistics";
+            Say($"Automatic mission-cycle logistics started at {site}: {startReason}; " +
+                $"limit={_inventory.AutomaticLogisticsItemLimit} item(s) per destination.");
+            return true;
+        }
+
+        private void FinishScheduledAutomaticLogistics()
+        {
+            VerifiedOperationResult result = _automaticLogistics.Result;
+            string failure = _automaticLogistics.LastFailure;
+            int stored = _automaticLogistics.StoredCount;
+            int sold = _automaticLogistics.SoldCount;
+            bool finalRun = _autoLogisticsFinalRun;
+            int passes = _autoLogisticsPasses;
+            _autoLogisticsRunning = false;
+            _autoLogisticsFinalRun = false;
+            if (result != VerifiedOperationResult.Succeeded)
+            {
+                Stop();
+                Say("Automatic mission cycle stopped because logistics did not finish with verified success: " +
+                    (failure ?? "unknown result") + ". No failed action will be retried.");
+                return;
+            }
+            _inventory.MarkAutomaticLogisticsCompleted();
+            if (finalRun) _autoFinalLogisticsComplete = true;
+            int progress = stored + sold;
+            if (Inventory.NumFreeSlots < _inventory.MinimumFreeSlots)
+            {
+                if (progress > 0 && passes < 3)
+                {
+                    QueueAutomaticLogistics(
+                        $"{Inventory.NumFreeSlots} free main slot(s) remain after verified logistics; another bounded pass is required",
+                        finalRun, true);
+                    _nextSelection = DateTime.MinValue;
+                    return;
+                }
+                int free = Inventory.NumFreeSlots;
+                int required = _inventory.MinimumFreeSlots;
+                Stop();
+                Say($"Automatic mission cycle stopped after verified logistics because main inventory still has {free} free slot(s); " +
+                    $"{required} are required. Inspect protected, unknown, or unstaged items before restarting.");
+                return;
+            }
+            _autoLogisticsPasses = 0;
+            _autoLogisticsReason = null;
+            _nextSelection = DateTime.MinValue;
+            Say($"Automatic mission cycle resuming after verified logistics: {stored} Keep item(s) stored, " +
+                $"{sold} Reject item(s) sold, main free slots={Inventory.NumFreeSlots}.");
         }
 
         private bool PreflightSelectedMission()

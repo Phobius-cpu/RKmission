@@ -93,6 +93,12 @@ $result = $assembly.GetType('RKmission.VerifiedOperationResult', $true)
 if ($null -eq $cycle.GetProperty('Result') -or $cycle.GetProperty('Result').PropertyType -ne $result) {
     throw 'Automatic logistics cycle does not expose its verified result.'
 }
+foreach ($countProperty in @('StoredCount', 'SoldCount')) {
+    if ($null -eq $cycle.GetProperty($countProperty) -or
+        $cycle.GetProperty($countProperty).PropertyType -ne [int]) {
+        throw "Automatic logistics cycle does not expose $countProperty for mission-cycle scheduling."
+    }
+}
 foreach ($typeName in @('LogisticsRouteNavigator', 'BankTransactions', 'ShopSaleTest')) {
     $type = $assembly.GetType("RKmission.$typeName", $true)
     if ($null -eq $type.GetProperty('Result') -or $type.GetProperty('Result').PropertyType -ne $result) {
@@ -114,3 +120,21 @@ if ($travelShop -lt 0 -or $reloadShop -le $travelShop -or $startSale -le $reload
     throw 'Automatic shop sale can start without a post-zone RKM Sell snapshot refresh.'
 }
 Write-Output 'PASS automatic shop sales refresh ambiguous open-empty bags and report classification'
+
+$botSource = Get-Content -LiteralPath (Join-Path $root 'RKmission/RkMissionBot.cs') -Raw
+$scheduleBeforeCapacity = $botSource.IndexOf('if (_autoCycle && TickScheduledAutomaticLogistics()) return;')
+$capacityHold = $botSource.IndexOf('if (_autoCycle && Inventory.NumFreeSlots < _inventory.MinimumFreeSlots)')
+if ($scheduleBeforeCapacity -lt 0 -or $capacityHold -le $scheduleBeforeCapacity -or
+    -not $botSource.Contains('_automaticLogistics.Start(_inventory.AutomaticLogisticsItemLimit, true)') -or
+    -not $botSource.Contains('the finite mission batch is complete; running final bank/shop recycling') -or
+    -not $botSource.Contains('No failed action will be retried')) {
+    throw '/rkm auto does not schedule verified logistics before its inventory-capacity hold.'
+}
+$policySource = Get-Content -LiteralPath (Join-Path $root 'RKmission/InventoryPolicy.cs') -Raw
+if (-not $policySource.Contains('AutomaticSellTriggerItems { get; set; } = 15') -or
+    -not $policySource.Contains('AutomaticLogisticsItemLimit { get; set; } = 20') -or
+    -not $policySource.Contains('NeedsAutomaticLogistics(out string reason)') -or
+    -not $policySource.Contains('MarkAutomaticLogisticsCompleted()')) {
+    throw 'Automatic inventory-pressure policy or its completion reset is missing.'
+}
+Write-Output 'PASS /rkm auto schedules bounded verified logistics for capacity, Sell pressure and final cleanup'
