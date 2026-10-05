@@ -13,6 +13,9 @@ namespace RKmission
         private const float MaximumSmoothedLeg = 18f;
         private const float RecordedCorridorTolerance = 1f;
         private const float RecordedHeightTolerance = 1.25f;
+        private const float BankArrivalTolerance = 1.25f;
+        private const float ShopArrivalTolerance = 2.5f;
+        private const float OriginArrivalTolerance = 2f;
         private readonly LogisticsRouteCatalog _catalog;
         private readonly MovementArbiter _movement;
         private readonly Action<string> _say;
@@ -187,8 +190,10 @@ namespace RKmission
             Vector3 target = V(stage.Points[_pointIndex]);
             float distance = Vector3.Distance(player, target);
             bool last = _pointIndex == stage.Points.Count - 1;
-            float tolerance = last && stage.Name == "ToTarget" ? 2.5f :
-                last && stage.Name == "ToOrigin" ? 5f : last ? 1.4f : 1.15f;
+            float tolerance = last && stage.Name == "ToTarget" ?
+                    (_route.Purpose == "bank" ? BankArrivalTolerance : ShopArrivalTolerance) :
+                last && stage.Name == "ToOrigin" ? OriginArrivalTolerance :
+                last ? 1.4f : 1.15f;
             if (distance <= tolerance)
             {
                 if (last) CompleteStage(stage);

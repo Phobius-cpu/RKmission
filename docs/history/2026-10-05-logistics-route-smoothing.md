@@ -1,5 +1,9 @@
 # Logistics route smoothing — 2026-10-05
 
+## Endpoint approach follow-up
+
+The first live smoothed-route test felt good, but Borealis and ICC bank arrivals and all return trips stopped farther from their terminals than desired. The recorded route endpoints exactly match the surveyed terminal endpoints, so the distance came from completion tolerances rather than route data. Bank routes now finish within 1.25 metres of their recorded endpoint instead of 2.5 metres, and return routes finish within 2 metres instead of 5 metres. The 2.5-metre shop arrival tolerance is retained because no shop-access problem was reported. Intermediate smoothing and doorway crossing behavior are unchanged.
+
 The user validated Borealis bank/shop and ICC bank/shop endpoints,
 transactions, zoning arrivals, and return routes. Borealis completed both
 doorway crossings automatically. ICC reached and returned from both targets;

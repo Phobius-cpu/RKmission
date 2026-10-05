@@ -1698,3 +1698,7 @@ The user reported an empty RKM Sell bag, six main-inventory Rejects, and a two-i
 ## 2026-10-05 - Borealis/ICC logistics validation and smoother replay
 
 The user validated Borealis and ICC bank round trips, shop sales, target identities, zoning arrivals, and return routes. The ICC bank outward doorway retained its manual hold because the recorded direction was uncertain. The user reported that frequent short recorded legs made movement feel uneven. Logistics replay now selects the farthest live-clear target inside a narrow corridor around the unchanged samples, with an 18 m maximum leg, and no longer resubmits an already active destination every two seconds. Corners, height changes, walls, doorway approach/crossing checks, playfield verification, and transaction gates remain. Release build and a route geometry regression passed. Details: `docs/history/2026-10-05-logistics-route-smoothing.md`.
+
+## 2026-10-05 - Closer logistics endpoint approaches
+
+The user confirmed the smoothed movement feels great, then reported that Borealis/ICC bank arrivals and return arrivals at mission terminals stopped farther away than preferred. The route endpoints exactly matched their surveyed positions. RKMission now completes bank arrivals within 1.25 m and return arrivals within 2 m, reduced from 2.5 m and 5 m. Shop arrival tolerance, smoothing, and doorway behavior are unchanged. Details: `docs/history/2026-10-05-logistics-route-smoothing.md`.

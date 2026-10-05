@@ -60,3 +60,9 @@ if (-not $sourceCode.Contains('!SMovementController.IsNavigating()') -or
     throw 'Active logistics movement may be periodically resubmitting its destination.'
 }
 Write-Output 'PASS active logistics movement is not periodically resubmitted'
+if (-not $sourceCode.Contains('BankArrivalTolerance = 1.25f') -or
+    -not $sourceCode.Contains('OriginArrivalTolerance = 2f') -or
+    -not $sourceCode.Contains('_route.Purpose == "bank" ? BankArrivalTolerance : ShopArrivalTolerance')) {
+    throw 'Logistics endpoint approach tolerances are missing or no longer purpose-aware.'
+}
+Write-Output 'PASS bank and mission-terminal endpoint approaches use tightened tolerances'
