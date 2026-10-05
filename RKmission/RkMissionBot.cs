@@ -396,6 +396,19 @@ namespace RKmission
                             Say("Finish or stop the bank transaction before testing a shop sale.");
                         else _shopSale.Start();
                     }
+                    else if ((args.Length == 3 || args.Length == 4) &&
+                        args[1].Equals("shop", StringComparison.OrdinalIgnoreCase) &&
+                        args[2].Equals("sell", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (_running || _autoRolling || _pendingCheckpointResume)
+                            Say("Use /rkm stop to disarm the mission cycle before selling shop items.");
+                        else if (args.Length == 4 && (!int.TryParse(args[3], out int saleCount) ||
+                            saleCount < 1 || saleCount > 20))
+                            Say("Usage: /rkm logistics shop sell [1-20] (default: 1).");
+                        else if (_bankTransactions.IsActive)
+                            Say("Finish or stop the bank transaction before selling shop items.");
+                        else _shopSale.Start(args.Length == 4 ? int.Parse(args[3]) : 1);
+                    }
                     else if (args.Length == 3 && args[1].Equals("shop", StringComparison.OrdinalIgnoreCase) &&
                         args[2].Equals("stop", StringComparison.OrdinalIgnoreCase))
                         _shopSale.Stop();
@@ -427,7 +440,7 @@ namespace RKmission
                             Say("Logistics probe " + _logisticsProbe.Status + ".");
                         else Say("Usage: /rkm logistics probe start [site] [bank|shop] | stop | status.");
                     }
-                    else Say("Usage: /rkm logistics routes | travel <site> <bank|shop> | bank <test|store [1-20]|stop> | shop <preview|test|stop> | return | stop | status | probe start [site] [bank|shop] | probe stop.");
+                    else Say("Usage: /rkm logistics routes | travel <site> <bank|shop> | bank <test|store [1-20]|stop> | shop <preview|test|sell [1-20]|stop> | return | stop | status | probe start [site] [bank|shop] | probe stop.");
                     break;
                 case "map": _map.ToggleWindow(); break;
                 case "settings":

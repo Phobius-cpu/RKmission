@@ -9,11 +9,11 @@ using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
 
 namespace RKmission
 {
-    // Explicit one-item shop diagnostic. Trade messages and both inventory
-    // changes must be observed; uncertain actions are never retried.
+    // Explicit bounded shop sales. Every item needs its own actor-bound trade
+    // completion and inventory/cash proof; uncertain actions are never retried.
     internal sealed class ShopSaleTest : IDisposable
     {
-        private enum Phase { Idle, Opening, Selecting, StageMoveSent, AddSent, AcceptSent }
+        private enum Phase { Idle, Opening, Selecting, StageMoveSent, AddSent, AcceptSent, BetweenSales }
 
         private readonly LogisticsRouteNavigator _route;
         private readonly ManagerLoot.ManagerLoot _loot;
@@ -24,10 +24,12 @@ namespace RKmission
         private bool _shopSeen, _openSeen, _addEcho, _completeSeen, _declined;
         private string _itemName;
         private int _itemId, _itemQl, _mainBefore, _bagBefore, _cashBefore;
+        private int _requested = 1, _completed;
 
         public bool IsActive => _phase != Phase.Idle;
         public string Status => _phase == Phase.Idle ? "inactive" :
-            $"{_phase} at {_actor}; item='{_itemName ?? "unselected"}' ({_itemId}, QL {_itemQl})";
+            $"{_phase} at {_actor}; verified sales={_completed}/{_requested}, " +
+            $"item='{_itemName ?? "unselected"}' ({_itemId}, QL {_itemQl})";
 
         public ShopSaleTest(LogisticsRouteNavigator route, ManagerLoot.ManagerLoot loot, Action<string> say)
         {
@@ -83,16 +85,24 @@ namespace RKmission
                     $"'{entry.Item.Name}', id={entry.Item.Id}, QL={entry.Item.QualityLevel}.");
         }
 
-        public void Start()
+        public void Start() => Start(1);
+
+        public void Start(int count)
         {
             if (IsActive) { _say("A shop sale test is already active."); return; }
+            if (count < 1 || count > 20)
+            { _say("Shop sale count must be between 1 and 20."); return; }
             Dynel actor = _route.FindVerifiedShopActor();
             if (actor == null)
             {
                 _say("Shop sale held: no unique exact surveyed shop actor is visible at the target; no item was moved.");
                 return;
             }
+            if (Trade.TradeTarget.HasValue && Trade.TradeTarget.Value != actor.Identity)
+            { _say("Shop sale held: another trade target is active; close it before using the surveyed shop."); return; }
             _actor = actor.Identity;
+            _requested = count;
+            _completed = 0;
             _sourceBag = _itemSlot = Identity.None;
             _itemName = null;
             _itemId = _itemQl = 0;
@@ -103,7 +113,8 @@ namespace RKmission
             try
             {
                 actor.Use();
-                _say($"Opening exact surveyed shop actor {_actor}; waiting for shop update and trade open.");
+                _say($"Opening exact surveyed shop actor {_actor} for up to {_requested} verified sale(s); " +
+                    "waiting for shop update and trade open.");
             }
             catch (Exception ex) { Fail("could not use shop actor: " + ex.Message); }
         }
@@ -114,10 +125,10 @@ namespace RKmission
             Phase old = _phase;
             _phase = Phase.Idle;
             _say(old == Phase.AddSent || old == Phase.AcceptSent
-                ? "Shop sale test stopped with an item possibly in the trade window. Inspect the shop and inventory before retrying."
+                ? $"Shop sale stopped after {_completed} verified sale(s), with an item possibly in the trade window. Inspect the shop and inventory before retrying."
                 : old == Phase.StageMoveSent
-                    ? "Shop sale test stopped after a bag move may have been sent. Inspect the RKM Sell bag and main inventory."
-                    : "Shop sale test stopped; no item was submitted for sale.");
+                    ? $"Shop sale stopped after {_completed} verified sale(s); a bag move may have been sent. Inspect RKM Sell and main inventory."
+                    : $"Shop sale stopped after {_completed} verified sale(s); no further item was submitted.");
         }
 
         private void OnMessage(object sender, N3Message message)
@@ -163,6 +174,32 @@ namespace RKmission
                 else if (TimedOut(10)) Fail($"shop did not finish opening (trade={_openSeen}, inventory={_shopSeen})");
                 return;
             }
+            if (_phase == Phase.BetweenSales)
+            {
+                if (!TimedOut(1)) return;
+                if (Item.HasPendingUse || Spell.HasPendingCast)
+                { if (TimedOut(10)) Fail("another item use or spell remained pending between sales"); return; }
+                if (Trade.TradeTarget.HasValue && Trade.TradeTarget.Value != _actor)
+                { Fail("active trade target changed between verified sales"); return; }
+                if (Trade.TradeTarget.HasValue && Trade.TradeTarget.Value == _actor)
+                {
+                    _phase = Phase.Selecting;
+                    _phaseStarted = DateTime.UtcNow;
+                    _say($"Verified {_completed}/{_requested} sale(s); shop trade remains open. " +
+                        "Selecting the next RKM Sell Reject item.");
+                }
+                else
+                {
+                    Dynel actor = _route.FindVerifiedShopActor(_actor.ToString());
+                    _shopSeen = _openSeen = false;
+                    _phase = Phase.Opening;
+                    _phaseStarted = DateTime.UtcNow;
+                    actor.Use();
+                    _say($"Verified {_completed}/{_requested} sale(s); reopening exact shop actor {_actor} " +
+                        "for the next item.");
+                }
+                return;
+            }
             if (_phase != Phase.AcceptSent &&
                 (!Trade.TradeTarget.HasValue || Trade.TradeTarget.Value != _actor))
             { Fail($"active trade target changed from exact shop actor {_actor}"); return; }
@@ -187,7 +224,16 @@ namespace RKmission
                     .Where(x => sellItems.Count(y => SameItem(x.Item, y.Item)) == 1)
                     .FirstOrDefault();
                 if (staged == null)
-                { Fail("no unprotected, unambiguous ManagerLoot Reject item in an RKM Sell bag"); return; }
+                {
+                    if (_completed > 0)
+                    {
+                        _phase = Phase.Idle;
+                        _say($"Shop selling finished after {_completed} verified sale(s); " +
+                            "no further unprotected, unambiguous Reject item was found in RKM Sell.");
+                    }
+                    else Fail("no unprotected, unambiguous ManagerLoot Reject item in an RKM Sell bag");
+                    return;
+                }
                 Remember(staged.Item);
                 _sourceBag = staged.Bag;
                 _mainBefore = main.Count(Matches);
@@ -233,9 +279,19 @@ namespace RKmission
                 int cash = DynelManager.LocalPlayer.GetStat(Stat.Cash);
                 if (_completeSeen && currentMain == _mainBefore - 1 && cash >= _cashBefore)
                 {
-                    _phase = Phase.Idle;
+                    _completed++;
                     _say($"Shop sale verified for '{_itemName}': trade complete, item left main inventory, " +
-                        $"cash {_cashBefore} -> {cash}.");
+                        $"cash {_cashBefore} -> {cash}; {_completed}/{_requested} sale(s) verified.");
+                    if (_completed >= _requested)
+                    {
+                        _phase = Phase.Idle;
+                        _say($"Shop selling complete: {_completed} item(s) sold and verified.");
+                    }
+                    else
+                    {
+                        _phase = Phase.BetweenSales;
+                        _phaseStarted = DateTime.UtcNow;
+                    }
                 }
                 else if (TimedOut(10))
                     Fail($"shop sale not verified (complete={_completeSeen}, main={currentMain}, cash={cash})");
@@ -252,11 +308,11 @@ namespace RKmission
             { Fail("selected Reject item is not unique in main inventory"); return; }
             _itemSlot = item.Slot;
             _cashBefore = DynelManager.LocalPlayer.GetStat(Stat.Cash);
-            _addEcho = false;
+            _addEcho = _completeSeen = false;
             _phase = Phase.AddSent;
             _phaseStarted = DateTime.UtcNow;
             Trade.AddItem(item);
-            _say($"Shop test AddItem sent: '{_itemName}', id={_itemId}, QL={_itemQl}, " +
+            _say($"Shop sale AddItem sent: '{_itemName}', id={_itemId}, QL={_itemQl}, " +
                 $"ManagerLoot=Reject, slot={_itemSlot}, cash={_cashBefore}. Waiting for server echo.");
         }
 
@@ -274,7 +330,7 @@ namespace RKmission
         {
             Phase old = _phase;
             _phase = Phase.Idle;
-            _say("Shop sale test stopped: " + reason + ". " +
+            _say($"Shop selling stopped after {_completed} verified sale(s): " + reason + ". " +
                 (old == Phase.AddSent || old == Phase.AcceptSent
                     ? $"Inspect the trade window and '{_itemName}' before retrying; no trade action was retried."
                     : old == Phase.StageMoveSent

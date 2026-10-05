@@ -2750,3 +2750,8 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 
 - Started from GitHub `main` `a1306f6`. Removed built-in substring protection for vehicles, ammo, Cluster Bullets, recharge names, and other useful-looking items. Exact `Lock Pick`, container items, and items with recovery effects accepted by `MissionReadiness` remain operational. Verified handler item IDs can be registered; user `ProtectedItemIds`/`ProtectedNameFragments` remain manual overrides.
 - `RKM Keep*` and `RKM Mission` contents still pass through ManagerLoot's hard protection before selected items or rules. The shop diagnostic remains restricted to verified Rejects in `RKM Sell*`. A Release build passed with zero errors; focused compiled-name/bag checks passed. Real AO item-effect classification and a live preview remain to be verified. See `docs/history/2026-10-05-strict-operational-inventory.md`.
+
+## 2026-10-05 Shop classification and one-item sale confirmed
+
+- The user reports classification now looks correct and the one-item shop test worked. RKMission adds `/rkm logistics shop sell [1-20]` as an explicit bounded batch command. Every item uses the existing verified staging, actor-bound trade, AddItem echo, Accept, inventory removal, and cash checks. Between verified sales, it reuses a still-open shop or reopens the exact surveyed actor and waits for fresh evidence. No trade action is blindly retried; partial progress is reported.
+- Automatic-cycle disposal remains off. Validate two distinct expendable RKM Sell items at OA, then the separate Borealis/ICC routes and transactions before connecting logistics to `/rkm auto`. See `docs/history/2026-10-05-shop-batch-follow-up.md`.

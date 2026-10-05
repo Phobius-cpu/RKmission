@@ -1686,3 +1686,7 @@ The improved preview revealed one RKM Sell bag containing a Vehicle Air implant 
 ## 2026-10-05 - Strict operational item policy
 
 The user clarified that RKMission may hard-protect only items with a concrete automated consumer. A Vehicle Air eye implant and Nano Formula Recompiler must fall through to ManagerLoot, while actual Lock Picks, accepted HP/nano recovery items, mission items, and Keep/Mission bag contents remain protected. Starting from latest GitHub `main` `a1306f6`, the built-in broad name fragments were removed. The existing ManagerLoot protection precedence and Sell-bag-only shop rule were preserved. An exact-ID registration hook supports future verified handler consumables without guessing item IDs. Build and focused checks passed; the next AO preview should verify live item effects and bag contents. Details: `docs/history/2026-10-05-strict-operational-inventory.md`.
+
+## 2026-10-05 - Shop batch next step
+
+The user confirmed the corrected classification and one-item shop test worked, and asked what follows. The next explicit command is `/rkm logistics shop sell [1-20]`: bounded sales from RKM Sell, each fully verified before the next, with safe continuation when the shop stays open or exact-actor reopening when it closes. It stops early if no eligible item remains and stops on uncertain trade evidence without retrying. The batch needs an OA two-item live test; Borealis and ICC route/transaction validation follows before automatic logistics is armed. Details: `docs/history/2026-10-05-shop-batch-follow-up.md`.
