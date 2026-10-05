@@ -137,8 +137,7 @@ namespace RKmission
                             !AcceptedMissions.Finite(floor) || normal.Y < 0.6f ||
                             Math.Abs(floor.Y - point.Y) > 1.25f)
                         {
-                            reason = $"missing floor support at ({point.X + offset.X:0.00}," +
-                                $"{point.Y:0.00},{point.Z + offset.Z:0.00}) " +
+                            reason = $"missing floor support at ({Coordinates(point + offset)}) " +
                                 (offset.Magnitude < 0.01f ? "centre" : "edge");
                             return false;
                         }

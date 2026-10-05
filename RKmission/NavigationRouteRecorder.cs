@@ -120,7 +120,8 @@ namespace RKmission
                 if (best == null) return false;
                 List<Vector3> candidate = best.Points.Select(V).ToList();
                 if (reverse) candidate.Reverse();
-                if (Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid)
+                bool fixerGrid = Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid;
+                if (fixerGrid)
                 {
                     // A manually recorded walkway is useful only when both
                     // connectors and every saved leg remain on its floor.
@@ -131,12 +132,22 @@ namespace RKmission
                     }
                 }
                 int recordedPointCount = candidate.Count;
-                if (IsTerminalToGridRoute(best.Name))
+                if (fixerGrid)
+                    candidate = SimplifySupportedFGridPath(candidate, player.Position.Y);
+                else if (IsTerminalToGridRoute(best.Name))
                     candidate = SimplifyRecordedPath(candidate);
+                if (fixerGrid && !SupportedRecordedFGridRoute(candidate, player.Position, target))
+                {
+                    _say($"Recorded FGrid route '{best.Name}' rejected after smoothing: a retained leg lost floor support.");
+                    return false;
+                }
                 _playing = best;
                 _playPoints = candidate;
                 _playIndex = 0;
-                _say(IsTerminalToGridRoute(best.Name)
+                _say(fixerGrid
+                    ? $"Using recorded FGrid route '{best.Name}' toward ({target.X:0.0},{target.Y:0.0},{target.Z:0.0}); " +
+                      $"{recordedPointCount} samples reduced to {_playPoints.Count - 1} walkway-supported leg(s)."
+                    : IsTerminalToGridRoute(best.Name)
                     ? $"Using recorded nav route '{best.Name}' toward ({target.X:0.0},{target.Y:0.0},{target.Z:0.0}); " +
                       $"{recordedPointCount} recorded samples reduced to {_playPoints.Count - 1} corridor-verified leg(s)."
                     : $"Using recorded nav route '{best.Name}' toward ({target.X:0.0},{target.Y:0.0},{target.Z:0.0}); no straight-line shortcut.");
@@ -226,6 +237,32 @@ namespace RKmission
                     Math.Abs(offset.Y) > RecordedHeightTolerance) return false;
             }
             return true;
+        }
+
+        // Recorded FGrid samples remain the corridor authority. From each retained
+        // anchor, take the farthest later sample whose straight chord stays in that
+        // corridor and whose complete centre/edge tracks have live floor support.
+        private static List<Vector3> SimplifySupportedFGridPath(List<Vector3> points, float floorHeight)
+        {
+            if (points == null || points.Count < 3)
+                return points == null ? new List<Vector3>() : new List<Vector3>(points);
+            var simplified = new List<Vector3> { points[0] };
+            int anchor = 0;
+            while (anchor < points.Count - 1)
+            {
+                int next = anchor + 1;
+                for (int candidate = points.Count - 1; candidate > anchor + 1; candidate--)
+                {
+                    if (!RecordedShortcutSafe(points, anchor, candidate) ||
+                        !LocalRoutePlanner.SupportedFGridSegment(
+                            points[anchor], points[candidate], floorHeight)) continue;
+                    next = candidate;
+                    break;
+                }
+                simplified.Add(points[next]);
+                anchor = next;
+            }
+            return simplified;
         }
 
         private void OnUpdate(object sender, float deltaTime)

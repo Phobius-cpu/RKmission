@@ -151,21 +151,17 @@ namespace RKmission
                 }
                 if (!ValidateRaw(raw, start.Y, out failedSegment, out segmentReason))
                 { LastPath = Rejection(raw, failedSegment, segmentReason, repairs); return false; }
-                var checkedPath = new List<Vector3> { start };
+                List<Vector3> checkedPath = SimplifySupportedPath(raw, start.Y);
+                if (!ValidateRaw(checkedPath, start.Y, out failedSegment, out segmentReason))
+                { LastPath = Rejection(checkedPath, failedSegment, segmentReason, repairs); return false; }
                 float length = 0;
-                for (int i = 1; i < raw.Count; i++)
-                {
-                    Vector3 a = raw[i - 1], b = raw[i];
-                    float segment = Vector3.Distance(a, b);
-                    length += segment;
-                    // Issue meaningful strides along the fully checked segment.
-                    int pieces = Math.Max(1, (int)Math.Ceiling(segment / 4f));
-                    for (int j = 1; j <= pieces; j++) checkedPath.Add(a + (b - a) * (j / (float)pieces));
-                }
+                for (int i = 1; i < checkedPath.Count; i++)
+                    length += Vector3.Distance(checkedPath[i - 1], checkedPath[i]);
                 if (checkedPath.Count < 2 || checkedPath.Count > 2048 || length > 2000f)
                 { LastPath = "rejected: excessive path length or waypoints"; return false; }
                 waypoints = checkedPath;
-                LastPath = $"valid complete floor-supported path, {length:0.0} m, {checkedPath.Count - 1} legs" +
+                LastPath = $"valid complete floor-supported path, {length:0.0} m, " +
+                    $"{raw.Count - 1} Recast leg(s) reduced to {checkedPath.Count - 1} walkway-supported leg(s)" +
                     (repairs > 0 ? $" ({repairs} edge repair(s) validated)" : "");
                 return true;
             }
@@ -208,6 +204,42 @@ namespace RKmission
             failedSegment = 0;
             reason = "supported";
             return true;
+        }
+
+        // Recast supplies useful funnel corners, but every resulting movement leg is
+        // independently checked against the live FGrid floor and walls. Choose the
+        // minimum supported set so controller handoffs happen only at necessary turns.
+        private static List<Vector3> SimplifySupportedPath(List<Vector3> points, float floorHeight)
+        {
+            if (points == null || points.Count < 3) return points == null
+                ? new List<Vector3>() : new List<Vector3>(points);
+            // A pathological mesh result should remain safe without performing an
+            // unbounded number of scene raycasts on the update thread.
+            if (points.Count > 128) return new List<Vector3>(points);
+            int[] legs = Enumerable.Repeat(int.MaxValue, points.Count).ToArray();
+            int[] previous = Enumerable.Repeat(-1, points.Count).ToArray();
+            legs[0] = 0;
+            for (int candidate = 1; candidate < points.Count; candidate++)
+            {
+                for (int anchor = 0; anchor < candidate; anchor++)
+                {
+                    if (legs[anchor] == int.MaxValue ||
+                        legs[anchor] + 1 >= legs[candidate] ||
+                        !LocalRoutePlanner.SupportedFGridSegment(
+                            points[anchor], points[candidate], floorHeight)) continue;
+                    legs[candidate] = legs[anchor] + 1;
+                    previous[candidate] = anchor;
+                }
+            }
+            if (previous[points.Count - 1] < 0) return new List<Vector3>(points);
+            var simplified = new List<Vector3>();
+            for (int at = points.Count - 1; at >= 0; at = previous[at])
+            {
+                simplified.Add(points[at]);
+                if (at == 0) break;
+            }
+            simplified.Reverse();
+            return simplified;
         }
 
         private static string Rejection(List<Vector3> points, int segment, string reason, int repairs)
