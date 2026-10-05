@@ -168,6 +168,25 @@ namespace RKmission
             catch (Exception ex) { LastPath = "query failed: " + ex.Message; return false; }
         }
 
+        public bool TryFloorZeroLiftPath(Vector3 start, Vector3 lift,
+            out List<Vector3> waypoints)
+        {
+            waypoints = null;
+            // Retain the complete Recast corridor and endpoint checks, then require
+            // the physical walkway itself to support one uninterrupted direct leg.
+            if (!TryPath(start, lift, out _)) return false;
+            if (!LocalRoutePlanner.SupportedFGridSegment(start, lift, start.Y,
+                out string reason))
+            {
+                LastPath = "floor 0 direct lift leg rejected: " + reason;
+                return false;
+            }
+            waypoints = new List<Vector3> { start, lift };
+            LastPath = $"valid floor 0 direct lift walkway, {Vector3.Distance(start, lift):0.0} m, " +
+                "1 walkway-supported leg";
+            return true;
+        }
+
         // Exit terminals can sit at a platform edge. The caller uses a terminal
         // from within 1.5 m, so a supported approach point is enough. This is
         // only for portal legs; lift paths still require the exact target.

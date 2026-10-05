@@ -103,6 +103,10 @@ namespace RKmission
         private Vector3? _recastRejectedTarget;
         private Vector3 _recastLastPosition;
         private DateTime _recastLastProgress;
+        private bool _floorDeparturePending, _floorDepartureActive;
+        private int _floorDepartureFloor = -1;
+        private Vector3 _floorDepartureOrigin, _floorDepartureDirection;
+        private DateTime _floorArrivedAt, _floorDepartureStarted;
         private string _activeNavSource = "none";
         private State _state;
         private SimpleItem _terminal;
@@ -628,12 +632,15 @@ namespace RKmission
         private string RecastPathStatus(Vector3 player, Vector3 target, bool portal)
         {
             if (portal) _recast.TryPortalApproach(player, target, out _);
+            else if ((int)(player.Y / 10f) == 0)
+                _recast.TryFloorZeroLiftPath(player, target, out _);
             else _recast.TryPath(player, target, out _);
             return _recast.LastPath;
         }
 
         private void ResetMeshNavigation()
         {
+            StopFloorDeparture();
             _meshDestination = _meshRejectedDestination = null;
             _meshLastProgress = DateTime.MinValue;
             _recastWaypoints = null;
@@ -642,6 +649,74 @@ namespace RKmission
             _recastIssuedIndex = -1;
             _recastFloor = -1;
             _activeNavSource = "none";
+        }
+
+        private bool TickFloorDeparture(Vector3 player)
+        {
+            if (!_floorDeparturePending || _recastWaypoints == null ||
+                _recastWaypoints.Count < 2) return false;
+            if (!_floorDepartureActive)
+            {
+                if (DateTime.UtcNow - _floorArrivedAt < TimeSpan.FromMilliseconds(650))
+                    return true;
+                Vector3 direction = _recastWaypoints[1] - player;
+                direction.Y = 0;
+                float distance = direction.Magnitude;
+                if (distance < 0.4f)
+                { _floorDeparturePending = false; return false; }
+                direction = direction.Normalize();
+                Vector3 target = player + direction * Math.Min(1.25f, distance);
+                target.Y = player.Y;
+                if (!LocalRoutePlanner.SupportedFGridSegment(player, target,
+                    _recastWaypoints[0].Y, out string supportReason))
+                {
+                    _floorDeparturePending = false;
+                    _say($"FGrid floor {_floorDepartureFloor} lift-arrival departure kept under normal Recast control: " +
+                        supportReason + ".");
+                    return false;
+                }
+                _movement.Halt(MovementOwner.FGridTravel);
+                if (_movement.Owner != MovementOwner.FGridTravel)
+                { _floorDeparturePending = false; return false; }
+                _floorDepartureOrigin = player;
+                _floorDepartureDirection = direction;
+                DynelManager.LocalPlayer.Rotation = Quaternion.LookRotation(direction, Vector3.Up);
+                _movement.SetMovement(MovementOwner.FGridTravel, MovementAction.ForwardStart);
+                _movement.SetMovement(MovementOwner.FGridTravel, MovementAction.Update);
+                _floorDepartureActive = true;
+                _floorDepartureStarted = DateTime.UtcNow;
+                _say($"FGrid floor {_floorDepartureFloor} lift arrival settled; taking one bounded " +
+                    "floor-supported step off the spawn pad before replanning.");
+                return true;
+            }
+            Vector3 displacement = player - _floorDepartureOrigin;
+            displacement.Y = 0;
+            float forward = Vector3.Dot(displacement, _floorDepartureDirection);
+            if (forward < 1f &&
+                displacement.Magnitude < 1.4f &&
+                DateTime.UtcNow - _floorDepartureStarted <= TimeSpan.FromSeconds(1.5))
+                return true;
+            StopFloorDeparture();
+            // The prior path began on the lift pad. Rebuild from the observed
+            // post-departure position before giving a destination to the controller.
+            _recastWaypoints = null;
+            _recastDestination = null;
+            _recastIssuedIndex = -1;
+            _say($"FGrid floor {_floorDepartureFloor} spawn-pad departure ended after " +
+                $"{Math.Max(0, forward):0.00} m forward/{displacement.Magnitude:0.00} m total; " +
+                "replanning from the settled position.");
+            return true;
+        }
+
+        private void StopFloorDeparture()
+        {
+            if (_floorDepartureActive && _movement.Owner == MovementOwner.FGridTravel)
+            {
+                _movement.Halt(MovementOwner.FGridTravel);
+                _movement.SetMovement(MovementOwner.FGridTravel, MovementAction.FullStop);
+                _movement.Release(MovementOwner.FGridTravel);
+            }
+            _floorDeparturePending = _floorDepartureActive = false;
         }
 
         private bool TryNavigateRecast(Vector3 target, bool portal, out string reason)
@@ -663,7 +738,9 @@ namespace RKmission
             {
                 if (!(portal
                     ? _recast.TryPortalApproach(player, target, out _recastWaypoints)
-                    : _recast.TryPath(player, target, out _recastWaypoints)))
+                    : floor == 0
+                        ? _recast.TryFloorZeroLiftPath(player, target, out _recastWaypoints)
+                        : _recast.TryPath(player, target, out _recastWaypoints)))
                 { reason = _recast.LastPath; return false; }
                 _recastDestination = target;
                 _recastFloor = floor;
@@ -675,6 +752,7 @@ namespace RKmission
                 _routes.StopPlayback();
                 _say("FGrid Recast: " + _recast.LastPath + ".");
             }
+            if (TickFloorDeparture(player)) return true;
             while (_recastIndex < _recastWaypoints.Count - 1 &&
                 Vector3.Distance(player, _recastWaypoints[_recastIndex]) < 0.9f &&
                 LocalRoutePlanner.SupportedFGridSegment(player, _recastWaypoints[_recastIndex + 1],
@@ -954,12 +1032,19 @@ namespace RKmission
                 int floor = Math.Max(0, (int)(DynelManager.LocalPlayer.Position.Y / 10f));
                 if (floor != _lastFloor)
                 {
+                    int previousFloor = _lastFloor;
                     _movement.Release(MovementOwner.FGridTravel);
                     ResetMeshNavigation();
                     _routes.StopPlayback();
                     _lastFloor = floor;
                     _started = DateTime.UtcNow;
+                    _floorArrivedAt = DateTime.UtcNow;
+                    _floorDepartureFloor = floor;
+                    _floorDeparturePending = previousFloor >= 0 && floor == previousFloor + 1;
                     _say($"Fixer Grid floor {floor}; target floor {_route.Floor}.");
+                    // Do not snapshot a path from the transient lift arrival position.
+                    // The next tick waits for the spawn to settle before planning.
+                    return FGridServiceResult.InProgress;
                 }
                 if (floor == _route.Floor)
                 {
@@ -976,6 +1061,9 @@ namespace RKmission
                     Fail($"Could not reach Fixer Grid floor {_route.Floor}; stopped on floor {floor}.");
                     return FGridServiceResult.Failed;
                 }
+                if (_floorDeparturePending &&
+                    DateTime.UtcNow - _floorArrivedAt < TimeSpan.FromMilliseconds(650))
+                    return FGridServiceResult.InProgress;
                 Vector3 lift = UpLifts[floor];
                 if (Vector3.Distance(DynelManager.LocalPlayer.Position, lift) > 0.8f)
                 {
