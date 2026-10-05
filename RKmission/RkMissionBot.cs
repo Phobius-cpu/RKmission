@@ -880,21 +880,13 @@ namespace RKmission
                 }
                 if (_autoRolling)
                 { MaliMissionRoller2.Main.Window?.StopZoneRolling(); _autoRolling = false; }
-                if (_autoCycle && !inFixerGrid)
-                {
-                    Mission live = Mission.List?.FirstOrDefault(x => x.Identity == _selected.Id);
-                    if (live == null)
-                    { Wait("Waiting for the selected accepted mission to appear in AO# before key entry or travel."); return; }
-                    _entranceResolver.Select(live);
-                    EntranceResult entrance = _entranceResolver.Tick();
-                    if (entrance == EntranceResult.Waiting)
-                    { _travel.Reset(); _movement.Halt(MovementOwner.MissionEntrance); return; }
-                    if (entrance == EntranceResult.Failed)
-                    { Stop(); Say("Mission-key entrance was accepted, but exact dungeon entry was not verified."); return; }
-                }
                 if (!PreflightSelectedMission()) return;
                 if (_selected.PlayfieldId != Playfield.ModelIdentity.Instance || _longTravel.IsActive)
                 {
+                    // Static ACG identities have no destination evidence while
+                    // the character is in another playfield. Travel first and
+                    // rebuild entrance candidates only after exact zone arrival.
+                    _entranceResolver.Reset();
                     _travel.Reset();
                     TravelResult longResult = _longTravel.Tick(_selected.PlayfieldId, _selected.Entrance);
                     if (longResult == TravelResult.Blocked)
@@ -902,6 +894,19 @@ namespace RKmission
                     if (longResult == TravelResult.InProgress) return;
                 }
                 if (_longTravel.IsActive) _longTravel.Reset();
+                if (_autoCycle && !inFixerGrid &&
+                    _selected.PlayfieldId == Playfield.ModelIdentity.Instance)
+                {
+                    Mission live = Mission.List?.FirstOrDefault(x => x.Identity == _selected.Id);
+                    if (live == null)
+                    { Wait("Waiting for the selected accepted mission to appear in AO# before local key entry."); return; }
+                    _entranceResolver.Select(live);
+                    EntranceResult entrance = _entranceResolver.Tick();
+                    if (entrance == EntranceResult.Waiting)
+                    { _travel.Reset(); _movement.Halt(MovementOwner.MissionEntrance); return; }
+                    if (entrance == EntranceResult.Failed)
+                    { Stop(); Say("Mission-key entrance was accepted, but exact dungeon entry was not verified."); return; }
+                }
                 if (_autoCycle && !_travel.MatchesAnchor(_selected) &&
                     _travel.SelectNearest(new[] { _selected }) == null)
                 { Wait("Local route estimate is unavailable after cross-playfield travel; retrying."); return; }

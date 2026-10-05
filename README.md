@@ -255,9 +255,10 @@ item add/increment/decrement buttons use Mali's original plus/minus artwork.
 Both list modes use the same centered header and row grid, with vertically
 centered text, icon previews, QL input, and action cells.
 
-Automatic travel tries bounded Neko ACG key/entrance candidates before
-cross-playfield and local Run/Fly travel, even when the mission entrance is not
-nearby. It verifies the exact selected mission after zoning. Unlocated labels
+Automatic travel first verifies arrival in the mission's destination playfield,
+then tries bounded Neko ACG key/entrance candidates before local Run/Fly travel,
+even when the mission entrance is not nearby. It verifies the exact selected
+mission after zoning. Unlocated labels
 with more than 64 entrances yield to normal travel; smaller lists are tried
 one candidate at a time before fallback. Mission keys with the displayed
 `Temporary:` prefix are recognized. For longer travel,
