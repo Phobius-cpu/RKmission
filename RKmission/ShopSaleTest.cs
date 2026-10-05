@@ -46,6 +46,8 @@ namespace RKmission
             var sellBags = Inventory.Backpacks
                 .Where(bag => ManagerLoot.ManagedBagFamily.Matches(bag.Name,
                     ManagerLoot.ManagedBagFamily.Sell))
+                .OrderBy(bag => ManagerLoot.ManagedBagFamily.Order(bag.Name,
+                    ManagerLoot.ManagedBagFamily.Sell))
                 .ToArray();
             Item[] sell = sellBags.SelectMany(bag => Inventory.GetContainerItems(bag.Identity))
                 .Where(x => x != null).ToArray();
@@ -69,8 +71,12 @@ namespace RKmission
                 _say("Shop preview: no items were observed in RKM Sell. If it contains items, open the bag and preview again.");
             else if (sellRejects > eligible.Length)
                 _say($"Shop preview: {sellRejects - eligible.Length} Reject item(s) were excluded because their id/QL/name is duplicated in RKM Sell or main inventory.");
-            foreach (Item item in eligible.Take(8))
-                _say($"Shop eligible: '{item.Name}', id={item.Id}, QL={item.QualityLevel}.");
+            for (int i = 0; i < Math.Min(8, eligible.Length); i++)
+            {
+                Item item = eligible[i];
+                _say($"Shop eligible{(i == 0 ? " (next test item)" : "")}: " +
+                    $"'{item.Name}', id={item.Id}, QL={item.QualityLevel}.");
+            }
             _say($"Shop preview: {protectedItems.Length} protected item(s) in main/RKM Sell (first 8 below).");
             foreach (var entry in protectedItems.Take(8))
                 _say($"Shop protected ({entry.Location}, {_loot.ProtectionReason(entry.Item)}): " +

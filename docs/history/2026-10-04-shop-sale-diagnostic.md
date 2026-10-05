@@ -59,3 +59,6 @@ was added to built-in consumable protection. The implant and recompiler will
 be classified by ManagerLoot's normal Keep/Reject rules on the next preview;
 neither is submitted for sale by a preview. The Release build and focused
 name cases passed; live classification awaits the user's next pull.
+Preview orders RKM Sell bags exactly like the one-item test and marks its
+first eligible item as the next test candidate, so the operator can inspect
+the intended sale before invoking the irreversible command.
