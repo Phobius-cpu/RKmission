@@ -1694,3 +1694,7 @@ The user confirmed the corrected classification and one-item shop test worked, a
 ## 2026-10-05 - 07:07 main Reject staging
 
 The user reported an empty RKM Sell bag, six main-inventory Rejects, and a two-item shop command that safely stopped after zero sales. Preview now lists those main Rejects with IDs; `/rkm logistics shop stage <item id>` selects one unique Reject, moves it once into an existing Sell bag with space, and verifies both inventory views before reporting success. It never opens a shop or requests a sale. The existing post-mission staging remains limited to new mission loot. Release build and inventory classification checks passed. Details: `docs/history/2026-10-05-explicit-shop-staging.md`.
+
+## 2026-10-05 - Borealis/ICC logistics validation and smoother replay
+
+The user validated Borealis and ICC bank round trips, shop sales, target identities, zoning arrivals, and return routes. The ICC bank outward doorway retained its manual hold because the recorded direction was uncertain. The user reported that frequent short recorded legs made movement feel uneven. Logistics replay now selects the farthest live-clear target inside a narrow corridor around the unchanged samples, with an 18 m maximum leg, and no longer resubmits an already active destination every two seconds. Corners, height changes, walls, doorway approach/crossing checks, playfield verification, and transaction gates remain. Release build and a route geometry regression passed. Details: `docs/history/2026-10-05-logistics-route-smoothing.md`.

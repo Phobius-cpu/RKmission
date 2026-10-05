@@ -1,0 +1,62 @@
+param([string]$Configuration = 'Release')
+
+$ErrorActionPreference = 'Stop'
+$root = Split-Path $PSScriptRoot -Parent
+$dll = Join-Path $root "RKmission/bin/$Configuration/net48/RKmission.dll"
+if (-not (Test-Path -LiteralPath $dll)) {
+    throw "Build RKmission/RKmission.csproj before running this check."
+}
+
+$assembly = [System.Reflection.Assembly]::LoadFrom($dll)
+$stageType = $assembly.GetType('RKmission.LogisticsRouteCatalog+Stage', $true)
+$navigator = $assembly.GetType('RKmission.LogisticsRouteNavigator', $true)
+$safe = $navigator.GetMethod('RecordedShortcutSafe',
+    [System.Reflection.BindingFlags]'NonPublic,Static')
+if ($null -eq $safe) { throw 'Recorded shortcut validator was not found.' }
+
+$data = Get-Content -LiteralPath (Join-Path $root 'RKmission/Data/LogisticsRoutes.json') -Raw |
+    ConvertFrom-Json
+$dense = 0
+foreach ($route in $data.Routes) {
+    foreach ($source in $route.Stages) {
+        if ($source.Points.Count -lt 2) { continue }
+        $stage = [System.Activator]::CreateInstance($stageType, $true)
+        $points = [System.Collections.Generic.List[float[]]]::new()
+        foreach ($point in $source.Points) {
+            $points.Add([float[]]@($point[0], $point[1], $point[2]))
+        }
+        $stageType.GetProperty('Points').SetValue($stage, $points)
+        $at = 0
+        $legs = 0
+        while ($at -lt $points.Count - 1) {
+            $next = $at + 1
+            for ($candidate = $points.Count - 1; $candidate -gt $at + 1; $candidate--) {
+                if ($safe.Invoke($null, @($stage, $at, $candidate))) {
+                    $next = $candidate
+                    break
+                }
+            }
+            if ($next -le $at) { throw "$($route.Site)/$($route.Purpose) $($source.Name) did not advance." }
+            $at = $next
+            $legs++
+        }
+        if ($at -ne $points.Count - 1) {
+            throw "$($route.Site)/$($route.Purpose) $($source.Name) did not retain its endpoint."
+        }
+        if ($points.Count -ge 20) {
+            $dense++
+            if ($legs -gt 10 -or $legs -ge [Math]::Ceiling($points.Count / 2.0)) {
+                throw "$($route.Site)/$($route.Purpose) $($source.Name) retained $legs legs for $($points.Count) samples."
+            }
+        }
+        Write-Output "PASS $($route.Site)/$($route.Purpose) $($source.Name): $($points.Count) samples -> $legs geometric legs"
+    }
+}
+if ($dense -lt 8) { throw "Expected at least eight dense logistics stages, found $dense." }
+
+$sourceCode = Get-Content -LiteralPath (Join-Path $root 'RKmission/LogisticsRouteNavigator.cs') -Raw
+if (-not $sourceCode.Contains('!SMovementController.IsNavigating()') -or
+    $sourceCode.Contains('SMovementController.IsNavigating() ?')) {
+    throw 'Active logistics movement may be periodically resubmitting its destination.'
+}
+Write-Output 'PASS active logistics movement is not periodically resubmitted'

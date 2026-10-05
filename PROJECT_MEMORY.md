@@ -2760,3 +2760,8 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 
 - Live preview showed one RKM Sell bag, zero observed contents, six main Rejects, and no item moved. The batch command safely stopped before submission. Post-exit automatic staging handles new mission loot; pre-existing main Rejects are not swept into sale bags.
 - Preview now lists main Reject IDs. `/rkm logistics shop stage <item id>` explicitly moves one uniquely identified Reject into an existing RKM Sell bag, verifies both inventories, and never retries an uncertain move. It does not open a shop or sell. Release build and existing inventory classification checks passed. See `docs/history/2026-10-05-explicit-shop-staging.md`.
+
+## 2026-10-05 Borealis/ICC validation and logistics smoothing
+
+- The user verified Borealis bank round trip, shop sale, both zone crossings, and return; ICC bank round trip, shop sale, both zone arrivals, and return also passed. ICC bank outward crossing required manual movement because the recorded approach direction was uncertain, as designed.
+- Logistics replay now combines straight recorded samples into the farthest safe leg up to 18 m. Skipped samples must remain inside a 1 m horizontal/1.25 m vertical corridor and live body-height rays must be clear. Active movement is no longer resubmitted every two seconds. Geometry regression reduces dense 29–58 sample stages to 3–9 legs before live ray checks while preserving endpoints. Release build passed. See `docs/history/2026-10-05-logistics-route-smoothing.md`.

@@ -10,6 +10,9 @@ namespace RKmission
     // observed at the recorded arrival point before the next stage begins.
     internal sealed class LogisticsRouteNavigator : IDisposable
     {
+        private const float MaximumSmoothedLeg = 18f;
+        private const float RecordedCorridorTolerance = 1f;
+        private const float RecordedHeightTolerance = 1.25f;
         private readonly LogisticsRouteCatalog _catalog;
         private readonly MovementArbiter _movement;
         private readonly Action<string> _say;
@@ -179,6 +182,8 @@ namespace RKmission
             while (_pointIndex < stage.Points.Count - 1 &&
                 Vector3.Distance(player, V(stage.Points[_pointIndex])) <= 1.15f)
                 NextPoint();
+            if (_lastSubmit == DateTime.MinValue)
+                SelectFarthestSafePoint(stage, player);
             Vector3 target = V(stage.Points[_pointIndex]);
             float distance = Vector3.Distance(player, target);
             bool last = _pointIndex == stage.Points.Count - 1;
@@ -194,15 +199,77 @@ namespace RKmission
             { _bestDistance = distance; _lastProgress = DateTime.UtcNow; }
             if (DateTime.UtcNow - _lastProgress > TimeSpan.FromSeconds(8))
             { Fail($"no progress toward recorded {_route.Site}/{_route.Purpose} waypoint {_pointIndex + 1}"); return; }
-            TimeSpan resubmitAfter = SMovementController.IsNavigating() ?
-                TimeSpan.FromSeconds(2) : TimeSpan.FromSeconds(1);
             if (_movement.Owner != MovementOwner.LogisticsTravel ||
-                DateTime.UtcNow - _lastSubmit > resubmitAfter)
+                _lastSubmit == DateTime.MinValue ||
+                (!SMovementController.IsNavigating() &&
+                    DateTime.UtcNow - _lastSubmit > TimeSpan.FromSeconds(1)))
             {
                 if (!_movement.SetDestination(MovementOwner.LogisticsTravel, target))
                 { Fail("AO# declined a recorded logistics waypoint"); return; }
                 _lastSubmit = DateTime.UtcNow;
             }
+        }
+
+        private void SelectFarthestSafePoint(LogisticsRouteCatalog.Stage stage, Vector3 player)
+        {
+            if (_pointIndex >= stage.Points.Count - 1) return;
+            int anchor = Math.Max(0, _pointIndex - 1);
+            for (int candidate = stage.Points.Count - 1; candidate > _pointIndex; candidate--)
+            {
+                if (!RecordedShortcutSafe(stage, anchor, candidate) ||
+                    !LiveShortcutClear(player, V(stage.Points[candidate]))) continue;
+                _pointIndex = candidate;
+                _lastProgress = DateTime.UtcNow;
+                _bestDistance = float.MaxValue;
+                return;
+            }
+        }
+
+        // Recorded samples remain the route authority. A shortcut is allowed
+        // only along a nearly straight section that stays inside their narrow
+        // horizontal/vertical corridor and has a bounded length.
+        private static bool RecordedShortcutSafe(LogisticsRouteCatalog.Stage stage,
+            int anchor, int candidate)
+        {
+            Vector3 start = V(stage.Points[anchor]);
+            Vector3 end = V(stage.Points[candidate]);
+            if (Vector3.Distance(start, end) > MaximumSmoothedLeg) return false;
+            Vector3 horizontal = end - start;
+            horizontal.Y = 0;
+            float squared = horizontal.X * horizontal.X + horizontal.Z * horizontal.Z;
+            if (squared < 0.01f) return false;
+            for (int i = anchor + 1; i < candidate; i++)
+            {
+                Vector3 point = V(stage.Points[i]);
+                float projection = ((point.X - start.X) * horizontal.X +
+                    (point.Z - start.Z) * horizontal.Z) / squared;
+                projection = Math.Max(0, Math.Min(1, projection));
+                Vector3 onSegment = new Vector3(start.X + horizontal.X * projection,
+                    start.Y + (end.Y - start.Y) * projection,
+                    start.Z + horizontal.Z * projection);
+                Vector3 offset = point - onSegment;
+                float horizontalOffset = (float)Math.Sqrt(offset.X * offset.X + offset.Z * offset.Z);
+                if (horizontalOffset > RecordedCorridorTolerance ||
+                    Math.Abs(offset.Y) > RecordedHeightTolerance) return false;
+            }
+            return true;
+        }
+
+        private static bool LiveShortcutClear(Vector3 start, Vector3 end)
+        {
+            if (Vector3.Distance(start, end) <= 2f) return true;
+            foreach (float height in new[] { 0.75f, 1.4f })
+            {
+                Vector3 raisedStart = start + Vector3.Up * height;
+                Vector3 raisedEnd = end + Vector3.Up * height;
+                try
+                {
+                    if (Playfield.Raycast(raisedStart, raisedEnd, out Vector3 hit, out _) &&
+                        Vector3.Distance(hit, raisedEnd) > 1f) return false;
+                }
+                catch { } // Recorded-corridor evidence remains available if scene rays are unavailable.
+            }
+            return true;
         }
 
         private void CompleteStage(LogisticsRouteCatalog.Stage stage)
