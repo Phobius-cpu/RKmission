@@ -750,6 +750,14 @@ namespace RKmission
             _floorDeparturePending = _floorDepartureActive = false;
         }
 
+        private void StopFGridArrivalMotion()
+        {
+            if (_movement.Owner != MovementOwner.FGridTravel) return;
+            _movement.Halt(MovementOwner.FGridTravel);
+            _movement.SetMovement(MovementOwner.FGridTravel, MovementAction.FullStop);
+            _movement.Release(MovementOwner.FGridTravel);
+        }
+
         private bool TryNavigateRecast(Vector3 target, bool portal, out string reason)
         {
             reason = _recast.LastPath;
@@ -1064,8 +1072,14 @@ namespace RKmission
                 if (floor != _lastFloor)
                 {
                     int previousFloor = _lastFloor;
-                    _movement.Release(MovementOwner.FGridTravel);
+                    bool advancedDuringSettle = _floorDeparturePending &&
+                        !_floorDepartureActive && previousFloor >= 0 &&
+                        floor == previousFloor + 1 &&
+                        DateTime.UtcNow - _floorArrivedAt < TimeSpan.FromMilliseconds(650);
                     ResetMeshNavigation();
+                    // Halt both controller navigation and any direct movement
+                    // input before the new lift arrival is allowed to settle.
+                    StopFGridArrivalMotion();
                     _routes.StopPlayback();
                     _lastFloor = floor;
                     _started = DateTime.UtcNow;
@@ -1074,15 +1088,19 @@ namespace RKmission
                     _floorDepartureSkippedPoints = 0;
                     _floorDeparturePending = previousFloor >= 0 && floor == previousFloor + 1;
                     _say($"Fixer Grid floor {floor}; target floor {_route.Floor}.");
+                    if (advancedDuringSettle)
+                        _say($"FGrid floor {previousFloor} advanced to floor {floor} during the arrival settle; " +
+                            $"RKMission issued no movement on floor {previousFloor}.");
                     // Do not snapshot a path from the transient lift arrival position.
                     // The next tick waits for the spawn to settle before planning.
                     return FGridServiceResult.InProgress;
                 }
                 if (floor == _route.Floor)
                 {
-                    _movement.Release(MovementOwner.FGridTravel);
-                    ResetMeshNavigation();
                     _routes.StopPlayback();
+                    // Preserve a confirmed target-floor departure. The portal
+                    // path supplies its safe outward heading, then is rebuilt
+                    // from the settled off-pad position before normal approach.
                     _state = State.Exit;
                     _started = DateTime.UtcNow;
                     return FGridServiceResult.InProgress;

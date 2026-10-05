@@ -36,6 +36,8 @@ foreach ($required in @('_floorDeparturePending = previousFloor >= 0 && floor ==
     'TimeSpan.FromMilliseconds(650)', 'TickFloorDeparture(player)',
     'TryFloorDepartureDirection(player', 'near-spawn Recast point(s)',
     'const float validatedDepartureDistance = 2.5f',
+    'StopFGridArrivalMotion()', 'Preserve a confirmed target-floor departure',
+    'advanced to floor {floor} during the arrival settle',
     'MovementAction.ForwardStart', 'MovementAction.FullStop',
     'DateTime.UtcNow - _floorArrivedAt < TimeSpan.FromMilliseconds(650)',
     'spawn-pad departure ended after')) {
@@ -44,6 +46,14 @@ foreach ($required in @('_floorDeparturePending = previousFloor >= 0 && floor ==
     }
 }
 Write-Output 'PASS upward lift arrivals settle, take one bounded supported departure step, and replan'
+
+$targetFloor = [regex]::Match($provider,
+    'if \(floor == _route\.Floor\)(?<block>[\s\S]*?)if \(floor > _route\.Floor')
+if (-not $targetFloor.Success -or
+    $targetFloor.Groups['block'].Value.Contains('ResetMeshNavigation()')) {
+    throw 'Target-floor transition clears lift-arrival recovery before portal approach.'
+}
+Write-Output 'PASS target floor preserves lift-arrival clearing for the selected portal approach'
 
 foreach ($required in @('length / 0.25f', 'Vector3.Zero, side, side * -1f',
     'normal.Y < 0.6f', 'segment intersects a wall', 'Coordinates(point + offset)')) {
