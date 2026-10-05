@@ -23,8 +23,12 @@ namespace RKmission
         private int _itemId, _itemQl, _mainBefore, _bankBefore;
         private int _requested, _completed;
         private string _itemName, _terminalIdentity;
+        private bool _automaticRun;
 
         public bool IsActive => _phase != Phase.Idle;
+        public VerifiedOperationResult Result { get; private set; }
+        public string LastFailure { get; private set; }
+        public int CompletedCount => _completed;
         public string Status => _phase == Phase.Idle ? "inactive" :
             $"{_operation} {_phase}, verified stores={_completed}/{_requested}, " +
             $"item='{_itemName ?? "unselected"}' ({_itemId}, QL {_itemQl})";
@@ -37,29 +41,39 @@ namespace RKmission
             Game.OnUpdate += OnUpdate;
         }
 
-        public void StartRoundTrip() => Start(Operation.RoundTrip, 1);
-        public void StartStore(int count) => Start(Operation.Store, count);
+        public int CountStorableKeepItems() => MainItems().Count(x =>
+            _loot.Classify(x) == ManagerLoot.ItemClassification.Keep);
 
-        private void Start(Operation operation, int count)
+        public bool StartRoundTrip() => Start(Operation.RoundTrip, 1, false);
+        public bool StartStore(int count, bool automaticRun = false) =>
+            Start(Operation.Store, count, automaticRun);
+
+        private bool Start(Operation operation, int count, bool automaticRun)
         {
-            if (IsActive) { _say("A bank transaction is already active."); return; }
+            LastFailure = null;
+            Result = VerifiedOperationResult.None;
+            if (IsActive) { LastFailure = "a bank transaction is already active"; _say("A bank transaction is already active."); return false; }
             if (count < 1 || count > 20)
-            { _say("Bank storage count must be between 1 and 20."); return; }
+            { LastFailure = "bank storage count is outside 1-20"; Result = VerifiedOperationResult.Failed; _say("Bank storage count must be between 1 and 20."); return false; }
             SimpleItem terminal = _route.FindVerifiedBankTerminal();
             if (terminal == null)
             {
+                LastFailure = "no unique exact surveyed bank terminal is verified";
+                Result = VerifiedOperationResult.Failed;
                 _say("Bank transaction held: " +
                     (_route.IsActive ? "active route target or its exact bank terminal is not verified" :
                         "no unique recorded bank terminal is visible within 8 m") +
                     "; no item was moved. " + _route.BankTargetDiagnostic() + ".");
-                return;
+                return false;
             }
             _terminalIdentity = terminal.Identity.ToString();
             _itemName = null;
             _itemId = _itemQl = 0;
             _operation = operation;
+            _automaticRun = automaticRun;
             _requested = count;
             _completed = 0;
+            Result = VerifiedOperationResult.Running;
             _phase = Inventory.Bank?.IsOpen == true ? Phase.Settling : Phase.Opening;
             _phaseStarted = DateTime.UtcNow;
             _nextTick = DateTime.MinValue;
@@ -70,11 +84,12 @@ namespace RKmission
                     terminal.Use();
                     _say($"Opening verified bank terminal {terminal.Identity}; waiting for bank inventory.");
                 }
-                catch (Exception ex) { Fail("could not use bank terminal: " + ex.Message); }
+                catch (Exception ex) { Fail("could not use bank terminal: " + ex.Message); return false; }
             }
             else _say($"Verified bank is open; waiting for inventory to settle before selecting " +
                 (operation == Operation.Store ? $"up to {count} Keep item(s) for storage." :
                     "one Keep item for the round trip."));
+            return true;
         }
 
         public void Stop()
@@ -82,6 +97,9 @@ namespace RKmission
             if (!IsActive) return;
             bool transferPending = _phase == Phase.DepositSent || _phase == Phase.WithdrawalSent;
             _phase = Phase.Idle;
+            Result = VerifiedOperationResult.Failed;
+            LastFailure = transferPending ? "transaction stopped with an item transfer possibly pending" :
+                "transaction stopped before completion";
             _say(transferPending
                 ? $"Bank transaction stopped with {_completed} verified store(s) and an item transfer possibly pending. Inspect main inventory and bank before retrying."
                 : $"Bank transaction stopped; {_completed} item(s) remain verified in bank from this run.");
@@ -133,6 +151,8 @@ namespace RKmission
                     if (_operation == Operation.Store && _completed > 0)
                     {
                         _phase = Phase.Idle;
+                        Result = VerifiedOperationResult.Succeeded;
+                        LastFailure = null;
                         _say($"Bank storage finished: {_completed} verified item(s); no further ManagerLoot Keep items in main inventory.");
                     }
                     else Fail(_operation == Operation.Store
@@ -166,8 +186,11 @@ namespace RKmission
                         if (_completed >= _requested)
                         {
                             _phase = Phase.Idle;
+                            Result = VerifiedOperationResult.Succeeded;
+                            LastFailure = null;
                             _say($"Bank storage complete: {_completed} item(s) remain in the bank. " +
-                                "You can now use /rkm logistics return.");
+                                (_automaticRun ? "Automatic return will start next." :
+                                    "You can now use /rkm logistics return."));
                         }
                         else
                         {
@@ -193,8 +216,11 @@ namespace RKmission
                 if (mainCount == _mainBefore && bankCount == _bankBefore)
                 {
                     _phase = Phase.Idle;
+                    Result = VerifiedOperationResult.Succeeded;
+                    LastFailure = null;
                     _say($"Bank round trip verified for '{_itemName}': main={mainCount}, bank={bankCount}; " +
-                        "the item returned to main inventory. You can now use /rkm logistics return.");
+                        "the item returned to main inventory. " + (_automaticRun ?
+                            "Automatic return will start next." : "You can now use /rkm logistics return."));
                 }
                 else if (TimedOut(10))
                     Fail($"retrieval not verified (main={mainCount}, bank={bankCount})");
@@ -216,6 +242,8 @@ namespace RKmission
         {
             bool transferSent = _phase == Phase.DepositSent || _phase == Phase.WithdrawalSent;
             _phase = Phase.Idle;
+            Result = VerifiedOperationResult.Failed;
+            LastFailure = reason;
             _say("Bank transaction stopped: " + reason + $". Verified stores={_completed}. " + (transferSent
                 ? $"Check whether '{_itemName}' is in main inventory or bank before retrying; no transfer was retried."
                 : "No further item transfer was sent."));

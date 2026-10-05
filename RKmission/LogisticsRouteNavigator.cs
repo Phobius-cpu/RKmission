@@ -21,12 +21,34 @@ namespace RKmission
         private readonly Action<string> _say;
         private LogisticsRouteCatalog.Route _route;
         private int _stageIndex, _pointIndex;
-        private bool _awaitingZone, _atTarget, _crossingSubmitted, _crossingStopped;
+        private bool _awaitingZone, _atTarget, _crossingSubmitted, _crossingStopped, _automaticRun;
         private Vector3 _crossingTarget;
         private DateTime _nextTick, _lastSubmit, _lastProgress, _zoneDeadline, _crossingStarted;
         private float _bestDistance;
 
         public bool IsActive => _route != null;
+        public bool AtTarget => _route != null && _atTarget;
+        public VerifiedOperationResult Result { get; private set; }
+        public string LastFailure { get; private set; }
+        public string ActiveSite => _route?.Site;
+        public string ActivePurpose => _route?.Purpose;
+
+        public string FindVerifiedOriginSite()
+        {
+            if (Game.IsZoning || DynelManager.LocalPlayer == null) return null;
+            int playfield = Playfield.ModelIdentity.Instance;
+            Vector3 player = DynelManager.LocalPlayer.Position;
+            string[] matches = _catalog.Routes.Where(route =>
+                    route.OriginPlayfield == playfield &&
+                    Vector3.Distance(player, V(route.OriginPosition)) <= 6f &&
+                    DynelManager.AllDynels.Any(terminal =>
+                        terminal.Identity.Type == IdentityType.MissionTerminal &&
+                        string.Equals(terminal.Identity.ToString(), route.OriginTerminalIdentity,
+                            StringComparison.OrdinalIgnoreCase) &&
+                        Vector3.Distance(terminal.Position, V(route.OriginPosition)) <= 15f))
+                .Select(route => route.Site).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            return matches.Length == 1 ? matches[0] : null;
+        }
         public SimpleItem FindVerifiedBankTerminal(string requiredIdentity = null)
         {
             if (Game.IsZoning || DynelManager.LocalPlayer == null) return null;
@@ -100,51 +122,73 @@ namespace RKmission
             Game.OnUpdate += OnUpdate;
         }
 
-        public void Start(string site, string purpose)
+        public bool Start(string site, string purpose, bool automaticRun = false)
         {
-            if (IsActive) { _say("A logistics route test is already active; use /rkm logistics stop first."); return; }
+            LastFailure = null;
+            Result = VerifiedOperationResult.None;
+            if (IsActive)
+            { LastFailure = "a logistics route is already active"; _say("A logistics route test is already active; use /rkm logistics stop first."); return false; }
             LogisticsRouteCatalog.Route route = _catalog.Find(site, purpose);
-            if (route == null) { _say($"No surveyed logistics route for {site}/{purpose}; use /rkm logistics routes."); return; }
+            if (route == null)
+            { LastFailure = $"no surveyed logistics route for {site}/{purpose}"; Result = VerifiedOperationResult.Failed; _say($"No surveyed logistics route for {site}/{purpose}; use /rkm logistics routes."); return false; }
             var player = DynelManager.LocalPlayer;
             if (Game.IsZoning || player == null || Playfield.ModelIdentity.Instance != route.OriginPlayfield ||
                 player.MovementState == MovementState.Fly ||
                 Vector3.Distance(player.Position, V(route.OriginPosition)) > 6f)
-            { _say("Start the route test on foot beside its recorded mission terminal in the correct playfield."); return; }
+            { LastFailure = "character is not on foot beside the recorded mission terminal"; Result = VerifiedOperationResult.Failed; _say("Start the route test on foot beside its recorded mission terminal in the correct playfield."); return false; }
             if (_movement.Owner != MovementOwner.None)
-            { _say("Another RKMission movement controller is active; stop it before testing a logistics route."); return; }
+            { LastFailure = "another RKMission movement controller is active"; Result = VerifiedOperationResult.Failed; _say("Another RKMission movement controller is active; stop it before testing a logistics route."); return false; }
             if (!DynelManager.AllDynels.Any(x => x.Identity.Type == IdentityType.MissionTerminal &&
                 string.Equals(x.Identity.ToString(), route.OriginTerminalIdentity, StringComparison.OrdinalIgnoreCase) &&
                 Vector3.Distance(x.Position, V(route.OriginPosition)) <= 15f))
-            { _say($"Route test held: recorded origin terminal {route.OriginTerminalIdentity} is not visible at this site."); return; }
+            { LastFailure = $"recorded origin terminal {route.OriginTerminalIdentity} is not visible"; Result = VerifiedOperationResult.Failed; _say($"Route test held: recorded origin terminal {route.OriginTerminalIdentity} is not visible at this site."); return false; }
             _route = route;
+            _automaticRun = automaticRun;
+            Result = VerifiedOperationResult.Running;
             SetStage(0);
-            _say($"Testing recorded {route.Site}/{route.Purpose} route from PF {route.OriginPlayfield}. " +
-                "Transactions remain manual; each zone arrival will be checked before movement continues.");
+            _say(automaticRun
+                ? $"Automatic logistics: following verified {route.Site}/{route.Purpose} route from PF {route.OriginPlayfield}."
+                : $"Testing recorded {route.Site}/{route.Purpose} route from PF {route.OriginPlayfield}. " +
+                  "Transactions remain manual; each zone arrival will be checked before movement continues.");
             if (route.Stages.Count == 1) ArrivedAtTarget();
+            return true;
         }
 
-        public void Return()
+        public bool Return()
         {
             if (_route == null || !_atTarget)
-            { _say("Reach a surveyed logistics target with /rkm logistics travel <site> <bank|shop> first."); return; }
+            { LastFailure = "surveyed logistics target has not been reached"; _say("Reach a surveyed logistics target with /rkm logistics travel <site> <bank|shop> first."); return false; }
             if (Game.IsZoning || DynelManager.LocalPlayer == null ||
                 Playfield.ModelIdentity.Instance != _route.DestinationPlayfield ||
                 Vector3.Distance(DynelManager.LocalPlayer.Position, V(_route.DestinationPosition)) > 8f)
-            { _say("Return held: stand beside the same surveyed bank/shop target in its expected playfield."); return; }
+            { LastFailure = "character is no longer beside the surveyed logistics target"; _say("Return held: stand beside the same surveyed bank/shop target in its expected playfield."); return false; }
             if (_route.Stages.Count == 1)
-            { Finish("Already beside the mission terminal; no return route was needed."); return; }
+            { Finish("Already beside the mission terminal; no return route was needed."); return true; }
             _atTarget = false;
             SetStage(2);
-            _say($"Testing recorded return route for {_route.Site}/{_route.Purpose}; expected origin PF {_route.OriginPlayfield}.");
+            _say((_automaticRun ? "Automatic logistics: following" : "Testing") +
+                $" recorded return route for {_route.Site}/{_route.Purpose}; expected origin PF {_route.OriginPlayfield}.");
+            return true;
         }
 
         public void Stop(bool silent = false)
         {
             if (_route == null) return;
+            if (Result == VerifiedOperationResult.Running)
+            {
+                Result = VerifiedOperationResult.Failed;
+                LastFailure = "route was stopped before verified completion";
+            }
+            ClearRoute();
+            if (!silent) _say("Logistics route test stopped.");
+        }
+
+        private void ClearRoute()
+        {
             _movement.Release(MovementOwner.LogisticsTravel);
             _route = null;
             _atTarget = _awaitingZone = false;
-            if (!silent) _say("Logistics route test stopped.");
+            _automaticRun = false;
         }
 
         private void OnUpdate(object sender, float elapsed)
@@ -378,7 +422,7 @@ namespace RKmission
                 liveTarget = actor == null ? "shop actor identity not verified by the live dynel list" :
                     $"surveyed shop actor {actor.Identity} visible";
             }
-            string action = _route.Purpose == "bank"
+            string action = _automaticRun ? "The verified transaction will start next" : _route.Purpose == "bank"
                 ? "Use /rkm logistics bank test or bank store [1-20] for verified Keep-item transfers, " +
                   "or use the bank manually; then /rkm logistics return"
                 : "Use /rkm logistics shop test to sell one verified Reject item, " +
@@ -406,8 +450,20 @@ namespace RKmission
             _bestDistance = float.MaxValue;
         }
 
-        private void Finish(string message) { Stop(true); _say(message); }
-        private void Fail(string reason) { Stop(true); _say("Logistics route test stopped: " + reason + "."); }
+        private void Finish(string message)
+        {
+            Result = VerifiedOperationResult.Succeeded;
+            LastFailure = null;
+            ClearRoute();
+            _say(message);
+        }
+        private void Fail(string reason)
+        {
+            Result = VerifiedOperationResult.Failed;
+            LastFailure = reason;
+            ClearRoute();
+            _say("Logistics route test stopped: " + reason + ".");
+        }
         private static Vector3 V(float[] point) => new Vector3(point[0], point[1], point[2]);
         public void Dispose() { Game.OnUpdate -= OnUpdate; Stop(true); }
     }

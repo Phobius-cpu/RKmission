@@ -29,6 +29,7 @@ namespace RKmission
         private LogisticsRouteNavigator _logisticsNavigator;
         private BankTransactions _bankTransactions;
         private ShopSaleTest _shopSale;
+        private AutomaticLogisticsCycle _automaticLogistics;
         private LocalMissionTravel _travel;
         private MovementArbiter _movement;
         private ScottyboiWarpProvider _warp;
@@ -91,6 +92,8 @@ namespace RKmission
             _logisticsNavigator = new LogisticsRouteNavigator(_logisticsRoutes, _movement, Say);
             _bankTransactions = new BankTransactions(_logisticsNavigator, _loot, Say);
             _shopSale = new ShopSaleTest(_logisticsNavigator, _loot, Say);
+            _automaticLogistics = new AutomaticLogisticsCycle(_logisticsNavigator,
+                _bankTransactions, _shopSale, Say);
             _dungeon = new MissionDungeon(Say, _loot, _readiness, _inventory);
             _deathRecovery = new DeathRecoveryController(_readiness, _movement, Say);
             _travel = new LocalMissionTravel(Say, pluginDir);
@@ -145,6 +148,7 @@ namespace RKmission
             _navWindow?.Dispose();
             _navRoutes?.Dispose();
             _logisticsProbe?.Dispose();
+            _automaticLogistics?.Dispose();
             _bankTransactions?.Dispose();
             _shopSale?.Dispose();
             _logisticsNavigator?.Dispose();
@@ -200,12 +204,12 @@ namespace RKmission
                     if (_waitingReason != null) Say(_waitingReason);
                     break;
                 case "start":
-                    if (_bankTransactions.IsActive || _shopSale.IsActive)
+                    if (_bankTransactions.IsActive || _shopSale.IsActive || _automaticLogistics.IsActive)
                         Say("Finish or stop the logistics transaction before arming mission travel.");
                     else Start();
                     break;
                 case "auto":
-                    if (_bankTransactions.IsActive || _shopSale.IsActive)
+                    if (_bankTransactions.IsActive || _shopSale.IsActive || _automaticLogistics.IsActive)
                     { Say("Finish or stop the logistics transaction before arming the automatic cycle."); break; }
                     if (!_roller.ShowRoller())
                     { Say("Roller window could not be reopened; automatic cycle was not started."); break; }
@@ -232,7 +236,7 @@ namespace RKmission
                     if (visibleTerminal != null) RememberRollTerminal(visibleTerminal);
                     _autoCycle = true; Start(); Say("Automatic mission cycle armed."); break;
                 case "local":
-                    if (_bankTransactions.IsActive || _shopSale.IsActive)
+                    if (_bankTransactions.IsActive || _shopSale.IsActive || _automaticLogistics.IsActive)
                     { Say("Finish or stop the logistics transaction before arming local takeover."); break; }
                     if (_autoRolling) MaliMissionRoller2.Main.Window?.StopZoneRolling();
                     _autoRolling = _autoCycle = false;
@@ -346,9 +350,19 @@ namespace RKmission
                 case "logistics":
                     if (args.Length == 2 && args[1].Equals("routes", StringComparison.OrdinalIgnoreCase))
                         _logisticsRoutes.Report(Say);
+                    else if ((args.Length == 2 || args.Length == 3) &&
+                        args[1].Equals("cycle", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (_running || _autoRolling || _pendingCheckpointResume)
+                            Say("Use /rkm stop to disarm the mission cycle before validating automatic logistics.");
+                        else if (args.Length == 3 && (!int.TryParse(args[2], out int cycleCount) ||
+                            cycleCount < 1 || cycleCount > 20))
+                            Say("Usage: /rkm logistics cycle [1-20] (default: 20).");
+                        else _automaticLogistics.Start(args.Length == 3 ? int.Parse(args[2]) : 20);
+                    }
                     else if (args.Length == 4 && args[1].Equals("travel", StringComparison.OrdinalIgnoreCase))
                     {
-                        if (_bankTransactions.IsActive || _shopSale.IsActive)
+                        if (_bankTransactions.IsActive || _shopSale.IsActive || _automaticLogistics.IsActive)
                             Say("Finish or stop the logistics transaction before starting a new route.");
                         else if (_running || _autoRolling || _pendingCheckpointResume)
                             Say("Use /rkm stop to disarm the mission cycle before testing a logistics route.");
@@ -356,7 +370,7 @@ namespace RKmission
                     }
                     else if (args.Length == 2 && args[1].Equals("return", StringComparison.OrdinalIgnoreCase))
                     {
-                        if (_bankTransactions.IsActive || _shopSale.IsActive)
+                        if (_bankTransactions.IsActive || _shopSale.IsActive || _automaticLogistics.IsActive)
                             Say("Wait for the logistics transaction to finish or stop it before returning.");
                         else _logisticsNavigator.Return();
                     }
@@ -365,7 +379,7 @@ namespace RKmission
                     {
                         if (_running || _autoRolling || _pendingCheckpointResume)
                             Say("Use /rkm stop to disarm the mission cycle before testing a bank transfer.");
-                        else if (_shopSale.IsActive)
+                        else if (_shopSale.IsActive || _automaticLogistics.IsActive)
                             Say("Finish or stop the shop sale test before starting a bank transaction.");
                         else _bankTransactions.StartRoundTrip();
                     }
@@ -377,7 +391,7 @@ namespace RKmission
                             Say("Use /rkm stop to disarm the mission cycle before storing bank items.");
                         else if (args.Length == 4 && (!int.TryParse(args[3], out int storeCount) || storeCount < 1 || storeCount > 20))
                             Say("Usage: /rkm logistics bank store [1-20] (default: 1).");
-                        else if (_shopSale.IsActive)
+                        else if (_shopSale.IsActive || _automaticLogistics.IsActive)
                             Say("Finish or stop the shop sale test before starting a bank transaction.");
                         else _bankTransactions.StartStore(args.Length == 4 ? int.Parse(args[3]) : 1);
                     }
@@ -394,7 +408,7 @@ namespace RKmission
                             Say("Use /rkm stop to disarm the mission cycle before staging shop items.");
                         else if (!int.TryParse(args[3], out int stageId) || stageId <= 0)
                             Say("Usage: /rkm logistics shop stage <item id> (select an expendable main Reject from preview).");
-                        else if (_bankTransactions.IsActive)
+                        else if (_bankTransactions.IsActive || _automaticLogistics.IsActive)
                             Say("Finish or stop the bank transaction before staging shop items.");
                         else _shopSale.StartStage(stageId);
                     }
@@ -403,7 +417,7 @@ namespace RKmission
                     {
                         if (_running || _autoRolling || _pendingCheckpointResume)
                             Say("Use /rkm stop to disarm the mission cycle before testing a shop sale.");
-                        else if (_bankTransactions.IsActive)
+                        else if (_bankTransactions.IsActive || _automaticLogistics.IsActive)
                             Say("Finish or stop the bank transaction before testing a shop sale.");
                         else _shopSale.Start();
                     }
@@ -416,7 +430,7 @@ namespace RKmission
                         else if (args.Length == 4 && (!int.TryParse(args[3], out int saleCount) ||
                             saleCount < 1 || saleCount > 20))
                             Say("Usage: /rkm logistics shop sell [1-20] (default: 1).");
-                        else if (_bankTransactions.IsActive)
+                        else if (_bankTransactions.IsActive || _automaticLogistics.IsActive)
                             Say("Finish or stop the bank transaction before selling shop items.");
                         else _shopSale.Start(args.Length == 4 ? int.Parse(args[3]) : 1);
                     }
@@ -424,10 +438,11 @@ namespace RKmission
                         args[2].Equals("stop", StringComparison.OrdinalIgnoreCase))
                         _shopSale.Stop();
                     else if (args.Length == 2 && args[1].Equals("stop", StringComparison.OrdinalIgnoreCase))
-                    { _bankTransactions.Stop(); _shopSale.Stop(); _logisticsNavigator.Stop(); }
+                    { _automaticLogistics.Stop(); _bankTransactions.Stop(); _shopSale.Stop(); _logisticsNavigator.Stop(); }
                     else if (args.Length == 2 && args[1].Equals("status", StringComparison.OrdinalIgnoreCase))
                         Say("Logistics route test " + _logisticsNavigator.Status + "; bank " +
                             _bankTransactions.Status + "; shop " + _shopSale.Status +
+                            "; automatic cycle " + _automaticLogistics.Status +
                             "; probe " + _logisticsProbe.Status + ".");
                     else if (args.Length >= 3 && args[1].Equals("probe", StringComparison.OrdinalIgnoreCase))
                     {
@@ -451,7 +466,7 @@ namespace RKmission
                             Say("Logistics probe " + _logisticsProbe.Status + ".");
                         else Say("Usage: /rkm logistics probe start [site] [bank|shop] | stop | status.");
                     }
-                    else Say("Usage: /rkm logistics routes | travel <site> <bank|shop> | bank <test|store [1-20]|stop> | shop <preview|stage <item id>|test|sell [1-20]|stop> | return | stop | status | probe start [site] [bank|shop] | probe stop.");
+                    else Say("Usage: /rkm logistics routes | cycle [1-20] | travel <site> <bank|shop> | bank <test|store [1-20]|stop> | shop <preview|stage <item id>|test|sell [1-20]|stop> | return | stop | status | probe start [site] [bank|shop] | probe stop.");
                     break;
                 case "map": _map.ToggleWindow(); break;
                 case "settings":
@@ -459,13 +474,14 @@ namespace RKmission
                         _roller.ShowRoller();
                     MaliMissionRoller2.Main.Window?.ShowSettingsTab();
                     break;
-                default: Say("Commands: start, auto, local, stop, status, missions, zone <id|all>, rolls <count>, limit <count|off>, travel auto|ground|flying, fgrid [scan|nav], nav [window]|record [name]|stop|list, logistics routes|travel <site> <bank|shop>|return|stop|status|probe, complete [mission id], loot, map, settings."); break;
+                default: Say("Commands: start, auto, local, stop, status, missions, zone <id|all>, rolls <count>, limit <count|off>, travel auto|ground|flying, fgrid [scan|nav], nav [window]|record [name]|stop|list, logistics routes|cycle [1-20]|travel <site> <bank|shop>|return|stop|status|probe, complete [mission id], loot, map, settings."); break;
             }
         }
 
         private void Start()
         {
             if (_running) return;
+            _automaticLogistics?.Stop(true);
             _bankTransactions?.Stop();
             _shopSale?.Stop();
             _logisticsNavigator?.Stop(true);
@@ -514,6 +530,7 @@ namespace RKmission
             _longTravel?.Reset();
             _entranceResolver?.Reset();
             _navRoutes?.StopPlayback();
+            _automaticLogistics?.Stop(true);
             _bankTransactions?.Stop();
             _shopSale?.Stop();
             _logisticsNavigator?.Stop(true);

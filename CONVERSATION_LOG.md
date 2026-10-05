@@ -1702,3 +1702,7 @@ The user validated Borealis and ICC bank round trips, shop sales, target identit
 ## 2026-10-05 - Closer logistics endpoint approaches
 
 The user confirmed the smoothed movement feels great, then reported that Borealis/ICC bank arrivals and return arrivals at mission terminals stopped farther away than preferred. The route endpoints exactly matched their surveyed positions. RKMission now completes bank arrivals within 1.25 m and return arrivals within 2 m, reduced from 2.5 m and 5 m. Shop arrival tolerance, smoothing, and doorway behavior are unchanged. Details: `docs/history/2026-10-05-logistics-route-smoothing.md`.
+
+## 2026-10-05 - End-to-end automatic logistics validation
+
+After the user confirmed movement felt good and asked for the next step, RKMission added `/rkm logistics cycle [1-20]`. From an exact surveyed roller terminal it composes bank travel and verified Keep storage, return, shop travel and verified RKM Sell disposal, and final return. Machine-readable route and transaction outcomes prevent advancement after uncertain evidence. The command remains disarmed from `/rkm auto` until a complete live cycle is captured at each site. The reversed final ICC bank entry sample was removed in favor of the independently recorded and live-verified shared ICC shop threshold. Details: `docs/history/2026-10-05-automatic-logistics-cycle.md`.

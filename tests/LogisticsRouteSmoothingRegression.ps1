@@ -13,6 +13,9 @@ $navigator = $assembly.GetType('RKmission.LogisticsRouteNavigator', $true)
 $safe = $navigator.GetMethod('RecordedShortcutSafe',
     [System.Reflection.BindingFlags]'NonPublic,Static')
 if ($null -eq $safe) { throw 'Recorded shortcut validator was not found.' }
+$reverses = $navigator.GetMethod('ReversesNearDoorway',
+    [System.Reflection.BindingFlags]'NonPublic,Static')
+if ($null -eq $reverses) { throw 'Doorway direction validator was not found.' }
 
 $data = Get-Content -LiteralPath (Join-Path $root 'RKmission/Data/LogisticsRoutes.json') -Raw |
     ConvertFrom-Json
@@ -26,6 +29,10 @@ foreach ($route in $data.Routes) {
             $points.Add([float[]]@($point[0], $point[1], $point[2]))
         }
         $stageType.GetProperty('Points').SetValue($stage, $points)
+        if ($route.Site -eq 'icc' -and $route.Purpose -eq 'bank' -and
+            $source.Name -eq 'ToEntry' -and $reverses.Invoke($null, @($stage))) {
+            throw 'ICC bank ToEntry still reverses at its recorded doorway.'
+        }
         $at = 0
         $legs = 0
         while ($at -lt $points.Count - 1) {
@@ -66,3 +73,16 @@ if (-not $sourceCode.Contains('BankArrivalTolerance = 1.25f') -or
     throw 'Logistics endpoint approach tolerances are missing or no longer purpose-aware.'
 }
 Write-Output 'PASS bank and mission-terminal endpoint approaches use tightened tolerances'
+
+$cycle = $assembly.GetType('RKmission.AutomaticLogisticsCycle', $true)
+$result = $assembly.GetType('RKmission.VerifiedOperationResult', $true)
+if ($null -eq $cycle.GetProperty('Result') -or $cycle.GetProperty('Result').PropertyType -ne $result) {
+    throw 'Automatic logistics cycle does not expose its verified result.'
+}
+foreach ($typeName in @('LogisticsRouteNavigator', 'BankTransactions', 'ShopSaleTest')) {
+    $type = $assembly.GetType("RKmission.$typeName", $true)
+    if ($null -eq $type.GetProperty('Result') -or $type.GetProperty('Result').PropertyType -ne $result) {
+        throw "$typeName does not expose a machine-readable verified result."
+    }
+}
+Write-Output 'PASS automatic logistics phases expose machine-readable verified outcomes'

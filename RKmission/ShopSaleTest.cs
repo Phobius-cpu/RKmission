@@ -25,8 +25,12 @@ namespace RKmission
         private string _itemName;
         private int _itemId, _itemQl, _mainBefore, _bagBefore, _cashBefore;
         private int _requested = 1, _completed;
+        private bool _automaticRun;
 
         public bool IsActive => _phase != Phase.Idle;
+        public VerifiedOperationResult Result { get; private set; }
+        public string LastFailure { get; private set; }
+        public int CompletedCount => _completed;
         public string Status => _phase == Phase.Idle ? "inactive" : _phase == Phase.StagingOnlySent ?
             $"staging '{_itemName}' (id={_itemId}, QL={_itemQl}) from main into RKM Sell; awaiting verification" :
             $"{_phase} at {_actor}; verified sales={_completed}/{_requested}, " +
@@ -131,28 +135,46 @@ namespace RKmission
             catch (Exception ex) { Fail("item staging error: " + ex.Message); }
         }
 
-        public void Start() => Start(1);
-
-        public void Start(int count)
+        public int CountEligibleRejectItems()
         {
-            if (IsActive) { _say("A shop sale test is already active."); return; }
+            Item[] main = MainItems();
+            Item[] sell = Inventory.Backpacks
+                .Where(bag => ManagerLoot.ManagedBagFamily.Matches(bag.Name,
+                    ManagerLoot.ManagedBagFamily.Sell))
+                .SelectMany(bag => Inventory.GetContainerItems(bag.Identity))
+                .Where(x => x != null).ToArray();
+            return sell.Count(x => _loot.Classify(x) == ManagerLoot.ItemClassification.Reject &&
+                main.All(y => !SameItem(x, y)) && sell.Count(y => SameItem(x, y)) == 1);
+        }
+
+        public bool Start() => Start(1, false);
+
+        public bool Start(int count, bool automaticRun = false)
+        {
+            LastFailure = null;
+            Result = VerifiedOperationResult.None;
+            if (IsActive) { LastFailure = "a shop sale is already active"; _say("A shop sale test is already active."); return false; }
             if (count < 1 || count > 20)
-            { _say("Shop sale count must be between 1 and 20."); return; }
+            { LastFailure = "shop sale count is outside 1-20"; Result = VerifiedOperationResult.Failed; _say("Shop sale count must be between 1 and 20."); return false; }
             Dynel actor = _route.FindVerifiedShopActor();
             if (actor == null)
             {
+                LastFailure = "no unique exact surveyed shop actor is visible";
+                Result = VerifiedOperationResult.Failed;
                 _say("Shop sale held: no unique exact surveyed shop actor is visible at the target; no item was moved.");
-                return;
+                return false;
             }
             if (Trade.TradeTarget.HasValue && Trade.TradeTarget.Value != actor.Identity)
-            { _say("Shop sale held: another trade target is active; close it before using the surveyed shop."); return; }
+            { LastFailure = "another trade target is active"; Result = VerifiedOperationResult.Failed; _say("Shop sale held: another trade target is active; close it before using the surveyed shop."); return false; }
             _actor = actor.Identity;
             _requested = count;
+            _automaticRun = automaticRun;
             _completed = 0;
             _sourceBag = _itemSlot = Identity.None;
             _itemName = null;
             _itemId = _itemQl = 0;
             _shopSeen = _openSeen = _addEcho = _completeSeen = _declined = false;
+            Result = VerifiedOperationResult.Running;
             _phase = Phase.Opening;
             _phaseStarted = DateTime.UtcNow;
             _nextTick = DateTime.MinValue;
@@ -162,7 +184,8 @@ namespace RKmission
                 _say($"Opening exact surveyed shop actor {_actor} for up to {_requested} verified sale(s); " +
                     "waiting for shop update and trade open.");
             }
-            catch (Exception ex) { Fail("could not use shop actor: " + ex.Message); }
+            catch (Exception ex) { Fail("could not use shop actor: " + ex.Message); return false; }
+            return true;
         }
 
         public void Stop()
@@ -170,6 +193,10 @@ namespace RKmission
             if (!IsActive) return;
             Phase old = _phase;
             _phase = Phase.Idle;
+            Result = VerifiedOperationResult.Failed;
+            LastFailure = old == Phase.AddSent || old == Phase.AcceptSent
+                ? "sale stopped with an item possibly in the trade window"
+                : "sale stopped before completion";
             _say(old == Phase.AddSent || old == Phase.AcceptSent
                 ? $"Shop sale stopped after {_completed} verified sale(s), with an item possibly in the trade window. Inspect the shop and inventory before retrying."
                 : old == Phase.StageMoveSent || old == Phase.StagingOnlySent
@@ -292,6 +319,8 @@ namespace RKmission
                     if (_completed > 0)
                     {
                         _phase = Phase.Idle;
+                        Result = VerifiedOperationResult.Succeeded;
+                        LastFailure = null;
                         _say($"Shop selling finished after {_completed} verified sale(s); " +
                             "no further unprotected, unambiguous Reject item was found in RKM Sell.");
                     }
@@ -349,7 +378,10 @@ namespace RKmission
                     if (_completed >= _requested)
                     {
                         _phase = Phase.Idle;
+                        Result = VerifiedOperationResult.Succeeded;
+                        LastFailure = null;
                         _say($"Shop selling complete: {_completed} item(s) sold and verified.");
+                        if (_automaticRun) _say("Automatic shop return will start next.");
                     }
                     else
                     {
@@ -394,6 +426,8 @@ namespace RKmission
         {
             Phase old = _phase;
             _phase = Phase.Idle;
+            Result = VerifiedOperationResult.Failed;
+            LastFailure = reason;
             _say($"Shop selling stopped after {_completed} verified sale(s): " + reason + ". " +
                 (old == Phase.AddSent || old == Phase.AcceptSent
                     ? $"Inspect the trade window and '{_itemName}' before retrying; no trade action was retried."
