@@ -15,17 +15,9 @@ namespace RKmission
     // continue through MissionObjective and retain their own free-slot checks.
     internal sealed class InventoryPolicy
     {
-        private static readonly string[] BuiltInOperationalFragments = {
-            "lock pick", "lockpick", "lock-pick", "cluster bullets",
-            "nano recharg", "nano kit", "nano stim", "health laboratory",
-            "health kit", "health stim", "treatment laboratory", "treatment kit",
-            "first aid", "medical kit", "free movement", "backpack", "back pack",
-            "yalmaha", "jetbike", "kodiak", "kodaik", "personal vehicle",
-            "ground vehicle", "air vehicle", "stiletto"
-        };
+        private readonly HashSet<int> _consumerItemIds = new HashSet<int>();
         public int MinimumFreeSlots { get; set; } = 3;
-        // Additive exceptions in RKMissionData/inventory-policy.json. Built-in
-        // supply and vehicle protection remains active if these lists are empty.
+        // Explicit user overrides in RKMissionData/inventory-policy.json.
         public List<int> ProtectedItemIds { get; set; } = new List<int>();
         public List<string> ProtectedNameFragments { get; set; } = new List<string>();
         [JsonIgnore] public bool SkipOptionalLoot { get; private set; }
@@ -37,39 +29,34 @@ namespace RKmission
         private int _stagedRejects;
         [JsonIgnore] public string? SettlementFailure { get; private set; }
 
-        // RKMission's operational inventory must never become shop input just
-        // because a value rule did not list it. ManagerLoot calls this before
-        // its Keep/Reject decision, including for items already in RKM Sell.
+        // Handlers may register verified item IDs that they actually consume.
+        // This does not turn a useful-looking name or arbitrary Use action into
+        // an operational item.
+        public void RegisterOperationalItemId(int itemId)
+        {
+            if (itemId > 0) _consumerItemIds.Add(itemId);
+        }
+
+        // ManagerLoot calls this before its Keep/Reject decision, including
+        // for items already in RKM Sell.
         public bool IsOperationalItem(Item item)
         {
             if (item == null) return false;
             if (item.UniqueIdentity.Type == IdentityType.Container) return true;
-            // Item.GetStat(Stat.IsVehicle) is not a reliable item-kind test in
-            // live AO: implants, NCU equipment, and weapons returned positive.
-            // Guard vehicles by known names plus configurable item IDs instead.
             if (ProtectedItemIds.Contains(item.Id)) return true;
             string name = item.Name?.Trim() ?? string.Empty;
             if (ProtectedNameFragments.Any(x => !string.IsNullOrWhiteSpace(x) &&
                 name.IndexOf(x.Trim(), StringComparison.OrdinalIgnoreCase) >= 0)) return true;
-            return IsBuiltInOperationalName(name);
+            return _consumerItemIds.Contains(item.Id) || IsBuiltInOperationalName(name) ||
+                MissionReadiness.IsRecoveryItem(item);
         }
 
         internal static bool IsBuiltInOperationalName(string name)
         {
-            if (string.IsNullOrWhiteSpace(name)) return false;
-            if (name.StartsWith("Ammo:", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("Ammo ", StringComparison.OrdinalIgnoreCase) ||
-                name.IndexOf(" Ammo", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                name.IndexOf("Ammunition", StringComparison.OrdinalIgnoreCase) >= 0)
-                return true;
-            if (name.StartsWith("Vehicle:", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("Vehicle -", StringComparison.OrdinalIgnoreCase)) return true;
-            if (name.IndexOf("vehicle", StringComparison.OrdinalIgnoreCase) >= 0 &&
-                name.IndexOf("Implant:", StringComparison.OrdinalIgnoreCase) < 0 &&
-                name.IndexOf("Cluster", StringComparison.OrdinalIgnoreCase) < 0)
-                return true;
-            return BuiltInOperationalFragments.Any(x =>
-                name.IndexOf(x, StringComparison.OrdinalIgnoreCase) >= 0);
+            // Both RKMission's locked-door path and ManagerLoot's chest path
+            // request this exact name. Other consumables require effect data
+            // or a consumer registration, not a matching substring.
+            return string.Equals(name, "Lock Pick", StringComparison.Ordinal);
         }
 
         public void BeginMissionInventorySnapshot()

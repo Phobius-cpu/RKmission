@@ -2745,3 +2745,8 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 
 - Preview showed one RKM Sell bag with two observed items, both Protected for "operational item": a Vehicle Air implant and Nano Formula Recompiler. Jobe-Made Bladestaff and Cluster Bullets in main were similarly labeled. The live inventory policy file has no custom exceptions.
 - `Item.GetStat(Stat.IsVehicle) > 0` was falsely positive across those unrelated items. Removed as a vehicle discriminator; retained known vehicle-name and configurable ID/fragment protection. Added Cluster Bullets to built-in consumables. The next live preview must show the bag items under normal ManagerLoot Keep/Reject rules. See `docs/history/2026-10-04-shop-sale-diagnostic.md`.
+
+## 2026-10-05 strict operational inventory follow-up
+
+- Started from GitHub `main` `a1306f6`. Removed built-in substring protection for vehicles, ammo, Cluster Bullets, recharge names, and other useful-looking items. Exact `Lock Pick`, container items, and items with recovery effects accepted by `MissionReadiness` remain operational. Verified handler item IDs can be registered; user `ProtectedItemIds`/`ProtectedNameFragments` remain manual overrides.
+- `RKM Keep*` and `RKM Mission` contents still pass through ManagerLoot's hard protection before selected items or rules. The shop diagnostic remains restricted to verified Rejects in `RKM Sell*`. A Release build passed with zero errors; focused compiled-name/bag checks passed. Real AO item-effect classification and a live preview remain to be verified. See `docs/history/2026-10-05-strict-operational-inventory.md`.

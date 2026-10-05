@@ -292,22 +292,36 @@ namespace RKmission
             // Inspect positive HP/nano effects, including programs applied by
             // kits/perks. Names alone do not authorize drains or hostile actions.
             var effects = Effects(item, new HashSet<int>(), 0).ToList();
-            if (effects.Any(x => x.Function == SpellFunction.Taunt || x.Function == SpellFunction.AoeDmg ||
-                x.Function == SpellFunction.DrainDmg || x.Function == SpellFunction.Teleport ||
-                x.Function == SpellFunction.TeleportLastSave || x.Function == SpellFunction.TeleportPerk ||
-                x.Function == SpellFunction.SpawnMonster || x.Function == SpellFunction.SummonPet)) return;
             if (item is Spell activeHot && effects.Any(x => IsHit(x) &&
                 Property(x, SpellPropertyOperator.Duration) > 1) && DynelManager.LocalPlayer.Buffs.Any(x =>
                     x.Id == activeHot.Id && x.RemainingTime > 5)) return;
-            if (effects.Any(x => IsHit(x) && Property(x, SpellPropertyOperator.Stat) == (int)Stat.Health &&
-                (Property(x, SpellPropertyOperator.Min) < 0 || Property(x, SpellPropertyOperator.Max) < 0))) return;
-            int healthGain = effects.Where(IsHit).Where(x => Property(x, SpellPropertyOperator.Stat) == (int)Stat.Health)
-                .Sum(x => Math.Max(0, Property(x, SpellPropertyOperator.Min)));
-            int nanoGain = effects.Where(IsHit).Where(x => Property(x, SpellPropertyOperator.Stat) == (int)Stat.CurrentNano)
-                .Sum(x => Math.Max(0, Property(x, SpellPropertyOperator.Min)));
+            if (!TryGetRecoveryGains(effects, out int healthGain, out int nanoGain)) return;
             if (item is Spell recoverySpell) nanoGain = Math.Max(0, nanoGain - recoverySpell.Cost);
             int score = (healthLow ? healthGain : 0) + (nanoLow ? nanoGain : 0);
             if (score > 0) actions.Add(new RecoveryAction { Item = item, Key = key, Score = score });
+        }
+
+        // Classify only real inventory items that this controller can select
+        // for HP/nano recovery. The same effect filter governs the use path.
+        internal static bool IsRecoveryItem(Item item) => item != null &&
+            TryGetRecoveryGains(Effects(item, new HashSet<int>(), 0), out _, out _);
+
+        private static bool TryGetRecoveryGains(IEnumerable<SpellData> effects,
+            out int healthGain, out int nanoGain)
+        {
+            healthGain = nanoGain = 0;
+            var observed = effects.ToList();
+            if (observed.Any(x => x.Function == SpellFunction.Taunt || x.Function == SpellFunction.AoeDmg ||
+                x.Function == SpellFunction.DrainDmg || x.Function == SpellFunction.Teleport ||
+                x.Function == SpellFunction.TeleportLastSave || x.Function == SpellFunction.TeleportPerk ||
+                x.Function == SpellFunction.SpawnMonster || x.Function == SpellFunction.SummonPet)) return false;
+            if (observed.Any(x => IsHit(x) && Property(x, SpellPropertyOperator.Stat) == (int)Stat.Health &&
+                (Property(x, SpellPropertyOperator.Min) < 0 || Property(x, SpellPropertyOperator.Max) < 0))) return false;
+            healthGain = observed.Where(IsHit).Where(x => Property(x, SpellPropertyOperator.Stat) == (int)Stat.Health)
+                .Sum(x => Math.Max(0, Property(x, SpellPropertyOperator.Min)));
+            nanoGain = observed.Where(IsHit).Where(x => Property(x, SpellPropertyOperator.Stat) == (int)Stat.CurrentNano)
+                .Sum(x => Math.Max(0, Property(x, SpellPropertyOperator.Min)));
+            return healthGain > 0 || nanoGain > 0;
         }
 
         private static IEnumerable<SpellData> Effects(DummyItem item, HashSet<int> visited, int depth)
