@@ -2755,3 +2755,8 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 
 - The user reports classification now looks correct and the one-item shop test worked. RKMission adds `/rkm logistics shop sell [1-20]` as an explicit bounded batch command. Every item uses the existing verified staging, actor-bound trade, AddItem echo, Accept, inventory removal, and cash checks. Between verified sales, it reuses a still-open shop or reopens the exact surveyed actor and waits for fresh evidence. No trade action is blindly retried; partial progress is reported.
 - Automatic-cycle disposal remains off. Validate two distinct expendable RKM Sell items at OA, then the separate Borealis/ICC routes and transactions before connecting logistics to `/rkm auto`. See `docs/history/2026-10-05-shop-batch-follow-up.md`.
+
+## 2026-10-05 07:07 empty Sell bag checkpoint
+
+- Live preview showed one RKM Sell bag, zero observed contents, six main Rejects, and no item moved. The batch command safely stopped before submission. Post-exit automatic staging handles new mission loot; pre-existing main Rejects are not swept into sale bags.
+- Preview now lists main Reject IDs. `/rkm logistics shop stage <item id>` explicitly moves one uniquely identified Reject into an existing RKM Sell bag, verifies both inventories, and never retries an uncertain move. It does not open a shop or sell. Release build and existing inventory classification checks passed. See `docs/history/2026-10-05-explicit-shop-staging.md`.

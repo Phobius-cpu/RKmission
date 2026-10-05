@@ -1690,3 +1690,7 @@ The user clarified that RKMission may hard-protect only items with a concrete au
 ## 2026-10-05 - Shop batch next step
 
 The user confirmed the corrected classification and one-item shop test worked, and asked what follows. The next explicit command is `/rkm logistics shop sell [1-20]`: bounded sales from RKM Sell, each fully verified before the next, with safe continuation when the shop stays open or exact-actor reopening when it closes. It stops early if no eligible item remains and stops on uncertain trade evidence without retrying. The batch needs an OA two-item live test; Borealis and ICC route/transaction validation follows before automatic logistics is armed. Details: `docs/history/2026-10-05-shop-batch-follow-up.md`.
+
+## 2026-10-05 - 07:07 main Reject staging
+
+The user reported an empty RKM Sell bag, six main-inventory Rejects, and a two-item shop command that safely stopped after zero sales. Preview now lists those main Rejects with IDs; `/rkm logistics shop stage <item id>` selects one unique Reject, moves it once into an existing Sell bag with space, and verifies both inventory views before reporting success. It never opens a shop or requests a sale. The existing post-mission staging remains limited to new mission loot. Release build and inventory classification checks passed. Details: `docs/history/2026-10-05-explicit-shop-staging.md`.

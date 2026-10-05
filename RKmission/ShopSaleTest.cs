@@ -13,7 +13,7 @@ namespace RKmission
     // completion and inventory/cash proof; uncertain actions are never retried.
     internal sealed class ShopSaleTest : IDisposable
     {
-        private enum Phase { Idle, Opening, Selecting, StageMoveSent, AddSent, AcceptSent, BetweenSales }
+        private enum Phase { Idle, Opening, Selecting, StageMoveSent, AddSent, AcceptSent, BetweenSales, StagingOnlySent }
 
         private readonly LogisticsRouteNavigator _route;
         private readonly ManagerLoot.ManagerLoot _loot;
@@ -27,7 +27,8 @@ namespace RKmission
         private int _requested = 1, _completed;
 
         public bool IsActive => _phase != Phase.Idle;
-        public string Status => _phase == Phase.Idle ? "inactive" :
+        public string Status => _phase == Phase.Idle ? "inactive" : _phase == Phase.StagingOnlySent ?
+            $"staging '{_itemName}' (id={_itemId}, QL={_itemQl}) from main into RKM Sell; awaiting verification" :
             $"{_phase} at {_actor}; verified sales={_completed}/{_requested}, " +
             $"item='{_itemName ?? "unselected"}' ({_itemId}, QL {_itemQl})";
 
@@ -83,6 +84,51 @@ namespace RKmission
             foreach (var entry in protectedItems.Take(8))
                 _say($"Shop protected ({entry.Location}, {_loot.ProtectionReason(entry.Item)}): " +
                     $"'{entry.Item.Name}', id={entry.Item.Id}, QL={entry.Item.QualityLevel}.");
+            foreach (Item item in main.Where(x => _loot.Classify(x) == ManagerLoot.ItemClassification.Reject).Take(8))
+                _say($"Main Reject (excluded from sale): '{item.Name}', id={item.Id}, QL={item.QualityLevel}; " +
+                    $"select with /rkm logistics shop stage {item.Id} only if intended for sale.");
+        }
+
+        public void StartStage(int itemId)
+        {
+            if (IsActive) { _say("Finish or stop the active shop operation before staging an item."); return; }
+            try { StageSelected(itemId); }
+            catch (Exception ex) { _say("Shop staging held: inventory snapshot unavailable: " + ex.Message + "; no item moved."); }
+        }
+
+        private void StageSelected(int itemId)
+        {
+            if (Game.IsZoning || DynelManager.LocalPlayer == null || Item.HasPendingUse || Spell.HasPendingCast)
+            { _say("Shop staging held: wait for zoning and pending actions to finish; no item moved."); return; }
+            Item[] matches = MainItems().Where(x => x.Id == itemId).ToArray();
+            if (matches.Length != 1)
+            { _say($"Shop staging held: item id {itemId} must identify exactly one main-inventory item (found {matches.Length})."); return; }
+            Item item = matches[0];
+            if (_loot.Classify(item) != ManagerLoot.ItemClassification.Reject)
+            { _say($"Shop staging held: '{item.Name}' is {_loot.Classify(item)}, not Reject; no item moved."); return; }
+            var bags = Inventory.Backpacks.Where(x => ManagerLoot.ManagedBagFamily.Matches(x.Name,
+                ManagerLoot.ManagedBagFamily.Sell)).OrderBy(x => ManagerLoot.ManagedBagFamily.Order(x.Name,
+                ManagerLoot.ManagedBagFamily.Sell)).ToArray();
+            if (bags.Any(b => Inventory.GetContainerItems(b.Identity).Any(x => x != null && SameItem(item, x))))
+            { _say("Shop staging held: the same id/QL/name is already observed in RKM Sell; no item moved."); return; }
+            var bag = bags.FirstOrDefault(x => x.Items.Count < 21);
+            if (bag == null) { _say("Shop staging held: no RKM Sell bag with space was found; no item moved."); return; }
+            Remember(item);
+            _sourceBag = bag.Identity;
+            _mainBefore = MainItems().Count(Matches);
+            _bagBefore = Inventory.GetContainerItems(_sourceBag).Count(Matches);
+            _requested = 1;
+            _completed = 0;
+            _phase = Phase.StagingOnlySent;
+            _phaseStarted = DateTime.UtcNow;
+            _nextTick = DateTime.MinValue;
+            try
+            {
+                item.MoveToContainer(bag);
+                _say($"Shop staging sent once: '{_itemName}', id={_itemId}, QL={_itemQl}, " +
+                    $"main -> '{bag.Name}'. Waiting for both inventory changes; no sale requested.");
+            }
+            catch (Exception ex) { Fail("item staging error: " + ex.Message); }
         }
 
         public void Start() => Start(1);
@@ -126,7 +172,7 @@ namespace RKmission
             _phase = Phase.Idle;
             _say(old == Phase.AddSent || old == Phase.AcceptSent
                 ? $"Shop sale stopped after {_completed} verified sale(s), with an item possibly in the trade window. Inspect the shop and inventory before retrying."
-                : old == Phase.StageMoveSent
+                : old == Phase.StageMoveSent || old == Phase.StagingOnlySent
                     ? $"Shop sale stopped after {_completed} verified sale(s); a bag move may have been sent. Inspect RKM Sell and main inventory."
                     : $"Shop sale stopped after {_completed} verified sale(s); no further item was submitted.");
         }
@@ -152,6 +198,8 @@ namespace RKmission
 
         private void OnUpdate(object sender, float elapsed)
         {
+            if (_phase == Phase.StagingOnlySent && Game.IsZoning)
+            { Fail("zoning started before staging was verified"); return; }
             if (!IsActive || Game.IsZoning || DateTime.UtcNow < _nextTick) return;
             _nextTick = DateTime.UtcNow.AddMilliseconds(200);
             try { Tick(); }
@@ -160,6 +208,22 @@ namespace RKmission
 
         private void Tick()
         {
+            if (_phase == Phase.StagingOnlySent)
+            {
+                var bag = Inventory.Backpacks.FirstOrDefault(x => x.Identity == _sourceBag &&
+                    ManagerLoot.ManagedBagFamily.Matches(x.Name, ManagerLoot.ManagedBagFamily.Sell));
+                if (bag == null) { Fail("selected RKM Sell bag disappeared or was renamed"); return; }
+                int main = MainItems().Count(Matches);
+                int stored = Inventory.GetContainerItems(_sourceBag).Count(Matches);
+                if (main == _mainBefore - 1 && stored == _bagBefore + 1)
+                {
+                    _phase = Phase.Idle;
+                    _say($"Shop staging verified: '{_itemName}' left main and appeared in '{bag.Name}'. " +
+                        "No sale occurred; use /rkm logistics shop preview.");
+                }
+                else if (TimedOut(8)) Fail($"main-to-RKM Sell move not verified (main={main}, bag={stored})");
+                return;
+            }
             if (_route.FindVerifiedShopActor(_actor.ToString()) == null)
             { Fail("exact surveyed shop actor, position, or playfield was lost"); return; }
             if (_declined) { Fail("shop trade was declined"); return; }
@@ -333,6 +397,8 @@ namespace RKmission
             _say($"Shop selling stopped after {_completed} verified sale(s): " + reason + ". " +
                 (old == Phase.AddSent || old == Phase.AcceptSent
                     ? $"Inspect the trade window and '{_itemName}' before retrying; no trade action was retried."
+                    : old == Phase.StagingOnlySent
+                        ? $"Check main inventory and RKM Sell for '{_itemName}'; the staging move was not retried."
                     : old == Phase.StageMoveSent
                         ? $"Check whether '{_itemName}' moved from RKM Sell to main inventory."
                         : "No item was submitted for sale."));
