@@ -73,6 +73,18 @@ if (-not $sourceCode.Contains('BankArrivalTolerance = 1.25f') -or
     throw 'Logistics endpoint approach tolerances are missing or no longer purpose-aware.'
 }
 Write-Output 'PASS bank and mission-terminal endpoint approaches use tightened tolerances'
+if (-not $sourceCode.Contains('Quaternion.LookRotation(direction, Vector3.Up)') -or
+    -not $sourceCode.Contains('MovementAction.ForwardStart') -or
+    -not $sourceCode.Contains('DirectCrossingDistance = 2.75f') -or
+    $sourceCode.Contains('_movement.SetDestination(MovementOwner.LogisticsTravel, _crossingTarget)')) {
+    throw 'Doorway crossing is no longer a bounded direct input on the recorded approach heading.'
+}
+if (-not $sourceCode.Contains('Game.TeleportStarted += OnTeleportStarted') -or
+    -not $sourceCode.Contains('Game.TeleportStarted -= OnTeleportStarted') -or
+    -not $sourceCode.Contains('MovementAction.FullStop')) {
+    throw 'Direct doorway movement is not stopped at zoning and disposal boundaries.'
+}
+Write-Output 'PASS doorway crossing uses bounded direct movement and stops when zoning begins'
 
 $cycle = $assembly.GetType('RKmission.AutomaticLogisticsCycle', $true)
 $result = $assembly.GetType('RKmission.VerifiedOperationResult', $true)

@@ -16,13 +16,14 @@ namespace RKmission
         private const float BankArrivalTolerance = 1.25f;
         private const float ShopArrivalTolerance = 2.5f;
         private const float OriginArrivalTolerance = 2f;
+        private const float DirectCrossingDistance = 2.75f;
         private readonly LogisticsRouteCatalog _catalog;
         private readonly MovementArbiter _movement;
         private readonly Action<string> _say;
         private LogisticsRouteCatalog.Route _route;
         private int _stageIndex, _pointIndex;
         private bool _awaitingZone, _atTarget, _crossingSubmitted, _crossingStopped, _automaticRun;
-        private Vector3 _crossingTarget;
+        private Vector3 _crossingTarget, _crossingOrigin, _crossingDirection;
         private DateTime _nextTick, _lastSubmit, _lastProgress, _zoneDeadline, _crossingStarted;
         private float _bestDistance;
 
@@ -120,6 +121,7 @@ namespace RKmission
             _movement = movement;
             _say = say;
             Game.OnUpdate += OnUpdate;
+            Game.TeleportStarted += OnTeleportStarted;
         }
 
         public bool Start(string site, string purpose, bool automaticRun = false)
@@ -185,6 +187,7 @@ namespace RKmission
 
         private void ClearRoute()
         {
+            StopDirectCrossing();
             _movement.Release(MovementOwner.LogisticsTravel);
             _route = null;
             _atTarget = _awaitingZone = false;
@@ -358,32 +361,60 @@ namespace RKmission
                 direction = direction.Normalize();
                 _crossingTarget = last + direction * 2f;
                 _crossingTarget.Y = last.Y;
-                if (Vector3.Distance(player, _crossingTarget) > 4.5f ||
-                    !_movement.SetDestination(MovementOwner.LogisticsTravel, _crossingTarget))
+                if (Vector3.Distance(player, _crossingTarget) > 4.5f)
                 {
                     _crossingStopped = true;
                     _say("Automatic doorway crossing was declined. Cross manually within the route test timeout.");
                     return;
                 }
+                // Do not give the last two metres to the navigation mesh. At the ICC and
+                // Borealis thresholds it can choose a lateral polygon and turn 90 degrees.
+                // The survey's final approach heading is the authority for this short input.
+                _movement.Halt(MovementOwner.LogisticsTravel);
+                if (_movement.Owner != MovementOwner.LogisticsTravel)
+                {
+                    _crossingStopped = true;
+                    _say("Automatic doorway crossing could not claim movement. Cross manually within the route test timeout.");
+                    return;
+                }
+                _crossingOrigin = player;
+                _crossingDirection = direction;
+                DynelManager.LocalPlayer.Rotation = Quaternion.LookRotation(direction, Vector3.Up);
+                _movement.SetMovement(MovementOwner.LogisticsTravel, MovementAction.ForwardStart);
+                _movement.SetMovement(MovementOwner.LogisticsTravel, MovementAction.Update);
                 _crossingSubmitted = true;
                 _crossingStarted = _lastSubmit = DateTime.UtcNow;
-                _say($"Bounded doorway crossing target ({LocalRoutePlanner.Coordinates(_crossingTarget)}); " +
+                _say($"Bounded direct doorway crossing toward ({LocalRoutePlanner.Coordinates(_crossingTarget)}) " +
+                    "on the recorded approach heading; " +
                     "zone arrival remains unverified until the playfield changes.");
                 return;
             }
-            if (DateTime.UtcNow - _crossingStarted > TimeSpan.FromSeconds(6))
+            Vector3 displacement = player - _crossingOrigin;
+            displacement.Y = 0;
+            float forwardDistance = Vector3.Dot(displacement, _crossingDirection);
+            if (forwardDistance >= DirectCrossingDistance ||
+                Vector3.Distance(displacement, Vector3.Zero) >= DirectCrossingDistance + 0.5f ||
+                DateTime.UtcNow - _crossingStarted > TimeSpan.FromSeconds(2.5))
             {
-                _movement.Release(MovementOwner.LogisticsTravel);
+                StopDirectCrossing();
                 _crossingStopped = true;
-                _say("Bounded crossing did not trigger zoning; cross the doorway manually within the route test timeout.");
+                _say("Bounded direct crossing did not trigger zoning; cross the doorway manually within the route test timeout.");
                 return;
             }
-            if (!SMovementController.IsNavigating() &&
-                DateTime.UtcNow - _lastSubmit > TimeSpan.FromSeconds(1))
-            {
-                _movement.SetDestination(MovementOwner.LogisticsTravel, _crossingTarget);
-                _lastSubmit = DateTime.UtcNow;
-            }
+        }
+
+        private void OnTeleportStarted(object sender, EventArgs args)
+        {
+            if (_route != null && _awaitingZone && _crossingSubmitted)
+                StopDirectCrossing();
+        }
+
+        private void StopDirectCrossing()
+        {
+            if (_movement.Owner != MovementOwner.LogisticsTravel) return;
+            _movement.Halt(MovementOwner.LogisticsTravel);
+            _movement.SetMovement(MovementOwner.LogisticsTravel, MovementAction.FullStop);
+            _movement.Release(MovementOwner.LogisticsTravel);
         }
 
         private static bool ReversesNearDoorway(LogisticsRouteCatalog.Stage stage)
@@ -465,6 +496,11 @@ namespace RKmission
             _say("Logistics route test stopped: " + reason + ".");
         }
         private static Vector3 V(float[] point) => new Vector3(point[0], point[1], point[2]);
-        public void Dispose() { Game.OnUpdate -= OnUpdate; Stop(true); }
+        public void Dispose()
+        {
+            Game.OnUpdate -= OnUpdate;
+            Game.TeleportStarted -= OnTeleportStarted;
+            Stop(true);
+        }
     }
 }
