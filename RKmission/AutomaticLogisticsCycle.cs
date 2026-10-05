@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using AOSharp.Common.GameData;
 using AOSharp.Core;
 using AOSharp.Core.Inventory;
 
@@ -20,6 +22,7 @@ namespace RKmission
             ReturnBank,
             StartShop,
             TravelShop,
+            LoadingShopInventory,
             Shop,
             ReturnShop
         }
@@ -32,8 +35,10 @@ namespace RKmission
         private DateTime _nextTick;
         private DateTime _inventoryLoadStarted;
         private string _site;
-        private int _maximumItems, _stored, _sold;
+        private int _maximumItems, _stored, _sold, _plannedRejects;
         private bool _bankPlanned, _shopPlanned, _inventoryLoadRequested;
+        private string _deferredFailure;
+        private readonly HashSet<Identity> _pendingSellBags = new HashSet<Identity>();
 
         public bool IsActive => _phase != Phase.Idle;
         public VerifiedOperationResult Result { get; private set; }
@@ -52,6 +57,7 @@ namespace RKmission
             _shop = shop;
             _say = say;
             Game.OnUpdate += OnUpdate;
+            Inventory.ContainerOpened += OnContainerOpened;
         }
 
         public bool Start(int maximumItems)
@@ -74,9 +80,11 @@ namespace RKmission
             }
             _maximumItems = maximumItems;
             _stored = _sold = 0;
+            _plannedRejects = 0;
             _bankPlanned = _shopPlanned = false;
             _inventoryLoadRequested = false;
             _inventoryLoadStarted = DateTime.UtcNow;
+            _deferredFailure = null;
             LastFailure = null;
             Result = VerifiedOperationResult.Running;
             _phase = Phase.LoadingInventory;
@@ -92,6 +100,7 @@ namespace RKmission
             _bank.Stop();
             _shop.Stop();
             _route.Stop(true);
+            _pendingSellBags.Clear();
             _phase = Phase.Idle;
             Result = VerifiedOperationResult.Failed;
             LastFailure = "cycle stopped before verified completion";
@@ -120,21 +129,24 @@ namespace RKmission
                                 Fail("another item use or spell remained pending before inventory loading");
                             return;
                         }
-                        int opened = RequestSellBagSnapshots();
+                        if (!RequestSellBagSnapshots(out int requested, out string error))
+                        { Fail(error); return; }
                         _inventoryLoadRequested = true;
                         _inventoryLoadStarted = DateTime.UtcNow;
-                        _say($"Automatic logistics: requested inventory snapshots for {opened} RKM Sell bag(s).");
+                        _say($"Automatic logistics: requested {requested} unopened RKM Sell bag snapshot(s); " +
+                            $"waiting for {_pendingSellBags.Count} ContainerOpened confirmation(s).");
                         return;
                     }
-                    if (Item.HasPendingUse || Spell.HasPendingCast)
+                    if (_pendingSellBags.Count > 0 || Item.HasPendingUse || Spell.HasPendingCast)
                     {
                         if (DateTime.UtcNow - _inventoryLoadStarted > TimeSpan.FromSeconds(10))
-                            Fail("RKM Sell bag loading did not settle");
+                            Fail($"RKM Sell bag loading did not settle; {_pendingSellBags.Count} container-open confirmation(s) missing");
                         return;
                     }
-                    if (DateTime.UtcNow - _inventoryLoadStarted < TimeSpan.FromSeconds(1)) return;
+                    if (DateTime.UtcNow - _inventoryLoadStarted < TimeSpan.FromMilliseconds(250)) return;
                     int keepPlan = _bank.CountStorableKeepItems();
                     int rejectPlan = _shop.CountEligibleRejectItems();
+                    _plannedRejects = rejectPlan;
                     _bankPlanned = keepPlan > 0;
                     _shopPlanned = rejectPlan > 0;
                     _say($"Automatic logistics plan at {_site}: bank Keep={keepPlan}, shop Reject={rejectPlan}, " +
@@ -182,6 +194,37 @@ namespace RKmission
                 case Phase.TravelShop:
                     if (RouteFailed("shop outward route")) return;
                     if (!_route.AtTarget) return;
+                    // Zoning clears unopened backpack snapshots. Refresh RKM
+                    // Sell at the shop before selecting a destructive sale.
+                    _inventoryLoadRequested = false;
+                    _inventoryLoadStarted = DateTime.UtcNow;
+                    _phase = Phase.LoadingShopInventory;
+                    return;
+                case Phase.LoadingShopInventory:
+                    if (!_inventoryLoadRequested)
+                    {
+                        if (Item.HasPendingUse || Spell.HasPendingCast)
+                        {
+                            if (DateTime.UtcNow - _inventoryLoadStarted > TimeSpan.FromSeconds(10))
+                                Fail("another item use or spell remained pending before shop inventory loading");
+                            return;
+                        }
+                        if (!RequestSellBagSnapshots(out int requested, out string error))
+                        { Fail(error); return; }
+                        _inventoryLoadRequested = true;
+                        _inventoryLoadStarted = DateTime.UtcNow;
+                        _say($"Automatic logistics at shop: requested {requested} unopened RKM Sell bag snapshot(s) after zoning; " +
+                            $"waiting for {_pendingSellBags.Count} ContainerOpened confirmation(s).");
+                        return;
+                    }
+                    if (_pendingSellBags.Count > 0 || Item.HasPendingUse || Spell.HasPendingCast)
+                    {
+                        if (DateTime.UtcNow - _inventoryLoadStarted > TimeSpan.FromSeconds(10))
+                            Fail($"post-zone RKM Sell bag loading did not settle at the shop; " +
+                                $"{_pendingSellBags.Count} container-open confirmation(s) missing");
+                        return;
+                    }
+                    if (DateTime.UtcNow - _inventoryLoadStarted < TimeSpan.FromMilliseconds(250)) return;
                     int reject = Math.Min(_maximumItems, _shop.CountEligibleRejectItems());
                     if (reject > 0)
                     {
@@ -189,7 +232,14 @@ namespace RKmission
                         { Fail("shop sale did not start: " + (_shop.LastFailure ?? "unknown reason")); return; }
                         _phase = Phase.Shop;
                     }
-                    else BeginReturn(Phase.ReturnShop, "shop");
+                    else
+                    {
+                        _deferredFailure = _plannedRejects > 0
+                            ? $"planned {_plannedRejects} RKM Sell Reject item(s), but none were observed after the required post-zone bag refresh"
+                            : "no eligible RKM Sell Reject item remained at the shop";
+                        _say("Automatic logistics sale held: " + _deferredFailure + ". Returning to the mission terminal without opening a trade.");
+                        BeginReturn(Phase.ReturnShop, "shop");
+                    }
                     return;
                 case Phase.Shop:
                     if (_shop.IsActive) return;
@@ -201,7 +251,12 @@ namespace RKmission
                 case Phase.ReturnShop:
                     if (RouteFailed("shop return route")) return;
                     if (_route.IsActive) return;
-                    if (_route.Result == VerifiedOperationResult.Succeeded) Complete();
+                    if (_route.Result == VerifiedOperationResult.Succeeded)
+                    {
+                        if (!string.IsNullOrEmpty(_deferredFailure))
+                            Fail("shop phase was not completed after verified return: " + _deferredFailure);
+                        else Complete();
+                    }
                     return;
             }
         }
@@ -213,21 +268,38 @@ namespace RKmission
             return true;
         }
 
-        private static int RequestSellBagSnapshots()
+        private bool RequestSellBagSnapshots(out int requested, out string error)
         {
-            var bagIds = Inventory.Backpacks
+            requested = 0;
+            error = null;
+            _pendingSellBags.Clear();
+            var bags = Inventory.Backpacks
                 .Where(bag => ManagerLoot.ManagedBagFamily.Matches(bag.Name,
                     ManagerLoot.ManagedBagFamily.Sell))
-                .Select(bag => bag.Identity).ToArray();
-            int opened = 0;
-            foreach (Item item in Inventory.Items.Where(item => item != null &&
-                bagIds.Any(bag => bag.Instance == item.UniqueIdentity.Instance)))
+                .ToArray();
+            foreach (Container bag in bags)
             {
+                if (bag.IsOpen) continue;
+                Item item = Inventory.Items.FirstOrDefault(candidate => candidate != null &&
+                    candidate.UniqueIdentity == bag.Identity);
+                if (item == null)
+                {
+                    error = $"RKM Sell bag {bag.Identity} has no matching inventory item to open";
+                    _pendingSellBags.Clear();
+                    return false;
+                }
+                _pendingSellBags.Add(bag.Identity);
                 item.Use();
-                item.Use();
-                opened++;
+                requested++;
             }
-            return opened;
+            return true;
+        }
+
+        private void OnContainerOpened(object sender, Container container)
+        {
+            if (container != null && _pendingSellBags.Remove(container.Identity))
+                _say($"Automatic logistics: RKM Sell bag {container.Identity} snapshot opened; " +
+                    $"{_pendingSellBags.Count} pending.");
         }
 
         private void BeginReturn(Phase returnPhase, string purpose)
@@ -240,6 +312,7 @@ namespace RKmission
         private void Complete()
         {
             _phase = Phase.Idle;
+            _pendingSellBags.Clear();
             Result = VerifiedOperationResult.Succeeded;
             LastFailure = null;
             _say($"Automatic logistics validation complete at {_site}: {_stored} Keep item(s) stored, " +
@@ -251,6 +324,7 @@ namespace RKmission
             _bank.Stop();
             _shop.Stop();
             _route.Stop(true);
+            _pendingSellBags.Clear();
             _phase = Phase.Idle;
             Result = VerifiedOperationResult.Failed;
             LastFailure = reason;
@@ -260,6 +334,7 @@ namespace RKmission
         public void Dispose()
         {
             Game.OnUpdate -= OnUpdate;
+            Inventory.ContainerOpened -= OnContainerOpened;
             Stop(true);
         }
     }

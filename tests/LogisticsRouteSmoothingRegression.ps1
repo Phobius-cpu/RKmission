@@ -86,3 +86,14 @@ foreach ($typeName in @('LogisticsRouteNavigator', 'BankTransactions', 'ShopSale
     }
 }
 Write-Output 'PASS automatic logistics phases expose machine-readable verified outcomes'
+
+$cycleSource = Get-Content -LiteralPath (Join-Path $root 'RKmission/AutomaticLogisticsCycle.cs') -Raw
+$travelShop = $cycleSource.IndexOf('case Phase.TravelShop:')
+$reloadShop = $cycleSource.IndexOf('case Phase.LoadingShopInventory:')
+$startSale = $cycleSource.IndexOf('_shop.Start(reject, true)')
+if ($travelShop -lt 0 -or $reloadShop -le $travelShop -or $startSale -le $reloadShop -or
+    -not $cycleSource.Contains('Inventory.ContainerOpened += OnContainerOpened') -or
+    -not $cycleSource.Contains('_pendingSellBags.Count > 0')) {
+    throw 'Automatic shop sale can start without a post-zone RKM Sell snapshot refresh.'
+}
+Write-Output 'PASS automatic shop sales await confirmed RKM Sell reload after zoning'
