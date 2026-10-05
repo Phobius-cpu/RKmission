@@ -107,7 +107,10 @@ $reloadShop = $cycleSource.IndexOf('case Phase.LoadingShopInventory:')
 $startSale = $cycleSource.IndexOf('_shop.Start(reject, true)')
 if ($travelShop -lt 0 -or $reloadShop -le $travelShop -or $startSale -le $reloadShop -or
     -not $cycleSource.Contains('Inventory.ContainerOpened += OnContainerOpened') -or
-    -not $cycleSource.Contains('_pendingSellBags.Count > 0')) {
+    -not $cycleSource.Contains('SellBagSnapshotsSettled') -or
+    -not $cycleSource.Contains('MaximumSellBagRefreshUses = 3') -or
+    -not $cycleSource.Contains('bag.IsOpen && observed > 0') -or
+    -not $cycleSource.Contains('SellInventorySummary()')) {
     throw 'Automatic shop sale can start without a post-zone RKM Sell snapshot refresh.'
 }
-Write-Output 'PASS automatic shop sales await confirmed RKM Sell reload after zoning'
+Write-Output 'PASS automatic shop sales refresh ambiguous open-empty bags and report classification'

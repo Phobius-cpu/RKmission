@@ -147,6 +147,25 @@ namespace RKmission
                 main.All(y => !SameItem(x, y)) && sell.Count(y => SameItem(x, y)) == 1);
         }
 
+        public string SellInventorySummary()
+        {
+            Item[] main = MainItems();
+            Container[] bags = Inventory.Backpacks
+                .Where(bag => ManagerLoot.ManagedBagFamily.Matches(bag.Name,
+                    ManagerLoot.ManagedBagFamily.Sell)).ToArray();
+            Item[] sell = bags.SelectMany(bag => Inventory.GetContainerItems(bag.Identity))
+                .Where(item => item != null).ToArray();
+            int rejects = sell.Count(item => _loot.Classify(item) == ManagerLoot.ItemClassification.Reject);
+            int keeps = sell.Count(item => _loot.Classify(item) == ManagerLoot.ItemClassification.Keep);
+            int protectedItems = sell.Count(item =>
+                _loot.Classify(item) == ManagerLoot.ItemClassification.Protected);
+            int eligible = sell.Count(item => _loot.Classify(item) == ManagerLoot.ItemClassification.Reject &&
+                main.All(other => !SameItem(item, other)) && sell.Count(other => SameItem(item, other)) == 1);
+            return $"RKM Sell bags={bags.Length}, observed items={sell.Length} " +
+                $"[Reject={rejects}, Keep={keeps}, Protected={protectedItems}, " +
+                $"Unknown={sell.Length - rejects - keeps - protectedItems}, eligible={eligible}]";
+        }
+
         public bool Start() => Start(1, false);
 
         public bool Start(int count, bool automaticRun = false)
