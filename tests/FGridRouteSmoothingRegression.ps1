@@ -34,6 +34,8 @@ Write-Output 'PASS FGrid floor 0 lift traversal requires one direct floor-suppor
 
 foreach ($required in @('_floorDeparturePending = previousFloor >= 0 && floor == previousFloor + 1',
     'TimeSpan.FromMilliseconds(650)', 'TickFloorDeparture(player)',
+    'TryFloorDepartureDirection(player', 'near-spawn Recast point(s)',
+    'const float validatedDepartureDistance = 2.5f',
     'MovementAction.ForwardStart', 'MovementAction.FullStop',
     'DateTime.UtcNow - _floorArrivedAt < TimeSpan.FromMilliseconds(650)',
     'spawn-pad departure ended after')) {

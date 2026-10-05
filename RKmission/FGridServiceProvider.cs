@@ -107,6 +107,7 @@ namespace RKmission
         private int _floorDepartureFloor = -1;
         private Vector3 _floorDepartureOrigin, _floorDepartureDirection;
         private DateTime _floorArrivedAt, _floorDepartureStarted;
+        private int _floorDepartureSkippedPoints;
         private string _activeNavSource = "none";
         private State _state;
         private SimpleItem _terminal;
@@ -659,16 +660,8 @@ namespace RKmission
             {
                 if (DateTime.UtcNow - _floorArrivedAt < TimeSpan.FromMilliseconds(650))
                     return true;
-                Vector3 direction = _recastWaypoints[1] - player;
-                direction.Y = 0;
-                float distance = direction.Magnitude;
-                if (distance < 0.4f)
-                { _floorDeparturePending = false; return false; }
-                direction = direction.Normalize();
-                Vector3 target = player + direction * Math.Min(1.25f, distance);
-                target.Y = player.Y;
-                if (!LocalRoutePlanner.SupportedFGridSegment(player, target,
-                    _recastWaypoints[0].Y, out string supportReason))
+                if (!TryFloorDepartureDirection(player, out Vector3 direction,
+                    out string supportReason))
                 {
                     _floorDeparturePending = false;
                     _say($"FGrid floor {_floorDepartureFloor} lift-arrival departure kept under normal Recast control: " +
@@ -686,7 +679,10 @@ namespace RKmission
                 _floorDepartureActive = true;
                 _floorDepartureStarted = DateTime.UtcNow;
                 _say($"FGrid floor {_floorDepartureFloor} lift arrival settled; taking one bounded " +
-                    "floor-supported step off the spawn pad before replanning.");
+                    "floor-supported step off the spawn pad before replanning" +
+                    (_floorDepartureSkippedPoints > 0
+                        ? $" after skipping {_floorDepartureSkippedPoints} near-spawn Recast point(s)."
+                        : "."));
                 return true;
             }
             Vector3 displacement = player - _floorDepartureOrigin;
@@ -706,6 +702,41 @@ namespace RKmission
                 $"{Math.Max(0, forward):0.00} m forward/{displacement.Magnitude:0.00} m total; " +
                 "replanning from the settled position.");
             return true;
+        }
+
+        private bool TryFloorDepartureDirection(Vector3 player, out Vector3 direction,
+            out string reason)
+        {
+            direction = Vector3.Zero;
+            reason = "no supported outward Recast direction was available";
+            _floorDepartureSkippedPoints = 0;
+            const float minimumDirectionDistance = 0.4f;
+            // Raw forward input can coast beyond the requested one-metre step
+            // between AO update ticks. Validate a longer corridor so that the
+            // entire observed departure remains on the supported walkway.
+            const float validatedDepartureDistance = 2.5f;
+            for (int index = 1; index < _recastWaypoints.Count; index++)
+            {
+                Vector3 candidateDirection = _recastWaypoints[index] - player;
+                candidateDirection.Y = 0;
+                if (candidateDirection.Magnitude < minimumDirectionDistance)
+                {
+                    _floorDepartureSkippedPoints++;
+                    continue;
+                }
+                candidateDirection = candidateDirection.Normalize();
+                Vector3 validationTarget = player + candidateDirection * validatedDepartureDistance;
+                validationTarget.Y = player.Y;
+                if (!LocalRoutePlanner.SupportedFGridSegment(player, validationTarget,
+                    _recastWaypoints[0].Y, out string supportReason))
+                {
+                    reason = supportReason;
+                    continue;
+                }
+                direction = candidateDirection;
+                return true;
+            }
+            return false;
         }
 
         private void StopFloorDeparture()
@@ -1040,6 +1071,7 @@ namespace RKmission
                     _started = DateTime.UtcNow;
                     _floorArrivedAt = DateTime.UtcNow;
                     _floorDepartureFloor = floor;
+                    _floorDepartureSkippedPoints = 0;
                     _floorDeparturePending = previousFloor >= 0 && floor == previousFloor + 1;
                     _say($"Fixer Grid floor {floor}; target floor {_route.Floor}.");
                     // Do not snapshot a path from the transient lift arrival position.
