@@ -123,7 +123,7 @@ Write-Output 'PASS automatic shop sales refresh ambiguous open-empty bags and re
 
 $botSource = Get-Content -LiteralPath (Join-Path $root 'RKmission/RkMissionBot.cs') -Raw
 $scheduleBeforeCapacity = $botSource.IndexOf('if (_autoCycle && TickScheduledAutomaticLogistics()) return;')
-$capacityHold = $botSource.IndexOf('if (_autoCycle && Inventory.NumFreeSlots < _inventory.MinimumFreeSlots)')
+$capacityHold = $botSource.IndexOf('bool rollingSuspendedForCapacity = _autoCycle &&')
 if ($scheduleBeforeCapacity -lt 0 -or $capacityHold -le $scheduleBeforeCapacity -or
     -not $botSource.Contains('_automaticLogistics.Start(_inventory.AutomaticLogisticsItemLimit, true)') -or
     -not $botSource.Contains('the finite mission batch is complete; running final bank/shop recycling') -or

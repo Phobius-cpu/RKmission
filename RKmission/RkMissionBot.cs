@@ -44,6 +44,7 @@ namespace RKmission
         private DateTime _checkpointResumeAfter;
         private AcceptedMission _selected;
         private bool _autoCycle, _autoRolling, _hasRollTerminal, _recoveringDeath;
+        private bool _capacityLogisticsBlocked, _capacityLogisticsDeferredWhileAccepted;
         private bool _clearAcceptedBeforeRolling;
         private bool _autoLogisticsPending, _autoLogisticsRunning, _autoLogisticsFinalPending;
         private bool _autoLogisticsFinalRun, _autoFinalLogisticsComplete;
@@ -525,6 +526,7 @@ namespace RKmission
             _autoLogisticsFinalRun = _autoFinalLogisticsComplete = false;
             _autoLogisticsPasses = 0;
             _autoLogisticsReason = null;
+            _capacityLogisticsBlocked = _capacityLogisticsDeferredWhileAccepted = false;
             _nextSelection = DateTime.MinValue;
             _travel.Reset();
             _longTravel.Reset();
@@ -560,6 +562,7 @@ namespace RKmission
             _autoLogisticsFinalRun = _autoFinalLogisticsComplete = false;
             _autoLogisticsPasses = 0;
             _autoLogisticsReason = null;
+            _capacityLogisticsBlocked = _capacityLogisticsDeferredWhileAccepted = false;
             _recoveringDeath = false;
             _exitZoningStarted = false;
             _handInExitVerified = false;
@@ -805,17 +808,22 @@ namespace RKmission
                     if (_autoCycle && TickScheduledAutomaticLogistics()) return;
                     if (DateTime.UtcNow < _nextSelection) return;
                     _nextSelection = DateTime.UtcNow.AddSeconds(5);
-                    if (_autoCycle && Inventory.NumFreeSlots < _inventory.MinimumFreeSlots)
-                    {
-                        Wait($"Inventory needs {_inventory.MinimumFreeSlots} free main slots before another mission; " +
-                            "automatic logistics could not restore the configured safety margin.");
-                        return;
-                    }
                     // After a stop/restart, finish every already accepted mission
                     // before refilling the batch. An unavailable quest list is
                     // not proof that the accepted work has disappeared.
                     if (_autoCycle && Mission.List == null)
                     { Wait("Waiting for AO# to load the accepted mission list before deciding whether to roll."); return; }
+                    var accepted = RunnableAcceptedMissions().ToList();
+                    bool rollingSuspendedForCapacity = _autoCycle &&
+                        Inventory.NumFreeSlots < _inventory.MinimumFreeSlots;
+                    if (rollingSuspendedForCapacity && accepted.Count == 0)
+                    {
+                        Wait($"Inventory needs {_inventory.MinimumFreeSlots} free main slots before rolling; " +
+                            "no accepted runnable Rubi-Ka missions remain.");
+                        return;
+                    }
+                    if (rollingSuspendedForCapacity)
+                        Say($"Inventory below rolling threshold; continuing {accepted.Count} accepted mission(s), new rolling suspended.");
                     if (_clearAcceptedBeforeRolling && !_missions.Records.Any(x =>
                         x.Present && x.IsRubiKaDestination && !x.Completed) &&
                         _awaitingQuestDetails.Count == 0)
@@ -827,20 +835,28 @@ namespace RKmission
                     // A resumed cycle selects accepted work before this branch.
                     if (_autoCycle && !_clearAcceptedBeforeRolling && !inFixerGrid &&
                         _awaitingQuestDetails.Count == 0 && Inventory.NumFreeSlots >= 2 &&
+                        !rollingSuspendedForCapacity &&
                         (_maxAutoMissions == 0 || _autoAcceptedCount < _maxAutoMissions))
                     {
                         if (!_autoRolling && ReturnToRollTerminal()) StartAutoRolling();
                         return;
                     }
-                    var local = _missions.Eligible(Playfield.ModelIdentity.Instance).ToList();
+                    var local = _missions.Eligible(Playfield.ModelIdentity.Instance)
+                        .Where(CanSafelyStartAcceptedMission).ToList();
                     if (local.Count == 0)
                     {
                         if (!_autoCycle)
                         { Wait("Waiting for you to reach a playfield containing an accepted Rubi-Ka mission."); return; }
-                        _selected = _missions.Records.Where(x => x.Present && x.IsRubiKaDestination && !x.Completed)
+                        _selected = accepted.Where(CanSafelyStartAcceptedMission)
                             .OrderBy(x => x.PlayfieldId).ThenBy(x => x.Id.Instance).FirstOrDefault();
                         if (_selected == null)
                         {
+                            if (accepted.Count > 0 && Inventory.NumFreeSlots <= 1 &&
+                                accepted.All(RequiresObjectiveFreeSlot))
+                            {
+                                Wait($"{accepted.Count} accepted item-objective mission(s) remain, but one free main-inventory slot is required; new rolling remains suspended.");
+                                return;
+                            }
                             if (_autoRolling) return;
                             if (_awaitingQuestDetails.Count > 0)
                             {
@@ -1062,6 +1078,22 @@ namespace RKmission
         private bool TickScheduledAutomaticLogistics()
         {
             if (!_autoCycle || _autoLogisticsRunning) return false;
+            if (_capacityLogisticsBlocked)
+            {
+                if (Inventory.NumFreeSlots >= _inventory.MinimumFreeSlots)
+                {
+                    _capacityLogisticsBlocked = false;
+                    _capacityLogisticsDeferredWhileAccepted = false;
+                }
+                else if (_capacityLogisticsDeferredWhileAccepted && !RunnableAcceptedMissions().Any())
+                {
+                    // Accepted work has now been cleared. Permit one new bounded
+                    // logistics cycle before considering any additional rolling.
+                    _capacityLogisticsBlocked = false;
+                    _capacityLogisticsDeferredWhileAccepted = false;
+                }
+                else return false;
+            }
             if (!_autoLogisticsPending && _inventory.NeedsAutomaticLogistics(out string reason))
                 QueueAutomaticLogistics(reason);
             if (!_autoLogisticsPending) return false;
@@ -1124,13 +1156,21 @@ namespace RKmission
                     _nextSelection = DateTime.MinValue;
                     return;
                 }
-                int free = Inventory.NumFreeSlots;
-                int required = _inventory.MinimumFreeSlots;
-                Stop();
-                Say($"Automatic mission cycle stopped after verified logistics because main inventory still has {free} free slot(s); " +
-                    $"{required} are required. Inspect protected, unknown, or unstaged items before restarting.");
+                int accepted = RunnableAcceptedMissions().Count();
+                _capacityLogisticsBlocked = true;
+                _capacityLogisticsDeferredWhileAccepted = accepted > 0;
+                _autoLogisticsPasses = 0;
+                _autoLogisticsReason = null;
+                _nextSelection = DateTime.MinValue;
+                if (accepted > 0)
+                    Say($"Inventory below rolling threshold after verified logistics; continuing {accepted} accepted mission(s), new rolling suspended.");
+                else
+                    Wait($"Verified logistics left {Inventory.NumFreeSlots} free main slot(s); " +
+                        $"{_inventory.MinimumFreeSlots} are required before rolling. Inspect protected, unknown, or unstaged items.");
                 return;
             }
+            _capacityLogisticsBlocked = false;
+            _capacityLogisticsDeferredWhileAccepted = false;
             _autoLogisticsPasses = 0;
             _autoLogisticsReason = null;
             _nextSelection = DateTime.MinValue;
@@ -1149,6 +1189,16 @@ namespace RKmission
             { Wait("One free main-inventory slot is needed before traveling to this item objective."); return false; }
             return true;
         }
+
+        private IEnumerable<AcceptedMission> RunnableAcceptedMissions() =>
+            _missions.Records.Where(x => x.Present && x.IsRubiKaDestination &&
+                !x.Completed && AcceptedMissions.Finite(x.Entrance));
+
+        private static bool RequiresObjectiveFreeSlot(AcceptedMission mission) =>
+            mission.Kind == RkMissionKind.FindItem || mission.Kind == RkMissionKind.ReturnItem;
+
+        private static bool CanSafelyStartAcceptedMission(AcceptedMission mission) =>
+            Inventory.NumFreeSlots > 1 || !RequiresObjectiveFreeSlot(mission);
 
         private bool ObserveDungeonProgress()
         {
