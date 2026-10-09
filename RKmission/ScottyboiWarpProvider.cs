@@ -23,6 +23,7 @@ namespace RKmission
         private sealed class WarpCommand
         {
             public string Recipient, Text, Destination;
+            public Vector3? Landing;
             public WarpCommand(string recipient, string text, string? destination = null)
             { Recipient = recipient; Text = text; Destination = Normalize(destination); }
         }
@@ -69,6 +70,9 @@ namespace RKmission
         private string _lastReply;
         private int _helpReplies, _menuPageCount;
         private readonly HashSet<int> _menuPages = new HashSet<int>();
+        private readonly List<WarpCommand> _menuCommands = new List<WarpCommand>();
+        private Vector3? _missionAnchor;
+        private DateTime _lastMenuMatch;
         public string LastFailure { get; private set; }
         public bool VerifiedDestination(int targetId) => _state == State.Done && _targetId == targetId;
 
@@ -104,7 +108,7 @@ namespace RKmission
             Game.TeleportEnded += OnTeleportEnded;
         }
 
-        public WarpResult Tick(int targetId)
+        public WarpResult Tick(int targetId, Vector3? missionAnchor = null)
         {
             if (Playfield.ModelIdentity.Instance == targetId && _state == State.Idle) return WarpResult.Succeeded;
             if (_state == State.Done && _targetId == targetId) return WarpResult.Succeeded;
@@ -132,6 +136,9 @@ namespace RKmission
                 _nextWarperLookup = DateTime.MinValue;
                 _helpReplies = _menuPageCount = 0;
                 _menuPages.Clear();
+                _menuCommands.Clear();
+                _missionAnchor = missionAnchor;
+                _lastMenuMatch = DateTime.MinValue;
                 LastFailure = null;
                 _targetName = Normalize(((PlayfieldId)targetId).ToString());
                 _targetAliases = MenuAliasesFor(targetId, _targetName);
@@ -172,6 +179,18 @@ namespace RKmission
             {
                 _say("Mort's menu page is missing; using the confirmed Hope command.");
                 RequestWarp(new WarpCommand(MenuName, "hope", "hope"));
+            }
+            if (_state == State.Help && _menuCommands.Count > 0 &&
+                ((_menuPageCount > 0 && _menuPages.Count >= _menuPageCount) ||
+                 (_menuPageCount == 0 &&
+                  DateTime.UtcNow - _lastMenuMatch > TimeSpan.FromMilliseconds(750))))
+            {
+                WarpCommand selected = SelectMenuCommand(_menuCommands, _missionAnchor);
+                string estimate = selected.Landing.HasValue && _missionAnchor.HasValue
+                    ? $"; verified menu landing {HorizontalDistance(selected.Landing.Value, _missionAnchor.Value):0} m from mission"
+                    : "; no verified per-command landing estimate";
+                _say($"Selected Scottyboi destination '{selected.Destination}' command '{selected.Text}' from {_menuCommands.Count} matching choice(s){estimate}.");
+                RequestWarp(selected);
             }
             if (_state == State.Help && !_helpRetried &&
                 DateTime.UtcNow - _started > TimeSpan.FromSeconds(10) &&
@@ -311,9 +330,26 @@ namespace RKmission
             if (_lastReply.Length > 180) _lastReply = _lastReply.Substring(0, 180) + "...";
             foreach (string alias in _targetAliases)
             {
-                if (TryParseMenuMessage(reply.Text, alias, out WarpCommand command))
-                { RequestWarp(command); return; }
+                foreach (WarpCommand command in ParseMenuCommands(reply.Text, alias))
+                {
+                    if (_menuCommands.Any(existing => SameCommand(existing, command))) continue;
+                    _menuCommands.Add(command);
+                    _lastMenuMatch = DateTime.UtcNow;
+                }
             }
+        }
+
+        private static bool SameCommand(WarpCommand first, WarpCommand second) =>
+            string.Equals(first.Recipient, second.Recipient, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(first.Text, second.Text, StringComparison.OrdinalIgnoreCase);
+
+        private static WarpCommand SelectMenuCommand(IEnumerable<WarpCommand> commands,
+            Vector3? missionAnchor)
+        {
+            return commands.OrderBy(command => command.Landing.HasValue && missionAnchor.HasValue ? 0 : 1)
+                .ThenBy(command => command.Landing.HasValue && missionAnchor.HasValue
+                    ? HorizontalDistance(command.Landing.Value, missionAnchor.Value) : float.MaxValue)
+                .First();
         }
 
         private void StartHelp(uint recipientId)
@@ -614,6 +650,80 @@ namespace RKmission
             return false;
         }
 
+        private static List<WarpCommand> ParseMenuCommands(string message, string target)
+        {
+            var commands = new List<WarpCommand>();
+            foreach (Match blob in Regex.Matches(message,
+                @"<a\b[^>]*?href\s*=\s*(['""])text://(?<body>.*?)\1[^>]*>.*?</a>",
+                RegexOptions.IgnoreCase | RegexOptions.Singleline))
+                CollectMenuSectionCommands(WebUtility.HtmlDecode(blob.Groups["body"].Value), target, commands);
+            CollectMenuSectionCommands(message, target, commands);
+            if (commands.Count == 0 && TryParseMenuMessage(message, target, out WarpCommand direct))
+                commands.Add(direct);
+            return commands.Where(command => command != null)
+                .GroupBy(command => command.Recipient + "\n" + command.Text,
+                    StringComparer.OrdinalIgnoreCase).Select(group => group.First()).ToList();
+        }
+
+        private static void CollectMenuSectionCommands(string body, string target,
+            List<WarpCommand> commands)
+        {
+            bool inSection = false;
+            foreach (string line in Regex.Split(body, @"\r\n|\r|\n|<br\s*/?>", RegexOptions.IgnoreCase))
+            {
+                int firstLink = line.IndexOf("<a", StringComparison.OrdinalIgnoreCase);
+                string prefix = firstLink < 0 ? line : line.Substring(0, firstLink);
+                Match markedHeading = Regex.Match(prefix,
+                    @"<header\d*[^>]*>(?<name>.*?)<end>",
+                    RegexOptions.IgnoreCase | RegexOptions.Singleline);
+                string heading = Regex.Replace(WebUtility.HtmlDecode(markedHeading.Success
+                    ? markedHeading.Groups["name"].Value : prefix), "<[^>]+>", " ").Trim();
+                if (MatchesTarget(heading, target)) inSection = true;
+                else if (inSection &&
+                    (markedHeading.Success || MenuZoneHeadings.Contains(Normalize(heading))))
+                    inSection = false;
+                if (!inSection) continue;
+
+                var anchors = Regex.Matches(line,
+                    @"<a\b[^>]*?href\s*=\s*(['""])(?<url>.*?)\1[^>]*>(?<label>.*?)</a>",
+                    RegexOptions.IgnoreCase | RegexOptions.Singleline).Cast<Match>().ToList();
+                Vector3? waypoint = anchors.Select(anchor =>
+                    WebUtility.HtmlDecode(Uri.UnescapeDataString(anchor.Groups["url"].Value)))
+                    .Select(url => TryWaypointFromUrl(url, out Vector3 point) ? (Vector3?)point : null)
+                    .FirstOrDefault(point => point.HasValue);
+                foreach (Match anchor in anchors)
+                {
+                    string label = Regex.Replace(anchor.Groups["label"].Value, "<[^>]+>", " ");
+                    if (Normalize(label) == "wp" || Normalize(label) == "waypoint") continue;
+                    string url = WebUtility.HtmlDecode(Uri.UnescapeDataString(anchor.Groups["url"].Value));
+                    if (!TryCommandFromUrl(url, out WarpCommand command)) continue;
+                    string location = Normalize(heading);
+                    if (location.Length == 0 || MenuZoneHeadings.Contains(location))
+                        location = Normalize(label);
+                    if (location == "warp" || location == "go" || location == "travel")
+                        location = target;
+                    command.Destination = location;
+                    command.Landing = waypoint;
+                    commands.Add(command);
+                }
+            }
+        }
+
+        private static bool TryWaypointFromUrl(string url, out Vector3 point)
+        {
+            point = default;
+            Match waypoint = Regex.Match(url,
+                @"(?:chatcmd:///)?(?:waypoint|waypointcontroller)\s+(?<x>-?\d+(?:\.\d+)?)\s+(?<z>-?\d+(?:\.\d+)?)\s+(?<pf>\d+)",
+                RegexOptions.IgnoreCase);
+            if (!waypoint.Success ||
+                !float.TryParse(waypoint.Groups["x"].Value, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out float x) ||
+                !float.TryParse(waypoint.Groups["z"].Value, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out float z)) return false;
+            point = new Vector3(x, 0f, z);
+            return AcceptedMissions.Finite(point);
+        }
+
         private static bool TryParseMenuSection(string body, string target, out WarpCommand command)
         {
             command = null;
@@ -713,6 +823,12 @@ namespace RKmission
             return (float)Math.Sqrt(dx * dx + dz * dz);
         }
 
+        private static float HorizontalDistance(Vector3 point, Vector3 anchor)
+        {
+            float dx = point.X - anchor.X, dz = point.Z - anchor.Z;
+            return (float)Math.Sqrt(dx * dx + dz * dz);
+        }
+
         private static bool ValidLanding(ObservedLanding landing) =>
             landing != null && landing.DestinationPlayfield > 0 &&
             landing.DestinationPlayfield != (int)PlayfieldId.FixerGrid &&
@@ -802,6 +918,9 @@ namespace RKmission
             _targetAliases = null;
             _helpReplies = _menuPageCount = 0;
             _menuPages.Clear();
+            _menuCommands.Clear();
+            _missionAnchor = null;
+            _lastMenuMatch = DateTime.MinValue;
             LastFailure = null;
             _movement.Release(MovementOwner.WarpTravel);
         }

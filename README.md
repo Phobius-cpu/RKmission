@@ -107,7 +107,10 @@ characters.
 RKMission moves beside that normal Grid terminal *before* sending the tell. It
 accepts a team invite only from the configured/expected identities, waits for
 the temporary Data Receptacle (template 160978), and uses it on the nearby
-Grid entrance to enter Fixer Grid. `Data/FixerGridSurveyExits.json` ships the
+Grid entrance to enter Fixer Grid. The accepted-team ending or the Team FGrid
+nano appearing in NCU is treated as AO-side cast acknowledgement, giving the
+inventory mirror a bounded 30-second reconciliation window before another
+service/provider is tried. `Data/FixerGridSurveyExits.json` ships the
 verified portal identities, FGrid floors and positions, destination playfields,
 and outdoor arrival positions: 78 exits across 46 destinations, including
 20 destinations with multiple exits. For a selected mission, RKMission ranks all
@@ -267,6 +270,10 @@ under the destination playfield's heading for any zone, and waits for
 the assigned warper's team invite. For other zones, if some menu pages are missing, it
 requests the menu once more. A character already in a team cannot receive
 Scottyboi's invite.
+When one playfield offers several commands, RKMission collects the complete
+menu first and ranks commands that include verified outdoor waypoint landings
+by horizontal distance to the selected mission entrance. Thus Broken Shores
+can select City of Home (`/tell scty bs`) instead of Atalas when it is closer.
 Expected Scottyboi or assigned-warper team invites are accepted automatically;
 an early warper invite waits briefly for its name lookup before acceptance.
 When a numbered Scottyboi account sends the queue response, RKMission checks

@@ -124,6 +124,7 @@ namespace RKmission
         private int _lastFloor = -1;
         private uint _botId;
         private bool _joinedByProvider;
+        private bool _serviceCastObserved;
         private bool _teleportStarted, _exitLogged;
         private DateTime _started;
         private DateTime _lastUse;
@@ -1032,15 +1033,20 @@ namespace RKmission
                 return FGridServiceResult.InProgress;
             }
 
+            ObserveServiceCastTransition();
+
             if (_state == State.Invite && DateTime.UtcNow - _started > TimeSpan.FromSeconds(18))
             {
                 TryNextService($"FGrid service bot '{CurrentService?.Name}' did not invite/cast in time.");
                 return _state == State.Failed ? FGridServiceResult.Failed : FGridServiceResult.InProgress;
             }
 
-            if (_state == State.Receptacle && DateTime.UtcNow - _started > TimeSpan.FromSeconds(12))
+            if (_state == State.Receptacle && DateTime.UtcNow - _started >
+                TimeSpan.FromSeconds(_serviceCastObserved ? 30 : 12))
             {
-                TryNextService($"FGrid service bot '{CurrentService?.Name}' did not create a Data Receptacle.");
+                TryNextService(_serviceCastObserved
+                    ? $"FGrid service bot '{CurrentService?.Name}' completed the team/cast transition, but AO# did not expose a Data Receptacle within 30 seconds."
+                    : $"FGrid service bot '{CurrentService?.Name}' did not create a Data Receptacle.");
                 return _state == State.Failed ? FGridServiceResult.Failed : FGridServiceResult.InProgress;
             }
 
@@ -1354,6 +1360,25 @@ namespace RKmission
             _say($"Sent FGrid service request '{service.Command}' to {service.Name}; waiting for the expected invite/cast.");
         }
 
+        private void ObserveServiceCastTransition()
+        {
+            if (_state != State.Receptacle || _serviceCastObserved) return;
+            bool nanoObserved = DynelManager.LocalPlayer?.Buffs?.Any(buff => buff != null &&
+                (buff.Id == 160981 || string.Equals(buff.Name, "Hack Grid Data Stream (Team)",
+                    StringComparison.OrdinalIgnoreCase))) == true;
+            // Public FGrid services normally disband immediately after the team
+            // cast.  Either AO state is stronger evidence than chat text, and
+            // grants the inventory mirror enough time to expose the receptacle.
+            bool serviceTeamEnded = _joinedByProvider && !Team.IsInTeam &&
+                DateTime.UtcNow - _started > TimeSpan.FromMilliseconds(500);
+            if (!nanoObserved && !serviceTeamEnded) return;
+            _serviceCastObserved = true;
+            _started = DateTime.UtcNow;
+            _say(nanoObserved
+                ? "Observed Hack Grid Data Stream (Team) in the local NCU; waiting for AO# inventory acknowledgement."
+                : "Observed the accepted FGrid service team end after the cast; waiting for AO# inventory acknowledgement.");
+        }
+
         private void OnChatMessage(object sender, ChatMessageBody message)
         {
             if (!(message is LookupMessage lookup) || CurrentService == null ||
@@ -1386,6 +1411,7 @@ namespace RKmission
 
             request.Accept();
             _joinedByProvider = true;
+            _serviceCastObserved = false;
             _state = State.Receptacle;
             _started = DateTime.UtcNow;
             _say($"Accepted expected FGrid service invite from identity {request.Requester.Instance}; waiting for Data Receptacle.");
@@ -1491,6 +1517,7 @@ namespace RKmission
             if (_joinedByProvider && Team.IsInTeam)
                 Team.Leave();
             _joinedByProvider = false;
+            _serviceCastObserved = false;
             _serviceIndex++;
             _botId = 0;
             _expectedInviters.Clear();
@@ -1524,6 +1551,7 @@ namespace RKmission
             if (_joinedByProvider && Team.IsInTeam)
                 Team.Leave();
             _joinedByProvider = false;
+            _serviceCastObserved = false;
             _say($"Fixer Grid service route to playfield {_targetId} verified after zoning settled.");
         }
 
@@ -1539,6 +1567,7 @@ namespace RKmission
             if (_joinedByProvider && Team.IsInTeam)
                 Team.Leave();
             _joinedByProvider = false;
+            _serviceCastObserved = false;
             _say(reason + " Travel planner will try another verified provider if one exists.");
         }
 
@@ -1547,6 +1576,7 @@ namespace RKmission
             if (_joinedByProvider && Team.IsInTeam)
                 Team.Leave();
             _joinedByProvider = false;
+            _serviceCastObserved = false;
             _state = State.Idle;
             _terminal = null;
             _exit = null;

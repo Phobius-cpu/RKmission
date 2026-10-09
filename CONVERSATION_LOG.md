@@ -1738,3 +1738,20 @@ After manually warping back to OA and restarting `/rkm auto`, the coordinator se
 ## 2026-10-09 - Autonomous Continuity batch
 
 Starting from GitHub `main` `3ebb622`, the requested combat behavior was already present in the bounded `CombatDeferred` recovery path and was retained. The automatic-cycle capacity gate was narrowed so low main-inventory space blocks new rolling, not accepted runnable missions. Verified logistics still runs first and preserves its bounded/no-blind-retry safeguards. If capacity remains low, RKMission stays armed, selects safe accepted missions, defers item objectives that lack their required free slot, and retries logistics after accepted work is cleared before rolling. A focused source regression covers low-space selection/rolling, item-objective preflight, and deferred-combat revisit semantics; the full Release build and regression suite pass with no compile errors.
+
+## 2026-10-09 - Travel Reliability Batch A
+
+The requested Travel-only batch started from GitHub `main` `93dd3c0`. FGrid no
+longer treats a lagging inventory mirror as immediate proof that a successful
+Hack Grid Data Stream service failed: after the verified invite it observes the
+Team FGrid nano or accepted-team ending and opens a bounded 30-second inventory
+reconciliation window. The Data Receptacle, exact terminal use, alternate
+services, provider fallback, cleanup and traversal gates remain required.
+
+Scotty menu handling now gathers all matching commands across the complete paged
+menu instead of requesting the first alias. It retains each command/location/WP
+landing and ranks verified outdoor waypoints by distance to the selected mission
+entrance. A focused synthetic PF665 check confirms City of Home `/tell scty bs`
+beats Atalas when the City of Home/Priest Fontain waypoint is closer. Build and
+regression details and the remaining live AO matrix are in
+`docs/history/2026-10-09-travel-reliability-batch-a.md`.

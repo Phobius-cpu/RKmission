@@ -135,7 +135,7 @@ namespace RKmission
                 // before the coordinator starts local mission travel.
                 if (active == Provider.Scottyboi)
                 {
-                    WarpResult warpAtDestination = _warp.Tick(target);
+                    WarpResult warpAtDestination = _warp.Tick(target, missionAnchor);
                     if (warpAtDestination == WarpResult.InProgress)
                         return TravelResult.InProgress;
                     if (warpAtDestination == WarpResult.Failed)
@@ -164,7 +164,7 @@ namespace RKmission
 
             if (active == Provider.Scottyboi)
             {
-                WarpResult result = _warp.Tick(target);
+                WarpResult result = _warp.Tick(target, missionAnchor);
                 if (result == WarpResult.InProgress) return TravelResult.InProgress;
                 if (result == WarpResult.Succeeded) return TravelResult.Arrived;
                 if (AdvanceProvider()) return Tick(target, missionAnchor);

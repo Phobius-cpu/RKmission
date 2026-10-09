@@ -2792,3 +2792,18 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 - Low main-inventory capacity now suspends only new rolling after the verified logistics policy runs. Accepted runnable Rubi-Ka missions remain selectable; when logistics cannot restore the configured margin, RKMission stays armed, clears accepted work, and retries bounded logistics before rolling again.
 - FindItem/ReturnItem missions still require their stricter free-slot preflight. If another accepted mission is safe, it is selected instead; if every remaining accepted mission is an unsafe item objective, the cycle waits with an explicit reason.
 - The existing bounded combat recovery on `main` remains authoritative: exhausted approach/LOS attempts release combat movement, leave the room `CombatDeferred`, route to other work when safe, and reopen only after a changed vantage or target opening. Focused regression coverage now protects both continuity paths.
+
+## 2026-10-09 Travel reliability Batch A
+
+- Travel is **AWAITING AO TEST**. FGrid service acknowledgement now recognizes
+  the actual AO-side Team FGrid nano or accepted-team ending, then gives AOSharp
+  inventory up to 30 bounded seconds to expose Data Receptacle 160978. The item
+  remains mandatory; alternate services, provider fallback and team cleanup are
+  unchanged.
+- Scotty now collects all destination commands from the complete paged menu and
+  ranks verified WP landings against the selected mission entrance. For PF665,
+  City of Home/Priest Fontain command `bs` can beat Atalas when closer.
+- Release build and focused Travel regression pass. Live AO must verify successful
+  FGrid cast-to-receptacle entry, missing-receptacle fallback, and Broken Shores
+  command/invite/settled-arrival behavior. See
+  `docs/history/2026-10-09-travel-reliability-batch-a.md`.
