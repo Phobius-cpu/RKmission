@@ -146,17 +146,22 @@ namespace RKmission
                 !string.IsNullOrWhiteSpace(key.Label) &&
                 _entrances.TryGetValue(key.Label, out List<uint> known) &&
                 live.Any(id => known.Contains(unchecked((uint)id))));
+            var matchingLiveEntrances = live.Where(id => keys.Any(key =>
+                !string.IsNullOrWhiteSpace(key.Label) &&
+                _entrances.TryGetValue(key.Label, out List<uint> known) &&
+                known.Contains(unchecked((uint)id)))).Distinct().ToList();
+            bool hasSingleMatchingLiveEntrance = matchingLiveEntrances.Count == 1;
             foreach (MissionKeyCandidate key in keys)
             {
                 var ids = new List<int>();
                 List<uint> known = null;
                 bool hasKnownLabel = !string.IsNullOrWhiteSpace(key.Label) &&
                     _entrances.TryGetValue(key.Label, out known);
-                if (live.Count > 0 && matchingLiveKeys <= 1)
+                if (live.Count > 0 && (matchingLiveKeys <= 1 || hasSingleMatchingLiveEntrance))
                 {
                     if (hasKnownLabel)
                         ids.AddRange(live.Where(id => known.Contains(unchecked((uint)id))));
-                    else
+                    else if (matchingLiveKeys <= 1)
                         // The mission anchor supplies the missing association.
                         // Try unreadable/previously unknown key forms against only
                         // these nearby entrances; exact dungeon verification remains mandatory.
@@ -200,7 +205,7 @@ namespace RKmission
                             : live.Count == 0 && keys.Count > 1
                                 ? "several mission keys and no nearby entrance to identify the selected mission"
                                 : matchingLiveKeys > 1
-                                    ? "several mission keys match nearby entrance IDs"
+                                    ? $"several mission keys match {matchingLiveEntrances.Count} nearby entrance IDs"
                                     : live.Count > 0
                                         ? "no mission-key label matches the nearby entrance IDs"
                                     : $"key label '{keys[0].Label}' has no bounded entrance IDs";
@@ -242,8 +247,14 @@ namespace RKmission
             if (!Inventory.Items.Any(x => x.UniqueIdentity == attempt.Key.UniqueIdentity))
             { Advance(); return EntranceResult.Waiting; }
             if (_attempts.Count <= 10 || _index == 0 || _index % 10 == 0)
-                _say($"Neko ACG key warp: candidate {_index + 1}/{_attempts.Count}, key='{attempt.KeyName}', " +
+            {
+                int entranceKeyIndex = _attempts.Take(_index + 1)
+                    .Count(x => x.Entrance == attempt.Entrance);
+                int entranceKeyCount = _attempts.Count(x => x.Entrance == attempt.Entrance);
+                _say($"Neko ACG key warp: candidate {_index + 1}/{_attempts.Count}, " +
+                    $"entrance key {entranceKeyIndex}/{entranceKeyCount}, key='{attempt.KeyName}', " +
                     $"entrance={unchecked((uint)attempt.Entrance)}, current playfield={Playfield.ModelIdentity.Instance}.");
+            }
             Item.UseItemOnItem(attempt.Key.Slot,
                 new Identity(IdentityType.ACGEntrance, attempt.Entrance));
             _sent = true;
@@ -274,8 +285,10 @@ namespace RKmission
                 return;
             if (feedback.MessageId == WrongKey)
             {
+                uint entrance = _index < _attempts.Count
+                    ? unchecked((uint)_attempts[_index].Entrance) : 0;
                 Advance();
-                _say("ACG entrance rejected this key; trying the next key/entrance pair.");
+                _say($"ACG entrance {entrance} rejected this key; trying the next key/entrance pair.");
             }
             else if (feedback.MessageId == KeyAccepted)
             {
