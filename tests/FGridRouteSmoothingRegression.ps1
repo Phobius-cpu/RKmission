@@ -40,7 +40,10 @@ foreach ($required in @('_floorDeparturePending = previousFloor >= 0 && floor ==
     'advanced to floor {floor} during the arrival settle',
     'MovementAction.ForwardStart', 'MovementAction.FullStop',
     'DateTime.UtcNow - _floorArrivedAt < TimeSpan.FromMilliseconds(650)',
-    'spawn-pad departure ended after')) {
+    'spawn-pad departure ended after',
+    'settling on the Ring Corridor before replanning from the off-pad position',
+    '_floorDepartureCompletedFloor = _floorDepartureFloor',
+    'DateTime.UtcNow < _floorDepartureSettledAt')) {
     if (-not $provider.Contains($required)) {
         throw "FGrid lift-arrival recovery lost required behavior: $required"
     }

@@ -74,6 +74,25 @@ foreach ($required in @(
     }
 }
 Write-Output 'PASS rounded floor approaches retain explicit alignment and unsafe resumes consume attempts 2/3 and 3/3'
+
+foreach ($required in @(
+    'RecoverUnsafePostDeparturePlan',
+    '_floorDepartureCompletedFloor != floor',
+    '_localRecoveryAttempt > 0',
+    'post-spawn route was rejected before movement began',
+    'starting bounded Ring Corridor recovery attempt 1/3',
+    'charging the completed spawn-pad departure against the recovery budget',
+    'return StartLocalRecoveryAttempt(DynelManager.LocalPlayer.Position, target, floor')) {
+    if (-not $provider.Contains($required)) {
+        throw "Unsafe post-departure planning does not enter bounded Ring Corridor recovery: $required"
+    }
+}
+$unsafePostDeparture = [regex]::Match($provider,
+    'private bool RecoverUnsafePostDeparturePlan[\s\S]*?private bool TickFloorDeparture').Value
+if ($unsafePostDeparture.Contains('_localRecoveryAttempt++')) {
+    throw 'Post-departure dispatch consumes recovery budget before a real attempt starts.'
+}
+Write-Output 'PASS unsafe post-spawn plans enter real Ring Corridor attempt 1/3 without consuming departure as an attempt'
 $preferred = [regex]::Match($provider,
     'private bool TryPreferredFGridRoute[\s\S]*?public FGridServiceResult Tick').Value
 $preApproach = $preferred.IndexOf('TickLiftPreApproach(')

@@ -110,7 +110,8 @@ namespace RKmission
         private bool _floorDeparturePending, _floorDepartureActive;
         private int _floorDepartureFloor = -1;
         private Vector3 _floorDepartureOrigin, _floorDepartureDirection;
-        private DateTime _floorArrivedAt, _floorDepartureStarted;
+        private DateTime _floorArrivedAt, _floorDepartureStarted, _floorDepartureSettledAt;
+        private int _floorDepartureCompletedFloor = -1;
         private int _floorDepartureSkippedPoints;
         private string _activeNavSource = "none";
         private State _state;
@@ -998,6 +999,22 @@ namespace RKmission
                 out reason);
         }
 
+        private bool RecoverUnsafePostDeparturePlan(Vector3 target, int floor,
+            string unsafeReason, out string reason)
+        {
+            if (_floorDepartureCompletedFloor != floor || _localRecoveryAttempt > 0 ||
+                _localRecoveryActive || _localRecoverySettling)
+            {
+                reason = unsafeReason;
+                return false;
+            }
+            _say($"FGrid floor {floor} post-spawn route was rejected before movement began " +
+                $"({unsafeReason}); starting bounded Ring Corridor recovery attempt 1/3 without " +
+                "charging the completed spawn-pad departure against the recovery budget.");
+            return StartLocalRecoveryAttempt(DynelManager.LocalPlayer.Position, target, floor,
+                out reason);
+        }
+
         private bool TickFloorDeparture(Vector3 player)
         {
             if (!_floorDeparturePending || _recastWaypoints == null ||
@@ -1046,7 +1063,9 @@ namespace RKmission
             _recastIssuedIndex = -1;
             _say($"FGrid floor {_floorDepartureFloor} spawn-pad departure ended after " +
                 $"{Math.Max(0, forward):0.00} m forward/{displacement.Magnitude:0.00} m total; " +
-                "replanning from the settled position.");
+                "settling on the Ring Corridor before replanning from the off-pad position.");
+            _floorDepartureCompletedFloor = _floorDepartureFloor;
+            _floorDepartureSettledAt = DateTime.UtcNow + TimeSpan.FromMilliseconds(250);
             return true;
         }
 
@@ -1278,6 +1297,14 @@ namespace RKmission
         private bool TryPreferredFGridRoute(Vector3 target, int floor, bool portal,
             out string navigationReason)
         {
+            if (!portal && _floorDepartureCompletedFloor == floor &&
+                DateTime.UtcNow < _floorDepartureSettledAt)
+            {
+                _movement.Release(MovementOwner.FGridTravel);
+                _routes.StopPlayback();
+                navigationReason = "settling on the Ring Corridor after spawn-pad departure";
+                return true;
+            }
             if (!portal && TickLiftPreApproach(target, floor, out navigationReason,
                 out bool preApproachFailed))
             {
@@ -1289,6 +1316,9 @@ namespace RKmission
                 if (_localRecoveryAwaitingSafeResume)
                     return ContinueRecoveryAfterUnsafePlan(target, floor, navigationReason,
                         out navigationReason);
+                if (RecoverUnsafePostDeparturePlan(target, floor, navigationReason,
+                    out navigationReason))
+                    return true;
                 return false;
             }
             if (!portal && _liftApproachPhase == LiftApproachPhase.RadialCommitted)
@@ -1321,6 +1351,9 @@ namespace RKmission
                 _activeNavSource = "recorded legacy fallback";
                 return true;
             }
+            if (!portal && RecoverUnsafePostDeparturePlan(target, floor, navigationReason,
+                out navigationReason))
+                return true;
             return false;
         }
 
@@ -1531,6 +1564,8 @@ namespace RKmission
                     _started = DateTime.UtcNow;
                     _floorArrivedAt = DateTime.UtcNow;
                     _floorDepartureFloor = floor;
+                    _floorDepartureCompletedFloor = -1;
+                    _floorDepartureSettledAt = DateTime.MinValue;
                     _floorDepartureSkippedPoints = 0;
                     _floorDeparturePending = previousFloor >= 0 && floor == previousFloor + 1;
                     _say($"Fixer Grid floor {floor}; target floor {_route.Floor}.");
