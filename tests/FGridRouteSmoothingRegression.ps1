@@ -23,8 +23,11 @@ if (-not $recorder.Contains('candidate = SimplifySupportedFGridPath(candidate, p
 }
 Write-Output 'PASS recorded FGrid fallback routes use corridor and live floor support before skipping samples'
 
-foreach ($required in @('FGridCenterlineTolerance = 0.4f',
-    'RecordedShortcutSafe(points, anchor, candidate,',
+foreach ($required in @('FGridCenterlineTolerance = 0.25f',
+    'RecordedShortcutDeviation(points, anchor, candidate,',
+    'int[] legs = Enumerable.Repeat(int.MaxValue, points.Count).ToArray()',
+    'routeDeviation >= deviations[candidate]',
+    'maximum centreline deviation',
     'inward-chord candidate(s) rejected by the Ring Corridor safety band',
     'PreservesFGridAlignmentTurns(points, anchor, candidate)')) {
     if (-not $recorder.Contains($required)) {
@@ -40,8 +43,8 @@ function Get-MaxChordDeviation([double]$radius, [double]$degrees) {
 }
 $longChordDeviation = Get-MaxChordDeviation 15 36
 $shortChordDeviation = Get-MaxChordDeviation 15 20
-if ($longChordDeviation -le 0.4 -or $longChordDeviation -gt 1.0 -or
-    $shortChordDeviation -gt 0.4) {
+if ($longChordDeviation -le 0.25 -or $longChordDeviation -gt 1.0 -or
+    $shortChordDeviation -gt 0.25) {
     throw 'Representative Ring Corridor chord safety-band geometry is not discriminating as intended.'
 }
 Write-Output 'PASS FGrid safety band rejects long inward ring chords while retaining useful arc smoothing'
@@ -62,6 +65,10 @@ foreach ($required in @('_floorDeparturePending = previousFloor >= 0 && floor ==
     'StopFGridArrivalMotion()', 'Preserve a confirmed target-floor departure',
     'advanced to floor {floor} during the arrival settle',
     'MovementAction.ForwardStart', 'MovementAction.FullStop',
+    'stableHeadingDistance = 2.0f', 'MovementAction.TurnRightStart',
+    'MovementAction.TurnLeftStart', 'headingDot < 0.985f',
+    'remainingTurn * _floorDepartureTurnSign <= 0',
+    'StartFloorDepartureForward()', 'one continuous turn to the stable route heading',
     'DateTime.UtcNow - _floorArrivedAt < TimeSpan.FromMilliseconds(650)',
     'spawn-pad departure ended after',
     'settling on the Ring Corridor before replanning from the off-pad position',

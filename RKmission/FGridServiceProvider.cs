@@ -108,6 +108,9 @@ namespace RKmission
         private Vector3 _recastLastPosition;
         private DateTime _recastLastProgress;
         private bool _floorDeparturePending, _floorDepartureActive;
+        private bool _floorDepartureTurning;
+        private MovementAction _floorDepartureTurnStop;
+        private float _floorDepartureTurnSign;
         private int _floorDepartureFloor = -1;
         private Vector3 _floorDepartureOrigin, _floorDepartureDirection;
         private DateTime _floorArrivedAt, _floorDepartureStarted, _floorDepartureSettledAt;
@@ -1140,16 +1143,50 @@ namespace RKmission
                 { _floorDeparturePending = false; return false; }
                 _floorDepartureOrigin = player;
                 _floorDepartureDirection = direction;
-                DynelManager.LocalPlayer.Rotation = Quaternion.LookRotation(direction, Vector3.Up);
-                _movement.SetMovement(MovementOwner.FGridTravel, MovementAction.ForwardStart);
-                _movement.SetMovement(MovementOwner.FGridTravel, MovementAction.Update);
                 _floorDepartureActive = true;
                 _floorDepartureStarted = DateTime.UtcNow;
+                Vector3 currentForward = DynelManager.LocalPlayer.Rotation.Forward;
+                currentForward.Y = 0;
+                float headingDot = currentForward.Magnitude < 0.1f ? 1f :
+                    Vector3.Dot(currentForward.Normalize(), direction);
+                if (headingDot < 0.985f)
+                {
+                    float turn = currentForward.Z * direction.X - currentForward.X * direction.Z;
+                    MovementAction turnStart = turn >= 0
+                        ? MovementAction.TurnRightStart : MovementAction.TurnLeftStart;
+                    _floorDepartureTurnStop = turn >= 0
+                        ? MovementAction.TurnRightStop : MovementAction.TurnLeftStop;
+                    _floorDepartureTurnSign = turn >= 0 ? 1f : -1f;
+                    _movement.SetMovement(MovementOwner.FGridTravel, turnStart);
+                    _movement.SetMovement(MovementOwner.FGridTravel, MovementAction.Update);
+                    _floorDepartureTurning = true;
+                }
+                else StartFloorDepartureForward();
                 _say($"FGrid floor {_floorDepartureFloor} lift arrival settled; taking one bounded " +
-                    "floor-supported step off the spawn pad before replanning" +
+                    "floor-supported step off the spawn pad after one continuous turn to the stable route heading" +
                     (_floorDepartureSkippedPoints > 0
                         ? $" after skipping {_floorDepartureSkippedPoints} near-spawn Recast point(s)."
                         : "."));
+                return true;
+            }
+            if (_floorDepartureTurning)
+            {
+                Vector3 currentForward = DynelManager.LocalPlayer.Rotation.Forward;
+                currentForward.Y = 0;
+                float headingDot = currentForward.Magnitude < 0.1f ? 1f :
+                    Vector3.Dot(currentForward.Normalize(), _floorDepartureDirection);
+                float remainingTurn = currentForward.Z * _floorDepartureDirection.X -
+                    currentForward.X * _floorDepartureDirection.Z;
+                bool passedHeading = remainingTurn * _floorDepartureTurnSign <= 0;
+                if (headingDot < 0.985f && !passedHeading &&
+                    DateTime.UtcNow - _floorDepartureStarted < TimeSpan.FromSeconds(2.5))
+                    return true;
+                _movement.SetMovement(MovementOwner.FGridTravel, _floorDepartureTurnStop);
+                _movement.SetMovement(MovementOwner.FGridTravel, MovementAction.Update);
+                _floorDepartureTurning = false;
+                _floorDepartureOrigin = player;
+                _floorDepartureStarted = DateTime.UtcNow;
+                StartFloorDepartureForward();
                 return true;
             }
             Vector3 displacement = player - _floorDepartureOrigin;
@@ -1180,10 +1217,12 @@ namespace RKmission
             reason = "no supported outward Recast direction was available";
             _floorDepartureSkippedPoints = 0;
             const float minimumDirectionDistance = 0.4f;
+            const float stableHeadingDistance = 2.0f;
             // Raw forward input can coast beyond the requested one-metre step
             // between AO update ticks. Validate a longer corridor so that the
             // entire observed departure remains on the supported walkway.
             const float validatedDepartureDistance = 2.5f;
+            Vector3 fallback = Vector3.Zero;
             for (int index = 1; index < _recastWaypoints.Count; index++)
             {
                 Vector3 candidateDirection = _recastWaypoints[index] - player;
@@ -1202,10 +1241,20 @@ namespace RKmission
                     reason = supportReason;
                     continue;
                 }
+                if (fallback.Magnitude < 0.1f) fallback = candidateDirection;
+                if (LocalRoutePlanner.HorizontalDistance(player, _recastWaypoints[index]) <
+                    stableHeadingDistance) continue;
                 direction = candidateDirection;
                 return true;
             }
-            return false;
+            direction = fallback;
+            return direction.Magnitude >= 0.1f;
+        }
+
+        private void StartFloorDepartureForward()
+        {
+            _movement.SetMovement(MovementOwner.FGridTravel, MovementAction.ForwardStart);
+            _movement.SetMovement(MovementOwner.FGridTravel, MovementAction.Update);
         }
 
         private void StopFloorDeparture()
@@ -1216,7 +1265,7 @@ namespace RKmission
                 _movement.SetMovement(MovementOwner.FGridTravel, MovementAction.FullStop);
                 _movement.Release(MovementOwner.FGridTravel);
             }
-            _floorDeparturePending = _floorDepartureActive = false;
+            _floorDeparturePending = _floorDepartureActive = _floorDepartureTurning = false;
         }
 
         private void StopFGridArrivalMotion()
