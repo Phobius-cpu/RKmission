@@ -15,6 +15,11 @@ namespace RKmission
     {
         private const float RecordedCorridorTolerance = 1f;
         private const float RecordedHeightTolerance = 1.25f;
+        // The generic one-metre recorded corridor is suitable for mostly straight
+        // outdoor approaches, but it admits visibly inward chords on the curved
+        // FGrid ring. Keep FGrid playback close enough to the walked centreline to
+        // preserve the arc without replaying every 0.75 m recorder sample.
+        private const float FGridCenterlineTolerance = 0.4f;
         private sealed class RouteFile { public List<Route> Routes { get; set; } = new List<Route>(); }
         private sealed class Route
         {
@@ -294,7 +299,8 @@ namespace RKmission
                 !Enumerable.Range(1, points.Count - 1).All(i =>
                     LocalRoutePlanner.SupportedFGridSegment(points[i - 1], points[i], player.Position.Y)))
                 return false;
-            points = SimplifySupportedFGridPath(points, player.Position.Y);
+            points = SimplifySupportedFGridPath(points, player.Position.Y,
+                out int centerlineRejections);
             if (_playing != route || _playPoints == null ||
                 LocalRoutePlanner.HorizontalDistance(_playPoints[_playPoints.Count - 1], alignmentPoint) > 0.5f)
             {
@@ -303,7 +309,8 @@ namespace RKmission
                 _playPoints = points;
                 _playIndex = 0;
                 _say($"Using recorded FGrid corridor '{route.Name}' to the lift alignment point; " +
-                    $"radial approach remains uncommitted ({_playPoints.Count - 1} supported leg(s)).");
+                    $"radial approach remains uncommitted ({_playPoints.Count - 1} supported leg(s); " +
+                    $"{centerlineRejections} inward-chord candidate(s) rejected by the Ring Corridor safety band).");
             }
             while (_playIndex < _playPoints.Count - 1 &&
                 Vector3.Distance(player.Position, _playPoints[_playIndex]) <= 1.0f) _playIndex++;
@@ -376,9 +383,11 @@ namespace RKmission
                     }
                 }
                 int recordedPointCount = candidate.Count;
+                int centerlineRejections = 0;
                 if (fixerGrid)
                 {
-                    candidate = SimplifySupportedFGridPath(candidate, player.Position.Y);
+                    candidate = SimplifySupportedFGridPath(candidate, player.Position.Y,
+                        out centerlineRejections);
                 }
                 else if (IsTerminalToGridRoute(best.Name))
                     candidate = SimplifyRecordedPath(candidate);
@@ -392,7 +401,8 @@ namespace RKmission
                 _playIndex = 0;
                 _say(fixerGrid
                     ? $"Using recorded FGrid route '{best.Name}' toward ({target.X:0.0},{target.Y:0.0},{target.Z:0.0}); " +
-                      $"{recordedPointCount} samples reduced to {_playPoints.Count - 1} walkway-supported leg(s)."
+                      $"{recordedPointCount} samples reduced to {_playPoints.Count - 1} walkway-supported leg(s); " +
+                      $"{centerlineRejections} inward-chord candidate(s) rejected by the Ring Corridor safety band."
                     : IsTerminalToGridRoute(best.Name)
                     ? $"Using recorded nav route '{best.Name}' toward ({target.X:0.0},{target.Y:0.0},{target.Z:0.0}); " +
                       $"{recordedPointCount} recorded samples reduced to {_playPoints.Count - 1} corridor-verified leg(s)."
@@ -496,7 +506,8 @@ namespace RKmission
             return simplified;
         }
 
-        private static bool RecordedShortcutSafe(List<Vector3> points, int anchor, int candidate)
+        private static bool RecordedShortcutSafe(List<Vector3> points, int anchor, int candidate,
+            float horizontalTolerance = RecordedCorridorTolerance)
         {
             if (points == null || anchor < 0 || candidate <= anchor || candidate >= points.Count)
                 return false;
@@ -516,7 +527,7 @@ namespace RKmission
                     start.Z + horizontal.Z * projection);
                 Vector3 offset = point - onSegment;
                 float horizontalOffset = (float)Math.Sqrt(offset.X * offset.X + offset.Z * offset.Z);
-                if (horizontalOffset > RecordedCorridorTolerance ||
+                if (horizontalOffset > horizontalTolerance ||
                     Math.Abs(offset.Y) > RecordedHeightTolerance) return false;
             }
             return true;
@@ -525,8 +536,10 @@ namespace RKmission
         // Recorded FGrid samples remain the corridor authority. From each retained
         // anchor, take the farthest later sample whose straight chord stays in that
         // corridor and whose complete centre/edge tracks have live floor support.
-        private static List<Vector3> SimplifySupportedFGridPath(List<Vector3> points, float floorHeight)
+        private static List<Vector3> SimplifySupportedFGridPath(List<Vector3> points,
+            float floorHeight, out int centerlineRejections)
         {
+            centerlineRejections = 0;
             if (points == null || points.Count < 3)
                 return points == null ? new List<Vector3>() : new List<Vector3>(points);
             var simplified = new List<Vector3> { points[0] };
@@ -536,9 +549,11 @@ namespace RKmission
                 int next = anchor + 1;
                 for (int candidate = points.Count - 1; candidate > anchor + 1; candidate--)
                 {
-                    if (!RecordedShortcutSafe(points, anchor, candidate) ||
-                        !PreservesFGridAlignmentTurns(points, anchor, candidate) ||
-                        !LocalRoutePlanner.SupportedFGridSegment(
+                    if (!PreservesFGridAlignmentTurns(points, anchor, candidate)) continue;
+                    if (!RecordedShortcutSafe(points, anchor, candidate,
+                        FGridCenterlineTolerance))
+                    { centerlineRejections++; continue; }
+                    if (!LocalRoutePlanner.SupportedFGridSegment(
                             points[anchor], points[candidate], floorHeight)) continue;
                     next = candidate;
                     break;
