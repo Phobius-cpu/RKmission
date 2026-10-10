@@ -138,6 +138,12 @@ namespace RKmission
         private int _observedDestination;
         private bool _runtimeExitsWritable = true;
         private bool _surveyWritable = true;
+        private bool _localRecoveryActive;
+        private int _localRecoveryAttempt;
+        private Vector3 _localRecoveryOrigin, _localRecoveryDirection;
+        private Vector3? _localRecoveryRouteTarget, _localRecoveryExhaustedTarget;
+        private Vector3 _localProgressPosition;
+        private DateTime _localRecoveryStarted, _localLastProgress;
 
         public string LastFailure { get; private set; }
         public bool IsConfigured => _services.Count > 0;
@@ -654,6 +660,122 @@ namespace RKmission
             _activeNavSource = "none";
         }
 
+        private void ResetLocalRecovery(bool clearExhaustion = true)
+        {
+            _localRecoveryActive = false;
+            _localRecoveryAttempt = 0;
+            _localRecoveryRouteTarget = null;
+            _localLastProgress = DateTime.MinValue;
+            if (clearExhaustion) _localRecoveryExhaustedTarget = null;
+        }
+
+        // One bounded recovery primitive serves lift arrivals, ring traversal and
+        // radial exit approaches. The canonical recording supplies the preferred
+        // centreline; supported forward/side/back probes cover floor 0 and unknown
+        // geometry. The caller retains the original route target throughout.
+        private bool TickLocalRecovery(Vector3 intendedTarget, int floor, out string reason)
+        {
+            reason = "";
+            Vector3 player = DynelManager.LocalPlayer.Position;
+            if (_localRecoveryRouteTarget.HasValue &&
+                Vector3.Distance(_localRecoveryRouteTarget.Value, intendedTarget) > 0.5f)
+                ResetLocalRecovery();
+            if (_localRecoveryExhaustedTarget.HasValue &&
+                Vector3.Distance(_localRecoveryExhaustedTarget.Value, intendedTarget) < 0.5f)
+            { reason = "three bounded local centreline recovery attempts made no displacement"; return false; }
+
+            if (_localRecoveryActive)
+            {
+                Vector3 moved = player - _localRecoveryOrigin; moved.Y = 0;
+                float forward = Vector3.Dot(moved, _localRecoveryDirection);
+                if (forward >= 0.8f || moved.Magnitude >= 1.15f)
+                {
+                    _movement.Release(MovementOwner.FGridTravel);
+                    _routes.StopPlayback();
+                    ResetMeshNavigation();
+                    _localRecoveryActive = false;
+                    _localLastProgress = DateTime.UtcNow;
+                    _localProgressPosition = player;
+                    _say($"FGrid local recovery displaced {moved.Magnitude:0.00} m on attempt {_localRecoveryAttempt}; replanning the same route from the settled position.");
+                    return true;
+                }
+                if (DateTime.UtcNow - _localRecoveryStarted <= TimeSpan.FromSeconds(2.5))
+                    return true;
+                _movement.Release(MovementOwner.FGridTravel);
+                _localRecoveryActive = false;
+                if (_localRecoveryAttempt >= 3)
+                {
+                    _localRecoveryExhaustedTarget = intendedTarget;
+                    reason = "three bounded local centreline recovery attempts made no displacement";
+                    return false;
+                }
+                return StartLocalRecoveryAttempt(player, intendedTarget, floor, out reason);
+            }
+
+            if (!_localRecoveryRouteTarget.HasValue)
+            {
+                _localRecoveryRouteTarget = intendedTarget;
+                _localProgressPosition = player;
+                _localLastProgress = DateTime.UtcNow;
+                return true;
+            }
+            if (LocalRoutePlanner.HorizontalDistance(player, _localProgressPosition) > 0.45f)
+            {
+                _localProgressPosition = player;
+                _localLastProgress = DateTime.UtcNow;
+                return true;
+            }
+            if (_movement.Owner != MovementOwner.FGridTravel ||
+                DateTime.UtcNow - _localLastProgress <= TimeSpan.FromSeconds(8)) return true;
+            _localRecoveryAttempt = 0;
+            return StartLocalRecoveryAttempt(player, intendedTarget, floor, out reason);
+        }
+
+        private bool StartLocalRecoveryAttempt(Vector3 player, Vector3 intendedTarget,
+            int floor, out string reason)
+        {
+            reason = "no floor-supported local recovery offset was available";
+            _localRecoveryAttempt++;
+            Vector3 forward = intendedTarget - player; forward.Y = 0;
+            if (forward.Magnitude < 0.1f) forward = new Vector3(1, 0, 0);
+            forward = forward.Normalize();
+            Vector3 centreline;
+            bool hasSkeleton = _routes.TryGetFGridCenterlineDirection($"Fgrid Floor {floor}",
+                player, intendedTarget, out centreline);
+            if (!hasSkeleton) centreline = forward;
+            Vector3 side = new Vector3(-centreline.Z, 0, centreline.X);
+            Vector3[] directions = _localRecoveryAttempt == 1
+                ? new[] { centreline, forward, side, side * -1f }
+                : _localRecoveryAttempt == 2
+                    ? new[] { side, side * -1f, centreline, forward }
+                    : new[] { side * -1f, side, forward * -1f, centreline };
+            foreach (Vector3 candidate in directions)
+            {
+                if (candidate.Magnitude < 0.1f) continue;
+                Vector3 direction = candidate.Normalize();
+                Vector3 offset = player + direction * 2.25f; offset.Y = player.Y;
+                if (!LocalRoutePlanner.SupportedFGridSegment(player, offset, player.Y)) continue;
+                _movement.Release(MovementOwner.FGridTravel);
+                _routes.StopPlayback();
+                _recastWaypoints = null; _recastDestination = null; _recastIssuedIndex = -1;
+                _meshDestination = null;
+                if (!_movement.SetDestination(MovementOwner.FGridTravel, offset)) continue;
+                _localRecoveryOrigin = player;
+                _localRecoveryDirection = direction;
+                _localRecoveryStarted = DateTime.UtcNow;
+                _localRecoveryActive = true;
+                _activeNavSource = "local centreline recovery";
+                _say($"FGrid movement stalled; bounded local recovery attempt {_localRecoveryAttempt}/3 " +
+                    $"targets a 2.25 m {(hasSkeleton ? "recorded-centreline" : "supported local")} offset before resuming the same route.");
+                return true;
+            }
+            if (_localRecoveryAttempt < 3)
+                return StartLocalRecoveryAttempt(player, intendedTarget, floor, out reason);
+            _localRecoveryExhaustedTarget = intendedTarget;
+            reason = "three bounded local recovery attempts found no supported offset";
+            return false;
+        }
+
         private bool TickFloorDeparture(Vector3 player)
         {
             if (!_floorDeparturePending || _recastWaypoints == null ||
@@ -690,9 +812,9 @@ namespace RKmission
             Vector3 displacement = player - _floorDepartureOrigin;
             displacement.Y = 0;
             float forward = Vector3.Dot(displacement, _floorDepartureDirection);
-            if (forward < 1f &&
-                displacement.Magnitude < 1.4f &&
-                DateTime.UtcNow - _floorDepartureStarted <= TimeSpan.FromSeconds(1.5))
+            if (forward < 2f &&
+                displacement.Magnitude < 2.6f &&
+                DateTime.UtcNow - _floorDepartureStarted <= TimeSpan.FromSeconds(3))
                 return true;
             StopFloorDeparture();
             // The prior path began on the lift pad. Rebuild from the observed
@@ -934,6 +1056,8 @@ namespace RKmission
         private bool TryPreferredFGridRoute(Vector3 target, int floor, bool portal,
             out string navigationReason)
         {
+            if (!TickLocalRecovery(target, floor, out navigationReason)) return false;
+            if (_localRecoveryActive) return true;
             if (_routes.TryNavigate($"Fgrid Floor {floor}", target, _movement,
                 MovementOwner.FGridTravel, 6f))
             {
@@ -1148,6 +1272,7 @@ namespace RKmission
                         floor == previousFloor + 1 &&
                         DateTime.UtcNow - _floorArrivedAt < TimeSpan.FromMilliseconds(650);
                     ResetMeshNavigation();
+                    ResetLocalRecovery();
                     // Halt both controller navigation and any direct movement
                     // input before the new lift arrival is allowed to settle.
                     StopFGridArrivalMotion();
@@ -1197,7 +1322,7 @@ namespace RKmission
                         if (HasCompatibleSharpNavArtifact() && SMovementController.NavAgent?.HasPathfinder != true &&
                             DateTime.UtcNow - _started < TimeSpan.FromSeconds(5))
                             return FGridServiceResult.InProgress;
-                        Fail($"No safe FGrid route reaches the floor {floor} lift ({meshReason}). Record the canonical walkway with /rkm nav record Fgrid Floor {floor}, then /rkm nav stop.");
+                        Fail($"No safe FGrid route reaches the floor {floor} lift after bounded internal recovery ({meshReason}).");
                         return FGridServiceResult.Failed;
                     }
                 }
@@ -1245,8 +1370,8 @@ namespace RKmission
                         if (HasCompatibleSharpNavArtifact() && SMovementController.NavAgent?.HasPathfinder != true &&
                             DateTime.UtcNow - _started < TimeSpan.FromSeconds(5))
                             return FGridServiceResult.InProgress;
-                        string routeFailure = $"No safe FGrid route reaches portal {_exit.Identity} on floor {_route.Floor} ({meshReason}). " +
-                            $"Record the canonical walkway with /rkm nav record Fgrid Floor {_route.Floor}, then /rkm nav stop.";
+                        string routeFailure = $"No safe FGrid route reaches portal {_exit.Identity} on floor {_route.Floor} " +
+                            $"after bounded internal recovery ({meshReason}).";
                         return TryNextExit(routeFailure) ? FGridServiceResult.InProgress : FGridServiceResult.Failed;
                     }
                 }

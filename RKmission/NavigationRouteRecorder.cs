@@ -97,6 +97,58 @@ namespace RKmission
         public bool TryNavigate(Vector3 target, MovementArbiter movement, MovementOwner owner, float endpointTolerance = 6f)
             => TryNavigate(null, target, movement, owner, endpointTolerance);
 
+        // Returns a short direction back toward the recorded walkway skeleton.
+        // FGrid recovery uses this without changing playback state, so a local
+        // correction can rejoin the same route instead of restarting the floor.
+        public bool TryGetFGridCenterlineDirection(string routeName, Vector3 position,
+            Vector3 target, out Vector3 direction)
+        {
+            direction = Vector3.Zero;
+            if (Playfield.ModelIdentity.Instance != (int)PlayfieldId.FixerGrid ||
+                string.IsNullOrWhiteSpace(routeName)) return false;
+            Route route = _routes.Where(x => x.Playfield == (int)PlayfieldId.FixerGrid &&
+                    string.Equals(x.Name?.Trim(), routeName.Trim(), StringComparison.Ordinal) &&
+                    x.Points.Count >= 2)
+                .OrderByDescending(x => x.RecordedAtUtc).FirstOrDefault();
+            if (route == null) return false;
+            List<Vector3> points = route.Points.Select(V).ToList();
+            float forward = Vector3.Distance(position, points[0]) +
+                Vector3.Distance(target, points[points.Count - 1]);
+            float reverse = Vector3.Distance(position, points[points.Count - 1]) +
+                Vector3.Distance(target, points[0]);
+            if (reverse < forward) points.Reverse();
+
+            float bestDistance = float.MaxValue;
+            Vector3 best = Vector3.Zero;
+            int bestSegment = 0;
+            for (int i = 1; i < points.Count; i++)
+            {
+                Vector3 leg = points[i] - points[i - 1]; leg.Y = 0;
+                float squared = Vector3.Dot(leg, leg);
+                if (squared < 0.01f) continue;
+                float amount = Math.Max(0f, Math.Min(1f,
+                    Vector3.Dot(position - points[i - 1], leg) / squared));
+                Vector3 projection = points[i - 1] + leg * amount;
+                projection.Y = position.Y;
+                float distance = LocalRoutePlanner.HorizontalDistance(position, projection);
+                if (distance >= bestDistance) continue;
+                bestDistance = distance;
+                best = projection;
+                bestSegment = i;
+            }
+            Vector3 correction = best - position; correction.Y = 0;
+            // Already close to the skeleton: aim along it, past the nearest
+            // sample. This is the useful direction at lift and exit bottlenecks.
+            if (correction.Magnitude < 0.55f)
+            {
+                int ahead = Math.Min(points.Count - 1, bestSegment + 2);
+                correction = points[ahead] - position; correction.Y = 0;
+            }
+            if (correction.Magnitude < 0.1f) return false;
+            direction = correction.Normalize();
+            return true;
+        }
+
         public bool TryNavigate(string routeName, Vector3 target, MovementArbiter movement,
             MovementOwner owner, float endpointTolerance = 6f)
         {
@@ -263,6 +315,7 @@ namespace RKmission
                 for (int candidate = points.Count - 1; candidate > anchor + 1; candidate--)
                 {
                     if (!RecordedShortcutSafe(points, anchor, candidate) ||
+                        !PreservesFGridAlignmentTurns(points, anchor, candidate) ||
                         !LocalRoutePlanner.SupportedFGridSegment(
                             points[anchor], points[candidate], floorHeight)) continue;
                     next = candidate;
@@ -272,6 +325,24 @@ namespace RKmission
                 anchor = next;
             }
             return simplified;
+        }
+
+        // Keep the deliberate ring-to-radial corner. A shortcut across a sharp
+        // recorded turn is exactly the diagonal corner cutting that strands the
+        // character near FGrid lift and exit platform edges.
+        private static bool PreservesFGridAlignmentTurns(List<Vector3> points,
+            int anchor, int candidate)
+        {
+            for (int i = anchor + 1; i < candidate; i++)
+            {
+                Vector3 before = points[i] - points[i - 1]; before.Y = 0;
+                Vector3 after = points[i + 1] - points[i]; after.Y = 0;
+                if (before.Magnitude < 0.2f || after.Magnitude < 0.2f) continue;
+                float cosine = Vector3.Dot(before.Normalize(), after.Normalize());
+                // 60 degrees or sharper is an intentional alignment point.
+                if (cosine <= 0.5f) return false;
+            }
+            return true;
         }
 
         private void OnUpdate(object sender, float deltaTime)

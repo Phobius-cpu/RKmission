@@ -129,6 +129,7 @@ namespace RKmission
                 raw.AddRange(straight.Take(vertices).Select(ToAO));
                 raw.Add(goal);
                 int repairs = 0;
+                bool subdividedLongLeg = false;
                 int failedSegment = 0;
                 string segmentReason = "supported";
                 for (int repair = 0; repair < 4 &&
@@ -138,6 +139,15 @@ namespace RKmission
                     {
                         LastPath = Rejection(raw, failedSegment, segmentReason, repairs);
                         return false;
+                    }
+                    float failedLength = LocalRoutePlanner.HorizontalDistance(
+                        raw[failedSegment - 1], raw[failedSegment]);
+                    if (failedLength > 12f && !subdividedLongLeg)
+                    {
+                        raw = SubdivideSegment(raw, failedSegment, 6f);
+                        subdividedLongLeg = true;
+                        repair--;
+                        continue;
                     }
                     if (!TryRepairEdge(raw, failedSegment, start.Y, out List<Vector3> repaired,
                         out string repairReason))
@@ -166,6 +176,20 @@ namespace RKmission
                 return true;
             }
             catch (Exception ex) { LastPath = "query failed: " + ex.Message; return false; }
+        }
+
+        private static List<Vector3> SubdivideSegment(List<Vector3> points, int segment,
+            float maximumLegLength)
+        {
+            Vector3 start = points[segment - 1], end = points[segment];
+            int pieces = Math.Max(2, (int)Math.Ceiling(
+                LocalRoutePlanner.HorizontalDistance(start, end) / maximumLegLength));
+            var result = new List<Vector3>(points.Count + pieces - 1);
+            result.AddRange(points.Take(segment));
+            for (int piece = 1; piece < pieces; piece++)
+                result.Add(start + (end - start) * (piece / (float)pieces));
+            result.AddRange(points.Skip(segment));
+            return result;
         }
 
         public bool TryFloorZeroLiftPath(Vector3 start, Vector3 lift,
