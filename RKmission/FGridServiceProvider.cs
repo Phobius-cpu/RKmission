@@ -920,11 +920,35 @@ namespace RKmission
 
         private bool TryRecordedFGridFallback(Vector3 target, int floor, bool portal)
         {
-            string routeName = portal
+            string canonicalRouteName = $"Fgrid Floor {floor}";
+            if (_routes.TryNavigate(canonicalRouteName, target, _movement,
+                MovementOwner.FGridTravel, 6f))
+                return true;
+            string legacyRouteName = portal
                 ? $"fgrid-floor-{floor}-portal-{_exit.Identity.Instance}"
                 : $"fgrid-floor-{floor}-lift";
-            return _routes.TryNavigate(routeName, target, _movement,
+            return _routes.TryNavigate(legacyRouteName, target, _movement,
                 MovementOwner.FGridTravel, 6f);
+        }
+
+        private bool TryPreferredFGridRoute(Vector3 target, int floor, bool portal,
+            out string navigationReason)
+        {
+            if (_routes.TryNavigate($"Fgrid Floor {floor}", target, _movement,
+                MovementOwner.FGridTravel, 6f))
+            {
+                navigationReason = "canonical recorded floor route active";
+                _activeNavSource = "recorded floor route";
+                return true;
+            }
+            if (TryNavigateFGrid(target, portal, out navigationReason))
+                return true;
+            if (TryRecordedFGridFallback(target, floor, portal))
+            {
+                _activeNavSource = "recorded legacy fallback";
+                return true;
+            }
+            return false;
         }
 
         public FGridServiceResult Tick(int targetId, Vector3? missionAnchor = null)
@@ -1164,8 +1188,7 @@ namespace RKmission
                 Vector3 lift = UpLifts[floor];
                 if (Vector3.Distance(DynelManager.LocalPlayer.Position, lift) > 0.8f)
                 {
-                    if (!TryNavigateFGrid(lift, false, out string meshReason) &&
-                        !TryRecordedFGridFallback(lift, floor, false))
+                    if (!TryPreferredFGridRoute(lift, floor, false, out string meshReason))
                     {
                         // The zone loader can publish the playfield before the
                         // optional mesh has finished loading.
@@ -1174,10 +1197,9 @@ namespace RKmission
                         if (HasCompatibleSharpNavArtifact() && SMovementController.NavAgent?.HasPathfinder != true &&
                             DateTime.UtcNow - _started < TimeSpan.FromSeconds(5))
                             return FGridServiceResult.InProgress;
-                        Fail($"No safe FGrid route reaches the floor {floor} lift ({meshReason}). Record a verified walkway with /rkm nav record fgrid-floor-{floor}-lift, then /rkm nav stop.");
+                        Fail($"No safe FGrid route reaches the floor {floor} lift ({meshReason}). Record the canonical walkway with /rkm nav record Fgrid Floor {floor}, then /rkm nav stop.");
                         return FGridServiceResult.Failed;
                     }
-                    else if (_routes.IsPlaying) _activeNavSource = "recorded fallback";
                 }
             }
 
@@ -1216,8 +1238,7 @@ namespace RKmission
                 }
                 if (Vector3.Distance(DynelManager.LocalPlayer.Position, _exit.Position) > 1.5f)
                 {
-                    if (!TryNavigateFGrid(_exit.Position, true, out string meshReason) &&
-                        !TryRecordedFGridFallback(_exit.Position, _route.Floor, true))
+                    if (!TryPreferredFGridRoute(_exit.Position, _route.Floor, true, out string meshReason))
                     {
                         if (_recast.Pending && DateTime.UtcNow - _started < TimeSpan.FromSeconds(60))
                             return FGridServiceResult.InProgress;
@@ -1225,10 +1246,9 @@ namespace RKmission
                             DateTime.UtcNow - _started < TimeSpan.FromSeconds(5))
                             return FGridServiceResult.InProgress;
                         string routeFailure = $"No safe FGrid route reaches portal {_exit.Identity} on floor {_route.Floor} ({meshReason}). " +
-                            $"Record a verified walkway with /rkm nav record fgrid-floor-{_route.Floor}-portal-{_exit.Identity.Instance}, then /rkm nav stop.";
+                            $"Record the canonical walkway with /rkm nav record Fgrid Floor {_route.Floor}, then /rkm nav stop.";
                         return TryNextExit(routeFailure) ? FGridServiceResult.InProgress : FGridServiceResult.Failed;
                     }
-                    else if (_routes.IsPlaying) _activeNavSource = "recorded fallback";
                 }
                 else if (DateTime.UtcNow - _lastUse > TimeSpan.FromSeconds(3))
                 {

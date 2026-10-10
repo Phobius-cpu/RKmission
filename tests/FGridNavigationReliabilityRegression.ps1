@@ -39,11 +39,12 @@ foreach ($required in @(
 Write-Output 'PASS stalled/rejected Recast falls through to bounded SharpNav without blind walking'
 
 foreach ($required in @(
-    'TryRecordedFGridFallback(lift, floor, false)',
-    'TryRecordedFGridFallback(_exit.Position, _route.Floor, true)',
+    'TryPreferredFGridRoute(lift, floor, false',
+    'TryPreferredFGridRoute(_exit.Position, _route.Floor, true',
+    '$"Fgrid Floor {floor}"',
     '$"fgrid-floor-{floor}-lift"',
     '$"fgrid-floor-{floor}-portal-{_exit.Identity.Instance}"',
-    '_routes.TryNavigate(routeName, target')) {
+    '_routes.TryNavigate(legacyRouteName, target')) {
     if (-not $provider.Contains($required)) {
         throw "FGrid named recorded fallback lost required behavior: $required"
     }
@@ -57,4 +58,20 @@ foreach ($required in @(
         throw "Recorded fallback endpoint verification lost required behavior: $required"
     }
 }
-Write-Output 'PASS floor-4 lift and portal fallbacks require the exact named recording plus verified endpoints'
+Write-Output 'PASS canonical floor routes are preferred while legacy named fallbacks retain verified endpoints'
+
+$planner = Get-Content -LiteralPath (Join-Path $root 'RKmission/RubiKaTravelPlanner.cs') -Raw
+if (-not $planner.Contains('current == (int)PlayfieldId.FixerGrid') -or
+    -not $planner.Contains('Normal provider fallback is paused while still inside Fixer Grid.')) {
+    throw 'An internal FGrid failure can still fall through to PlayfieldGraph inside PF 4107.'
+}
+foreach ($required in @(
+    'NormalizeUserRoutes(file.Routes)',
+    '"Fgrid Floor 10a"',
+    'OrderByDescending(x => x.route.RecordedAtUtc)',
+    'ThenByDescending(x => x.index)')) {
+    if (-not $recorder.Contains($required)) {
+        throw "Recorded route canonicalization lost required behavior: $required"
+    }
+}
+Write-Output 'PASS PF 4107 blocks unsafe graph fallback and user routes normalize deterministically'

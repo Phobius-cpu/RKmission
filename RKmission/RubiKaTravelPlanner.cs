@@ -177,6 +177,12 @@ namespace RKmission
                 FGridServiceResult result = _fgrid.Tick(target, missionAnchor);
                 if (result == FGridServiceResult.InProgress) return TravelResult.InProgress;
                 if (result == FGridServiceResult.Succeeded) return TravelResult.Arrived;
+                if (current == (int)PlayfieldId.FixerGrid)
+                {
+                    LastFailure = (_fgrid.LastFailure ?? "FGrid travel failed.") +
+                        " Normal provider fallback is paused while still inside Fixer Grid.";
+                    return TravelResult.Blocked;
+                }
                 if (AdvanceProvider()) return Tick(target, missionAnchor);
                 LastFailure = _fgrid.LastFailure ?? "FGrid travel failed.";
                 return TravelResult.Blocked;

@@ -298,12 +298,42 @@ namespace RKmission
             {
                 if (!File.Exists(_path)) return;
                 RouteFile file = ReadRoutes(_path);
+                bool normalized = NormalizeUserRoutes(file.Routes);
                 foreach (Route route in file.Routes)
                     _routes.RemoveAll(x => x.Playfield == route.Playfield &&
                         string.Equals(x.Name, route.Name, StringComparison.OrdinalIgnoreCase));
                 _routes.AddRange(file.Routes);
+                if (normalized)
+                {
+                    Save();
+                    _say("Normalized recorded navigation routes: duplicate canonical names were resolved and 'Fgrid Floor 10a' was removed.");
+                }
             }
             catch (Exception ex) { _writable = false; _say("Navigation route file could not be read; existing file preserved: " + ex.Message); }
+        }
+
+        // A canonical route name identifies one user route per playfield. Keep the
+        // newest recording deterministically; if timestamps tie, keep the later
+        // file entry. Floor 10a was an accidental duplicate and is retired here so
+        // existing installations are cleaned without touching the valid floor 10.
+        private static bool NormalizeUserRoutes(List<Route> routes)
+        {
+            if (routes == null) return false;
+            int originalCount = routes.Count;
+            List<Route> normalized = routes
+                .Select((route, index) => new { route, index })
+                .Where(x => !string.Equals(x.route.Name?.Trim(), "Fgrid Floor 10a",
+                    StringComparison.OrdinalIgnoreCase))
+                .GroupBy(x => x.route.Playfield.ToString() + "\0" +
+                    (x.route.Name ?? "").Trim(), StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.OrderByDescending(x => x.route.RecordedAtUtc)
+                    .ThenByDescending(x => x.index).First())
+                .OrderBy(x => x.index)
+                .Select(x => x.route).ToList();
+            bool changed = normalized.Count != originalCount;
+            routes.Clear();
+            routes.AddRange(normalized);
+            return changed;
         }
 
         private void LoadBundled(string path)
