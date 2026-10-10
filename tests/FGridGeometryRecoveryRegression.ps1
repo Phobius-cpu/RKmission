@@ -76,6 +76,30 @@ foreach ($required in @(
 Write-Output 'PASS rounded floor approaches retain explicit alignment and unsafe resumes consume attempts 2/3 and 3/3'
 
 foreach ($required in @(
+    'TryPromoteRecoveredLiftAlignment',
+    'settling before post-recovery Alignment Point evaluation',
+    'crossTrack <= 0.70f',
+    'alignmentDistance <= 1.15f',
+    'Vector3.Dot(liftDirection.Normalize(), radialForward) >= 0.85f',
+    'Math.Abs(Vector3.Dot(corridorForward, radialForward)) <= 0.50f',
+    'LocalRoutePlanner.SupportedFGridSegment(player, lift',
+    'post-recovery alignment evaluation after attempt',
+    'recovered position promoted: Alignment Point accepted',
+    'without another Ring Corridor recovery')) {
+    if (-not $provider.Contains($required)) {
+        throw "Post-recovery Alignment Point promotion lost required behavior: $required"
+    }
+}
+$preferred = [regex]::Match($provider,
+    'private bool TryPreferredFGridRoute[\s\S]*?public FGridServiceResult Tick').Value
+$promotion = $preferred.IndexOf('TryPromoteRecoveredLiftAlignment(')
+$forwardRoute = $preferred.IndexOf('_routes.TryNavigate($"Fgrid Floor {floor}"')
+if ($promotion -lt 0 -or $forwardRoute -le $promotion) {
+    throw 'Recovered-position promotion does not run before forward Ring Corridor reacquisition.'
+}
+Write-Output 'PASS a settled recovery evaluates and can promote its current position before another forward anchor or recovery attempt'
+
+foreach ($required in @(
     'RecoverUnsafePostDeparturePlan',
     '_floorDepartureCompletedFloor != floor',
     '_localRecoveryAttempt > 0',
@@ -93,8 +117,6 @@ if ($unsafePostDeparture.Contains('_localRecoveryAttempt++')) {
     throw 'Post-departure dispatch consumes recovery budget before a real attempt starts.'
 }
 Write-Output 'PASS unsafe post-spawn plans enter real Ring Corridor attempt 1/3 without consuming departure as an attempt'
-$preferred = [regex]::Match($provider,
-    'private bool TryPreferredFGridRoute[\s\S]*?public FGridServiceResult Tick').Value
 $preApproach = $preferred.IndexOf('TickLiftPreApproach(')
 $genericRecovery = $preferred.IndexOf('TickLocalRecovery(')
 if ($preApproach -lt 0 -or $genericRecovery -le $preApproach) {

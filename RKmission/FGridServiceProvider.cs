@@ -799,6 +799,65 @@ namespace RKmission
             return true;
         }
 
+        // A confirmed Ring Corridor correction can finish at the commitment corner
+        // itself. Evaluate that settled position before asking the recorded route for
+        // another forward corridor point; otherwise an unsafe continuation needlessly
+        // consumes the remaining bounded-recovery attempts.
+        private bool TryPromoteRecoveredLiftAlignment(Vector3 lift, int floor,
+            out string reason)
+        {
+            reason = "";
+            if (!_localRecoveryAwaitingSafeResume || _localRecoveryAttempt <= 0 ||
+                _localRecoveryActive || _localRecoverySettling) return false;
+
+            Vector3 player = DynelManager.LocalPlayer.Position;
+            string routeName = $"Fgrid Floor {floor}";
+            if (!_routes.TryGetFGridLiftApproachGeometry(routeName, player, lift,
+                out _, out Vector3 recordedAlignment, out Vector3 corridorForward,
+                out Vector3 radialForward, out float crossTrack, out bool onRadialLeg))
+            {
+                _say($"FGrid post-recovery alignment evaluation after attempt {_localRecoveryAttempt}/3: " +
+                    "recorded Ring Corridor/Lift Approach geometry was unavailable; searching for the next safe forward anchor.");
+                return false;
+            }
+
+            float alignmentDistance = LocalRoutePlanner.HorizontalDistance(player,
+                recordedAlignment);
+            Vector3 liftDirection = lift - player; liftDirection.Y = 0;
+            bool centeredAndStable = crossTrack <= 0.70f && !onRadialLeg;
+            bool nearAlignment = alignmentDistance <= 1.15f;
+            bool radialHeading = liftDirection.Magnitude >= 0.1f &&
+                Vector3.Dot(liftDirection.Normalize(), radialForward) >= 0.85f;
+            bool expectedTurn = Math.Abs(Vector3.Dot(corridorForward, radialForward)) <= 0.50f;
+            bool supportedApproach = LocalRoutePlanner.SupportedFGridSegment(player, lift,
+                player.Y, out string supportReason);
+            bool accepted = centeredAndStable && nearAlignment && radialHeading &&
+                expectedTurn && supportedApproach;
+
+            _say($"FGrid post-recovery alignment evaluation after attempt {_localRecoveryAttempt}/3: " +
+                $"cross-track {crossTrack:0.00} m, Alignment Point distance {alignmentDistance:0.00} m, " +
+                $"radial heading {(radialHeading ? "valid" : "invalid")}, approximately 90-degree turn " +
+                $"{(expectedTurn ? "valid" : "invalid")}, straight Lift Approach " +
+                $"{(supportedApproach ? "floor-supported" : supportReason)}.");
+            if (!accepted) return false;
+
+            _movement.Release(MovementOwner.FGridTravel);
+            _routes.StopPlayback();
+            ResetMeshNavigation();
+            _liftApproachTarget = lift;
+            _liftApproachFloor = floor;
+            _liftAlignmentPoint = player;
+            _liftApproachPhase = LiftApproachPhase.RadialCommitted;
+            _radialLastPosition = player;
+            _radialLastProgress = DateTime.UtcNow;
+            _localRecoveryAwaitingSafeResume = false;
+            _say($"FGrid floor {floor} recovered position promoted: Alignment Point accepted after " +
+                $"recovery attempt {_localRecoveryAttempt}/3; turning approximately 90 degrees and " +
+                "committing the straight radial Lift Approach without another Ring Corridor recovery.");
+            reason = "recovered position promoted to the lift Alignment Point";
+            return true;
+        }
+
         // One bounded recovery primitive serves lift arrivals, ring traversal and
         // radial exit approaches. The canonical recording supplies the preferred
         // centreline; supported forward/side/back probes cover floor 0 and unknown
@@ -1304,6 +1363,20 @@ namespace RKmission
                 _routes.StopPlayback();
                 navigationReason = "settling on the Ring Corridor after spawn-pad departure";
                 return true;
+            }
+            if (!portal && _localRecoveryAwaitingSafeResume && !_localRecoveryActive)
+            {
+                if (_localRecoverySettling)
+                {
+                    if (DateTime.UtcNow < _localRecoverySettleUntil)
+                    {
+                        navigationReason = "settling before post-recovery Alignment Point evaluation";
+                        return true;
+                    }
+                    _localRecoverySettling = false;
+                }
+                if (TryPromoteRecoveredLiftAlignment(target, floor, out navigationReason))
+                    return TickCommittedRadialApproach(target, out navigationReason);
             }
             if (!portal && TickLiftPreApproach(target, floor, out navigationReason,
                 out bool preApproachFailed))
