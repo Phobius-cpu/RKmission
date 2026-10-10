@@ -162,6 +162,9 @@ namespace RKmission
         private Vector3 _liftAlignmentPoint;
         private Vector3 _radialLastPosition;
         private DateTime _radialLastProgress;
+        private Vector3? _radialLegTarget;
+        private Vector3 _radialLegOrigin;
+        private int _radialMicroRecoveryAttempts;
 
         public string LastFailure { get; private set; }
         public bool IsConfigured => _services.Count > 0;
@@ -699,6 +702,8 @@ namespace RKmission
             _liftApproachTarget = null;
             _liftAlignmentPoint = Vector3.Zero;
             _radialLastProgress = DateTime.MinValue;
+            _radialLegTarget = null;
+            _radialMicroRecoveryAttempts = 0;
         }
 
         private bool TickLiftPreApproach(Vector3 lift, int floor, out string reason,
@@ -764,7 +769,9 @@ namespace RKmission
                     _liftApproachPhase = LiftApproachPhase.RadialCommitted;
                     _radialLastPosition = player;
                     _radialLastProgress = DateTime.UtcNow;
-                    _say($"FGrid floor {floor} Lift Approach committed at the Alignment Point; turning approximately 90 degrees for one straight radial leg.");
+                    _radialLegTarget = null;
+                    _radialMicroRecoveryAttempts = 0;
+                    _say($"FGrid floor {floor} Lift Approach committed at the Alignment Point; turning approximately 90 degrees for bounded monitored radial legs.");
                     return false;
                 }
                 if (!_routes.TryNavigateFGridCorridorToAlignment(routeName, lift,
@@ -782,23 +789,84 @@ namespace RKmission
             reason = "";
             Vector3 player = DynelManager.LocalPlayer.Position;
             if (LocalRoutePlanner.HorizontalDistance(player, lift) <= 0.8f) return true;
-            if (!LocalRoutePlanner.SupportedFGridSegment(player, lift, player.Y,
-                out string supportReason))
-            { reason = "committed straight radial lift leg lost floor support: " + supportReason; return false; }
+
+            Vector3 radial = lift - _liftAlignmentPoint;
+            radial.Y = 0;
+            if (radial.Magnitude < 0.1f)
+            { reason = "committed radial lift approach has no usable direction"; return false; }
+            radial = radial.Normalize();
+            Vector3 fromAlignment = player - _liftAlignmentPoint;
+            fromAlignment.Y = 0;
+            float radialProgress = Vector3.Dot(fromAlignment, radial);
+            Vector3 radialProjection = _liftAlignmentPoint + radial * radialProgress;
+            radialProjection.Y = player.Y;
+            float crossTrack = LocalRoutePlanner.HorizontalDistance(player, radialProjection);
+            if (crossTrack > 0.70f)
+            {
+                reason = $"committed radial lift approach drifted {crossTrack:0.00} m off the preserved radial line; Ring Corridor recentering remains disabled";
+                return false;
+            }
             if (LocalRoutePlanner.HorizontalDistance(player, _radialLastPosition) > 0.25f)
             {
                 _radialLastPosition = player;
                 _radialLastProgress = DateTime.UtcNow;
             }
-            if (DateTime.UtcNow - _radialLastProgress > TimeSpan.FromSeconds(9))
+
+            if (_radialLegTarget.HasValue)
             {
-                reason = "committed straight radial lift approach stalled; large recentering is disabled after commitment";
-                return false;
+                float commandedDistance = LocalRoutePlanner.HorizontalDistance(
+                    _radialLegOrigin, _radialLegTarget.Value);
+                float actualDistance = Math.Max(0f, Vector3.Dot(player - _radialLegOrigin, radial));
+                bool legComplete = LocalRoutePlanner.HorizontalDistance(player,
+                    _radialLegTarget.Value) <= 0.82f ||
+                    actualDistance >= Math.Max(0.25f, commandedDistance - 0.82f);
+                if (legComplete)
+                {
+                    _movement.Release(MovementOwner.FGridTravel);
+                    _radialLegTarget = null;
+                    _radialMicroRecoveryAttempts = 0;
+                }
+                else if (DateTime.UtcNow - _radialLastProgress <= TimeSpan.FromSeconds(9))
+                {
+                    reason = "advancing on a bounded monitored Lift Approach leg";
+                    return true;
+                }
+                else
+                {
+                    _movement.Release(MovementOwner.FGridTravel);
+                    _radialLegTarget = null;
+                    _radialMicroRecoveryAttempts++;
+                    if (_radialMicroRecoveryAttempts > 2)
+                    {
+                        reason = "committed radial Lift Approach stalled after two line-preserving micro-recovery attempts; Ring Corridor recentering remains disabled";
+                        return false;
+                    }
+                    _radialLastPosition = player;
+                    _radialLastProgress = DateTime.UtcNow;
+                    _say($"FGrid committed Lift Approach stalled; line-preserving radial micro-recovery {_radialMicroRecoveryAttempts}/2 will retry a tiny bounded step without returning to the Ring Corridor.");
+                }
             }
-            if (_movement.Owner != MovementOwner.FGridTravel || !SMovementController.IsNavigating())
-                if (!_movement.SetDestination(MovementOwner.FGridTravel, lift))
-                { reason = "controller rejected the committed straight radial lift leg"; return false; }
-            _activeNavSource = "committed straight radial lift approach";
+
+            float remaining = LocalRoutePlanner.HorizontalDistance(player, lift);
+            float legLength = Math.Min(_radialMicroRecoveryAttempts > 0 ? 1.10f : 1.40f,
+                remaining);
+            Vector3 legTarget = radialProjection + radial * legLength;
+            legTarget.Y = player.Y;
+            bool supported = LocalRoutePlanner.SupportedFGridSegment(player, legTarget,
+                player.Y, out string supportReason);
+            if (!supported)
+                _say($"FGrid bounded Lift Approach leg has a local support rejection ({supportReason}); preserving the accepted Alignment Point and attempting only this {legLength:0.00} m monitored radial step.");
+            _movement.Release(MovementOwner.FGridTravel);
+            if (!_movement.SetDestination(MovementOwner.FGridTravel, legTarget))
+            { reason = "controller rejected a bounded committed radial Lift Approach leg"; return false; }
+            _radialLegOrigin = player;
+            _radialLegTarget = legTarget;
+            _radialLastPosition = player;
+            _radialLastProgress = DateTime.UtcNow;
+            _activeNavSource = "bounded committed radial lift approach";
+            reason = supported
+                ? $"advancing {legLength:0.00} m on a floor-supported monitored Lift Approach leg"
+                : $"cautiously probing {legLength:0.00} m on the preserved radial line after a local support rejection";
             return true;
         }
 
@@ -832,7 +900,7 @@ namespace RKmission
                 bool supportedApproach = LocalRoutePlanner.SupportedFGridSegment(
                     player, lift, player.Y, out string supportReason);
                 bool recordedAccepted = centeredAndStable && nearAlignment &&
-                    radialHeading && expectedTurn && supportedApproach;
+                    radialHeading && expectedTurn;
 
                 _say($"FGrid post-recovery alignment evaluation after attempt {_localRecoveryAttempt}/3: " +
                     $"recorded geometry {(recordedAccepted ? "accepted" : "rejected")}; " +
@@ -872,7 +940,7 @@ namespace RKmission
             bool liveSupported = LocalRoutePlanner.SupportedFGridSegment(player, lift,
                 player.Y, out string liveSupportReason);
             bool liveAccepted = stableRecovery && reasonableDistance &&
-                reasonableRadialTurn && liveSupported;
+                reasonableRadialTurn;
 
             _say($"FGrid post-recovery live-geometry alignment evaluation after attempt {_localRecoveryAttempt}/3: " +
                 $"{(liveAccepted ? "accepted" : "rejected")}; Ring Corridor displacement " +
@@ -897,11 +965,13 @@ namespace RKmission
             _liftApproachPhase = LiftApproachPhase.RadialCommitted;
             _radialLastPosition = player;
             _radialLastProgress = DateTime.UtcNow;
+            _radialLegTarget = null;
+            _radialMicroRecoveryAttempts = 0;
             _localRecoveryAwaitingSafeResume = false;
             _say($"FGrid floor {floor} recovered position promoted: Alignment Point accepted after " +
                 $"recovery attempt {_localRecoveryAttempt}/3 using {geometrySource}; " +
-                "turning approximately 90 degrees and " +
-                "committing the straight radial Lift Approach without another Ring Corridor recovery.");
+                "turning approximately 90 degrees and committing bounded monitored radial " +
+                "Lift Approach legs without another Ring Corridor recovery.");
             reason = "recovered position promoted to the lift Alignment Point";
             return true;
         }
