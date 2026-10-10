@@ -1,5 +1,18 @@
 # RKMission Conversation History
 
+## 2026-10-10 — FGrid navigation reliability follow-up
+
+Starting from GitHub `main` `0583fbcb`, Travel/FGrid now resolves case-insensitive
+`4107.nav` and `4107.Navmesh` candidates for diagnostics and loader settling,
+but uses the live AOSharp pathfinder as the runtime authority. A rejected or
+stalled Recast leg falls through to a complete floor-supported SharpNav corridor,
+then to the exact named floor-lift or portal recording with endpoint and walkway
+verification. Bounded stalls, movement ownership, lift-arrival recovery, and
+the Recast-first hybrid strategy remain intact. Release build and the full
+focused regression suite pass; live floor-4 traversal and destination settlement
+remain **AWAITING AO TEST**. See
+`docs/history/2026-10-10-fgrid-navigation-reliability.md`.
+
 ## 2026-10-03 — door-crossing side movement follow-up
 
 The user reported a remaining small sideways movement after mission doorway

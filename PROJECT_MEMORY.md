@@ -2807,3 +2807,21 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
   FGrid cast-to-receptacle entry, missing-receptacle fallback, and Broken Shores
   command/invite/settled-arrival behavior. See
   `docs/history/2026-10-09-travel-reliability-batch-a.md`.
+
+## 2026-10-10 FGrid navigation reliability
+
+- Travel/FGrid is **AWAITING AO TEST**. The provider no longer rejects SharpNav
+  solely because `NavMeshes/4107.nav` is absent. Diagnostics and loader-settle
+  logic recognize case-insensitive `4107.nav` and `4107.Navmesh` candidates;
+  actual navigation requires AOSharp's loaded pathfinder plus the existing
+  complete corridor, endpoint projection, physical-floor, and wall checks.
+- Fallback order is Recast first, then SharpNav after a Recast rejection or
+  bounded nine-second stall, then the exact recorded
+  `fgrid-floor-{floor}-lift` or `fgrid-floor-{floor}-portal-{identity}` route.
+  Named recordings still require matching endpoints and live supported walkway
+  validation. No arbitrary recording or blind straight-line walking is allowed.
+- Release build completed with zero errors (existing warnings remain), and all
+  focused regression scripts passed, including the new floor-4 ordering and
+  artifact-resolution checks. Live AO must prove floor-4 Recast failure to
+  SharpNav/recorded fallback, continued lift traversal, selected portal exit,
+  and final destination settlement.

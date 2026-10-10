@@ -88,7 +88,7 @@ namespace RKmission
         private readonly string _learnedExitPath;
         private readonly string _runtimeExitPath;
         private readonly string _canonicalExitPath;
-        private readonly string _navMeshPath;
+        private readonly string _navMeshDirectory;
         private readonly Dictionary<int, SurveyExit> _surveyExits = new Dictionary<int, SurveyExit>();
         private readonly string _surveyPath;
         private readonly Dictionary<int, Vector3> _entrancePositions = new Dictionary<int, Vector3>();
@@ -192,7 +192,7 @@ namespace RKmission
             _learnedExitPath = System.IO.Path.Combine(pluginDir, "RKMissionData", "fixer-grid-exits.json");
             _runtimeExitPath = System.IO.Path.Combine(pluginDir, "RKMissionData", "fixer-grid-exits-v2.json");
             _canonicalExitPath = System.IO.Path.Combine(pluginDir, "Data", "FixerGridSurveyExits.json");
-            _navMeshPath = System.IO.Path.Combine(pluginDir, "NavMeshes", $"{(int)PlayfieldId.FixerGrid}.nav");
+            _navMeshDirectory = System.IO.Path.Combine(pluginDir, "NavMeshes");
             _surveyPath = System.IO.Path.Combine(pluginDir, "RKMissionData", "fixer-grid-survey.json");
             Load(System.IO.Path.Combine(pluginDir, "Data", "FGridServices.json"));
             LoadRoutes(pluginDir);
@@ -615,10 +615,11 @@ namespace RKmission
             string recastPath = goal.HasValue && _recast.Available
                 ? RecastPathStatus(player, goal.Value, IsSurveyedPortal(goal.Value, floor))
                 : goal.HasValue ? "not queried (mesh unavailable)" : "no active lift/portal target";
-            string sharp = !File.Exists(_navMeshPath) ? "missing" :
-                SMovementController.NavAgent?.HasPathfinder == true ? "loaded" : "file present, pathfinder unavailable";
+            string artifact = DescribeSharpNavArtifact();
+            string sharp = SMovementController.NavAgent?.HasPathfinder == true ?
+                $"loaded ({artifact})" : $"pathfinder unavailable ({artifact})";
             string sharpPath = "not queried";
-            if (goal.HasValue && sharp == "loaded")
+            if (goal.HasValue && SMovementController.NavAgent?.HasPathfinder == true)
                 try { sharpPath = LocalRoutePlanner.TryFGridGroundCost(player, goal.Value, out float cost)
                     ? $"valid {cost:0.0} m" : "no complete supported corridor"; }
                 catch (Exception ex) { sharpPath = "query failed: " + ex.Message; }
@@ -838,9 +839,11 @@ namespace RKmission
             if (_routes.IsRecording) { reason = "nav recorder is active"; return false; }
             if (TryNavigateRecast(target, portal, out string recastReason)) return true;
             reason = "Recast: " + recastReason;
-            if (!File.Exists(_navMeshPath)) { reason += "; NavMeshes/4107.nav is missing"; return false; }
             if (SMovementController.NavAgent?.HasPathfinder != true)
-            { reason = "4107.nav is not loaded by AO#"; return false; }
+            {
+                reason += $"; SharpNav pathfinder unavailable ({DescribeSharpNavArtifact()})";
+                return false;
+            }
             Vector3 player = DynelManager.LocalPlayer.Position;
             if (_meshRejectedDestination.HasValue && Vector3.Distance(_meshRejectedDestination.Value, target) < 0.5f)
             { reason = "mesh movement to this target previously stopped"; return false; }
@@ -884,6 +887,44 @@ namespace RKmission
                 return true;
             }
             catch (Exception ex) { reason = "mesh query failed: " + ex.Message; return false; }
+        }
+
+        private string DescribeSharpNavArtifact()
+        {
+            try
+            {
+                string match = CompatibleSharpNavArtifact();
+                return match == null ? "no compatible .nav/.Navmesh artifact found" :
+                    $"artifact {System.IO.Path.GetFileName(match)} present";
+            }
+            catch (Exception ex) { return "artifact scan failed: " + ex.Message; }
+        }
+
+        private bool HasCompatibleSharpNavArtifact()
+        {
+            try { return CompatibleSharpNavArtifact() != null; }
+            catch { return false; }
+        }
+
+        private string CompatibleSharpNavArtifact()
+        {
+            if (!Directory.Exists(_navMeshDirectory)) return null;
+            string prefix = ((int)PlayfieldId.FixerGrid).ToString();
+            return Directory.EnumerateFiles(_navMeshDirectory)
+                .FirstOrDefault(path =>
+                    string.Equals(System.IO.Path.GetFileNameWithoutExtension(path), prefix,
+                        StringComparison.OrdinalIgnoreCase) &&
+                    (string.Equals(System.IO.Path.GetExtension(path), ".nav", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(System.IO.Path.GetExtension(path), ".navmesh", StringComparison.OrdinalIgnoreCase)));
+        }
+
+        private bool TryRecordedFGridFallback(Vector3 target, int floor, bool portal)
+        {
+            string routeName = portal
+                ? $"fgrid-floor-{floor}-portal-{_exit.Identity.Instance}"
+                : $"fgrid-floor-{floor}-lift";
+            return _routes.TryNavigate(routeName, target, _movement,
+                MovementOwner.FGridTravel, 6f);
         }
 
         public FGridServiceResult Tick(int targetId, Vector3? missionAnchor = null)
@@ -1124,13 +1165,13 @@ namespace RKmission
                 if (Vector3.Distance(DynelManager.LocalPlayer.Position, lift) > 0.8f)
                 {
                     if (!TryNavigateFGrid(lift, false, out string meshReason) &&
-                        !_routes.TryNavigate(lift, _movement, MovementOwner.FGridTravel))
+                        !TryRecordedFGridFallback(lift, floor, false))
                     {
                         // The zone loader can publish the playfield before the
                         // optional mesh has finished loading.
                         if (_recast.Pending && DateTime.UtcNow - _started < TimeSpan.FromSeconds(60))
                             return FGridServiceResult.InProgress;
-                        if (File.Exists(_navMeshPath) && SMovementController.NavAgent?.HasPathfinder != true &&
+                        if (HasCompatibleSharpNavArtifact() && SMovementController.NavAgent?.HasPathfinder != true &&
                             DateTime.UtcNow - _started < TimeSpan.FromSeconds(5))
                             return FGridServiceResult.InProgress;
                         Fail($"No safe FGrid route reaches the floor {floor} lift ({meshReason}). Record a verified walkway with /rkm nav record fgrid-floor-{floor}-lift, then /rkm nav stop.");
@@ -1176,11 +1217,11 @@ namespace RKmission
                 if (Vector3.Distance(DynelManager.LocalPlayer.Position, _exit.Position) > 1.5f)
                 {
                     if (!TryNavigateFGrid(_exit.Position, true, out string meshReason) &&
-                        !_routes.TryNavigate(_exit.Position, _movement, MovementOwner.FGridTravel))
+                        !TryRecordedFGridFallback(_exit.Position, _route.Floor, true))
                     {
                         if (_recast.Pending && DateTime.UtcNow - _started < TimeSpan.FromSeconds(60))
                             return FGridServiceResult.InProgress;
-                        if (File.Exists(_navMeshPath) && SMovementController.NavAgent?.HasPathfinder != true &&
+                        if (HasCompatibleSharpNavArtifact() && SMovementController.NavAgent?.HasPathfinder != true &&
                             DateTime.UtcNow - _started < TimeSpan.FromSeconds(5))
                             return FGridServiceResult.InProgress;
                         string routeFailure = $"No safe FGrid route reaches portal {_exit.Identity} on floor {_route.Floor} ({meshReason}). " +

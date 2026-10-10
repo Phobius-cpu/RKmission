@@ -95,15 +95,24 @@ namespace RKmission
         }
 
         public bool TryNavigate(Vector3 target, MovementArbiter movement, MovementOwner owner, float endpointTolerance = 6f)
+            => TryNavigate(null, target, movement, owner, endpointTolerance);
+
+        public bool TryNavigate(string routeName, Vector3 target, MovementArbiter movement,
+            MovementOwner owner, float endpointTolerance = 6f)
         {
             var player = DynelManager.LocalPlayer;
             if (player == null || IsRecording || Game.IsZoning) return false;
             if (_playing == null || _playing.Playfield != Playfield.ModelIdentity.Instance ||
+                (!string.IsNullOrWhiteSpace(routeName) &&
+                 !string.Equals(_playing.Name, routeName, StringComparison.OrdinalIgnoreCase)) ||
                 _playPoints == null || Vector3.Distance(_playPoints[_playPoints.Count - 1], target) > endpointTolerance)
             {
                 StopPlayback();
                 Route best = null; bool reverse = false; float bestCost = float.MaxValue;
-                foreach (Route route in _routes.Where(x => x.Playfield == Playfield.ModelIdentity.Instance && x.Points.Count >= 2))
+                foreach (Route route in _routes.Where(x =>
+                    x.Playfield == Playfield.ModelIdentity.Instance && x.Points.Count >= 2 &&
+                    (string.IsNullOrWhiteSpace(routeName) ||
+                     string.Equals(x.Name, routeName, StringComparison.OrdinalIgnoreCase))))
                 {
                     Vector3 first = V(route.Points[0]), last = V(route.Points[route.Points.Count - 1]);
                     float forward = Vector3.Distance(player.Position, first) + Vector3.Distance(target, last);
