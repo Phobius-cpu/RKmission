@@ -180,6 +180,122 @@ namespace RKmission
             return true;
         }
 
+        // Finds the last deliberate sharp turn in the oriented floor recording.
+        // That point is the boundary between circular-corridor travel and the
+        // straight radial leg to a lift. Callers can stabilize on the corridor
+        // and travel to this point without prematurely submitting the lift itself.
+        public bool TryGetFGridLiftApproachGeometry(string routeName, Vector3 position,
+            Vector3 lift, out Vector3 corridorProjection, out Vector3 alignmentPoint,
+            out Vector3 corridorForward, out Vector3 radialForward, out float crossTrack,
+            out bool onRadialLeg)
+        {
+            corridorProjection = alignmentPoint = corridorForward = radialForward = Vector3.Zero;
+            crossTrack = float.MaxValue;
+            onRadialLeg = false;
+            if (Playfield.ModelIdentity.Instance != (int)PlayfieldId.FixerGrid ||
+                string.IsNullOrWhiteSpace(routeName)) return false;
+            Route route = _routes.Where(x => x.Playfield == (int)PlayfieldId.FixerGrid &&
+                    string.Equals(x.Name?.Trim(), routeName.Trim(), StringComparison.Ordinal) &&
+                    x.Points.Count >= 3)
+                .OrderByDescending(x => x.RecordedAtUtc).FirstOrDefault();
+            if (route == null) return false;
+            List<Vector3> points = route.Points.Select(V).ToList();
+            if (Vector3.Distance(lift, points[0]) < Vector3.Distance(lift, points[points.Count - 1]))
+                points.Reverse();
+
+            int turn = -1;
+            for (int i = 1; i < points.Count - 1; i++)
+            {
+                Vector3 before = points[i] - points[i - 1]; before.Y = 0;
+                Vector3 after = points[i + 1] - points[i]; after.Y = 0;
+                if (before.Magnitude >= 0.2f && after.Magnitude >= 0.2f &&
+                    Vector3.Dot(before.Normalize(), after.Normalize()) <= 0.5f)
+                    turn = i;
+            }
+            if (turn < 1) return false;
+            alignmentPoint = points[turn]; alignmentPoint.Y = position.Y;
+            corridorForward = points[turn] - points[turn - 1]; corridorForward.Y = 0;
+            radialForward = points[turn + 1] - points[turn]; radialForward.Y = 0;
+            if (corridorForward.Magnitude < 0.1f || radialForward.Magnitude < 0.1f) return false;
+            corridorForward = corridorForward.Normalize();
+            radialForward = radialForward.Normalize();
+
+            float bestCorridor = float.MaxValue;
+            for (int i = 1; i <= turn; i++)
+            {
+                Vector3 projection = ProjectHorizontal(position, points[i - 1], points[i]);
+                float distance = LocalRoutePlanner.HorizontalDistance(position, projection);
+                if (distance >= bestCorridor) continue;
+                bestCorridor = distance;
+                corridorProjection = projection;
+            }
+            float bestRadial = float.MaxValue;
+            for (int i = turn + 1; i < points.Count; i++)
+                bestRadial = Math.Min(bestRadial, LocalRoutePlanner.HorizontalDistance(position,
+                    ProjectHorizontal(position, points[i - 1], points[i])));
+            crossTrack = bestCorridor;
+            onRadialLeg = bestRadial + 0.15f < bestCorridor &&
+                Vector3.Dot(position - alignmentPoint, radialForward) > 0.15f;
+            return bestCorridor < float.MaxValue;
+        }
+
+        public bool TryNavigateFGridCorridorToAlignment(string routeName, Vector3 lift,
+            Vector3 alignmentPoint, MovementArbiter movement, MovementOwner owner)
+        {
+            var player = DynelManager.LocalPlayer;
+            if (player == null || IsRecording || Game.IsZoning) return false;
+            Route route = _routes.Where(x => x.Playfield == (int)PlayfieldId.FixerGrid &&
+                    string.Equals(x.Name?.Trim(), routeName.Trim(), StringComparison.Ordinal) &&
+                    x.Points.Count >= 3)
+                .OrderByDescending(x => x.RecordedAtUtc).FirstOrDefault();
+            if (route == null) return false;
+            List<Vector3> points = route.Points.Select(V).ToList();
+            if (Vector3.Distance(lift, points[0]) < Vector3.Distance(lift, points[points.Count - 1]))
+                points.Reverse();
+            int alignmentIndex = points.FindLastIndex(x =>
+                LocalRoutePlanner.HorizontalDistance(x, alignmentPoint) <= 0.35f);
+            if (alignmentIndex < 1) return false;
+            points = ReacquireForwardFGridPath(points.Take(alignmentIndex + 1).ToList(),
+                player.Position);
+            if (points.Count < 2 ||
+                !LocalRoutePlanner.SupportedFGridSegment(player.Position, points[0], player.Position.Y) ||
+                !Enumerable.Range(1, points.Count - 1).All(i =>
+                    LocalRoutePlanner.SupportedFGridSegment(points[i - 1], points[i], player.Position.Y)))
+                return false;
+            points = SimplifySupportedFGridPath(points, player.Position.Y);
+            if (_playing != route || _playPoints == null ||
+                LocalRoutePlanner.HorizontalDistance(_playPoints[_playPoints.Count - 1], alignmentPoint) > 0.5f)
+            {
+                StopPlayback();
+                _playing = route;
+                _playPoints = points;
+                _playIndex = 0;
+                _say($"Using recorded FGrid corridor '{route.Name}' to the lift alignment point; " +
+                    $"radial approach remains uncommitted ({_playPoints.Count - 1} supported leg(s)).");
+            }
+            while (_playIndex < _playPoints.Count - 1 &&
+                Vector3.Distance(player.Position, _playPoints[_playIndex]) <= 1.0f) _playIndex++;
+            if (LocalRoutePlanner.HorizontalDistance(player.Position, alignmentPoint) <= 0.65f)
+            { StopPlayback(); return true; }
+            Vector3 waypoint = _playPoints[Math.Min(_playIndex, _playPoints.Count - 1)];
+            if (!LocalRoutePlanner.SupportedFGridSegment(player.Position, waypoint, player.Position.Y))
+            { StopPlayback(); return false; }
+            if (movement.Owner != owner || !SMovementController.IsNavigating())
+                if (!movement.SetDestination(owner, waypoint)) { StopPlayback(); return false; }
+            return true;
+        }
+
+        private static Vector3 ProjectHorizontal(Vector3 position, Vector3 start, Vector3 end)
+        {
+            Vector3 leg = end - start; leg.Y = 0;
+            float squared = Vector3.Dot(leg, leg);
+            float amount = squared < 0.01f ? 0f : Math.Max(0f, Math.Min(1f,
+                Vector3.Dot(position - start, leg) / squared));
+            Vector3 projection = start + leg * amount;
+            projection.Y = position.Y;
+            return projection;
+        }
+
         public bool TryNavigate(string routeName, Vector3 target, MovementArbiter movement,
             MovementOwner owner, float endpointTolerance = 6f)
         {

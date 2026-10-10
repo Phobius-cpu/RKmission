@@ -32,6 +32,30 @@ foreach ($required in @(
 }
 Write-Output 'PASS lift/exit recovery is smaller, forward-biased and resumes ahead on the same radial approach'
 
+foreach ($required in @(
+    'LiftApproachPhase',
+    'CorridorStabilizing, CorridorTransit, RadialCommitted',
+    'TickLiftPreApproach(target, floor',
+    'TryGetFGridLiftApproachGeometry',
+    'TryNavigateFGridCorridorToAlignment',
+    'corridor stabilization complete',
+    'radial approach remains uncommitted',
+    'lift approach committed at the corridor alignment point',
+    'TickCommittedRadialApproach(target',
+    'large recentering is disabled after commitment')) {
+    if (-not ($provider + $recorder).Contains($required)) {
+        throw "FGrid pre-approach commitment boundary lost required behavior: $required"
+    }
+}
+$preferred = [regex]::Match($provider,
+    'private bool TryPreferredFGridRoute[\s\S]*?public FGridServiceResult Tick').Value
+$preApproach = $preferred.IndexOf('TickLiftPreApproach(')
+$genericRecovery = $preferred.IndexOf('TickLocalRecovery(')
+if ($preApproach -lt 0 -or $genericRecovery -le $preApproach) {
+    throw 'Generic recovery can run before the explicit corridor pre-approach phase.'
+}
+Write-Output 'PASS floors 3/5 use corridor stabilization, alignment-point transit, then a straight committed radial lift leg'
+
 if (-not $recorder.Contains('StringComparison.Ordinal') -or
     -not $recorder.Contains('PreservesFGridAlignmentTurns') -or
     -not $recorder.Contains('cosine <= 0.5f')) {

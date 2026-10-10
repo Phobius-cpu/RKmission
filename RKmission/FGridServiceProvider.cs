@@ -25,6 +25,10 @@ namespace RKmission
             Idle, ApproachTerminal, Lookup, Invite, Receptacle, Entering,
             Ascending, Exit, Settling, Done, Failed
         }
+        private enum LiftApproachPhase
+        {
+            None, CorridorStabilizing, CorridorTransit, RadialCommitted
+        }
 
         private sealed class ServiceFile
         {
@@ -145,6 +149,12 @@ namespace RKmission
         private Vector3? _localRecoveryRouteTarget, _localRecoveryExhaustedTarget;
         private Vector3 _localProgressPosition;
         private DateTime _localRecoveryStarted, _localLastProgress;
+        private LiftApproachPhase _liftApproachPhase;
+        private int _liftApproachFloor = -1;
+        private Vector3? _liftApproachTarget;
+        private Vector3 _liftAlignmentPoint;
+        private Vector3 _radialLastPosition;
+        private DateTime _radialLastProgress;
 
         public string LastFailure { get; private set; }
         public bool IsConfigured => _services.Count > 0;
@@ -671,6 +681,116 @@ namespace RKmission
             if (clearExhaustion) _localRecoveryPreviousDirection = Vector3.Zero;
         }
 
+        private void ResetLiftApproach()
+        {
+            _liftApproachPhase = LiftApproachPhase.None;
+            _liftApproachFloor = -1;
+            _liftApproachTarget = null;
+            _liftAlignmentPoint = Vector3.Zero;
+            _radialLastProgress = DateTime.MinValue;
+        }
+
+        private bool TickLiftPreApproach(Vector3 lift, int floor, out string reason,
+            out bool failed)
+        {
+            reason = "";
+            failed = false;
+            if (floor == 0) return false; // Floor zero intentionally has one direct supported leg.
+            Vector3 player = DynelManager.LocalPlayer.Position;
+            string routeName = $"Fgrid Floor {floor}";
+            if (!_routes.TryGetFGridLiftApproachGeometry(routeName, player, lift,
+                out Vector3 corridorProjection, out Vector3 alignmentPoint,
+                out Vector3 corridorForward, out Vector3 radialForward,
+                out float crossTrack, out bool onRadialLeg)) return false;
+
+            if (!_liftApproachTarget.HasValue || _liftApproachFloor != floor ||
+                Vector3.Distance(_liftApproachTarget.Value, lift) > 0.5f)
+            {
+                ResetLiftApproach();
+                _liftApproachTarget = lift;
+                _liftApproachFloor = floor;
+                _liftAlignmentPoint = alignmentPoint;
+                _liftApproachPhase = LiftApproachPhase.CorridorStabilizing;
+                _say($"FGrid floor {floor} lift pre-approach: stabilizing on the circular corridor before the alignment turn.");
+            }
+
+            if (_liftApproachPhase == LiftApproachPhase.RadialCommitted) return false;
+            float alignmentDistance = LocalRoutePlanner.HorizontalDistance(player, alignmentPoint);
+            bool corridorAligned = crossTrack <= 0.55f && !onRadialLeg;
+            if (_liftApproachPhase == LiftApproachPhase.CorridorStabilizing)
+            {
+                if (!corridorAligned)
+                {
+                    Vector3 correction = corridorProjection + corridorForward * 0.9f;
+                    correction.Y = player.Y;
+                    // Correction stays on the corridor side of the commitment point.
+                    Vector3 toAlignment = alignmentPoint - correction; toAlignment.Y = 0;
+                    if (Vector3.Dot(toAlignment, corridorForward) < 0f)
+                        correction = alignmentPoint - corridorForward * 0.65f;
+                    if (!LocalRoutePlanner.SupportedFGridSegment(player, correction, player.Y))
+                    { reason = "corridor stabilization offset was not floor-supported"; failed = true; return true; }
+                    _routes.StopPlayback();
+                    if (_movement.Owner != MovementOwner.FGridTravel ||
+                        !SMovementController.IsNavigating())
+                        if (!_movement.SetDestination(MovementOwner.FGridTravel, correction))
+                        { reason = "controller rejected corridor stabilization"; failed = true; return true; }
+                    _activeNavSource = "FGrid corridor stabilization";
+                    reason = $"correcting {crossTrack:0.00} m cross-track error before lift approach";
+                    return true;
+                }
+                _movement.Release(MovementOwner.FGridTravel);
+                _routes.StopPlayback();
+                _liftApproachPhase = LiftApproachPhase.CorridorTransit;
+                _say($"FGrid floor {floor} corridor stabilization complete; continuing to the lift alignment point before committing the radial leg.");
+            }
+
+            if (_liftApproachPhase == LiftApproachPhase.CorridorTransit)
+            {
+                if (alignmentDistance <= 0.65f && crossTrack <= 0.7f)
+                {
+                    _movement.Release(MovementOwner.FGridTravel);
+                    _routes.StopPlayback();
+                    _liftApproachPhase = LiftApproachPhase.RadialCommitted;
+                    _radialLastPosition = player;
+                    _radialLastProgress = DateTime.UtcNow;
+                    _say($"FGrid floor {floor} lift approach committed at the corridor alignment point; turning approximately 90 degrees for one straight radial leg.");
+                    return false;
+                }
+                if (!_routes.TryNavigateFGridCorridorToAlignment(routeName, lift,
+                    _liftAlignmentPoint, _movement, MovementOwner.FGridTravel))
+                { reason = "recorded corridor could not reach the lift alignment point"; failed = true; return true; }
+                _activeNavSource = "recorded corridor pre-approach";
+                reason = "travelling along the corridor to the lift alignment point";
+                return true;
+            }
+            return false;
+        }
+
+        private bool TickCommittedRadialApproach(Vector3 lift, out string reason)
+        {
+            reason = "";
+            Vector3 player = DynelManager.LocalPlayer.Position;
+            if (LocalRoutePlanner.HorizontalDistance(player, lift) <= 0.8f) return true;
+            if (!LocalRoutePlanner.SupportedFGridSegment(player, lift, player.Y,
+                out string supportReason))
+            { reason = "committed straight radial lift leg lost floor support: " + supportReason; return false; }
+            if (LocalRoutePlanner.HorizontalDistance(player, _radialLastPosition) > 0.25f)
+            {
+                _radialLastPosition = player;
+                _radialLastProgress = DateTime.UtcNow;
+            }
+            if (DateTime.UtcNow - _radialLastProgress > TimeSpan.FromSeconds(9))
+            {
+                reason = "committed straight radial lift approach stalled; large recentering is disabled after commitment";
+                return false;
+            }
+            if (_movement.Owner != MovementOwner.FGridTravel || !SMovementController.IsNavigating())
+                if (!_movement.SetDestination(MovementOwner.FGridTravel, lift))
+                { reason = "controller rejected the committed straight radial lift leg"; return false; }
+            _activeNavSource = "committed straight radial lift approach";
+            return true;
+        }
+
         // One bounded recovery primitive serves lift arrivals, ring traversal and
         // radial exit approaches. The canonical recording supplies the preferred
         // centreline; supported forward/side/back probes cover floor 0 and unknown
@@ -1078,6 +1198,10 @@ namespace RKmission
         private bool TryPreferredFGridRoute(Vector3 target, int floor, bool portal,
             out string navigationReason)
         {
+            if (!portal && TickLiftPreApproach(target, floor, out navigationReason,
+                out bool preApproachFailed)) return !preApproachFailed;
+            if (!portal && _liftApproachPhase == LiftApproachPhase.RadialCommitted)
+                return TickCommittedRadialApproach(target, out navigationReason);
             if (!TickLocalRecovery(target, floor, out navigationReason)) return false;
             if (_localRecoveryActive) return true;
             if (_routes.TryNavigate($"Fgrid Floor {floor}", target, _movement,
@@ -1295,6 +1419,7 @@ namespace RKmission
                         DateTime.UtcNow - _floorArrivedAt < TimeSpan.FromMilliseconds(650);
                     ResetMeshNavigation();
                     ResetLocalRecovery();
+                    ResetLiftApproach();
                     // Halt both controller navigation and any direct movement
                     // input before the new lift arrival is allowed to settle.
                     StopFGridArrivalMotion();
@@ -1755,6 +1880,7 @@ namespace RKmission
             LastFailure = null;
             _movement.Release(MovementOwner.FGridTravel);
             ResetMeshNavigation();
+            ResetLiftApproach();
             _routes.StopPlayback();
             if (_joinedByProvider && Team.IsInTeam)
                 Team.Leave();
@@ -1771,6 +1897,7 @@ namespace RKmission
                 _backoffUntil = DateTime.UtcNow.AddMinutes(2);
             _movement.Release(MovementOwner.FGridTravel);
             ResetMeshNavigation();
+            ResetLiftApproach();
             _routes.StopPlayback();
             if (_joinedByProvider && Team.IsInTeam)
                 Team.Leave();
@@ -1805,6 +1932,7 @@ namespace RKmission
             LastFailure = null;
             _movement.Release(MovementOwner.FGridTravel);
             ResetMeshNavigation();
+            ResetLiftApproach();
             _routes.StopPlayback();
         }
 
