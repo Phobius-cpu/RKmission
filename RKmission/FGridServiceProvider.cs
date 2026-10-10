@@ -147,6 +147,7 @@ namespace RKmission
         private Vector3 _localRecoveryOrigin, _localRecoveryDirection;
         private Vector3 _localRecoveryPreviousDirection;
         private Vector3? _localRecoveryRouteTarget, _localRecoveryExhaustedTarget;
+        private bool _localRecoveryAwaitingSafeResume, _localRecoveryLastMovedAway;
         private Vector3 _localProgressPosition;
         private DateTime _localRecoveryStarted, _localLastProgress;
         private LiftApproachPhase _liftApproachPhase;
@@ -679,6 +680,8 @@ namespace RKmission
             _localLastProgress = DateTime.MinValue;
             if (clearExhaustion) _localRecoveryExhaustedTarget = null;
             if (clearExhaustion) _localRecoveryPreviousDirection = Vector3.Zero;
+            _localRecoveryAwaitingSafeResume = false;
+            _localRecoveryLastMovedAway = false;
         }
 
         private void ResetLiftApproach()
@@ -817,13 +820,15 @@ namespace RKmission
                     float after = LocalRoutePlanner.HorizontalDistance(player, intendedTarget);
                     if (after + 0.1f < before)
                         _localRecoveryPreviousDirection = Vector3.Zero;
+                    _localRecoveryLastMovedAway = after > before + 0.1f;
                     _movement.Release(MovementOwner.FGridTravel);
                     _routes.StopPlayback();
                     ResetMeshNavigation();
                     _localRecoveryActive = false;
+                    _localRecoveryAwaitingSafeResume = true;
                     _localLastProgress = DateTime.UtcNow;
                     _localProgressPosition = player;
-                    _say($"FGrid local recovery displaced {moved.Magnitude:0.00} m on attempt {_localRecoveryAttempt}; replanning the same route from the settled position.");
+                    _say($"FGrid local recovery displaced {moved.Magnitude:0.00} m on attempt {_localRecoveryAttempt}; reacquiring the nearest forward point on the same corridor/approach skeleton.");
                     return true;
                 }
                 if (DateTime.UtcNow - _localRecoveryStarted <= TimeSpan.FromSeconds(2.5))
@@ -895,6 +900,9 @@ namespace RKmission
                     Vector3.Dot(direction, _localRecoveryPreviousDirection) > 0.8f) continue;
                 if (nearApproach && Vector3.Dot(direction, routeForward) < 0.2f) continue;
                 Vector3 offset = player + direction * recoveryDistance; offset.Y = player.Y;
+                if (_localRecoveryLastMovedAway &&
+                    LocalRoutePlanner.HorizontalDistance(offset, intendedTarget) >
+                    LocalRoutePlanner.HorizontalDistance(player, intendedTarget) + 0.1f) continue;
                 if (!LocalRoutePlanner.SupportedFGridSegment(player, offset, player.Y)) continue;
                 _movement.Release(MovementOwner.FGridTravel);
                 _routes.StopPlayback();
@@ -916,6 +924,25 @@ namespace RKmission
             _localRecoveryExhaustedTarget = intendedTarget;
             reason = "three bounded local recovery attempts found no supported offset";
             return false;
+        }
+
+        private bool ContinueRecoveryAfterUnsafePlan(Vector3 target, int floor,
+            string unsafeReason, out string reason)
+        {
+            _movement.Release(MovementOwner.FGridTravel);
+            _routes.StopPlayback();
+            ResetMeshNavigation();
+            _localRecoveryAwaitingSafeResume = false;
+            if (_localRecoveryAttempt >= 3)
+            {
+                _localRecoveryExhaustedTarget = target;
+                reason = $"{unsafeReason}; all three bounded local recovery attempts were consumed";
+                return false;
+            }
+            _say($"FGrid post-recovery route remained unsafe after attempt {_localRecoveryAttempt}/3 " +
+                $"({unsafeReason}); preserving the recovery budget and selecting the next safe forward corridor/alignment target.");
+            return StartLocalRecoveryAttempt(DynelManager.LocalPlayer.Position, target, floor,
+                out reason);
         }
 
         private bool TickFloorDeparture(Vector3 player)
@@ -1199,7 +1226,18 @@ namespace RKmission
             out string navigationReason)
         {
             if (!portal && TickLiftPreApproach(target, floor, out navigationReason,
-                out bool preApproachFailed)) return !preApproachFailed;
+                out bool preApproachFailed))
+            {
+                if (!preApproachFailed)
+                {
+                    _localRecoveryAwaitingSafeResume = false;
+                    return true;
+                }
+                if (_localRecoveryAwaitingSafeResume)
+                    return ContinueRecoveryAfterUnsafePlan(target, floor, navigationReason,
+                        out navigationReason);
+                return false;
+            }
             if (!portal && _liftApproachPhase == LiftApproachPhase.RadialCommitted)
                 return TickCommittedRadialApproach(target, out navigationReason);
             if (!TickLocalRecovery(target, floor, out navigationReason)) return false;
@@ -1207,14 +1245,26 @@ namespace RKmission
             if (_routes.TryNavigate($"Fgrid Floor {floor}", target, _movement,
                 MovementOwner.FGridTravel, 6f))
             {
+                _localRecoveryAwaitingSafeResume = false;
                 navigationReason = "canonical recorded floor route active";
                 _activeNavSource = "recorded floor route";
                 return true;
             }
+            // A successful correction must resume on the recorded skeleton. Do
+            // not hand the lift target straight back to Recast: that recreates
+            // the unsupported diagonal which triggered recovery in the first place.
+            if (_localRecoveryAwaitingSafeResume)
+                return ContinueRecoveryAfterUnsafePlan(target, floor,
+                    "recorded forward corridor/alignment continuation was unsafe",
+                    out navigationReason);
             if (TryNavigateFGrid(target, portal, out navigationReason))
+            {
+                _localRecoveryAwaitingSafeResume = false;
                 return true;
+            }
             if (TryRecordedFGridFallback(target, floor, portal))
             {
+                _localRecoveryAwaitingSafeResume = false;
                 _activeNavSource = "recorded legacy fallback";
                 return true;
             }

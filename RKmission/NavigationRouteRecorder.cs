@@ -203,15 +203,7 @@ namespace RKmission
             if (Vector3.Distance(lift, points[0]) < Vector3.Distance(lift, points[points.Count - 1]))
                 points.Reverse();
 
-            int turn = -1;
-            for (int i = 1; i < points.Count - 1; i++)
-            {
-                Vector3 before = points[i] - points[i - 1]; before.Y = 0;
-                Vector3 after = points[i + 1] - points[i]; after.Y = 0;
-                if (before.Magnitude >= 0.2f && after.Magnitude >= 0.2f &&
-                    Vector3.Dot(before.Normalize(), after.Normalize()) <= 0.5f)
-                    turn = i;
-            }
+            int turn = FindFGridLiftAlignmentIndex(points, lift);
             if (turn < 1) return false;
             alignmentPoint = points[turn]; alignmentPoint.Y = position.Y;
             corridorForward = points[turn] - points[turn - 1]; corridorForward.Y = 0;
@@ -237,6 +229,46 @@ namespace RKmission
             onRadialLeg = bestRadial + 0.15f < bestCorridor &&
                 Vector3.Dot(position - alignmentPoint, radialForward) > 0.15f;
             return bestCorridor < float.MaxValue;
+        }
+
+        // Recordings sample a manually walked turn. On some floors the nominal
+        // 90-degree corner is spread over several short samples, so requiring one
+        // sample pair to contain the whole turn misses a valid approach. Walk the
+        // lift-facing suffix backwards and keep the earliest point whose remaining
+        // samples form the straight radial leg. The preceding segment must still
+        // differ materially from that radial heading.
+        private static int FindFGridLiftAlignmentIndex(List<Vector3> points, Vector3 lift)
+        {
+            int sharpTurn = -1;
+            for (int i = 1; i < points.Count - 1; i++)
+            {
+                Vector3 before = points[i] - points[i - 1]; before.Y = 0;
+                Vector3 after = points[i + 1] - points[i]; after.Y = 0;
+                if (before.Magnitude >= 0.2f && after.Magnitude >= 0.2f &&
+                    Vector3.Dot(before.Normalize(), after.Normalize()) <= 0.5f)
+                    sharpTurn = i;
+            }
+            if (sharpTurn >= 1) return sharpTurn;
+
+            int alignment = -1;
+            for (int candidate = points.Count - 2; candidate >= 1; candidate--)
+            {
+                Vector3 radial = lift - points[candidate]; radial.Y = 0;
+                Vector3 before = points[candidate] - points[candidate - 1]; before.Y = 0;
+                if (radial.Magnitude < 0.5f || before.Magnitude < 0.2f) continue;
+                radial = radial.Normalize();
+                if (Vector3.Dot(before.Normalize(), radial) > 0.82f) continue;
+                bool straightSuffix = true;
+                for (int i = candidate + 1; i < points.Count; i++)
+                {
+                    Vector3 leg = points[i] - points[i - 1]; leg.Y = 0;
+                    if (leg.Magnitude < 0.2f || Vector3.Dot(leg.Normalize(), radial) < 0.88f)
+                    { straightSuffix = false; break; }
+                }
+                if (!straightSuffix) continue;
+                alignment = candidate;
+            }
+            return alignment;
         }
 
         public bool TryNavigateFGridCorridorToAlignment(string routeName, Vector3 lift,

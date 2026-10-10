@@ -12,7 +12,7 @@ foreach ($required in @(
     'Vector3.Dot(direction, _localRecoveryPreviousDirection) > 0.8f',
     'Vector3.Dot(direction, routeForward) < 0.2f',
     'three bounded local centreline recovery attempts',
-    'replanning the same route from the settled position',
+    'reacquiring the nearest forward point on the same corridor/approach skeleton',
     'LocalRoutePlanner.SupportedFGridSegment(player, offset, player.Y)',
     'forward >= 0.8f || moved.Magnitude >= 1.15f')) {
     if (-not $provider.Contains($required)) {
@@ -47,6 +47,19 @@ foreach ($required in @(
         throw "FGrid pre-approach commitment boundary lost required behavior: $required"
     }
 }
+foreach ($required in @(
+    'FindFGridLiftAlignmentIndex(points, lift)',
+    'lift-facing suffix backwards and keep the earliest point',
+    '_localRecoveryAwaitingSafeResume = true',
+    'ContinueRecoveryAfterUnsafePlan',
+    'unsupported diagonal which triggered recovery',
+    'preserving the recovery budget and selecting the next safe forward corridor/alignment target',
+    '_localRecoveryLastMovedAway')) {
+    if (-not ($provider + $recorder).Contains($required)) {
+        throw "FGrid post-correction alignment/recovery budget behavior is missing: $required"
+    }
+}
+Write-Output 'PASS rounded floor approaches retain explicit alignment and unsafe resumes consume attempts 2/3 and 3/3'
 $preferred = [regex]::Match($provider,
     'private bool TryPreferredFGridRoute[\s\S]*?public FGridServiceResult Tick').Value
 $preApproach = $preferred.IndexOf('TickLiftPreApproach(')
