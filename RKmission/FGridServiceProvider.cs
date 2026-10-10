@@ -141,6 +141,7 @@ namespace RKmission
         private bool _localRecoveryActive;
         private int _localRecoveryAttempt;
         private Vector3 _localRecoveryOrigin, _localRecoveryDirection;
+        private Vector3 _localRecoveryPreviousDirection;
         private Vector3? _localRecoveryRouteTarget, _localRecoveryExhaustedTarget;
         private Vector3 _localProgressPosition;
         private DateTime _localRecoveryStarted, _localLastProgress;
@@ -667,6 +668,7 @@ namespace RKmission
             _localRecoveryRouteTarget = null;
             _localLastProgress = DateTime.MinValue;
             if (clearExhaustion) _localRecoveryExhaustedTarget = null;
+            if (clearExhaustion) _localRecoveryPreviousDirection = Vector3.Zero;
         }
 
         // One bounded recovery primitive serves lift arrivals, ring traversal and
@@ -690,6 +692,11 @@ namespace RKmission
                 float forward = Vector3.Dot(moved, _localRecoveryDirection);
                 if (forward >= 0.8f || moved.Magnitude >= 1.15f)
                 {
+                    float before = LocalRoutePlanner.HorizontalDistance(
+                        _localRecoveryOrigin, intendedTarget);
+                    float after = LocalRoutePlanner.HorizontalDistance(player, intendedTarget);
+                    if (after + 0.1f < before)
+                        _localRecoveryPreviousDirection = Vector3.Zero;
                     _movement.Release(MovementOwner.FGridTravel);
                     _routes.StopPlayback();
                     ResetMeshNavigation();
@@ -739,21 +746,35 @@ namespace RKmission
             Vector3 forward = intendedTarget - player; forward.Y = 0;
             if (forward.Magnitude < 0.1f) forward = new Vector3(1, 0, 0);
             forward = forward.Normalize();
-            Vector3 centreline;
-            bool hasSkeleton = _routes.TryGetFGridCenterlineDirection($"Fgrid Floor {floor}",
-                player, intendedTarget, out centreline);
-            if (!hasSkeleton) centreline = forward;
-            Vector3 side = new Vector3(-centreline.Z, 0, centreline.X);
-            Vector3[] directions = _localRecoveryAttempt == 1
-                ? new[] { centreline, forward, side, side * -1f }
-                : _localRecoveryAttempt == 2
-                    ? new[] { side, side * -1f, centreline, forward }
-                    : new[] { side * -1f, side, forward * -1f, centreline };
+            Vector3 centreline, routeForward;
+            bool nearApproach;
+            bool hasSkeleton = _routes.TryGetFGridRecoveryGeometry($"Fgrid Floor {floor}",
+                player, intendedTarget, out centreline, out routeForward, out nearApproach);
+            if (!hasSkeleton) centreline = routeForward = forward;
+            Vector3 side = new Vector3(-routeForward.Z, 0, routeForward.X);
+            Vector3 centredForward = (centreline * 0.65f + routeForward * 0.35f).Normalize();
+            Vector3 leftForward = (routeForward + side * 0.35f).Normalize();
+            Vector3 rightForward = (routeForward - side * 0.35f).Normalize();
+            Vector3[] directions = nearApproach
+                ? (_localRecoveryAttempt == 1
+                    ? new[] { centredForward, routeForward, leftForward, rightForward }
+                    : _localRecoveryAttempt == 2
+                        ? new[] { leftForward, rightForward, centredForward, routeForward }
+                        : new[] { rightForward, leftForward, routeForward, centredForward })
+                : (_localRecoveryAttempt == 1
+                    ? new[] { centreline, routeForward, side, side * -1f }
+                    : _localRecoveryAttempt == 2
+                        ? new[] { side, side * -1f, centreline, routeForward }
+                        : new[] { side * -1f, side, routeForward, centreline });
+            float recoveryDistance = nearApproach ? 0.85f : 1.5f;
             foreach (Vector3 candidate in directions)
             {
                 if (candidate.Magnitude < 0.1f) continue;
                 Vector3 direction = candidate.Normalize();
-                Vector3 offset = player + direction * 2.25f; offset.Y = player.Y;
+                if (_localRecoveryPreviousDirection.Magnitude > 0.1f &&
+                    Vector3.Dot(direction, _localRecoveryPreviousDirection) > 0.8f) continue;
+                if (nearApproach && Vector3.Dot(direction, routeForward) < 0.2f) continue;
+                Vector3 offset = player + direction * recoveryDistance; offset.Y = player.Y;
                 if (!LocalRoutePlanner.SupportedFGridSegment(player, offset, player.Y)) continue;
                 _movement.Release(MovementOwner.FGridTravel);
                 _routes.StopPlayback();
@@ -762,11 +783,12 @@ namespace RKmission
                 if (!_movement.SetDestination(MovementOwner.FGridTravel, offset)) continue;
                 _localRecoveryOrigin = player;
                 _localRecoveryDirection = direction;
+                _localRecoveryPreviousDirection = direction;
                 _localRecoveryStarted = DateTime.UtcNow;
                 _localRecoveryActive = true;
                 _activeNavSource = "local centreline recovery";
                 _say($"FGrid movement stalled; bounded local recovery attempt {_localRecoveryAttempt}/3 " +
-                    $"targets a 2.25 m {(hasSkeleton ? "recorded-centreline" : "supported local")} offset before resuming the same route.");
+                    $"targets a {recoveryDistance:0.00} m {(nearApproach ? "forward approach-centreline" : hasSkeleton ? "recorded-corridor" : "supported local")} offset before resuming the same route.");
                 return true;
             }
             if (_localRecoveryAttempt < 3)

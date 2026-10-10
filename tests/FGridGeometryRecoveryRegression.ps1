@@ -6,8 +6,11 @@ $recast = Get-Content -LiteralPath (Join-Path $root 'RKmission/FGridRecastPlanne
 
 foreach ($required in @(
     'TickLocalRecovery(target, floor',
-    'TryGetFGridCenterlineDirection($"Fgrid Floor {floor}"',
-    'new[] { centreline, forward, side, side * -1f }',
+    'TryGetFGridRecoveryGeometry($"Fgrid Floor {floor}"',
+    'float recoveryDistance = nearApproach ? 0.85f : 1.5f',
+    'if (after + 0.1f < before)',
+    'Vector3.Dot(direction, _localRecoveryPreviousDirection) > 0.8f',
+    'Vector3.Dot(direction, routeForward) < 0.2f',
     'three bounded local centreline recovery attempts',
     'replanning the same route from the settled position',
     'LocalRoutePlanner.SupportedFGridSegment(player, offset, player.Y)',
@@ -17,6 +20,17 @@ foreach ($required in @(
     }
 }
 Write-Output 'PASS spawn, corridor and exit stalls share one bounded displacement-confirmed recovery primitive'
+
+foreach ($required in @(
+    'ReacquireForwardFGridPath(candidate, player.Position)',
+    'resumed.AddRange(points.Skip(bestSegment))',
+    'finalAlignmentSegment',
+    'nearRadialApproach')) {
+    if (-not $recorder.Contains($required)) {
+        throw "FGrid forward radial reacquisition lost required behavior: $required"
+    }
+}
+Write-Output 'PASS lift/exit recovery is smaller, forward-biased and resumes ahead on the same radial approach'
 
 if (-not $recorder.Contains('StringComparison.Ordinal') -or
     -not $recorder.Contains('PreservesFGridAlignmentTurns') -or

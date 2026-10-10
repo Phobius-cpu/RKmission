@@ -104,6 +104,19 @@ namespace RKmission
             Vector3 target, out Vector3 direction)
         {
             direction = Vector3.Zero;
+            return TryGetFGridRecoveryGeometry(routeName, position, target,
+                out direction, out _, out _);
+        }
+
+        // Describes the oriented route at the nearest forward segment. Recovery
+        // can therefore distinguish the roomy ring from the final radial approach
+        // and combine a centreline correction with progress toward the endpoint.
+        public bool TryGetFGridRecoveryGeometry(string routeName, Vector3 position,
+            Vector3 target, out Vector3 centreline, out Vector3 routeForward,
+            out bool nearRadialApproach)
+        {
+            centreline = routeForward = Vector3.Zero;
+            nearRadialApproach = false;
             if (Playfield.ModelIdentity.Instance != (int)PlayfieldId.FixerGrid ||
                 string.IsNullOrWhiteSpace(routeName)) return false;
             Route route = _routes.Where(x => x.Playfield == (int)PlayfieldId.FixerGrid &&
@@ -121,6 +134,15 @@ namespace RKmission
             float bestDistance = float.MaxValue;
             Vector3 best = Vector3.Zero;
             int bestSegment = 0;
+            int finalAlignmentSegment = points.Count;
+            for (int i = 1; i < points.Count - 1; i++)
+            {
+                Vector3 before = points[i] - points[i - 1]; before.Y = 0;
+                Vector3 after = points[i + 1] - points[i]; after.Y = 0;
+                if (before.Magnitude >= 0.2f && after.Magnitude >= 0.2f &&
+                    Vector3.Dot(before.Normalize(), after.Normalize()) <= 0.5f)
+                    finalAlignmentSegment = i + 1;
+            }
             for (int i = 1; i < points.Count; i++)
             {
                 Vector3 leg = points[i] - points[i - 1]; leg.Y = 0;
@@ -136,6 +158,15 @@ namespace RKmission
                 best = projection;
                 bestSegment = i;
             }
+            if (bestSegment == 0) return false;
+            Vector3 legForward = points[bestSegment] - points[bestSegment - 1];
+            legForward.Y = 0;
+            if (legForward.Magnitude < 0.1f) return false;
+            routeForward = legForward.Normalize();
+            nearRadialApproach = finalAlignmentSegment < points.Count &&
+                (bestSegment >= finalAlignmentSegment ||
+                 LocalRoutePlanner.HorizontalDistance(position,
+                     points[finalAlignmentSegment - 1]) <= 3f);
             Vector3 correction = best - position; correction.Y = 0;
             // Already close to the skeleton: aim along it, past the nearest
             // sample. This is the useful direction at lift and exit bottlenecks.
@@ -145,7 +176,7 @@ namespace RKmission
                 correction = points[ahead] - position; correction.Y = 0;
             }
             if (correction.Magnitude < 0.1f) return false;
-            direction = correction.Normalize();
+            centreline = correction.Normalize();
             return true;
         }
 
@@ -169,13 +200,16 @@ namespace RKmission
                     Vector3 first = V(route.Points[0]), last = V(route.Points[route.Points.Count - 1]);
                     float forward = Vector3.Distance(player.Position, first) + Vector3.Distance(target, last);
                     float backward = Vector3.Distance(player.Position, last) + Vector3.Distance(target, first);
-                    if (Vector3.Distance(player.Position, first) <= endpointTolerance && Vector3.Distance(target, last) <= endpointTolerance && forward < bestCost &&
-                        (Playfield.ModelIdentity.Instance != (int)PlayfieldId.FixerGrid ||
-                         SupportedRecordedFGridRoute(route.Points.Select(V).ToList(), player.Position, target)))
+                    bool isFGridCandidate = Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid;
+                    if ((isFGridCandidate
+                            ? CanReacquireFGridRoute(route.Points.Select(V).ToList(), player.Position, target)
+                            : Vector3.Distance(player.Position, first) <= endpointTolerance) &&
+                        Vector3.Distance(target, last) <= endpointTolerance && forward < bestCost)
                     { best = route; reverse = false; bestCost = forward; }
-                    if (Vector3.Distance(player.Position, last) <= endpointTolerance && Vector3.Distance(target, first) <= endpointTolerance && backward < bestCost &&
-                        (Playfield.ModelIdentity.Instance != (int)PlayfieldId.FixerGrid ||
-                         SupportedRecordedFGridRoute(route.Points.Select(V).Reverse().ToList(), player.Position, target)))
+                    if ((isFGridCandidate
+                            ? CanReacquireFGridRoute(route.Points.Select(V).Reverse().ToList(), player.Position, target)
+                            : Vector3.Distance(player.Position, last) <= endpointTolerance) &&
+                        Vector3.Distance(target, first) <= endpointTolerance && backward < bestCost)
                     { best = route; reverse = true; bestCost = backward; }
                 }
                 if (best == null) return false;
@@ -184,6 +218,7 @@ namespace RKmission
                 bool fixerGrid = Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid;
                 if (fixerGrid)
                 {
+                    candidate = ReacquireForwardFGridPath(candidate, player.Position);
                     // A manually recorded walkway is useful only when both
                     // connectors and every saved leg remain on its floor.
                     if (!SupportedRecordedFGridRoute(candidate, player.Position, target))
@@ -194,7 +229,9 @@ namespace RKmission
                 }
                 int recordedPointCount = candidate.Count;
                 if (fixerGrid)
+                {
                     candidate = SimplifySupportedFGridPath(candidate, player.Position.Y);
+                }
                 else if (IsTerminalToGridRoute(best.Name))
                     candidate = SimplifyRecordedPath(candidate);
                 if (fixerGrid && !SupportedRecordedFGridRoute(candidate, player.Position, target))
@@ -232,6 +269,43 @@ namespace RKmission
             LocalRoutePlanner.SupportedFGridSegment(start, points[0], start.Y) &&
             Enumerable.Range(1, points.Count - 1).All(i =>
                 LocalRoutePlanner.SupportedFGridSegment(points[i - 1], points[i], start.Y));
+
+        private static bool CanReacquireFGridRoute(List<Vector3> points, Vector3 start,
+            Vector3 target)
+        {
+            List<Vector3> resumed = ReacquireForwardFGridPath(points, start);
+            return SupportedRecordedFGridRoute(resumed, start, target);
+        }
+
+        // Resume at the closest point on the oriented recording, then retain only
+        // later samples. This prevents local recovery from pulling back across the
+        // ring-to-radial alignment turn or toward the route's original start.
+        private static List<Vector3> ReacquireForwardFGridPath(List<Vector3> points,
+            Vector3 position)
+        {
+            if (points == null || points.Count < 2) return points;
+            float bestDistance = float.MaxValue;
+            int bestSegment = 1;
+            Vector3 bestProjection = points[0];
+            for (int i = 1; i < points.Count; i++)
+            {
+                Vector3 leg = points[i] - points[i - 1]; leg.Y = 0;
+                float squared = Vector3.Dot(leg, leg);
+                if (squared < 0.01f) continue;
+                float amount = Math.Max(0f, Math.Min(1f,
+                    Vector3.Dot(position - points[i - 1], leg) / squared));
+                Vector3 projection = points[i - 1] + leg * amount;
+                projection.Y = position.Y;
+                float distance = LocalRoutePlanner.HorizontalDistance(position, projection);
+                if (distance >= bestDistance) continue;
+                bestDistance = distance;
+                bestSegment = i;
+                bestProjection = projection;
+            }
+            var resumed = new List<Vector3> { bestProjection };
+            resumed.AddRange(points.Skip(bestSegment));
+            return resumed;
+        }
 
         private static bool IsTerminalToGridRoute(string name)
         {
