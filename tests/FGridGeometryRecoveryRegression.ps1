@@ -7,9 +7,16 @@ $recast = Get-Content -LiteralPath (Join-Path $root 'RKmission/FGridRecastPlanne
 foreach ($required in @(
     'TickLocalRecovery(target, floor',
     'TryGetFGridRecoveryGeometry($"Fgrid Floor {floor}"',
-    'const float ringCorridorRecoveryDistance = 0.65f',
+    'const float movementControllerArrivalTolerance = 0.80f',
+    'const float movementControllerStartupMargin = 0.35f',
+    'const float ringCorridorDesiredDisplacement = 0.65f',
     'const float committedApproachMicroAdjustment = 0.30f',
-    '_localRecoveryRequestedDistance - 0.15f',
+    '_localRecoveryDesiredDistance - 0.15f',
+    'if (forward >= confirmedDistance)',
+    '_localRecoverySettling = true',
+    'TimeSpan.FromMilliseconds(250)',
+    'distanceBeforeAlignment',
+    'boundedCommandDistance <= movementControllerArrivalTolerance',
     'FGrid Ring Corridor',
     'Lift/Exit Approach micro-adjustment',
     'if (after + 0.1f < before)',
@@ -18,12 +25,15 @@ foreach ($required in @(
     'three bounded local centreline recovery attempts',
     'reacquiring the nearest forward point on the same corridor/approach skeleton',
     'LocalRoutePlanner.SupportedFGridSegment(player, offset, player.Y)',
-    'forward >= confirmedDistance || moved.Magnitude >= confirmedDistance')) {
+    'will stop after about')) {
     if (-not $provider.Contains($required)) {
         throw "Generic FGrid route-preserving recovery lost required behavior: $required"
     }
 }
-Write-Output 'PASS Ring Corridor recovery is 0.65 m, committed approach fallback is micro-only, and displacement is confirmed'
+if ($provider.Contains('forward >= confirmedDistance || moved.Magnitude >= confirmedDistance')) {
+    throw 'Recovery can still be confirmed by off-axis displacement.'
+}
+Write-Output 'PASS Ring Corridor commands beyond the dead zone, stops on desired directional displacement, settles, and remains before Alignment Point'
 
 foreach ($required in @(
     'ReacquireForwardFGridPath(candidate, player.Position)',

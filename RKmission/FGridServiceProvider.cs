@@ -143,14 +143,15 @@ namespace RKmission
         private bool _runtimeExitsWritable = true;
         private bool _surveyWritable = true;
         private bool _localRecoveryActive;
+        private bool _localRecoverySettling;
         private int _localRecoveryAttempt;
-        private float _localRecoveryRequestedDistance;
+        private float _localRecoveryDesiredDistance, _localRecoveryCommandDistance;
         private Vector3 _localRecoveryOrigin, _localRecoveryDirection;
         private Vector3 _localRecoveryPreviousDirection;
         private Vector3? _localRecoveryRouteTarget, _localRecoveryExhaustedTarget;
         private bool _localRecoveryAwaitingSafeResume, _localRecoveryLastMovedAway;
         private Vector3 _localProgressPosition;
-        private DateTime _localRecoveryStarted, _localLastProgress;
+        private DateTime _localRecoveryStarted, _localRecoverySettleUntil, _localLastProgress;
         private LiftApproachPhase _liftApproachPhase;
         private int _liftApproachFloor = -1;
         private Vector3? _liftApproachTarget;
@@ -676,8 +677,9 @@ namespace RKmission
         private void ResetLocalRecovery(bool clearExhaustion = true)
         {
             _localRecoveryActive = false;
+            _localRecoverySettling = false;
             _localRecoveryAttempt = 0;
-            _localRecoveryRequestedDistance = 0;
+            _localRecoveryDesiredDistance = _localRecoveryCommandDistance = 0;
             _localRecoveryRouteTarget = null;
             _localLastProgress = DateTime.MinValue;
             if (clearExhaustion) _localRecoveryExhaustedTarget = null;
@@ -811,13 +813,19 @@ namespace RKmission
                 Vector3.Distance(_localRecoveryExhaustedTarget.Value, intendedTarget) < 0.5f)
             { reason = "three bounded local centreline recovery attempts made no displacement"; return false; }
 
+            if (_localRecoverySettling)
+            {
+                if (DateTime.UtcNow < _localRecoverySettleUntil) return true;
+                _localRecoverySettling = false;
+            }
+
             if (_localRecoveryActive)
             {
                 Vector3 moved = player - _localRecoveryOrigin; moved.Y = 0;
                 float forward = Vector3.Dot(moved, _localRecoveryDirection);
                 float confirmedDistance = Math.Max(0.2f,
-                    _localRecoveryRequestedDistance - 0.15f);
-                if (forward >= confirmedDistance || moved.Magnitude >= confirmedDistance)
+                    _localRecoveryDesiredDistance - 0.15f);
+                if (forward >= confirmedDistance)
                 {
                     float before = LocalRoutePlanner.HorizontalDistance(
                         _localRecoveryOrigin, intendedTarget);
@@ -829,10 +837,14 @@ namespace RKmission
                     _routes.StopPlayback();
                     ResetMeshNavigation();
                     _localRecoveryActive = false;
+                    _localRecoverySettling = true;
+                    _localRecoverySettleUntil = DateTime.UtcNow + TimeSpan.FromMilliseconds(250);
                     _localRecoveryAwaitingSafeResume = true;
                     _localLastProgress = DateTime.UtcNow;
                     _localProgressPosition = player;
-                    _say($"FGrid local recovery displaced {moved.Magnitude:0.00} m on attempt {_localRecoveryAttempt}; reacquiring the nearest forward point on the same corridor/approach skeleton.");
+                    _say($"FGrid local recovery stopped after {forward:0.00} m intended-direction displacement " +
+                        $"({moved.Magnitude:0.00} m total) on attempt {_localRecoveryAttempt}; settling before " +
+                        "reacquiring the nearest forward point on the same corridor/approach skeleton.");
                     return true;
                 }
                 if (DateTime.UtcNow - _localRecoveryStarted <= TimeSpan.FromSeconds(2.5))
@@ -898,11 +910,19 @@ namespace RKmission
             // Ring Corridor corrections must remain smaller than the distance to
             // the Alignment Point. Once the recorded skeleton identifies the
             // Lift/Exit Approach, permit only a last-resort micro-adjustment.
-            const float ringCorridorRecoveryDistance = 0.65f;
+            // Direct movement uses the same 0.8 m arrival tolerance as other
+            // precise movement. Submit a target beyond that dead zone, but cancel
+            // as soon as the desired short correction has actually occurred.
+            const float movementControllerArrivalTolerance = 0.80f;
+            const float movementControllerStartupMargin = 0.35f;
+            const float ringCorridorDesiredDisplacement = 0.65f;
             const float committedApproachMicroAdjustment = 0.30f;
-            float recoveryDistance = nearApproach
+            float desiredDistance = nearApproach
                 ? committedApproachMicroAdjustment
-                : ringCorridorRecoveryDistance;
+                : ringCorridorDesiredDisplacement;
+            float commandDistance = nearApproach
+                ? committedApproachMicroAdjustment
+                : movementControllerArrivalTolerance + movementControllerStartupMargin;
             foreach (Vector3 candidate in directions)
             {
                 if (candidate.Magnitude < 0.1f) continue;
@@ -910,7 +930,22 @@ namespace RKmission
                 if (_localRecoveryPreviousDirection.Magnitude > 0.1f &&
                     Vector3.Dot(direction, _localRecoveryPreviousDirection) > 0.8f) continue;
                 if (nearApproach && Vector3.Dot(direction, routeForward) < 0.2f) continue;
-                Vector3 offset = player + direction * recoveryDistance; offset.Y = player.Y;
+                // Never submit a Ring Corridor command beyond the Alignment Point.
+                // The normal early-stop threshold is shorter still, but bounding
+                // the command itself keeps controller lag from committing the turn.
+                float boundedCommandDistance = commandDistance;
+                if (!nearApproach && hasSkeleton &&
+                    _routes.TryGetFGridLiftApproachGeometry($"Fgrid Floor {floor}",
+                        player, intendedTarget, out _, out Vector3 alignmentPoint,
+                        out _, out _, out _, out _))
+                {
+                    Vector3 toAlignment = alignmentPoint - player; toAlignment.Y = 0;
+                    float distanceBeforeAlignment = Vector3.Dot(toAlignment, direction) - 0.15f;
+                    boundedCommandDistance = Math.Min(boundedCommandDistance,
+                        distanceBeforeAlignment);
+                    if (boundedCommandDistance <= movementControllerArrivalTolerance) continue;
+                }
+                Vector3 offset = player + direction * boundedCommandDistance; offset.Y = player.Y;
                 if (_localRecoveryLastMovedAway &&
                     LocalRoutePlanner.HorizontalDistance(offset, intendedTarget) >
                     LocalRoutePlanner.HorizontalDistance(player, intendedTarget) + 0.1f) continue;
@@ -922,7 +957,8 @@ namespace RKmission
                 if (!_movement.SetDestination(MovementOwner.FGridTravel, offset)) continue;
                 _localRecoveryOrigin = player;
                 _localRecoveryDirection = direction;
-                _localRecoveryRequestedDistance = recoveryDistance;
+                _localRecoveryDesiredDistance = desiredDistance;
+                _localRecoveryCommandDistance = boundedCommandDistance;
                 _localRecoveryPreviousDirection = direction;
                 _localRecoveryStarted = DateTime.UtcNow;
                 _localRecoveryActive = true;
@@ -931,7 +967,9 @@ namespace RKmission
                     ? "Lift/Exit Approach micro-adjustment"
                     : hasSkeleton ? "FGrid Ring Corridor" : "supported local";
                 _say($"FGrid movement stalled; bounded local recovery attempt {_localRecoveryAttempt}/3 " +
-                    $"targets a {recoveryDistance:0.00} m {recoveryRegion} offset before resuming the same route.");
+                    $"commands {_localRecoveryCommandDistance:0.00} m beyond the controller dead zone " +
+                    $"and will stop after about {_localRecoveryDesiredDistance:0.00} m of actual " +
+                    $"{recoveryRegion} displacement before resuming the same route.");
                 return true;
             }
             if (_localRecoveryAttempt < 3)
@@ -1256,7 +1294,7 @@ namespace RKmission
             if (!portal && _liftApproachPhase == LiftApproachPhase.RadialCommitted)
                 return TickCommittedRadialApproach(target, out navigationReason);
             if (!TickLocalRecovery(target, floor, out navigationReason)) return false;
-            if (_localRecoveryActive) return true;
+            if (_localRecoveryActive || _localRecoverySettling) return true;
             if (_routes.TryNavigate($"Fgrid Floor {floor}", target, _movement,
                 MovementOwner.FGridTravel, 6f))
             {
