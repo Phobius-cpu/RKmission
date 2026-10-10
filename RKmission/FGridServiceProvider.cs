@@ -144,6 +144,7 @@ namespace RKmission
         private bool _surveyWritable = true;
         private bool _localRecoveryActive;
         private int _localRecoveryAttempt;
+        private float _localRecoveryRequestedDistance;
         private Vector3 _localRecoveryOrigin, _localRecoveryDirection;
         private Vector3 _localRecoveryPreviousDirection;
         private Vector3? _localRecoveryRouteTarget, _localRecoveryExhaustedTarget;
@@ -676,6 +677,7 @@ namespace RKmission
         {
             _localRecoveryActive = false;
             _localRecoveryAttempt = 0;
+            _localRecoveryRequestedDistance = 0;
             _localRecoveryRouteTarget = null;
             _localLastProgress = DateTime.MinValue;
             if (clearExhaustion) _localRecoveryExhaustedTarget = null;
@@ -714,7 +716,7 @@ namespace RKmission
                 _liftApproachFloor = floor;
                 _liftAlignmentPoint = alignmentPoint;
                 _liftApproachPhase = LiftApproachPhase.CorridorStabilizing;
-                _say($"FGrid floor {floor} lift pre-approach: stabilizing on the circular corridor before the alignment turn.");
+                _say($"FGrid floor {floor} lift pre-approach: stabilizing on the FGrid Ring Corridor before the Alignment Point turn.");
             }
 
             if (_liftApproachPhase == LiftApproachPhase.RadialCommitted) return false;
@@ -744,7 +746,7 @@ namespace RKmission
                 _movement.Release(MovementOwner.FGridTravel);
                 _routes.StopPlayback();
                 _liftApproachPhase = LiftApproachPhase.CorridorTransit;
-                _say($"FGrid floor {floor} corridor stabilization complete; continuing to the lift alignment point before committing the radial leg.");
+                _say($"FGrid floor {floor} Ring Corridor stabilization complete; continuing to the Alignment Point before committing the Lift Approach.");
             }
 
             if (_liftApproachPhase == LiftApproachPhase.CorridorTransit)
@@ -756,7 +758,7 @@ namespace RKmission
                     _liftApproachPhase = LiftApproachPhase.RadialCommitted;
                     _radialLastPosition = player;
                     _radialLastProgress = DateTime.UtcNow;
-                    _say($"FGrid floor {floor} lift approach committed at the corridor alignment point; turning approximately 90 degrees for one straight radial leg.");
+                    _say($"FGrid floor {floor} Lift Approach committed at the Alignment Point; turning approximately 90 degrees for one straight radial leg.");
                     return false;
                 }
                 if (!_routes.TryNavigateFGridCorridorToAlignment(routeName, lift,
@@ -813,7 +815,9 @@ namespace RKmission
             {
                 Vector3 moved = player - _localRecoveryOrigin; moved.Y = 0;
                 float forward = Vector3.Dot(moved, _localRecoveryDirection);
-                if (forward >= 0.8f || moved.Magnitude >= 1.15f)
+                float confirmedDistance = Math.Max(0.2f,
+                    _localRecoveryRequestedDistance - 0.15f);
+                if (forward >= confirmedDistance || moved.Magnitude >= confirmedDistance)
                 {
                     float before = LocalRoutePlanner.HorizontalDistance(
                         _localRecoveryOrigin, intendedTarget);
@@ -891,7 +895,14 @@ namespace RKmission
                     : _localRecoveryAttempt == 2
                         ? new[] { side, side * -1f, centreline, routeForward }
                         : new[] { side * -1f, side, routeForward, centreline });
-            float recoveryDistance = nearApproach ? 0.85f : 1.5f;
+            // Ring Corridor corrections must remain smaller than the distance to
+            // the Alignment Point. Once the recorded skeleton identifies the
+            // Lift/Exit Approach, permit only a last-resort micro-adjustment.
+            const float ringCorridorRecoveryDistance = 0.65f;
+            const float committedApproachMicroAdjustment = 0.30f;
+            float recoveryDistance = nearApproach
+                ? committedApproachMicroAdjustment
+                : ringCorridorRecoveryDistance;
             foreach (Vector3 candidate in directions)
             {
                 if (candidate.Magnitude < 0.1f) continue;
@@ -911,12 +922,16 @@ namespace RKmission
                 if (!_movement.SetDestination(MovementOwner.FGridTravel, offset)) continue;
                 _localRecoveryOrigin = player;
                 _localRecoveryDirection = direction;
+                _localRecoveryRequestedDistance = recoveryDistance;
                 _localRecoveryPreviousDirection = direction;
                 _localRecoveryStarted = DateTime.UtcNow;
                 _localRecoveryActive = true;
                 _activeNavSource = "local centreline recovery";
+                string recoveryRegion = nearApproach
+                    ? "Lift/Exit Approach micro-adjustment"
+                    : hasSkeleton ? "FGrid Ring Corridor" : "supported local";
                 _say($"FGrid movement stalled; bounded local recovery attempt {_localRecoveryAttempt}/3 " +
-                    $"targets a {recoveryDistance:0.00} m {(nearApproach ? "forward approach-centreline" : hasSkeleton ? "recorded-corridor" : "supported local")} offset before resuming the same route.");
+                    $"targets a {recoveryDistance:0.00} m {recoveryRegion} offset before resuming the same route.");
                 return true;
             }
             if (_localRecoveryAttempt < 3)

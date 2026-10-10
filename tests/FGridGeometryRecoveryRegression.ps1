@@ -7,19 +7,23 @@ $recast = Get-Content -LiteralPath (Join-Path $root 'RKmission/FGridRecastPlanne
 foreach ($required in @(
     'TickLocalRecovery(target, floor',
     'TryGetFGridRecoveryGeometry($"Fgrid Floor {floor}"',
-    'float recoveryDistance = nearApproach ? 0.85f : 1.5f',
+    'const float ringCorridorRecoveryDistance = 0.65f',
+    'const float committedApproachMicroAdjustment = 0.30f',
+    '_localRecoveryRequestedDistance - 0.15f',
+    'FGrid Ring Corridor',
+    'Lift/Exit Approach micro-adjustment',
     'if (after + 0.1f < before)',
     'Vector3.Dot(direction, _localRecoveryPreviousDirection) > 0.8f',
     'Vector3.Dot(direction, routeForward) < 0.2f',
     'three bounded local centreline recovery attempts',
     'reacquiring the nearest forward point on the same corridor/approach skeleton',
     'LocalRoutePlanner.SupportedFGridSegment(player, offset, player.Y)',
-    'forward >= 0.8f || moved.Magnitude >= 1.15f')) {
+    'forward >= confirmedDistance || moved.Magnitude >= confirmedDistance')) {
     if (-not $provider.Contains($required)) {
         throw "Generic FGrid route-preserving recovery lost required behavior: $required"
     }
 }
-Write-Output 'PASS spawn, corridor and exit stalls share one bounded displacement-confirmed recovery primitive'
+Write-Output 'PASS Ring Corridor recovery is 0.65 m, committed approach fallback is micro-only, and displacement is confirmed'
 
 foreach ($required in @(
     'ReacquireForwardFGridPath(candidate, player.Position)',
@@ -38,9 +42,9 @@ foreach ($required in @(
     'TickLiftPreApproach(target, floor',
     'TryGetFGridLiftApproachGeometry',
     'TryNavigateFGridCorridorToAlignment',
-    'corridor stabilization complete',
+    'Ring Corridor stabilization complete',
     'radial approach remains uncommitted',
-    'lift approach committed at the corridor alignment point',
+    'Lift Approach committed at the Alignment Point',
     'TickCommittedRadialApproach(target',
     'large recentering is disabled after commitment')) {
     if (-not ($provider + $recorder).Contains($required)) {
