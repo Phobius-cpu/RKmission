@@ -812,35 +812,79 @@ namespace RKmission
 
             Vector3 player = DynelManager.LocalPlayer.Position;
             string routeName = $"Fgrid Floor {floor}";
-            if (!_routes.TryGetFGridLiftApproachGeometry(routeName, player, lift,
+            bool recordedAvailable = _routes.TryGetFGridLiftApproachGeometry(
+                routeName, player, lift,
                 out _, out Vector3 recordedAlignment, out Vector3 corridorForward,
-                out Vector3 radialForward, out float crossTrack, out bool onRadialLeg))
+                out Vector3 radialForward, out float crossTrack, out bool onRadialLeg);
+            if (recordedAvailable)
             {
+                float alignmentDistance = LocalRoutePlanner.HorizontalDistance(player,
+                    recordedAlignment);
+                Vector3 liftDirection = lift - player; liftDirection.Y = 0;
+                bool centeredAndStable = crossTrack <= 0.70f && !onRadialLeg;
+                bool nearAlignment = alignmentDistance <= 1.15f;
+                bool radialHeading = liftDirection.Magnitude >= 0.1f &&
+                    Vector3.Dot(liftDirection.Normalize(), radialForward) >= 0.85f;
+                bool expectedTurn = Math.Abs(Vector3.Dot(corridorForward, radialForward)) <= 0.50f;
+                bool supportedApproach = LocalRoutePlanner.SupportedFGridSegment(
+                    player, lift, player.Y, out string supportReason);
+                bool recordedAccepted = centeredAndStable && nearAlignment &&
+                    radialHeading && expectedTurn && supportedApproach;
+
                 _say($"FGrid post-recovery alignment evaluation after attempt {_localRecoveryAttempt}/3: " +
-                    "recorded Ring Corridor/Lift Approach geometry was unavailable; searching for the next safe forward anchor.");
-                return false;
+                    $"recorded geometry {(recordedAccepted ? "accepted" : "rejected")}; " +
+                    $"cross-track {crossTrack:0.00} m, Alignment Point distance {alignmentDistance:0.00} m, " +
+                    $"radial heading {(radialHeading ? "valid" : "invalid")}, approximately 90-degree turn " +
+                    $"{(expectedTurn ? "valid" : "invalid")}, straight Lift Approach " +
+                    $"{(supportedApproach ? "floor-supported" : supportReason)}.");
+                if (recordedAccepted)
+                    return CommitRecoveredLiftAlignment(lift, floor,
+                        "recorded geometry", out reason);
             }
+            else
+                _say($"FGrid post-recovery alignment evaluation after attempt {_localRecoveryAttempt}/3: " +
+                    "recorded Ring Corridor/Lift Approach geometry unavailable; evaluating live geometry.");
 
-            float alignmentDistance = LocalRoutePlanner.HorizontalDistance(player,
-                recordedAlignment);
-            Vector3 liftDirection = lift - player; liftDirection.Y = 0;
-            bool centeredAndStable = crossTrack <= 0.70f && !onRadialLeg;
-            bool nearAlignment = alignmentDistance <= 1.15f;
-            bool radialHeading = liftDirection.Magnitude >= 0.1f &&
-                Vector3.Dot(liftDirection.Normalize(), radialForward) >= 0.85f;
-            bool expectedTurn = Math.Abs(Vector3.Dot(corridorForward, radialForward)) <= 0.50f;
-            bool supportedApproach = LocalRoutePlanner.SupportedFGridSegment(player, lift,
-                player.Y, out string supportReason);
-            bool accepted = centeredAndStable && nearAlignment && radialHeading &&
-                expectedTurn && supportedApproach;
+            Vector3 liveCorridorForward = _localRecoveryDirection;
+            liveCorridorForward.Y = 0;
+            Vector3 liveRadial = lift - player;
+            liveRadial.Y = 0;
+            Vector3 recovered = player - _localRecoveryOrigin;
+            recovered.Y = 0;
+            float liftDistance = liveRadial.Magnitude;
+            float forwardDisplacement = liveCorridorForward.Magnitude < 0.1f ? 0f :
+                Vector3.Dot(recovered, liveCorridorForward.Normalize());
+            float lateralDisplacement = liveCorridorForward.Magnitude < 0.1f ? float.MaxValue :
+                Math.Abs(Vector3.Dot(recovered,
+                    new Vector3(-liveCorridorForward.Z, 0, liveCorridorForward.X).Normalize()));
+            float turnDot = liveCorridorForward.Magnitude < 0.1f || liftDistance < 0.1f
+                ? 1f : Math.Abs(Vector3.Dot(liveCorridorForward.Normalize(),
+                    liveRadial.Normalize()));
+            double turnDegrees = Math.Acos(Math.Max(-1f, Math.Min(1f, turnDot))) *
+                180.0 / Math.PI;
+            bool stableRecovery = forwardDisplacement >= 0.45f &&
+                lateralDisplacement <= 0.30f;
+            bool reasonableDistance = liftDistance >= 0.80f && liftDistance <= 8.0f;
+            bool reasonableRadialTurn = turnDot <= 0.50f;
+            bool liveSupported = LocalRoutePlanner.SupportedFGridSegment(player, lift,
+                player.Y, out string liveSupportReason);
+            bool liveAccepted = stableRecovery && reasonableDistance &&
+                reasonableRadialTurn && liveSupported;
 
-            _say($"FGrid post-recovery alignment evaluation after attempt {_localRecoveryAttempt}/3: " +
-                $"cross-track {crossTrack:0.00} m, Alignment Point distance {alignmentDistance:0.00} m, " +
-                $"radial heading {(radialHeading ? "valid" : "invalid")}, approximately 90-degree turn " +
-                $"{(expectedTurn ? "valid" : "invalid")}, straight Lift Approach " +
-                $"{(supportedApproach ? "floor-supported" : supportReason)}.");
-            if (!accepted) return false;
+            _say($"FGrid post-recovery live-geometry alignment evaluation after attempt {_localRecoveryAttempt}/3: " +
+                $"{(liveAccepted ? "accepted" : "rejected")}; Ring Corridor displacement " +
+                $"{forwardDisplacement:0.00} m forward/{lateralDisplacement:0.00} m lateral, " +
+                $"lift bearing requires {turnDegrees:0} degree turn, radial distance {liftDistance:0.00} m, " +
+                $"straight Lift Approach {(liveSupported ? "floor-supported" : liveSupportReason)}.");
+            if (!liveAccepted) return false;
 
+            return CommitRecoveredLiftAlignment(lift, floor, "live geometry", out reason);
+        }
+
+        private bool CommitRecoveredLiftAlignment(Vector3 lift, int floor,
+            string geometrySource, out string reason)
+        {
+            Vector3 player = DynelManager.LocalPlayer.Position;
             _movement.Release(MovementOwner.FGridTravel);
             _routes.StopPlayback();
             ResetMeshNavigation();
@@ -852,7 +896,8 @@ namespace RKmission
             _radialLastProgress = DateTime.UtcNow;
             _localRecoveryAwaitingSafeResume = false;
             _say($"FGrid floor {floor} recovered position promoted: Alignment Point accepted after " +
-                $"recovery attempt {_localRecoveryAttempt}/3; turning approximately 90 degrees and " +
+                $"recovery attempt {_localRecoveryAttempt}/3 using {geometrySource}; " +
+                "turning approximately 90 degrees and " +
                 "committing the straight radial Lift Approach without another Ring Corridor recovery.");
             reason = "recovered position promoted to the lift Alignment Point";
             return true;

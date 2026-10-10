@@ -77,6 +77,7 @@ Write-Output 'PASS rounded floor approaches retain explicit alignment and unsafe
 
 foreach ($required in @(
     'TryPromoteRecoveredLiftAlignment',
+    'CommitRecoveredLiftAlignment',
     'settling before post-recovery Alignment Point evaluation',
     'crossTrack <= 0.70f',
     'alignmentDistance <= 1.15f',
@@ -96,6 +97,27 @@ $promotion = $preferred.IndexOf('TryPromoteRecoveredLiftAlignment(')
 $forwardRoute = $preferred.IndexOf('_routes.TryNavigate($"Fgrid Floor {floor}"')
 if ($promotion -lt 0 -or $forwardRoute -le $promotion) {
     throw 'Recovered-position promotion does not run before forward Ring Corridor reacquisition.'
+}
+foreach ($required in @(
+    'recorded geometry {(recordedAccepted ? "accepted" : "rejected")}',
+    'recorded Ring Corridor/Lift Approach geometry unavailable; evaluating live geometry',
+    'Vector3 liveCorridorForward = _localRecoveryDirection',
+    'lateralDisplacement <= 0.30f',
+    'liftDistance >= 0.80f && liftDistance <= 8.0f',
+    'turnDot <= 0.50f',
+    'post-recovery live-geometry alignment evaluation after attempt',
+    'Ring Corridor displacement',
+    'lift bearing requires',
+    'using {geometrySource}')) {
+    if (-not $provider.Contains($required)) {
+        throw "Live-geometry Alignment Point fallback lost required behavior: $required"
+    }
+}
+$liveFallback = [regex]::Match($provider,
+    'private bool TryPromoteRecoveredLiftAlignment[\s\S]*?private bool CommitRecoveredLiftAlignment').Value
+if ($liveFallback.IndexOf('if (recordedAccepted)') -lt 0 -or
+    $liveFallback.IndexOf('bool liveAccepted') -le $liveFallback.IndexOf('if (recordedAccepted)')) {
+    throw 'Recorded geometry is not evaluated before the live-geometry fallback.'
 }
 Write-Output 'PASS a settled recovery evaluates and can promote its current position before another forward anchor or recovery attempt'
 
