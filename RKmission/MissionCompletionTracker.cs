@@ -12,13 +12,13 @@ namespace RKmission
     {
         private DateTime _absentSince;
 
-        public bool Reconcile(Identity missionId, bool finalActionRecent,
+        public bool Reconcile(Identity missionId, bool ownedFinalAction,
             bool allObjectiveStepsProven, bool serverCompletion, bool deletedByUser,
             out string evidence)
         {
             evidence = null;
             List<Mission> live = Mission.List;
-            if (deletedByUser || !finalActionRecent ||
+            if (deletedByUser || !ownedFinalAction ||
                 !(allObjectiveStepsProven || serverCompletion) ||
                 live == null || live.Any(x => x.Identity == missionId))
             {

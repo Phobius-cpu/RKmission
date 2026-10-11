@@ -637,6 +637,11 @@ namespace RKmission
                         _say($"{_loot.ReservedPendingMissionLootCount} reserved objective loot entries are final work, excluded from the ordinary-loot gate.");
                     if (!BeginObjectiveFinale()) return;
                     _roomQuietAt = DateTime.MinValue;
+                    // Before any no-rooms-left/exit decision, give an unresolved
+                    // objective already in the current room its action turn.
+                    // Deferred mission loot and combat have already won above.
+                    if (_objective.PendingRoom == room.Instance)
+                        TickObjective(room);
                     return;
                 }
                 if (!_objective.RewardConfirmed && !_objective.CollectedReturnItem)

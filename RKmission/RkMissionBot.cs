@@ -40,8 +40,6 @@ namespace RKmission
         private NavigationRecorderWindow _navWindow;
         private PostZoneFlightSafety _postZoneSafety;
         private MissionCheckpoint _checkpoint;
-        private bool _pendingCheckpointResume;
-        private DateTime _checkpointResumeAfter;
         private AcceptedMission _selected;
         private bool _autoCycle, _autoRolling, _hasRollTerminal, _recoveringDeath;
         private bool _capacityLogisticsBlocked, _capacityLogisticsDeferredWhileAccepted;
@@ -68,6 +66,8 @@ namespace RKmission
         private int _mapPlayfield;
         private Vector3 _mapAnchor;
         private DateTime _dungeonObservedAt, _nextTick, _nextSelection, _handoffWaitStarted;
+        private DateTime _nextAssociationDiagnostic;
+        private int _associationAttempts;
         private string _waitingReason;
         private bool _exitZoningStarted;
         private bool _handInExitVerified;
@@ -121,8 +121,16 @@ namespace RKmission
                 _rollTerminalPlayfield = _checkpoint.RollTerminalPlayfield;
                 _rollTerminalPosition = _checkpoint.RollTerminalPosition;
             }
-            _pendingCheckpointResume = _checkpoint.Armed;
-            _checkpointResumeAfter = DateTime.UtcNow.AddSeconds(5);
+            // A module reload/state refresh must never silently re-arm movement,
+            // rolling, or accepted-mission mutation. The saved binding remains
+            // available for an explicit start/auto command to reconcile.
+            if (_checkpoint.Armed)
+            {
+                _checkpoint.Armed = false;
+                _checkpoint.Phase = "SafeStopped";
+                _checkpoint.Save(true, Say);
+                Say("Saved mission context found after reload; remaining safely stopped until explicit /rkm start or /rkm auto.");
+            }
             SMovementController.Set();
             // The pinned SDK's default stuck action directly changes player
             // position. Replace that action; our Stuck event handles replanning.
@@ -219,6 +227,17 @@ namespace RKmission
                 case "auto":
                     if (_bankTransactions.IsActive || _shopSale.IsActive || _automaticLogistics.IsActive)
                     { Say("Finish or stop the logistics transaction before arming the automatic cycle."); break; }
+                    _missions.Refresh(true);
+                    AcceptedMission currentDungeon = ExactCurrentDungeonMission();
+                    if (currentDungeon != null)
+                    {
+                        _autoCycle = true;
+                        _clearAcceptedBeforeRolling = false;
+                        Start();
+                        _selected = currentDungeon;
+                        Say($"Automatic cycle armed in exact accepted mission {currentDungeon.Id.Instance}; verified-dungeon resume takes precedence over rolling or accepted-mission clearing.");
+                        break;
+                    }
                     if (!_roller.ShowRoller())
                     { Say("Roller window could not be reopened; automatic cycle was not started."); break; }
                     if (!_running || !_autoCycle)
@@ -369,7 +388,7 @@ namespace RKmission
                     else if ((args.Length == 2 || args.Length == 3) &&
                         args[1].Equals("cycle", StringComparison.OrdinalIgnoreCase))
                     {
-                        if (_running || _autoRolling || _pendingCheckpointResume)
+                        if (_running || _autoRolling)
                             Say("Use /rkm stop to disarm the mission cycle before validating automatic logistics.");
                         else if (args.Length == 3 && (!int.TryParse(args[2], out int cycleCount) ||
                             cycleCount < 1 || cycleCount > 20))
@@ -380,7 +399,7 @@ namespace RKmission
                     {
                         if (_bankTransactions.IsActive || _shopSale.IsActive || _automaticLogistics.IsActive)
                             Say("Finish or stop the logistics transaction before starting a new route.");
-                        else if (_running || _autoRolling || _pendingCheckpointResume)
+                        else if (_running || _autoRolling)
                             Say("Use /rkm stop to disarm the mission cycle before testing a logistics route.");
                         else _logisticsNavigator.Start(args[2], args[3]);
                     }
@@ -393,7 +412,7 @@ namespace RKmission
                     else if (args.Length == 3 && args[1].Equals("bank", StringComparison.OrdinalIgnoreCase) &&
                         args[2].Equals("test", StringComparison.OrdinalIgnoreCase))
                     {
-                        if (_running || _autoRolling || _pendingCheckpointResume)
+                        if (_running || _autoRolling)
                             Say("Use /rkm stop to disarm the mission cycle before testing a bank transfer.");
                         else if (_shopSale.IsActive || _automaticLogistics.IsActive)
                             Say("Finish or stop the shop sale test before starting a bank transaction.");
@@ -403,7 +422,7 @@ namespace RKmission
                         args[1].Equals("bank", StringComparison.OrdinalIgnoreCase) &&
                         args[2].Equals("store", StringComparison.OrdinalIgnoreCase))
                     {
-                        if (_running || _autoRolling || _pendingCheckpointResume)
+                        if (_running || _autoRolling)
                             Say("Use /rkm stop to disarm the mission cycle before storing bank items.");
                         else if (args.Length == 4 && (!int.TryParse(args[3], out int storeCount) || storeCount < 1 || storeCount > 20))
                             Say("Usage: /rkm logistics bank store [1-20] (default: 1).");
@@ -420,7 +439,7 @@ namespace RKmission
                     else if (args.Length == 4 && args[1].Equals("shop", StringComparison.OrdinalIgnoreCase) &&
                         args[2].Equals("stage", StringComparison.OrdinalIgnoreCase))
                     {
-                        if (_running || _autoRolling || _pendingCheckpointResume)
+                        if (_running || _autoRolling)
                             Say("Use /rkm stop to disarm the mission cycle before staging shop items.");
                         else if (!int.TryParse(args[3], out int stageId) || stageId <= 0)
                             Say("Usage: /rkm logistics shop stage <item id> (select an expendable main Reject from preview).");
@@ -431,7 +450,7 @@ namespace RKmission
                     else if (args.Length == 3 && args[1].Equals("shop", StringComparison.OrdinalIgnoreCase) &&
                         args[2].Equals("test", StringComparison.OrdinalIgnoreCase))
                     {
-                        if (_running || _autoRolling || _pendingCheckpointResume)
+                        if (_running || _autoRolling)
                             Say("Use /rkm stop to disarm the mission cycle before testing a shop sale.");
                         else if (_bankTransactions.IsActive || _automaticLogistics.IsActive)
                             Say("Finish or stop the bank transaction before testing a shop sale.");
@@ -441,7 +460,7 @@ namespace RKmission
                         args[1].Equals("shop", StringComparison.OrdinalIgnoreCase) &&
                         args[2].Equals("sell", StringComparison.OrdinalIgnoreCase))
                     {
-                        if (_running || _autoRolling || _pendingCheckpointResume)
+                        if (_running || _autoRolling)
                             Say("Use /rkm stop to disarm the mission cycle before selling shop items.");
                         else if (args.Length == 4 && (!int.TryParse(args[3], out int saleCount) ||
                             saleCount < 1 || saleCount > 20))
@@ -501,7 +520,6 @@ namespace RKmission
             _bankTransactions?.Stop();
             _shopSale?.Stop();
             _logisticsNavigator?.Stop(true);
-            _pendingCheckpointResume = false;
             _running = true;
             _recoveringDeath = false;
             _dungeonStarted = false;
@@ -521,6 +539,8 @@ namespace RKmission
             _travelInvalidated = false;
             _handoffWaitStarted = DateTime.MinValue;
             _observedDungeon = Identity.None;
+            _associationAttempts = 0;
+            _nextAssociationDiagnostic = DateTime.MinValue;
             _waitingReason = null;
             _autoLogisticsPending = _autoLogisticsRunning = _autoLogisticsFinalPending = false;
             _autoLogisticsFinalRun = _autoFinalLogisticsComplete = false;
@@ -539,7 +559,6 @@ namespace RKmission
         {
             if (preserveCheckpoint && _running && _checkpoint != null)
             { SaveCheckpoint(); _checkpoint.Save(true, Say); }
-            if (!preserveCheckpoint) _pendingCheckpointResume = false;
             if (_autoRolling) MaliMissionRoller2.Main.Window?.StopZoneRolling();
             _autoRolling = false;
             _rollingTerminalIdentity = Identity.None;
@@ -587,6 +606,8 @@ namespace RKmission
             _longTravel.InvalidatePath();
             _observedDungeon = Identity.None;
             _handoffWaitStarted = DateTime.MinValue;
+            _associationAttempts = 0;
+            _nextAssociationDiagnostic = DateTime.MinValue;
             _travelInvalidated = true;
         }
 
@@ -626,6 +647,18 @@ namespace RKmission
                     "While armed, exit is automatic and the next closest accepted mission in this playfield will take over."));
         }
 
+        private AcceptedMission ExactCurrentDungeonMission()
+        {
+            if (!Playfield.IsDungeon || Mission.List == null ||
+                !Mission.FindMissionForCurrentDungeon(out Mission bound)) return null;
+            AcceptedMission record = _missions.Find(bound.Identity);
+            if (record == null || !record.Present || !record.IsRubiKaDestination || record.Completed)
+                return null;
+            Mission expected = Mission.List.FirstOrDefault(x => x.Identity == record.Id);
+            return expected != null && MissionEntranceResolver.VerifyCurrentDungeon(expected, out Mission exact) &&
+                exact.Identity == record.Id ? record : null;
+        }
+
         private void Update(object sender, float elapsed)
         {
             if (Game.IsZoning || DynelManager.LocalPlayer == null || DateTime.UtcNow < _nextTick) return;
@@ -635,7 +668,6 @@ namespace RKmission
                 _missions.Refresh(); // Track acceptance/removal even while local automation is disarmed.
                 _awaitingQuestDetails.RemoveWhere(id => _missions.Records.Any(x =>
                     x.Id.Instance == id && x.Present && x.IsRubiKaDestination));
-                if (_pendingCheckpointResume) TryResumeCheckpoint();
                 if (!_running) return;
                 if (_autoLogisticsRunning || _automaticLogistics.IsActive)
                 {
@@ -944,74 +976,9 @@ namespace RKmission
             finally { SaveCheckpoint(); }
         }
 
-        private void TryResumeCheckpoint()
-        {
-            if (DateTime.UtcNow < _checkpointResumeAfter) return;
-            if (Mission.List == null) return;
-            _pendingCheckpointResume = false;
-            if (_checkpoint.AutoCycle)
-            {
-                var accepted = _missions.Records.Where(x => x.Present &&
-                    x.IsRubiKaDestination && !x.Completed).ToList();
-                _autoAcceptedCount = Math.Max(_autoAcceptedCount, accepted.Count);
-                foreach (AcceptedMission mission in accepted)
-                {
-                    _autoAcceptedIds.Add(mission.Id.Instance);
-                    _autoAcceptedPlayfields[mission.Id.Instance] = mission.PlayfieldId;
-                }
-            }
-            AcceptedMission record = _missions.Records.FirstOrDefault(x =>
-                x.Present && x.Id.Instance == _checkpoint.MissionInstance &&
-                (int)x.Id.Type == _checkpoint.MissionType);
-            if (record == null || !record.IsRubiKaDestination)
-            {
-                // A saved automatic cycle can be interrupted between acceptance
-                // and selection, or after an earlier mission was removed. Recover
-                // only outdoors when other accepted RK missions are actually live.
-                if (_checkpoint.AutoCycle &&
-                    (!Playfield.IsDungeon || Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid) &&
-                    _missions.Records.Any(x => x.Present && x.IsRubiKaDestination && !x.Completed))
-                {
-                    _autoCycle = true;
-                    _clearAcceptedBeforeRolling = true;
-                    Start();
-                    Say("Reconciled the accepted Rubi-Ka missions after restart; clearing them before any new rolling.");
-                    return;
-                }
-                _checkpoint.Armed = false;
-                _checkpoint.Save(true, Say);
-                Say("Saved run could not be matched to an accepted Rubi-Ka mission; restart remains disarmed.");
-                return;
-            }
-            _autoCycle = _checkpoint.AutoCycle;
-            _clearAcceptedBeforeRolling = _autoCycle;
-            Start();
-            _selected = record;
-            if (_checkpoint.PendingHandInExitVerified && !Playfield.IsDungeon &&
-                record.Kind == RkMissionKind.ReturnItem && record.Present &&
-                record.Actions?.OfType<UseItemOnItemAction>().Any(x =>
-                    x.Destination == record.Source && Inventory.Items.Any(item =>
-                        item.Slot.Type == IdentityType.Inventory && item.UniqueIdentity == x.Source)) == true)
-            {
-                record.ReturnHandInPending = true;
-                record.RoomsCleared = true;
-                record.State = MissionProgress.AwaitingHandIn;
-                _verifiedRun = _handInExitVerified = true;
-                Say($"Reconciled verified exit for return-item mission {record.Id.Instance}; resuming exact-source hand-in.");
-            }
-            if (Playfield.IsDungeon && Playfield.ModelIdentity.Instance == _checkpoint.DungeonInstance &&
-                MissionEntranceResolver.VerifyCurrentDungeon(Mission.List.FirstOrDefault(x => x.Identity == record.Id), out _))
-            {
-                // Entry coordinates are useful only for the same exact live instance.
-                record.DungeonEntryRoom = _checkpoint.EntranceRoom;
-                record.DungeonEntryPosition = _checkpoint.EntrancePosition;
-            }
-            Say($"Reconciled saved mission {record.Id.Instance}; planning again from the actual playfield and room.");
-        }
-
         private void SaveCheckpoint()
         {
-            if (_checkpoint == null || _pendingCheckpointResume) return;
+            if (_checkpoint == null) return;
             _checkpoint.Armed = _running;
             _checkpoint.AutoCycle = _autoCycle;
             _checkpoint.AutoMissionLimit = _maxAutoMissions;
@@ -1274,15 +1241,26 @@ namespace RKmission
             if (!Mission.FindMissionForCurrentDungeon(out Mission bound))
             {
                 _observedDungeon = Identity.None;
-                if (_handoffWaitStarted == DateTime.MinValue) _handoffWaitStarted = DateTime.UtcNow;
-                if (DateTime.UtcNow - _handoffWaitStarted > TimeSpan.FromSeconds(20))
+                DateTime now = DateTime.UtcNow;
+                if (_handoffWaitStarted == DateTime.MinValue) _handoffWaitStarted = now;
+                _associationAttempts++;
+                if (_nextAssociationDiagnostic == DateTime.MinValue || now >= _nextAssociationDiagnostic)
+                {
+                    _nextAssociationDiagnostic = now.AddSeconds(10);
+                    Say($"Dungeon association retry: attempt={_associationAttempts}, selected mission={_selected?.Id.ToString() ?? "none"}, " +
+                        $"door={_handoffDoor}, dungeon={Playfield.ModelIdentity}, room={DynelManager.LocalPlayer.Room?.Instance.ToString() ?? "none"}; " +
+                        "movement and exploration remain held pending exact AO# identity evidence.");
+                }
+                if (now - _handoffWaitStarted > TimeSpan.FromSeconds(60))
                 {
                     Say($"Entrance interaction result: mission={_selected?.Id.Instance}, door={_handoffDoor}, dungeon={Playfield.ModelIdentity}, result=unidentified dungeon after zoning.");
-                    _travel.CompleteHandoff(false, "AO# did not identify the selected mission dungeon within 20 seconds");
-                    Stop(); Say("AO# did not identify an accepted mission for this dungeon within 20 seconds; handoff stopped."); return;
+                    _travel.CompleteHandoff(false, "AO# did not identify the selected mission dungeon within 60 seconds of bounded exact retries");
+                    Stop(); Say("AO# did not identify an accepted mission for this dungeon within 60 seconds; exact association retries are exhausted and the bot is safely stopped."); return;
                 }
-                Wait("Waiting for AO# to associate this dungeon with an accepted mission. Exploration is held until the identity is verified."); return;
+                Wait("Retrying exact AO# dungeon association for up to 60 seconds. Exploration is held; no mission identity will be guessed."); return;
             }
+            _associationAttempts = 0;
+            _nextAssociationDiagnostic = DateTime.MinValue;
             AcceptedMission record = _missions.Find(bound.Identity);
             if (record == null || !record.IsRubiKaDestination || (_selected != null && _selected.Id != bound.Identity))
             {

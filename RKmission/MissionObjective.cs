@@ -14,14 +14,21 @@ namespace RKmission
     internal sealed class MissionObjective
     {
         private const float ObjectiveUseRange = 2f;
-        internal enum StepState { Pending, Approaching, ActionSent, ProofObserved, Completed, Blocked }
+        private const float CloseRangeOverride = 1.5f;
+        private const float InteractionRayPlayerHeight = 1.1f;
+        private const float InteractionRayTargetHeight = 0.25f;
+        private static readonly TimeSpan ApproachTimeout = TimeSpan.FromSeconds(60);
+        private static readonly TimeSpan AcknowledgementTimeout = TimeSpan.FromSeconds(75);
+        internal enum StepState { Pending, Approaching, ReadyToInteract, ActionSent, AwaitingProof, ProofObserved, Completed, Blocked }
         internal sealed class Step
         {
             public MissionAction Action;
             public Identity Target;
             public bool Pickup, Sent, Done, DeathObserved, Proof;
             public StepState State;
-            public DateTime LastSent, ObservationStarted;
+            public DateTime LastSent, ActionStarted, ObservationStarted, ApproachStarted, ReadyStarted, LastGateLog;
+            public float BestDistance = float.MaxValue;
+            public string LastGateReason;
         }
 
         private readonly Action<string> _say;
@@ -31,8 +38,7 @@ namespace RKmission
         private readonly Dictionary<Identity, Vector3> _lastPositions = new Dictionary<Identity, Vector3>();
         private readonly HashSet<Identity> _pickedUpItems = new HashSet<Identity>();
         private readonly MissionCompletionTracker _completion = new MissionCompletionTracker();
-        private DateTime _acknowledgementStarted, _approachStarted;
-        private Identity _approaching = Identity.None;
+        private DateTime _acknowledgementStarted;
         private bool _serverCompletion;
         public bool Finale { get; private set; }
         public bool FinalActionsAllowed { get; set; }
@@ -167,15 +173,17 @@ namespace RKmission
             }
             // Disappearance alone is never completion. It must follow our final
             // target/use/kill, with no observed manual Delete command.
-            bool ownedAction = _steps.Any(x => x.Sent &&
-                now - x.LastSent <= TimeSpan.FromSeconds(60));
+            // Sent is durable for this exact bound finale. A dynel may vanish
+            // immediately after AO accepts our action, and kill combat may run
+            // longer than an arbitrary recency window; neither may erase ownership.
+            bool ownedAction = _steps.Any(x => x.Sent);
             bool objectiveProof = _steps.Count > 0 && _steps.All(x => x.Proof || x.Done);
             if (!_completion.Reconcile(_record.Id, ownedAction, objectiveProof,
                 _serverCompletion, _record.DeletedByUser, out string evidence)) return;
             RewardConfirmed = true;
             Evidence = evidence;
             foreach (Step step in _steps) step.State = StepState.Completed;
-            _say($"Mission {_record.Id.Instance}: objective acknowledged by removal of the bound quest after our finale action.");
+            _say($"Mission {_record.Id.Instance}: objective proof accepted; evidence={evidence}.");
         }
 
         public void ObserveMessage(N3Message message)
@@ -196,7 +204,7 @@ namespace RKmission
             if (step == null || !Finale) return;
             step.Sent = true;
             step.State = StepState.ActionSent;
-            step.LastSent = DateTime.UtcNow; // Combat can take longer than the acknowledgement window.
+            step.ActionStarted = step.LastSent = DateTime.UtcNow; // Combat owns the action; proof is still observed here.
         }
 
         public bool Tick(Room room, DungeonLayout layout, Func<Vector3, bool> navigate,
@@ -214,28 +222,64 @@ namespace RKmission
                 if (step.Pickup && Inventory.Items.Any(x => x.UniqueIdentity == step.Target || _pickedUpItems.Contains(x.UniqueIdentity))) step.Done = true;
                 if (step.Done) { step.State = StepState.Completed; continue; }
                 if (step.Action is KillPersonAction) continue; // The guarded combat path owns this step.
-                if (step.Proof) continue; // Await the bound quest's server acknowledgement.
+                if (step.Proof)
+                {
+                    step.State = StepState.ProofObserved;
+                    continue; // Await the bound quest's server acknowledgement.
+                }
+                if (step.Sent)
+                {
+                    step.State = StepState.AwaitingProof;
+                    if (DateTime.UtcNow - step.ActionStarted > AcknowledgementTimeout)
+                    {
+                        step.State = StepState.Blocked;
+                        Failure = $"Objective action {step.Action.Type} for {step.Target} was sent, but supported proof/acknowledgement " +
+                            $"did not arrive within {AcknowledgementTimeout.TotalSeconds:0} s; disappearance alone is not accepted. " +
+                            "/rkm complete remains available only after checking the mission in game.";
+                        return true;
+                    }
+                }
                 Dynel target = DynelManager.GetDynel(step.Target);
                 if (target == null || !layout.ContainsDynel(room.Instance, target)) continue;
-                if (_approaching != step.Target)
-                { _approaching = step.Target; _approachStarted = DateTime.UtcNow; }
-                step.State = StepState.Approaching;
-                if (DateTime.UtcNow - _approachStarted > TimeSpan.FromSeconds(60))
+                DateTime now = DateTime.UtcNow;
+                float distance = target.DistanceFrom(DynelManager.LocalPlayer);
+                if (step.ApproachStarted == DateTime.MinValue)
                 {
-                    string sourceState = step.Action is UseItemOnItemAction timeoutUse
-                        ? $", source={timeoutUse.Source}, source in inventory={Inventory.Items.Any(x => x.UniqueIdentity == timeoutUse.Source)}"
-                        : "";
-                    step.State = StepState.Blocked;
-                    Failure = $"Objective {step.Target} did not complete within 60 s " +
-                        $"(distance={target.DistanceFrom(DynelManager.LocalPlayer):0.0}m, last known={(_lastPositions.TryGetValue(step.Target, out Vector3 last) ? last.ToString() : "unknown")}{sourceState}); " +
-                        "/rkm complete remains available after checking in game.";
-                    return true;
+                    step.ApproachStarted = now;
+                    step.BestDistance = distance;
                 }
+                else if (distance + 0.25f < step.BestDistance)
+                {
+                    step.BestDistance = distance;
+                    step.ApproachStarted = now; // Meaningful movement is approach progress, not a stale timeout.
+                }
+                step.State = StepState.Approaching;
                 float interactionRange = step.Pickup || step.Action is UseItemOnItemAction
                     ? ObjectiveUseRange : 4f;
-                if (target.DistanceFrom(DynelManager.LocalPlayer) > interactionRange ||
-                    !LocalRoutePlanner.ClearInteractionSegment(DynelManager.LocalPlayer.Position, target.Position))
+                Vector3 player = DynelManager.LocalPlayer.Position;
+                bool rawRay = LocalRoutePlanner.ClearInteractionSegment(player, target.Position);
+                bool elevatedRay = LocalRoutePlanner.ClearInteractionSegment(
+                    player + Vector3.Up * InteractionRayPlayerHeight,
+                    target.Position + Vector3.Up * InteractionRayTargetHeight);
+                bool exactMappedRoom = _rooms.TryGetValue(step.Target, out int mappedRoom) &&
+                    mappedRoom == room.Instance;
+                bool closeOverride = exactMappedRoom && distance <= CloseRangeOverride;
+                bool inRange = distance <= interactionRange;
+                bool rayAllowsInteraction = elevatedRay || closeOverride;
+                if (!inRange || !rayAllowsInteraction)
                 {
+                    string blocker = !inRange ? "outside interaction range" : "elevated interaction ray blocked";
+                    LogGate(step, room, target, distance, interactionRange, rawRay, elevatedRay,
+                        closeOverride, blocker, loot);
+                    if (now - step.ApproachStarted > ApproachTimeout)
+                    {
+                        step.State = StepState.Blocked;
+                        Failure = $"Objective action was never sent for {step.Action.Type}:{step.Target}: {blocker} for " +
+                            $"{ApproachTimeout.TotalSeconds:0} s without meaningful approach progress " +
+                            $"(room={room.Instance}, distance={distance:0.0}m, range={interactionRange:0.0}m, " +
+                            $"raw ray={rawRay}, elevated ray={elevatedRay}, close override={closeOverride}).";
+                        return true;
+                    }
                     if (!navigate(target.Position))
                     {
                         step.State = StepState.Blocked;
@@ -243,9 +287,24 @@ namespace RKmission
                     }
                     return true;
                 }
+                step.State = StepState.ReadyToInteract;
+                if (step.ReadyStarted == DateTime.MinValue) step.ReadyStarted = now;
                 MovementArbiter.Current.Halt(MovementOwner.Objective);
-                if (Spell.HasPendingCast || Item.HasPendingUse || loot.IsProcessingMissionLoot) return true;
-                if (DateTime.UtcNow - step.LastSent < TimeSpan.FromSeconds(3)) return true;
+                if (Spell.HasPendingCast || Item.HasPendingUse || loot.IsProcessingMissionLoot)
+                {
+                    string blocker = Spell.HasPendingCast ? "pending spell" :
+                        Item.HasPendingUse ? "pending item use" : "ManagerLoot mission processing";
+                    LogGate(step, room, target, distance, interactionRange, rawRay, elevatedRay,
+                        closeOverride, blocker, loot);
+                    if (!step.Sent && now - step.ReadyStarted > ApproachTimeout)
+                    {
+                        step.State = StepState.Blocked;
+                        Failure = $"Objective action was never sent for {step.Action.Type}:{step.Target}: {blocker} " +
+                            $"persisted for {ApproachTimeout.TotalSeconds:0} s after interaction readiness.";
+                    }
+                    return true;
+                }
+                if (now - step.LastSent < TimeSpan.FromSeconds(3)) return true;
                 if (step.Action is UseItemOnItemAction use && !step.Pickup)
                 {
                     Item source = Inventory.Items.FirstOrDefault(x => x.UniqueIdentity == use.Source);
@@ -299,8 +358,30 @@ namespace RKmission
             }
             step.Sent = true;
             step.State = StepState.ActionSent;
+            if (step.ActionStarted == DateTime.MinValue) step.ActionStarted = DateTime.UtcNow;
             step.LastSent = DateTime.UtcNow;
         }
+
+        private void LogGate(Step step, Room room, Dynel target, float distance,
+            float interactionRange, bool rawRay, bool elevatedRay, bool closeOverride,
+            string reason, ManagerLoot.ManagerLoot loot)
+        {
+            DateTime now = DateTime.UtcNow;
+            if (step.LastGateReason == reason && now - step.LastGateLog < TimeSpan.FromSeconds(5)) return;
+            step.LastGateReason = reason;
+            step.LastGateLog = now;
+            string source = step.Action is UseItemOnItemAction use
+                ? $", source={use.Source}, source available={Inventory.Items.Any(x => x.UniqueIdentity == use.Source)}"
+                : "";
+            _say($"Objective gate: reason={reason}, target={step.Target}, type={step.Action.Type}, " +
+                $"room={room.Instance}, same-room={MappedToRoom(room, target)}, distance={distance:0.0}m, " +
+                $"range={interactionRange:0.0}m, raw ray={rawRay}, elevated ray={elevatedRay}, " +
+                $"close override={closeOverride}, pending spell={Spell.HasPendingCast}, pending item={Item.HasPendingUse}, " +
+                $"ManagerLoot processing={loot.IsProcessingMissionLoot}, free slots={Inventory.NumFreeSlots}{source}.");
+        }
+
+        private bool MappedToRoom(Room room, Dynel target) =>
+            _rooms.TryGetValue(target.Identity, out int mappedRoom) && mappedRoom == room.Instance;
 
         public int? PendingRoom => _steps.Where(x => !x.Done && _rooms.ContainsKey(x.Target))
             .Select(x => (int?)_rooms[x.Target]).FirstOrDefault();
