@@ -23,7 +23,8 @@ namespace RKmission
         internal sealed class Step
         {
             public MissionAction Action;
-            public Identity Target;
+            public Identity Target, InventoryItem;
+            public string RoleEvidence;
             public bool Pickup, Sent, Done, DeathObserved, Proof;
             public StepState State;
             public DateTime LastSent, ActionStarted, ObservationStarted, ApproachStarted, ReadyStarted, LastGateLog;
@@ -40,6 +41,7 @@ namespace RKmission
         private readonly MissionCompletionTracker _completion = new MissionCompletionTracker();
         private DateTime _acknowledgementStarted;
         private bool _serverCompletion;
+        private string _roleResolutionFailure;
         public bool Finale { get; private set; }
         public bool FinalActionsAllowed { get; set; }
         public bool RewardConfirmed { get; private set; }
@@ -50,38 +52,60 @@ namespace RKmission
         public bool HasSteps => _steps.Count > 0;
         public bool HasKillTarget => _steps.Any(x => x.Action is KillPersonAction);
         public bool CollectedReturnItem => Returning && ReturnItem != null;
-        public string StepSummary => string.Join(", ", _steps.Select(x => $"{x.Action.Type}:{x.Target}={x.State}"));
+        public string StepSummary => string.Join(", ", _steps.Select(x =>
+            $"{x.Action.Type}:{x.Target}={x.State}" +
+            (x.InventoryItem != Identity.None ? $" item={x.InventoryItem}" : "")));
         public Item ReturnItem => Inventory.Items.FirstOrDefault(item =>
             _pickedUpItems.Contains(item.UniqueIdentity) ||
             _steps.Any(step => step.Pickup && item.UniqueIdentity == step.Target) ||
-            _steps.Any(step => step.Action is UseItemOnItemAction use &&
-                use.Destination == _record.Source && item.UniqueIdentity == use.Source));
+            _steps.Any(step => step.Action is UseItemOnItemAction &&
+                step.InventoryItem != Identity.None && item.UniqueIdentity == step.InventoryItem));
 
         public MissionObjective(AcceptedMission record, Action<string> say)
         { _record = record; _say = say; Refresh(null); }
 
         public void Refresh(DungeonLayout layout)
         {
+            string roleFailure = null;
             foreach (MissionAction action in _record.Actions ?? new List<MissionAction>())
             {
                 Identity target = Target(action);
+                Identity inventoryItem = Identity.None;
+                string roleEvidence = null;
                 // Find-item missions complete by selecting the item. Only a
                 // return-item mission needs to collect it for a later hand-in.
                 bool pickup = action is FindItemAction && Returning;
-                if (action is UseItemOnItemAction use && (_record.Kind == RkMissionKind.ReturnItem ||
-                    (use.Destination == _record.Source && _record.Source != Identity.None)))
+                if (action is UseItemOnItemAction use)
                 {
-                    _record.Kind = RkMissionKind.ReturnItem;
-                    target = use.Source;
-                    pickup = true;
+                    if (!UseItemRoleResolver.TryResolve(_record, use, out UseItemRoles roles, out string reason))
+                    {
+                        roleFailure = reason;
+                        continue;
+                    }
+                    target = roles.WorldTarget;
+                    inventoryItem = roles.InventoryItem;
+                    roleEvidence = roles.Evidence;
+                    if (_record.Kind == RkMissionKind.ReturnItem ||
+                        (use.Destination == _record.Source && _record.Source != Identity.None))
+                    {
+                        _record.Kind = RkMissionKind.ReturnItem;
+                        target = roles.InventoryItem;
+                        pickup = true;
+                    }
                 }
                 if (target == Identity.None) continue;
                 Step existing = _steps.FirstOrDefault(step => step.Target == target && step.Action.Type == action.Type);
                 if (existing == null)
-                    _steps.Add(new Step { Action = action, Target = target, Pickup = pickup });
+                    _steps.Add(new Step { Action = action, Target = target, InventoryItem = inventoryItem,
+                        RoleEvidence = roleEvidence, Pickup = pickup });
                 else
+                {
                     existing.Pickup = pickup;
+                    existing.InventoryItem = inventoryItem;
+                    existing.RoleEvidence = roleEvidence;
+                }
             }
+            _roleResolutionFailure = roleFailure;
             // A return hand-in action may arrive after its FindItemAction.
             foreach (Step step in _steps.Where(x => x.Action is FindItemAction))
                 step.Pickup = Returning;
@@ -105,7 +129,7 @@ namespace RKmission
             if (action is KillPersonAction kill) return kill.Target;
             if (action is FindPersonAction person) return person.Target;
             if (action is FindItemAction item) return item.Target;
-            if (action is UseItemOnItemAction use) return use.Destination;
+            if (action is UseItemOnItemAction) return Identity.None;
             return Identity.None;
         }
 
@@ -129,16 +153,19 @@ namespace RKmission
         public bool PreflightFinale(out string reason)
         {
             reason = null;
+            if (_roleResolutionFailure != null)
+            { reason = _roleResolutionFailure; return false; }
             if (_steps.Count == 0) { reason = "No supported objective step is bound to this mission."; return false; }
             if (_record.DeletedByUser) { reason = "Bound mission was manually deleted."; return false; }
             if (_steps.Any(x => x.Pickup && !x.Done) && Inventory.NumFreeSlots <= 1)
             { reason = "Free main-inventory space is needed for the objective item."; return false; }
             foreach (Step step in _steps.Where(x => x.Action is UseItemOnItemAction && !x.Pickup))
             {
-                var use = (UseItemOnItemAction)step.Action;
-                if (Inventory.Items.Any(x => x.UniqueIdentity == use.Source) ||
-                    _steps.Any(x => x.Pickup && x.Target == use.Source)) continue;
-                reason = $"Objective source item {use.Source} is absent before finale.";
+                if (step.InventoryItem != Identity.None &&
+                    (Inventory.Items.Any(x => x.UniqueIdentity == step.InventoryItem) ||
+                    _steps.Any(x => x.Pickup && x.Target == step.InventoryItem))) continue;
+                reason = $"Resolved objective inventory item {step.InventoryItem} is absent before finale " +
+                    $"(world target={step.Target}, roles={step.RoleEvidence}).";
                 return false;
             }
             return true;
@@ -167,8 +194,8 @@ namespace RKmission
                     step.Proof |= Targeting.Target?.Identity == step.Target;
                 else if (step.Pickup)
                     step.Proof |= Inventory.Items.Any(x => x.UniqueIdentity == step.Target || _pickedUpItems.Contains(x.UniqueIdentity));
-                else if (step.Action is UseItemOnItemAction use)
-                    step.Proof |= !Inventory.Items.Any(x => x.UniqueIdentity == use.Source);
+                else if (step.Action is UseItemOnItemAction)
+                    step.Proof |= !Inventory.Items.Any(x => x.UniqueIdentity == step.InventoryItem);
                 if (step.Proof) step.State = StepState.ProofObserved;
             }
             // Disappearance alone is never completion. It must follow our final
@@ -305,9 +332,9 @@ namespace RKmission
                     return true;
                 }
                 if (now - step.LastSent < TimeSpan.FromSeconds(3)) return true;
-                if (step.Action is UseItemOnItemAction use && !step.Pickup)
+                if (step.Action is UseItemOnItemAction && !step.Pickup)
                 {
-                    Item source = Inventory.Items.FirstOrDefault(x => x.UniqueIdentity == use.Source);
+                    Item source = Inventory.Items.FirstOrDefault(x => x.UniqueIdentity == step.InventoryItem);
                     if (source == null && step.Sent && step.Proof) continue; // Consumed; await acknowledgement.
                     if (source == null) { Failure = "Mission repair/use item is missing from main inventory."; return true; }
                     source.UseOn(target.Identity);
@@ -352,7 +379,8 @@ namespace RKmission
             if (!step.Sent)
             {
                 string detail = step.Action is UseItemOnItemAction use
-                    ? $", source={use.Source}, destination={use.Destination}, collect={step.Pickup}"
+                    ? $", source={use.Source}, destination={use.Destination}, resolved item={step.InventoryItem}, " +
+                      $"resolved world target={step.Target}, roles={step.RoleEvidence}, collect={step.Pickup}"
                     : "";
                 _say($"Final objective action: {step.Action.Type}, target={step.Target}{detail}.");
             }
@@ -370,8 +398,10 @@ namespace RKmission
             if (step.LastGateReason == reason && now - step.LastGateLog < TimeSpan.FromSeconds(5)) return;
             step.LastGateReason = reason;
             step.LastGateLog = now;
-            string source = step.Action is UseItemOnItemAction use
-                ? $", source={use.Source}, source available={Inventory.Items.Any(x => x.UniqueIdentity == use.Source)}"
+            string source = step.Action is UseItemOnItemAction
+                ? $", resolved item={step.InventoryItem}, source available=" +
+                  $"{Inventory.Items.Any(x => x.UniqueIdentity == step.InventoryItem)}, " +
+                  $"world target={step.Target}, roles={step.RoleEvidence}"
                 : "";
             _say($"Objective gate: reason={reason}, target={step.Target}, type={step.Action.Type}, " +
                 $"room={room.Instance}, same-room={MappedToRoom(room, target)}, distance={distance:0.0}m, " +
@@ -385,5 +415,9 @@ namespace RKmission
 
         public int? PendingRoom => _steps.Where(x => !x.Done && _rooms.ContainsKey(x.Target))
             .Select(x => (int?)_rooms[x.Target]).FirstOrDefault();
+
+        public bool ProtectsMissionItem(Identity identity) => _steps.Any(step =>
+            step.InventoryItem == identity ||
+            (step.Action is FindItemAction && step.Target == identity));
     }
 }

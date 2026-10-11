@@ -229,9 +229,7 @@ namespace RKmission
                 !_objective.HoldLoot(dynel) && !_readiness.InCombat &&
                 (!_objective.IsObjective(dynel.Identity) || _loot.MissionObjectiveContainer == dynel.Identity);
             _loot.MissionInteractionReady = LootInteractionReady;
-            _loot.MissionItemProtected = item => _record.Actions != null && _record.Actions.Any(action =>
-                (action is UseItemOnItemAction use && item.UniqueIdentity == use.Source) ||
-                (action is FindItemAction find && item.UniqueIdentity == find.Target)) ||
+            _loot.MissionItemProtected = item => _objective.ProtectsMissionItem(item.UniqueIdentity) ||
                 _objective.ReturnItem?.UniqueIdentity == item.UniqueIdentity;
             _objective.Refresh(_layout);
             if (_layout.MissingConnections > 0)

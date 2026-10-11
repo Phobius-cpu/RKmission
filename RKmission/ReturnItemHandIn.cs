@@ -48,8 +48,12 @@ namespace RKmission
             if (actions.Length != 1)
                 return Block("No unambiguous return-item action to the bound mission source is available.");
             UseItemOnItemAction action = actions[0];
-            if (_item == Identity.None) _item = action.Source;
-            if (_item != action.Source)
+            if (!UseItemRoleResolver.TryResolve(record, action, out UseItemRoles roles, out string roleFailure))
+                return Block(roleFailure);
+            if (roles.WorldTarget != issuingTerminal)
+                return Block("Resolved return-item target does not match the verified issuing terminal.");
+            if (_item == Identity.None) _item = roles.InventoryItem;
+            if (_item != roles.InventoryItem)
                 return Block("Return-item identity changed after hand-in began.");
             Item item = Inventory.Items.FirstOrDefault(x =>
                 x.Slot.Type == IdentityType.Inventory && x.UniqueIdentity == _item);
@@ -65,7 +69,7 @@ namespace RKmission
             if (Mission.List == null) return HandInResult.Waiting;
             if (!Mission.List.Any(x => x.Identity == record.Id))
                 return Block("Bound quest is absent before a verified hand-in.");
-            Dynel target = DynelManager.GetDynel(action.Destination);
+            Dynel target = DynelManager.GetDynel(roles.WorldTarget);
             if (target == null || target.Identity != issuingTerminal)
                 return HandInResult.Waiting;
             if (Vector3.Distance(DynelManager.LocalPlayer.Position, target.Position) > 2.5f)
@@ -74,7 +78,7 @@ namespace RKmission
                 DateTime.UtcNow - _lastSent < TimeSpan.FromSeconds(10)) return HandInResult.Waiting;
             if (_attempts >= 3)
                 return Block("Three exact return-item uses produced no confirmed hand-in.");
-            item.UseOn(action.Destination);
+            item.UseOn(roles.WorldTarget);
             _lastSent = DateTime.UtcNow;
             _attempts++;
             return HandInResult.Waiting;
