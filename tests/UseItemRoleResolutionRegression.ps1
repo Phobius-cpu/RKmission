@@ -6,7 +6,7 @@ $dungeon = Get-Content -LiteralPath (Join-Path $root 'RKmission/MissionDungeon.c
 $handIn = Get-Content -LiteralPath (Join-Path $root 'RKmission/ReturnItemHandIn.cs') -Raw
 
 foreach ($required in @(
-    'record.Kind != RkMissionKind.Repair',
+    'record.Kind != RkMissionKind.Repair && record.Kind != RkMissionKind.Unknown',
     'sourceInWorld && destinationInInventory',
     'Resolved(action.Destination, action.Source',
     'sourceTerminal && !destinationTerminal',
@@ -14,6 +14,7 @@ foreach ($required in @(
     if (-not $resolver.Contains($required)) { throw "Repair Source-as-world resolution regressed: $required" }
 }
 Write-Output 'PASS repair Source terminal resolves as world target and Destination as inventory item'
+Write-Output 'PASS unknown-kind retained UseItem actions use the same structural repair evidence'
 
 foreach ($required in @(
     'step.InventoryItem',
@@ -47,10 +48,14 @@ foreach ($required in @(
 Write-Output 'PASS return-item Source remains inventory item and Destination remains verified issuing terminal'
 
 foreach ($required in @(
-    'Ambiguous repair UseItemOnItem roles:',
+    'UseItemOnItem role resolution failed:',
+    'kind={record.Kind}',
+    'terminal={action.Source.Type == IdentityType.Terminal}',
     '_roleResolutionFailure',
-    '{ reason = _roleResolutionFailure; return false; }')) {
-    if (-not ($resolver + $objective).Contains($required)) { throw "Ambiguous role fail-safe regressed: $required" }
+    '{ reason = _roleResolutionFailure; return false; }',
+    'Mission objective metadata could not be reconstructed;',
+    '_objective.PreflightFinale(out string objectiveFailure)')) {
+    if (-not ($resolver + $objective + $dungeon).Contains($required)) { throw "Ambiguous role fail-safe regressed: $required" }
 }
 Write-Output 'PASS ambiguous UseItem roles fail preflight instead of guessing'
 

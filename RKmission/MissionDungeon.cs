@@ -649,7 +649,14 @@ namespace RKmission
                     return;
                 }
                 if (!_objective.HasSteps)
-                { Stop(); _say("No supported mission objective metadata is available; automatic completion is held."); return; }
+                {
+                    Stop();
+                    if (!_objective.PreflightFinale(out string objectiveFailure))
+                        _say($"Mission objective metadata could not be reconstructed; automatic completion is held. {objectiveFailure}");
+                    else
+                        _say("No supported mission objective metadata is available; automatic completion is held.");
+                    return;
+                }
                 if (!_objective.Finale)
                 {
                     MovementArbiter.Current.Halt(_requestedOwner);

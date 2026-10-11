@@ -41,13 +41,18 @@ namespace RKmission
                 return true;
             }
 
-            if (record.Kind != RkMissionKind.Repair)
-            { reason = $"UseItemOnItem roles are unsupported for mission kind {record.Kind}."; return false; }
-
             bool sourceInInventory = InMainInventory(action.Source);
             bool destinationInInventory = InMainInventory(action.Destination);
             bool sourceInWorld = DynelManager.GetDynel(action.Source) != null;
             bool destinationInWorld = DynelManager.GetDynel(action.Destination) != null;
+
+            if (record.Kind != RkMissionKind.Repair && record.Kind != RkMissionKind.Unknown)
+            {
+                reason = Failure(record, action, sourceInInventory, sourceInWorld,
+                    destinationInInventory, destinationInWorld,
+                    $"mission kind {record.Kind} does not support repair semantics");
+                return false;
+            }
 
             if (sourceInWorld && destinationInInventory && !sourceInInventory)
                 return Resolved(action.Destination, action.Source,
@@ -72,9 +77,9 @@ namespace RKmission
                 return Resolved(action.Source, action.Destination,
                     "only repair source is carried", out roles);
 
-            reason = $"Ambiguous repair UseItemOnItem roles: source={action.Source} " +
-                $"(inventory={sourceInInventory}, world={sourceInWorld}), destination={action.Destination} " +
-                $"(inventory={destinationInInventory}, world={destinationInWorld}).";
+            reason = Failure(record, action, sourceInInventory, sourceInWorld,
+                destinationInInventory, destinationInWorld,
+                "inventory/world and terminal evidence do not identify exactly one carried item and one world target");
             return false;
         }
 
@@ -92,5 +97,13 @@ namespace RKmission
             };
             return true;
         }
+
+        private static string Failure(AcceptedMission record, UseItemOnItemAction action,
+            bool sourceInInventory, bool sourceInWorld,
+            bool destinationInInventory, bool destinationInWorld, string detail) =>
+            $"UseItemOnItem role resolution failed: kind={record.Kind}, source={action.Source} " +
+            $"(terminal={action.Source.Type == IdentityType.Terminal}, inventory={sourceInInventory}, world={sourceInWorld}), " +
+            $"destination={action.Destination} (terminal={action.Destination.Type == IdentityType.Terminal}, " +
+            $"inventory={destinationInInventory}, world={destinationInWorld}); reason={detail}.";
     }
 }
