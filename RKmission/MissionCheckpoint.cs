@@ -59,7 +59,7 @@ namespace RKmission
         public bool MatchesQuestCharacter(Identity quest, Identity character) =>
             QuestInstance > 0 && QuestInstance == quest.Instance &&
             CharacterInstance > 0 && CharacterInstance == character.Instance &&
-            TerminalInstance > 0;
+            TerminalInstance != 0;
 
         public bool Matches(AcceptedMission mission, Identity character) =>
             mission != null && QuestInstance == mission.Id.Instance &&
@@ -68,7 +68,7 @@ namespace RKmission
             AcceptedMissions.Finite(Destination) &&
             AcceptedMissions.Finite(mission.Entrance) &&
             Vector3.Distance(Destination, mission.Entrance) <= 12f &&
-            TerminalInstance > 0 && TerminalPlayfield > 0 &&
+            TerminalInstance != 0 && TerminalPlayfield > 0 &&
             AcceptedMissions.Finite(TerminalPosition);
 
         public Identity TerminalIdentity => new Identity(IdentityType.MissionTerminal, TerminalInstance);

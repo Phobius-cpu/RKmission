@@ -25,19 +25,71 @@ foreach ($required in @(
     'public bool MatchesQuestCharacter(Identity quest, Identity character)',
     'QuestInstance > 0 && QuestInstance == quest.Instance',
     'CharacterInstance > 0 && CharacterInstance == character.Instance',
-    'TerminalInstance > 0')) {
+    'TerminalInstance != 0')) {
     if (-not $checkpoint.Contains($required)) { throw "Identity-level origin ownership regressed: $required" }
 }
-Write-Output 'PASS wrong quest, wrong character, and invalid terminal bindings cannot restore ReturnItem'
+if ($checkpoint.Contains('TerminalInstance > 0')) {
+    throw 'Signed mission-terminal identities are still rejected by a positive-only validity check.'
+}
+
+$signedTerminal = [BitConverter]::ToInt32([BitConverter]::GetBytes([uint32]3221291548), 0) # 0xC001021C
+if ($signedTerminal -ge 0) { throw 'Regression fixture must be a negative signed terminal identity.' }
+
+function Test-OriginIdentityMatch($bindingQuest, $bindingCharacter, $terminal, $quest, $character) {
+    return $bindingQuest -gt 0 -and $bindingQuest -eq $quest -and
+        $bindingCharacter -gt 0 -and $bindingCharacter -eq $character -and
+        $terminal -ne 0
+}
+
+if (-not (Test-OriginIdentityMatch 101 17 $signedTerminal 101 17)) {
+    throw 'Negative nonzero terminal instance must match exact quest/character ownership.'
+}
+if (-not (Test-OriginIdentityMatch 101 17 12345 101 17)) {
+    throw 'Positive terminal instance must continue to match exact quest/character ownership.'
+}
+if (Test-OriginIdentityMatch 101 17 0 101 17) {
+    throw 'Zero terminal instance must remain invalid.'
+}
+if (Test-OriginIdentityMatch 101 17 $signedTerminal 102 17) {
+    throw 'Wrong quest must not match origin ownership.'
+}
+if (Test-OriginIdentityMatch 101 17 $signedTerminal 101 18) {
+    throw 'Wrong character must not match origin ownership.'
+}
+Write-Output 'PASS signed negative and positive terminal instances match; zero, wrong quest, and wrong character fail'
 
 foreach ($required in @(
     'QuestInstance == mission.Id.Instance',
     'CharacterInstance > 0 && CharacterInstance == character.Instance',
     'DestinationPlayfield == mission.PlayfieldId',
-    'Vector3.Distance(Destination, mission.Entrance) <= 12f')) {
+    'AcceptedMissions.Finite(Destination)',
+    'AcceptedMissions.Finite(mission.Entrance)',
+    'Vector3.Distance(Destination, mission.Entrance) <= 12f',
+    'TerminalInstance != 0 && TerminalPlayfield > 0',
+    'AcceptedMissions.Finite(TerminalPosition)')) {
     if (-not $checkpoint.Contains($required)) { throw "Origin provenance weakened: $required" }
 }
-Write-Output 'PASS exact quest, character, and destination provenance remains required'
+
+function Test-FullOriginMatch($terminal, $questMatches, $characterMatches, $playfieldMatches,
+    $destinationFinite, $entranceFinite, $entranceDistance, $terminalPlayfield, $terminalPositionFinite) {
+    return $questMatches -and $characterMatches -and $playfieldMatches -and
+        $destinationFinite -and $entranceFinite -and $entranceDistance -le 12 -and
+        $terminal -ne 0 -and $terminalPlayfield -gt 0 -and $terminalPositionFinite
+}
+
+if (-not (Test-FullOriginMatch $signedTerminal $true $true $true $true $true 12 540 $true)) {
+    throw 'Full provenance must accept a negative nonzero terminal instance when every strict check passes.'
+}
+if (Test-FullOriginMatch 0 $true $true $true $true $true 12 540 $true) {
+    throw 'Full provenance must reject a zero terminal instance.'
+}
+$wrongPlayfield = Test-FullOriginMatch $signedTerminal $true $true $false $true $true 12 540 $true
+$outsideEntranceTolerance = Test-FullOriginMatch $signedTerminal $true $true $true $true $true 12.01 540 $true
+$invalidTerminalPosition = Test-FullOriginMatch $signedTerminal $true $true $true $true $true 12 540 $false
+if ($wrongPlayfield -or $outsideEntranceTolerance -or $invalidTerminalPosition) {
+    throw 'Full provenance must retain playfield, entrance-tolerance, and terminal-position checks.'
+}
+Write-Output 'PASS full match accepts signed terminals while retaining quest, character, playfield, entrance, and terminal-position provenance'
 
 $restoreStart = $accepted.IndexOf('private void RestoreReturnItemFromOrigin')
 $restoreEnd = $accepted.IndexOf('private MissionObjectiveBinding FindBinding', $restoreStart)
