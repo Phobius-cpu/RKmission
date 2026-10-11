@@ -78,7 +78,8 @@ if (-not $dungeon.Contains('_objective.ProtectsMissionItem(item.UniqueIdentity)'
 Write-Output 'PASS resolved mission inventory item is protected from logistics'
 
 foreach ($required in @(
-    'action.Destination == record.Source',
+    'record.VerifiedIssuingTerminal',
+    'action.Destination != issuingTerminal',
     'InventoryItem = action.Source',
     'WorldTarget = action.Destination')) {
     if (-not $resolver.Contains($required)) { throw "Return-item role binding regressed: $required" }

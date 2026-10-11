@@ -23,6 +23,7 @@ namespace RKmission
         public Vector3 Entrance;
         public Identity DungeonInstance;
         public Identity Source = Identity.None;
+        public Identity VerifiedIssuingTerminal = Identity.None;
         public RkMissionKind Kind;
         public Vector3? DungeonEntryPosition;
         public int DungeonEntryRoom;
@@ -182,6 +183,7 @@ namespace RKmission
                     record.Objectives = actions.Count == 0 ? "unknown" :
                         string.Join(", ", actions.Select(Describe));
                 }
+                RestoreReturnItemFromOrigin(record);
             }
             foreach (AcceptedMission record in Records.Where(x => !seen.Contains(x.Id)))
             {
@@ -278,6 +280,29 @@ namespace RKmission
                 _say?.Invoke($"Restored durable objective metadata for quest {mission.Id.Instance}: " +
                     $"kind={mission.Kind}, text={(!string.IsNullOrWhiteSpace(mission.QuestShortInfo) || !string.IsNullOrWhiteSpace(mission.QuestLongInfo) ? "yes" : "no")}, " +
                     $"actionIds={mission.QuestActionIdentities.Count}, repairTool template={mission.RepairToolLowId}/{mission.RepairToolHighId}.");
+        }
+
+        private void RestoreReturnItemFromOrigin(AcceptedMission mission)
+        {
+            Identity character = CurrentCharacter();
+            if (_checkpoint?.OriginTerminals == null || character == Identity.None ||
+                mission?.Actions == null ||
+                (mission.Kind != RkMissionKind.Unknown && mission.Kind != RkMissionKind.ReturnItem)) return;
+
+            MissionOriginBinding origin = _checkpoint.OriginTerminals.FirstOrDefault(x =>
+                x.Matches(mission, character) && mission.Actions.OfType<UseItemOnItemAction>()
+                    .Any(action => action.Destination == x.TerminalIdentity));
+            if (origin == null) return;
+
+            Identity terminal = origin.TerminalIdentity;
+            mission.VerifiedIssuingTerminal = terminal;
+            mission.Source = terminal;
+            if (mission.Kind != RkMissionKind.Unknown) return;
+
+            mission.Kind = RkMissionKind.ReturnItem;
+            PersistObjectiveMetadata(mission);
+            _say?.Invoke($"Restored ReturnItem semantics for quest {mission.Id.Instance} " +
+                $"from verified issuing terminal {terminal}.");
         }
 
         private MissionObjectiveBinding FindBinding(Identity quest, Identity character)

@@ -29,10 +29,15 @@ namespace RKmission
 
             // Return-item hand-in has an intentionally strict binding: the
             // destination must be the verified issuing mission terminal.
-            if (record.Kind == RkMissionKind.ReturnItem ||
-                (record.Source != Identity.None && action.Destination == record.Source))
+            Identity issuingTerminal = record.VerifiedIssuingTerminal != Identity.None
+                ? record.VerifiedIssuingTerminal
+                : record.Source;
+            bool verifiedUnknownReturn = record.Kind == RkMissionKind.Unknown &&
+                record.VerifiedIssuingTerminal != Identity.None &&
+                action.Destination == record.VerifiedIssuingTerminal;
+            if (record.Kind == RkMissionKind.ReturnItem || verifiedUnknownReturn)
             {
-                if (record.Source == Identity.None || action.Destination != record.Source)
+                if (issuingTerminal == Identity.None || action.Destination != issuingTerminal)
                 { reason = "Return-item action is not bound to the mission's issuing terminal."; return false; }
                 roles = new UseItemRoles
                 {

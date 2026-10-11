@@ -86,7 +86,8 @@ namespace RKmission
                     inventoryItem = roles.InventoryItem;
                     roleEvidence = roles.Evidence;
                     if (_record.Kind == RkMissionKind.ReturnItem ||
-                        (use.Destination == _record.Source && _record.Source != Identity.None))
+                        (use.Destination == _record.VerifiedIssuingTerminal &&
+                            _record.VerifiedIssuingTerminal != Identity.None))
                     {
                         _record.Kind = RkMissionKind.ReturnItem;
                         target = roles.InventoryItem;
