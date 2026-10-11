@@ -37,6 +37,21 @@ if (-not $dungeon.Contains('private const float LootUseRange = 3f') -or
 }
 Write-Output 'PASS loot waits for conservative 3D readiness, includes target elevation, and releases too-far opening'
 
+if (-not $dungeon.Contains('_requestedOwner == MovementOwner.LootApproach') -or
+    -not $dungeon.Contains('_destination.HasValue &&') -or
+    -not $dungeon.Contains('_lootApproachIndex < _lootApproachPoints.Count') -or
+    -not $dungeon.Contains('int rejectedRoute = _lootApproachIndex + 1;') -or
+    -not $dungeon.Contains('_lootApproachIndex++;') -or
+    -not $dungeon.Contains('MovementArbiter.Current.Halt(MovementOwner.LootApproach);') -or
+    -not $dungeon.Contains('rejecting route and trying') -or
+    -not $dungeon.Contains('rejecting final route') -or
+    -not $dungeon.Contains('if (tier >= 2)') -or
+    -not $dungeon.Contains('MovementArbiter.Current.Halt(_requestedOwner);') -or
+    -not $dungeon.Contains('InvalidatePath();')) {
+    throw 'Loot-specific route advancement or generic non-loot stuck recovery regressed.'
+}
+Write-Output 'PASS loot stuck recovery advances candidates one by one while generic recovery remains intact'
+
 if (-not $loot.Contains('CurrentProcess = ProcessState.PickingLock;') -or
     -not $loot.Contains('lockPick?.UseOn(chest);') -or
     -not $loot.Contains('IsMissionCriticalLoot') -or

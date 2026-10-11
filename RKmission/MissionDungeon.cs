@@ -347,6 +347,25 @@ namespace RKmission
                 }
                 return;
             }
+            if ((MovementArbiter.Current.Owner == MovementOwner.LootApproach ||
+                 _requestedOwner == MovementOwner.LootApproach) &&
+                _destination.HasValue &&
+                _lootApproachIndex < _lootApproachPoints.Count)
+            {
+                int rejectedRoute = _lootApproachIndex + 1;
+                _lootApproachIndex++;
+                _destination = null;
+                _lootLastProgress = DateTime.UtcNow;
+                _lootLastPosition = DynelManager.LocalPlayer.Position;
+                MovementArbiter.Current.Halt(MovementOwner.LootApproach);
+                if (_lootApproachIndex < _lootApproachPoints.Count)
+                    _say($"Loot {_waitingForLoot} approach {rejectedRoute} stalled; rejecting route and trying " +
+                        $"{_lootApproachIndex + 1}/{_lootApproachPoints.Count}.");
+                else
+                    _say($"Loot {_waitingForLoot} approach {rejectedRoute} stalled; rejecting final route " +
+                        $"{rejectedRoute}/{_lootApproachPoints.Count}.");
+                return;
+            }
             if ((MovementArbiter.Current.Owner == MovementOwner.CombatPosition ||
                  _requestedOwner == MovementOwner.CombatPosition) &&
                 _combatApproachTarget != Identity.None &&
