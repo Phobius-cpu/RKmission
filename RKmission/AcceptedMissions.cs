@@ -32,6 +32,7 @@ namespace RKmission
         public List<Identity> QuestActionIdentities = new List<Identity>();
         public Identity RepairToolIdentity = Identity.None;
         public int RepairToolLowId, RepairToolHighId;
+        public Action<AcceptedMission> ObjectiveMetadataChanged;
         public bool Present, HandoffVerified, RoomsCleared;
         public MissionProgress State;
         public bool IsRubiKaDestination => AcceptedMissions.IsRubiKaPlayfield(PlayfieldId);
@@ -53,6 +54,8 @@ namespace RKmission
         private readonly Dictionary<Identity, RkMissionKind> _kinds = new Dictionary<Identity, RkMissionKind>();
         private readonly Dictionary<Identity, QuestMetadata> _questMetadata = new Dictionary<Identity, QuestMetadata>();
         private readonly Dictionary<int, DateTime> _questUpdateAt = new Dictionary<int, DateTime>();
+        private MissionCheckpoint _checkpoint;
+        private Action<string> _say;
         private DateTime _nextRefresh;
         public IEnumerable<AcceptedMission> Records => _records.Values;
         public static bool IsRubiKaPlayfield(int id) => RubiKaPlayfields.Contains(id);
@@ -64,6 +67,14 @@ namespace RKmission
                 .Select(x => x.Key);
         public IEnumerable<AcceptedMission> Eligible(int playfield) => Records.Where(x => x.Present && x.IsRubiKaDestination &&
             x.PlayfieldId == playfield && !x.Completed);
+
+        public void AttachCheckpoint(MissionCheckpoint checkpoint, Action<string> say)
+        {
+            _checkpoint = checkpoint;
+            _say = say;
+            if (_checkpoint.ObjectiveMetadata == null)
+                _checkpoint.ObjectiveMetadata = new List<MissionObjectiveBinding>();
+        }
 
         // Offered metadata identifies all five types, but never makes an offer eligible.
         public void ObserveRoll(object sender, RollListChangedArgs args)
@@ -88,7 +99,13 @@ namespace RKmission
                 };
                 _questMetadata[quest.QuestId] = metadata;
                 AcceptedMission existing = Find(quest.QuestId);
-                if (existing != null) ApplyQuestMetadata(existing, metadata);
+                if (existing != null)
+                {
+                    ApplyQuestMetadata(existing, metadata);
+                    if (kind != RkMissionKind.Unknown) existing.Kind = kind;
+                    PersistObjectiveMetadata(existing);
+                }
+                else PersistQuestMetadata(quest.QuestId, kind, metadata);
             }
         }
 
@@ -134,7 +151,12 @@ namespace RKmission
                 {
                     // Retain accepted identities/objectives even before their location resolves.
                     // Non-Rubi-Ka and unresolved destinations are visible, but never eligible for travel.
-                    record = new AcceptedMission { Id = id, State = MissionProgress.Accepted };
+                    record = new AcceptedMission
+                    {
+                        Id = id,
+                        State = MissionProgress.Accepted,
+                        ObjectiveMetadataChanged = PersistObjectiveMetadata
+                    };
                     _records.Add(id, record);
                 }
                 record.Present = true;
@@ -147,6 +169,7 @@ namespace RKmission
                     record.Kind = kind;
                 if (_questMetadata.TryGetValue(id, out QuestMetadata metadata))
                     ApplyQuestMetadata(record, metadata);
+                RestoreObjectiveMetadata(record);
                 if (location != null && Finite(location.Pos) && (outdoorDestination || !record.IsRubiKaDestination))
                 {
                     record.PlayfieldId = location.Playfield.Instance;
@@ -175,6 +198,95 @@ namespace RKmission
             public string ShortInfo, LongInfo;
             public List<Identity> ActionIdentities;
         }
+
+        public void RemoveObjectiveMetadata(AcceptedMission mission)
+        {
+            Identity character = CurrentCharacter();
+            if (_checkpoint == null || mission == null || character == Identity.None) return;
+            int removed = _checkpoint.ObjectiveMetadata.RemoveAll(x => x.Matches(mission.Id, character));
+            if (removed > 0) _checkpoint.Save(true, _say);
+        }
+
+        private void PersistQuestMetadata(Identity quest, RkMissionKind kind, QuestMetadata metadata)
+        {
+            Identity character = CurrentCharacter();
+            if (_checkpoint == null || character == Identity.None) return;
+            MissionObjectiveBinding binding = FindBinding(quest, character) ?? new MissionObjectiveBinding
+            {
+                QuestType = (int)quest.Type,
+                QuestInstance = quest.Instance,
+                CharacterInstance = character.Instance
+            };
+            if (!_checkpoint.ObjectiveMetadata.Contains(binding)) _checkpoint.ObjectiveMetadata.Add(binding);
+            if (kind != RkMissionKind.Unknown) binding.Kind = kind;
+            binding.QuestShortInfo = metadata.ShortInfo;
+            binding.QuestLongInfo = metadata.LongInfo;
+            binding.QuestActionIdentities = (metadata.ActionIdentities ?? new List<Identity>())
+                .Distinct().Select(MissionObjectiveIdentity.From).ToList();
+            binding.UpdatedAtUtc = DateTime.UtcNow;
+            _checkpoint.Save(true, _say);
+        }
+
+        private void PersistObjectiveMetadata(AcceptedMission mission)
+        {
+            Identity character = CurrentCharacter();
+            if (_checkpoint == null || mission == null || character == Identity.None) return;
+            MissionObjectiveBinding binding = FindBinding(mission.Id, character) ?? new MissionObjectiveBinding
+            {
+                QuestType = (int)mission.Id.Type,
+                QuestInstance = mission.Id.Instance,
+                CharacterInstance = character.Instance
+            };
+            if (!_checkpoint.ObjectiveMetadata.Contains(binding)) _checkpoint.ObjectiveMetadata.Add(binding);
+            if (mission.Kind != RkMissionKind.Unknown) binding.Kind = mission.Kind;
+            binding.QuestShortInfo = mission.QuestShortInfo;
+            binding.QuestLongInfo = mission.QuestLongInfo;
+            binding.QuestActionIdentities = (mission.QuestActionIdentities ?? new List<Identity>())
+                .Distinct().Select(MissionObjectiveIdentity.From).ToList();
+            Identity tool = mission.RepairToolIdentity;
+            binding.RepairToolType = tool != Identity.None ? (int)tool.Type : (int)IdentityType.None;
+            binding.RepairToolInstance = tool != Identity.None ? tool.Instance : 0;
+            binding.RepairToolLowId = mission.RepairToolLowId;
+            binding.RepairToolHighId = mission.RepairToolHighId;
+            binding.UpdatedAtUtc = DateTime.UtcNow;
+            _checkpoint.Save(true, _say);
+        }
+
+        private void RestoreObjectiveMetadata(AcceptedMission mission)
+        {
+            Identity character = CurrentCharacter();
+            MissionObjectiveBinding binding = FindBinding(mission.Id, character);
+            if (binding == null) return;
+            bool changed = mission.Kind == RkMissionKind.Unknown && binding.Kind != RkMissionKind.Unknown ||
+                string.IsNullOrWhiteSpace(mission.QuestShortInfo) && !string.IsNullOrWhiteSpace(binding.QuestShortInfo) ||
+                string.IsNullOrWhiteSpace(mission.QuestLongInfo) && !string.IsNullOrWhiteSpace(binding.QuestLongInfo) ||
+                (mission.QuestActionIdentities == null || mission.QuestActionIdentities.Count == 0) &&
+                    binding.QuestActionIdentities?.Count > 0 ||
+                mission.RepairToolLowId == 0 && binding.RepairToolLowId != 0 ||
+                mission.RepairToolHighId == 0 && binding.RepairToolHighId != 0;
+            if (mission.Kind == RkMissionKind.Unknown) mission.Kind = binding.Kind;
+            if (string.IsNullOrWhiteSpace(mission.QuestShortInfo)) mission.QuestShortInfo = binding.QuestShortInfo;
+            if (string.IsNullOrWhiteSpace(mission.QuestLongInfo)) mission.QuestLongInfo = binding.QuestLongInfo;
+            if (mission.QuestActionIdentities == null || mission.QuestActionIdentities.Count == 0)
+                mission.QuestActionIdentities = (binding.QuestActionIdentities ?? new List<MissionObjectiveIdentity>())
+                    .Select(x => x.ToIdentity()).ToList();
+            if (mission.RepairToolIdentity == Identity.None)
+                mission.RepairToolIdentity = binding.RepairToolIdentity;
+            if (mission.RepairToolLowId == 0) mission.RepairToolLowId = binding.RepairToolLowId;
+            if (mission.RepairToolHighId == 0) mission.RepairToolHighId = binding.RepairToolHighId;
+            if (changed)
+                _say?.Invoke($"Restored durable objective metadata for quest {mission.Id.Instance}: " +
+                    $"kind={mission.Kind}, text={(!string.IsNullOrWhiteSpace(mission.QuestShortInfo) || !string.IsNullOrWhiteSpace(mission.QuestLongInfo) ? "yes" : "no")}, " +
+                    $"actionIds={mission.QuestActionIdentities.Count}, repairTool template={mission.RepairToolLowId}/{mission.RepairToolHighId}.");
+        }
+
+        private MissionObjectiveBinding FindBinding(Identity quest, Identity character)
+        {
+            if (_checkpoint?.ObjectiveMetadata == null || character == Identity.None) return null;
+            return _checkpoint.ObjectiveMetadata.FirstOrDefault(x => x.Matches(quest, character));
+        }
+
+        private static Identity CurrentCharacter() => DynelManager.LocalPlayer?.Identity ?? Identity.None;
 
         private static IEnumerable<Identity> QuestIdentities(SmokeLounge.AOtomation.Messaging.GameData.Quest quest)
         {

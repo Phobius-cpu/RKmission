@@ -185,6 +185,7 @@ namespace RKmission
             record.RepairToolIdentity = item.UniqueIdentity;
             record.RepairToolLowId = item.LowId;
             record.RepairToolHighId = item.HighId;
+            record.ObjectiveMetadataChanged?.Invoke(record);
         }
 
         private static string DescribeItem(Item item) =>

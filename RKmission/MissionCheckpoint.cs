@@ -6,6 +6,45 @@ using Newtonsoft.Json;
 
 namespace RKmission
 {
+    internal sealed class MissionObjectiveIdentity
+    {
+        public int Type { get; set; }
+        public int Instance { get; set; }
+
+        public static MissionObjectiveIdentity From(Identity identity) => new MissionObjectiveIdentity
+        {
+            Type = (int)identity.Type,
+            Instance = identity.Instance
+        };
+
+        public Identity ToIdentity() => new Identity((IdentityType)Type, Instance);
+    }
+
+    internal sealed class MissionObjectiveBinding
+    {
+        public int QuestType { get; set; }
+        public int QuestInstance { get; set; }
+        public int CharacterInstance { get; set; }
+        public RkMissionKind Kind { get; set; }
+        public string QuestShortInfo { get; set; }
+        public string QuestLongInfo { get; set; }
+        public List<MissionObjectiveIdentity> QuestActionIdentities { get; set; } =
+            new List<MissionObjectiveIdentity>();
+        public int RepairToolType { get; set; }
+        public int RepairToolInstance { get; set; }
+        public int RepairToolLowId { get; set; }
+        public int RepairToolHighId { get; set; }
+        public DateTime UpdatedAtUtc { get; set; }
+
+        public bool Matches(Identity quest, Identity character) =>
+            QuestType == (int)quest.Type && QuestInstance == quest.Instance &&
+            CharacterInstance > 0 && CharacterInstance == character.Instance;
+
+        public Identity RepairToolIdentity => RepairToolType == (int)IdentityType.None || RepairToolInstance == 0
+            ? Identity.None
+            : new Identity((IdentityType)RepairToolType, RepairToolInstance);
+    }
+
     internal sealed class MissionOriginBinding
     {
         public int QuestInstance { get; set; }
@@ -43,6 +82,9 @@ namespace RKmission
         public Vector3 RollTerminalPosition { get; set; }
         // Per-quest provenance. The global roller location can change among sites.
         public List<MissionOriginBinding> OriginTerminals { get; set; } = new List<MissionOriginBinding>();
+        // Exact accepted-objective evidence, scoped to quest identity and character.
+        public List<MissionObjectiveBinding> ObjectiveMetadata { get; set; } =
+            new List<MissionObjectiveBinding>();
         public string Phase { get; set; } = "Idle";
         public int MissionType { get; set; }
         public int MissionInstance { get; set; }

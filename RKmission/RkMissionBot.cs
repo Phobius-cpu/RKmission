@@ -112,6 +112,7 @@ namespace RKmission
             _checkpoint = MissionCheckpoint.Load(pluginDir, Say);
             if (_checkpoint.OriginTerminals == null)
                 _checkpoint.OriginTerminals = new List<MissionOriginBinding>();
+            _missions.AttachCheckpoint(_checkpoint, Say);
             _maxAutoMissions = Math.Max(0, _checkpoint.AutoMissionLimit);
             _autoAcceptedCount = Math.Max(0, _checkpoint.AutoAcceptedCount);
             _hasRollTerminal = _checkpoint.HasRollTerminal && _checkpoint.RollTerminalPlayfield > 0 &&
@@ -631,6 +632,7 @@ namespace RKmission
             _selected.State = MissionProgress.CompletedByUser;
             _selected.ReturnHandInPending = false;
             _checkpoint.OriginTerminals.RemoveAll(x => x.QuestInstance == _selected.Id.Instance);
+            _missions.RemoveObjectiveMetadata(_selected);
             _checkpoint.Save(true, Say);
             _handIn.Reset();
             _selected.CompletionEvidence = "User confirmed the objective/reward with /rkm complete";
@@ -1231,6 +1233,7 @@ namespace RKmission
                     {
                         _selected.State = MissionProgress.CompletedAutomatically;
                         _selected.CompletionEvidence = _dungeon.Objective.Evidence;
+                        _missions.RemoveObjectiveMetadata(_selected);
                     }
                     Say(_selected.ReturnHandInPending
                         ? "Return item collected, all rooms cleared and loot processed. Exiting for exact-source hand-in; reward remains pending."
@@ -1610,6 +1613,7 @@ namespace RKmission
                 _selected.CompletionEvidence =
                     "Exact return item used on its verified issuing terminal; item consumed and bound quest absent for 2 s";
                 _checkpoint.OriginTerminals.Remove(origin);
+                _missions.RemoveObjectiveMetadata(_selected);
                 _checkpoint.Save(true, Say);
                 _handInLocateStarted = DateTime.MinValue;
                 Say($"Return-item hand-in confirmed for mission {_selected.Id.Instance}; the bound quest cleared and chaining may proceed.");
