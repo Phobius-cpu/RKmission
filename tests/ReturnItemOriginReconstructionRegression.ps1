@@ -59,13 +59,17 @@ if (Test-OriginIdentityMatch 101 17 $signedTerminal 101 18) {
 Write-Output 'PASS signed negative and positive terminal instances match; zero, wrong quest, and wrong character fail'
 
 foreach ($required in @(
+    'TryMatch(mission, character, out _)',
+    'public bool TryMatch(AcceptedMission mission, Identity character, out string diagnostics)',
     'QuestInstance == mission.Id.Instance',
     'CharacterInstance > 0 && CharacterInstance == character.Instance',
     'DestinationPlayfield == mission.PlayfieldId',
     'AcceptedMissions.Finite(Destination)',
     'AcceptedMissions.Finite(mission.Entrance)',
-    'Vector3.Distance(Destination, mission.Entrance) <= 12f',
-    'TerminalInstance != 0 && TerminalPlayfield > 0',
+    'Vector3.Distance(Destination, mission.Entrance)',
+    'entranceDistance <= 12f',
+    'TerminalInstance != 0',
+    'TerminalPlayfield > 0',
     'AcceptedMissions.Finite(TerminalPosition)')) {
     if (-not $checkpoint.Contains($required)) { throw "Origin provenance weakened: $required" }
 }
@@ -91,6 +95,22 @@ if ($wrongPlayfield -or $outsideEntranceTolerance -or $invalidTerminalPosition) 
 }
 Write-Output 'PASS full match accepts signed terminals while retaining quest, character, playfield, entrance, and terminal-position provenance'
 
+foreach ($required in @(
+    'quest stored=',
+    'character stored=',
+    'destination playfield stored=',
+    'destination finite=',
+    'entrance finite=',
+    'entrance distance=',
+    'within 12m=',
+    'terminal instance=',
+    'nonzero=',
+    'terminal playfield=',
+    'terminal position finite=')) {
+    if (-not $checkpoint.Contains($required)) { throw "Full provenance diagnostic regressed: $required" }
+}
+Write-Output 'PASS full provenance failure reports every strict comparison and stored/current identity values'
+
 $restoreStart = $accepted.IndexOf('private void RestoreReturnItemFromOrigin')
 $restoreEnd = $accepted.IndexOf('private MissionObjectiveBinding FindBinding', $restoreStart)
 $restore = $accepted.Substring($restoreStart, $restoreEnd - $restoreStart)
@@ -108,10 +128,12 @@ $handInStart = $handInPath.IndexOf('private bool TickReturnHandIn')
 $handInEnd = $handInPath.IndexOf('private ', $handInStart + 1)
 $handInTick = $handInPath.Substring($handInStart, $handInEnd - $handInStart)
 if (-not $handInTick.Contains('x.Matches(_selected, DynelManager.LocalPlayer.Identity)') -or
+    -not $handInTick.Contains('candidate.TryMatch(_selected, DynelManager.LocalPlayer.Identity') -or
+    -not $handInTick.Contains('x.QuestInstance == _selected.Id.Instance') -or
     $handInTick.Contains('MatchesQuestCharacter')) {
     throw 'Actual ReturnItem hand-in no longer requires full origin provenance.'
 }
-Write-Output 'PASS actual ReturnItem hand-in still uses full geometric provenance'
+Write-Output 'PASS actual ReturnItem hand-in still uses full provenance and diagnoses the exact quest candidate'
 
 $returnBranch = $resolver.IndexOf('if (record.Kind == RkMissionKind.ReturnItem')
 $repairBranch = $resolver.IndexOf('bool sourceInInventory =')

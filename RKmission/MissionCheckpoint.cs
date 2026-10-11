@@ -62,14 +62,38 @@ namespace RKmission
             TerminalInstance != 0;
 
         public bool Matches(AcceptedMission mission, Identity character) =>
-            mission != null && QuestInstance == mission.Id.Instance &&
-            CharacterInstance > 0 && CharacterInstance == character.Instance &&
-            DestinationPlayfield == mission.PlayfieldId &&
-            AcceptedMissions.Finite(Destination) &&
-            AcceptedMissions.Finite(mission.Entrance) &&
-            Vector3.Distance(Destination, mission.Entrance) <= 12f &&
-            TerminalInstance != 0 && TerminalPlayfield > 0 &&
-            AcceptedMissions.Finite(TerminalPosition);
+            TryMatch(mission, character, out _);
+
+        public bool TryMatch(AcceptedMission mission, Identity character, out string diagnostics)
+        {
+            bool hasMission = mission != null;
+            bool questMatches = hasMission && QuestInstance == mission.Id.Instance;
+            bool characterMatches = CharacterInstance > 0 && CharacterInstance == character.Instance;
+            bool playfieldMatches = hasMission && DestinationPlayfield == mission.PlayfieldId;
+            bool destinationFinite = AcceptedMissions.Finite(Destination);
+            bool entranceFinite = hasMission && AcceptedMissions.Finite(mission.Entrance);
+            float entranceDistance = destinationFinite && entranceFinite
+                ? Vector3.Distance(Destination, mission.Entrance)
+                : float.NaN;
+            bool entranceMatches = entranceDistance <= 12f;
+            bool terminalInstanceValid = TerminalInstance != 0;
+            bool terminalPlayfieldValid = TerminalPlayfield > 0;
+            bool terminalPositionFinite = AcceptedMissions.Finite(TerminalPosition);
+
+            diagnostics =
+                $"quest stored={QuestInstance}, current={(hasMission ? mission.Id.Instance : 0)}, match={questMatches}; " +
+                $"character stored={CharacterInstance}, current={character.Instance}, match={characterMatches}; " +
+                $"destination playfield stored={DestinationPlayfield}, current={(hasMission ? mission.PlayfieldId : 0)}, match={playfieldMatches}; " +
+                $"destination finite={destinationFinite}, entrance finite={entranceFinite}, " +
+                $"entrance distance={entranceDistance:0.00}m, within 12m={entranceMatches}; " +
+                $"terminal instance={TerminalInstance} (0x{unchecked((uint)TerminalInstance):X8}), nonzero={terminalInstanceValid}; " +
+                $"terminal playfield={TerminalPlayfield}, valid={terminalPlayfieldValid}; " +
+                $"terminal position finite={terminalPositionFinite}";
+
+            return hasMission && questMatches && characterMatches && playfieldMatches &&
+                destinationFinite && entranceFinite && entranceMatches && terminalInstanceValid &&
+                terminalPlayfieldValid && terminalPositionFinite;
+        }
 
         public Identity TerminalIdentity => new Identity(IdentityType.MissionTerminal, TerminalInstance);
     }

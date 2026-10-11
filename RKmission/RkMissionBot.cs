@@ -1568,8 +1568,16 @@ namespace RKmission
                 .FirstOrDefault(x => x.Matches(_selected, DynelManager.LocalPlayer.Identity));
             if (origin == null)
             {
+                MissionOriginBinding candidate = _checkpoint.OriginTerminals
+                    .FirstOrDefault(x => x.QuestInstance == _selected.Id.Instance);
+                string provenance = candidate == null
+                    ? $"no stored binding has quest instance {_selected.Id.Instance}; stored binding count={_checkpoint.OriginTerminals.Count}"
+                    : candidate.TryMatch(_selected, DynelManager.LocalPlayer.Identity, out string mismatch)
+                        ? "candidate unexpectedly matched during diagnostic replay"
+                        : mismatch;
                 Stop();
-                Say("Automatic return-item hand-in stopped: this quest has no verified issuing terminal binding. Return it manually to the terminal where it was pulled.");
+                Say("Automatic return-item hand-in stopped: this quest has no verified issuing terminal binding. " +
+                    $"Provenance check: {provenance}. Return it manually to the terminal where it was pulled.");
                 return false;
             }
             Identity issuingTerminal = origin.TerminalIdentity;
