@@ -45,6 +45,28 @@ if (-not $dungeon.Contains('private const float LootUseRange = 3f') -or
 }
 Write-Output 'PASS loot waits for conservative 3D readiness, includes target elevation, and releases too-far opening'
 
+$directBuild = $dungeon.IndexOf('_lootApproachPoints.AddRange(DungeonApproachPlanner.Candidates(_layout')
+$transitBuild = $dungeon.IndexOf('List<DungeonTransitPlanner.Route> transit = DungeonTransitPlanner.Candidates(_layout')
+if ($directBuild -lt 0 -or $transitBuild -lt 0 -or $directBuild -gt $transitBuild -or
+    -not $dungeon.Contains('Vector3.Distance(point, target) <= LootUseRange') -or
+    -not $dungeon.Contains('LocalRoutePlanner.ClearInteractionSegment(point + Vector3.Up') -or
+    -not $dungeon.Contains('_lootTransitStaging = _lootApproachPoints.Count == 0;') -or
+    -not $dungeon.Contains('Loot direct final approach selected:') -or
+    -not $dungeon.Contains('Loot direct final unavailable; transit staging selected') -or
+    -not $dungeon.Contains('transit staging reached; rebuilding direct final approaches from new position') -or
+    -not $dungeon.Contains('BuildLootApproaches(room, next.Position);')) {
+    throw 'Direct-final-first loot selection or post-staging rebuild regressed.'
+}
+Write-Output 'PASS loot prefers complete interaction-clear final points and rebuilds after transit staging'
+
+if (-not $dungeon.Contains('Vector3.Distance(position, _lootLastPosition) > 0.75f') -or
+    -not $dungeon.Contains('Actual movement along the nav route is progress.') -or
+    -not $dungeon.Contains('now - _lootLastProgress > TimeSpan.FromSeconds(10)') -or
+    -not $dungeon.Contains('retained approach ownership;')) {
+    throw 'Loot route progress retention or topology detour allowance regressed.'
+}
+Write-Output 'PASS active loot routes retain ownership while movement progresses, including detours'
+
 if (-not $dungeon.Contains('_requestedOwner == MovementOwner.LootApproach') -or
     -not $dungeon.Contains('_destination.HasValue &&') -or
     -not $dungeon.Contains('_lootApproachIndex < _lootApproachPoints.Count') -or

@@ -96,6 +96,7 @@ namespace RKmission
         private float _objectiveBestDistance;
         private DateTime _objectiveProgressAt;
         private int _lootApproachIndex;
+        private bool _lootTransitStaging;
         private Vector3 _lootLastPosition;
         private DateTime _lootNearStarted;
         private int _lootProgressVersion;
@@ -188,6 +189,7 @@ namespace RKmission
             _scanTarget = Identity.None;
             _scanWaypoints.Clear();
             _waitingForLoot = Identity.None;
+            _lootTransitStaging = false;
             _objectiveApproaches.Clear();
             _objectiveApproachTarget = null;
             _loot.ResetMissionLootSkips();
@@ -1583,21 +1585,17 @@ namespace RKmission
                 _lootApproachIndex = 0;
                 _lootNearStarted = DateTime.MinValue;
                 _lootProbeNextSide = false;
+                _lootTransitStaging = false;
                 _lootApproachPoints.Clear();
                 if (next != null) BuildLootApproaches(room, next.Position);
                 _destination = null;
                 if (next != null && next.Identity == waitingIdentity)
                 {
                     Vector3 player = DynelManager.LocalPlayer.Position;
-                    DungeonTransitPlanner.Route transit = DungeonTransitPlanner.Candidates(_layout,
-                        room.Instance, player, next.Position, new[] { 3f, 5f, 8f, 12f }, 0.4f)
-                        .FirstOrDefault();
-                    bool route = transit != null;
                     _say($"Loot candidate {next.Identity.Type} {next.Identity} in room {room.Instance}; " +
                         $"2D={player.Distance2DFrom(next.Position):0.0}m, 3D={Vector3.Distance(player, next.Position):0.0}m, " +
-                        $"player Y={player.Y:0.0}, target Y={next.Position.Y:0.0}, transit route={(route ? "available" : "unavailable")}, " +
-                        $"cost={(route ? transit.Cost.ToString("0.0") + "m" : "n/a")}, interaction-ready={LootInteractionReady(next)}; " +
-                        $"trying {_lootApproachPoints.Count} mapped transit/final approach point(s).");
+                        $"player Y={player.Y:0.0}, target Y={next.Position.Y:0.0}, interaction-ready={LootInteractionReady(next)}; " +
+                        $"trying {_lootApproachPoints.Count} {(_lootTransitStaging ? "transit staging" : "direct final")} point(s).");
                 }
                 else
                     _say($"Waiting for Manager.Loot contents/finish response for {waitingIdentity} in room {room.Instance}.");
@@ -1640,6 +1638,7 @@ namespace RKmission
                 _waitingForLoot = Identity.None;
                 _lootApproachPoints.Clear();
                 _lootProbeNextSide = false;
+                _lootTransitStaging = false;
                 return false;
             }
             float distance = next.DistanceFrom(DynelManager.LocalPlayer);
@@ -1669,8 +1668,19 @@ namespace RKmission
                     MovementArbiter.Current.Halt(_requestedOwner);
                     return true;
                 }
-                if (_destination.HasValue && _lootApproachIndex < _lootApproachPoints.Count &&
-                    (Vector3.Distance(position, _lootApproachPoints[_lootApproachIndex]) < 1.5f ||
+                bool reachedApproach = _destination.HasValue && _lootApproachIndex < _lootApproachPoints.Count &&
+                    Vector3.Distance(position, _lootApproachPoints[_lootApproachIndex]) < 1.5f;
+                if (reachedApproach && _lootTransitStaging)
+                {
+                    MovementArbiter.Current.Halt(_requestedOwner);
+                    _destination = null;
+                    _lootLastProgress = now;
+                    _lootLastPosition = position;
+                    _say($"Loot {next.Identity} transit staging reached; rebuilding direct final approaches from new position {position}.");
+                    BuildLootApproaches(room, next.Position);
+                }
+                else if (_destination.HasValue && _lootApproachIndex < _lootApproachPoints.Count &&
+                    (reachedApproach ||
                      now - _lootLastProgress > TimeSpan.FromSeconds(10) ||
                      (!SMovementController.IsNavigating() && now - _lootLastProgress > TimeSpan.FromSeconds(2))))
                 {
@@ -1688,7 +1698,8 @@ namespace RKmission
                         _destination = point;
                         _lootLastProgress = now;
                         _lootLastPosition = position;
-                        _say($"Loot {next.Identity} retained approach ownership; route {_lootApproachIndex + 1}/{_lootApproachPoints.Count}: " +
+                        _say($"Loot {next.Identity} retained approach ownership; {(_lootTransitStaging ? "transit staging" : "direct final")} " +
+                            $"route {_lootApproachIndex + 1}/{_lootApproachPoints.Count}: " +
                             $"destination={point}, 3D distance={distance:0.0}m, player Y={position.Y:0.0}, target Y={next.Position.Y:0.0}, interaction-ready=false.");
                         break;
                     }
@@ -1730,13 +1741,25 @@ namespace RKmission
         {
             Vector3 player = DynelManager.LocalPlayer.Position;
             _lootApproachPoints.Clear();
-            _lootApproachPoints.AddRange(DungeonTransitPlanner.Candidates(_layout,
-                room.Instance, player, target, new[] { 3f, 5f, 8f, 12f }, 0.4f)
-                .Select(route => route.Destination));
+            _lootApproachIndex = 0;
             _lootApproachPoints.AddRange(DungeonApproachPlanner.Candidates(_layout,
                 room.Instance, player, target, new[] { 2.5f, 3f }, 0.4f)
-                .Where(point => !_lootApproachPoints.Any(existing =>
-                    Vector3.Distance(existing, point) < 0.8f)));
+                .Where(point => Vector3.Distance(point, target) >= 2f &&
+                    Vector3.Distance(point, target) <= LootUseRange &&
+                    LocalRoutePlanner.ClearInteractionSegment(point + Vector3.Up,
+                        target + Vector3.Up * 0.5f)));
+            _lootTransitStaging = _lootApproachPoints.Count == 0;
+            if (!_lootTransitStaging)
+            {
+                _say($"Loot direct final approach selected: {_lootApproachPoints.Count} complete, interaction-clear candidate(s) from {player}.");
+                return;
+            }
+            List<DungeonTransitPlanner.Route> transit = DungeonTransitPlanner.Candidates(_layout,
+                room.Instance, player, target, new[] { 3f, 5f, 8f, 12f }, 0.4f)
+                .Where(route => Vector3.Distance(player, route.Destination) >= 1.5f).ToList();
+            _lootApproachPoints.AddRange(transit.Select(route => route.Destination));
+            _say($"Loot direct final unavailable; transit staging selected with {_lootApproachPoints.Count} complete candidate(s)" +
+                (transit.Count > 0 ? $", best cost={transit[0].Cost:0.0}m." : "."));
         }
 
         private bool LootInteractionReady(Dynel loot)
@@ -1761,6 +1784,7 @@ namespace RKmission
             _waitingForLoot = Identity.None;
             _lootApproachPoints.Clear();
             _lootProbeNextSide = false;
+            _lootTransitStaging = false;
             _lootNearStarted = DateTime.MinValue;
             _destination = null;
             MovementArbiter.Current.Halt(_requestedOwner);
