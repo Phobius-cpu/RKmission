@@ -16,6 +16,7 @@ namespace RKmission
     {
         public Identity Id;
         public string Name, Objectives, CompletionEvidence;
+        public string QuestShortInfo, QuestLongInfo;
         public int PlayfieldId;
         // Quest world-position anchor (legacy field name), not a guaranteed physical door.
         // AOSharp Vector3 uses Y for altitude and X/Z for the outdoor plane.
@@ -28,6 +29,9 @@ namespace RKmission
         public bool DeletedByUser;
         public bool ReturnHandInPending;
         public List<MissionAction> Actions;
+        public List<Identity> QuestActionIdentities = new List<Identity>();
+        public Identity RepairToolIdentity = Identity.None;
+        public int RepairToolLowId, RepairToolHighId;
         public bool Present, HandoffVerified, RoomsCleared;
         public MissionProgress State;
         public bool IsRubiKaDestination => AcceptedMissions.IsRubiKaPlayfield(PlayfieldId);
@@ -47,6 +51,7 @@ namespace RKmission
         };
         private readonly Dictionary<Identity, AcceptedMission> _records = new Dictionary<Identity, AcceptedMission>();
         private readonly Dictionary<Identity, RkMissionKind> _kinds = new Dictionary<Identity, RkMissionKind>();
+        private readonly Dictionary<Identity, QuestMetadata> _questMetadata = new Dictionary<Identity, QuestMetadata>();
         private readonly Dictionary<int, DateTime> _questUpdateAt = new Dictionary<int, DateTime>();
         private DateTime _nextRefresh;
         public IEnumerable<AcceptedMission> Records => _records.Values;
@@ -75,6 +80,15 @@ namespace RKmission
                 _questUpdateAt[quest.QuestId.Instance] = DateTime.UtcNow;
                 RkMissionKind kind = FromIcon(quest.MissionIconId);
                 if (kind != RkMissionKind.Unknown) _kinds[quest.QuestId] = kind;
+                var metadata = new QuestMetadata
+                {
+                    ShortInfo = quest.ShortInfo,
+                    LongInfo = quest.LongInfo,
+                    ActionIdentities = QuestIdentities(quest).Distinct().ToList()
+                };
+                _questMetadata[quest.QuestId] = metadata;
+                AcceptedMission existing = Find(quest.QuestId);
+                if (existing != null) ApplyQuestMetadata(existing, metadata);
             }
         }
 
@@ -131,6 +145,8 @@ namespace RKmission
                 record.Source = mission.Source;
                 if (_kinds.TryGetValue(id, out RkMissionKind kind) && kind != RkMissionKind.Unknown)
                     record.Kind = kind;
+                if (_questMetadata.TryGetValue(id, out QuestMetadata metadata))
+                    ApplyQuestMetadata(record, metadata);
                 if (location != null && Finite(location.Pos) && (outdoorDestination || !record.IsRubiKaDestination))
                 {
                     record.PlayfieldId = location.Playfield.Instance;
@@ -152,6 +168,34 @@ namespace RKmission
                 // Removed/expired/deleted quests and rewards are indistinguishable in Mission.List.
                 // Keep the bound identity and objective metadata, but never claim completion here.
             }
+        }
+
+        private sealed class QuestMetadata
+        {
+            public string ShortInfo, LongInfo;
+            public List<Identity> ActionIdentities;
+        }
+
+        private static IEnumerable<Identity> QuestIdentities(SmokeLounge.AOtomation.Messaging.GameData.Quest quest)
+        {
+            foreach (var action in quest.QuestActions ?? Array.Empty<SmokeLounge.AOtomation.Messaging.GameData.QuestActionInfo>())
+            {
+                yield return action.Action;
+                yield return action.UnknownId1;
+                yield return action.UnknownId2;
+                yield return action.UnknownId3;
+                yield return action.UnknownId4;
+                yield return action.UnknownId5;
+                yield return action.UnknownId6;
+                yield return action.UnknownId7;
+            }
+        }
+
+        private static void ApplyQuestMetadata(AcceptedMission record, QuestMetadata metadata)
+        {
+            record.QuestShortInfo = metadata.ShortInfo;
+            record.QuestLongInfo = metadata.LongInfo;
+            record.QuestActionIdentities = metadata.ActionIdentities ?? new List<Identity>();
         }
 
         private static string Describe(MissionAction action)
