@@ -6,6 +6,7 @@ $dungeon = Get-Content -LiteralPath (Join-Path $root 'RKmission/MissionDungeon.c
 $transit = Get-Content -LiteralPath (Join-Path $root 'RKmission/DungeonTransitPlanner.cs') -Raw
 $approach = Get-Content -LiteralPath (Join-Path $root 'RKmission/DungeonApproachPlanner.cs') -Raw
 $loot = Get-Content -LiteralPath (Join-Path $root 'RKmission/Plugins/ManagerLoot/ManagerLoot.cs') -Raw
+$recorder = Get-Content -LiteralPath (Join-Path $root 'RKmission/NavigationRouteRecorder.cs') -Raw
 
 if (-not $transit.Contains('TryDungeonGroundCost') -or
     $transit.Contains('TryDungeonCombatCost') -or
@@ -26,6 +27,20 @@ if (-not $transit.Contains('TryDungeonGroundPath') -or
     throw 'Multi-level corridor discovery, monotonic elevation guard, or diagnostics regressed.'
 }
 Write-Output 'PASS multi-level loot discovers navmesh corridor elevations and rejects recycled same-level staging'
+
+if (-not $recorder.Contains('TryPrepareDungeonTopology') -or
+    -not $recorder.Contains('TryNavigatePreparedDungeonTopology') -or
+    -not $recorder.Contains('points.Any(point => !layout.IsInside(roomId, point, 0.1f))') -or
+    -not $recorder.Contains('!x.Bundled') -or
+    -not $recorder.Contains('_playIndex++') -or
+    $recorder.Contains('_playIndex--') -or
+    -not $recorder.Contains('forward progress') -or
+    -not $recorder.Contains('movement.SetDestination(owner, waypoint)') -or
+    -not $dungeon.Contains("using ordered recorded topology") -or
+    -not $dungeon.Contains('completed recorded topology')) {
+    throw 'Geometry-matched ordered dungeon recording fallback or forward-only progress regressed.'
+}
+Write-Output 'PASS recorded multi-level topology is geometry-matched and traversed strictly forward without navmesh shortcuts'
 
 if (-not $dungeon.Contains('DungeonTransitPlanner.Candidates(_layout') -or
     -not $dungeon.Contains('Combat local firing approach unavailable') -or

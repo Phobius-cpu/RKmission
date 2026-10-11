@@ -21,6 +21,7 @@ namespace RKmission
         private readonly MissionReadiness _readiness;
         private readonly InventoryPolicy _inventory;
         private readonly CombatDriver _combat;
+        private readonly NavigationRouteRecorder _navRoutes;
         private readonly DungeonLiftController _lifts = new DungeonLiftController();
         private MovementOwner _requestedOwner = MovementOwner.DungeonRoom;
         private const float EngagementRange = 20f;
@@ -102,6 +103,8 @@ namespace RKmission
         private int _lootProgressVersion;
         private bool _lootProbeNextSide;
         private float _lootBestVerticalGap = float.PositiveInfinity;
+        private bool _lootRecordedTransit;
+        private string _lootRecordedRoute;
         private int _floor;
         private DungeonLiftController.Lift _activeLift;
         private DateTime _liftStarted;
@@ -156,12 +159,14 @@ namespace RKmission
             UpdatedAtUtc = DateTime.UtcNow
         };
 
-        public MissionDungeon(Action<string> say, ManagerLoot.ManagerLoot loot, MissionReadiness readiness, InventoryPolicy inventory)
+        public MissionDungeon(Action<string> say, ManagerLoot.ManagerLoot loot, MissionReadiness readiness,
+            InventoryPolicy inventory, NavigationRouteRecorder navRoutes)
         {
             _say = say;
             _loot = loot;
             _readiness = readiness;
             _inventory = inventory;
+            _navRoutes = navRoutes;
             _combat = new CombatDriver(say);
         }
 
@@ -191,6 +196,8 @@ namespace RKmission
             _scanWaypoints.Clear();
             _waitingForLoot = Identity.None;
             _lootTransitStaging = false;
+            _lootRecordedTransit = false;
+            _lootRecordedRoute = null;
             _objectiveApproaches.Clear();
             _objectiveApproachTarget = null;
             _loot.ResetMissionLootSkips();
@@ -1587,6 +1594,8 @@ namespace RKmission
                 _lootNearStarted = DateTime.MinValue;
                 _lootProbeNextSide = false;
                 _lootTransitStaging = false;
+                _lootRecordedTransit = false;
+                _lootRecordedRoute = null;
                 _lootBestVerticalGap = next != null
                     ? Math.Abs(next.Position.Y - DynelManager.LocalPlayer.Position.Y)
                     : float.PositiveInfinity;
@@ -1596,10 +1605,13 @@ namespace RKmission
                 if (next != null && next.Identity == waitingIdentity)
                 {
                     Vector3 player = DynelManager.LocalPlayer.Position;
+                    string plan = _lootRecordedTransit
+                        ? $"ordered recorded topology '{_lootRecordedRoute}'"
+                        : $"{_lootApproachPoints.Count} {(_lootTransitStaging ? "transit staging" : "direct final")} point(s)";
                     _say($"Loot candidate {next.Identity.Type} {next.Identity} in room {room.Instance}; " +
                         $"2D={player.Distance2DFrom(next.Position):0.0}m, 3D={Vector3.Distance(player, next.Position):0.0}m, " +
                         $"player Y={player.Y:0.0}, target Y={next.Position.Y:0.0}, interaction-ready={LootInteractionReady(next)}; " +
-                        $"trying {_lootApproachPoints.Count} {(_lootTransitStaging ? "transit staging" : "direct final")} point(s).");
+                        $"trying {plan}.");
                 }
                 else
                     _say($"Waiting for Manager.Loot contents/finish response for {waitingIdentity} in room {room.Instance}.");
@@ -1639,6 +1651,7 @@ namespace RKmission
             }
             if (next == null)
             {
+                if (_lootRecordedTransit) _navRoutes?.StopPlayback();
                 _waitingForLoot = Identity.None;
                 _lootApproachPoints.Clear();
                 _lootProbeNextSide = false;
@@ -1660,6 +1673,28 @@ namespace RKmission
                 if (now - _lootWaitStarted > TimeSpan.FromSeconds(75))
                 {
                     SkipLoot(next, room.Instance, $"no reachable approach within 75 seconds; still {distance:0.0}m away");
+                    return true;
+                }
+                if (_lootRecordedTransit)
+                {
+                    if (_navRoutes == null || !_navRoutes.TryNavigatePreparedDungeonTopology(
+                        next.Position, MovementArbiter.Current, _requestedOwner, out bool completed))
+                    {
+                        _lootRecordedTransit = false;
+                        _say($"Loot {next.Identity} recorded topology '{_lootRecordedRoute}' could not continue; route remains unfinished.");
+                        SkipLoot(next, room.Instance, "recorded same-room topology playback failed");
+                        return true;
+                    }
+                    if (completed)
+                    {
+                        _lootRecordedTransit = false;
+                        _lootLastProgress = now;
+                        _lootLastPosition = position;
+                        _lootBestVerticalGap = Math.Min(_lootBestVerticalGap,
+                            Math.Abs(next.Position.Y - position.Y));
+                        _say($"Loot {next.Identity} completed recorded topology '{_lootRecordedRoute}' in forward order; rebuilding strict final approaches.");
+                        BuildLootApproaches(room, next.Position);
+                    }
                     return true;
                 }
                 if (_destination.HasValue && _lootApproachIndex < _lootApproachPoints.Count &&
@@ -1718,6 +1753,11 @@ namespace RKmission
                     return true;
                 }
                 return true;
+            }
+            if (_lootRecordedTransit)
+            {
+                _navRoutes?.StopPlayback();
+                _lootRecordedTransit = false;
             }
             MovementArbiter.Current.Halt(_requestedOwner);
             if (_lootNearStarted == DateTime.MinValue)
@@ -1785,8 +1825,17 @@ namespace RKmission
                     $"rejected {insufficient} candidate(s) for insufficient vertical progress.");
             }
             else if (verticalGap > 3f)
-                _say($"Loot direct final unavailable; no complete ramp-connected route made meaningful elevation progress; " +
-                    $"rejected {insufficient} same-level candidate(s), player Y={player.Y:0.0}, target Y={target.Y:0.0}.");
+            {
+                _lootRecordedTransit = _navRoutes != null &&
+                    _navRoutes.TryPrepareDungeonTopology(_layout, room.Instance, player, target,
+                        out _lootRecordedRoute);
+                if (_lootRecordedTransit)
+                    _say($"Loot direct final unavailable; no complete ramp-connected navmesh route made meaningful elevation progress; " +
+                        $"using ordered recorded topology '{_lootRecordedRoute}', rejected {insufficient} same-level candidate(s).");
+                else
+                    _say($"Loot direct final unavailable; no complete ramp-connected route made meaningful elevation progress; " +
+                        $"rejected {insufficient} same-level candidate(s), player Y={player.Y:0.0}, target Y={target.Y:0.0}.");
+            }
             else
                 _say("Loot direct final unavailable; no complete same-room transit route was found.");
         }
@@ -1814,6 +1863,9 @@ namespace RKmission
             _lootApproachPoints.Clear();
             _lootProbeNextSide = false;
             _lootTransitStaging = false;
+            if (_lootRecordedTransit) _navRoutes?.StopPlayback();
+            _lootRecordedTransit = false;
+            _lootRecordedRoute = null;
             _lootNearStarted = DateTime.MinValue;
             _destination = null;
             MovementArbiter.Current.Halt(_requestedOwner);

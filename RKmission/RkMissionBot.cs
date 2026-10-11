@@ -99,12 +99,12 @@ namespace RKmission
             _shopSale = new ShopSaleTest(_logisticsNavigator, _loot, Say);
             _automaticLogistics = new AutomaticLogisticsCycle(_logisticsNavigator,
                 _bankTransactions, _shopSale, Say);
-            _dungeon = new MissionDungeon(Say, _loot, _readiness, _inventory);
             _deathRecovery = new DeathRecoveryController(_readiness, _movement, Say);
             _travel = new LocalMissionTravel(Say, pluginDir);
             _warp = new ScottyboiWarpProvider(pluginDir, Say, _movement);
             _navRoutes = new NavigationRouteRecorder(pluginDir, Say);
             _navWindow = new NavigationRecorderWindow(pluginDir, _navRoutes, Say);
+            _dungeon = new MissionDungeon(Say, _loot, _readiness, _inventory, _navRoutes);
             _postZoneSafety = new PostZoneFlightSafety(_movement, Say);
             _fgrid = new FGridServiceProvider(pluginDir, Say, _movement, _navRoutes);
             _longTravel = new RubiKaTravelPlanner(pluginDir, _warp, _fgrid, _movement, _navRoutes, Say);

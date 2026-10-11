@@ -31,6 +31,8 @@ namespace RKmission
         private Route _recording, _playing;
         private List<Vector3> _playPoints;
         private int _playIndex;
+        private bool _dungeonPlayback;
+        private int _lastDungeonReportedIndex;
         private DateTime _nextSample;
         private bool _writable = true;
 
@@ -410,7 +412,91 @@ namespace RKmission
             return true;
         }
 
-        public void StopPlayback() { _playing = null; _playPoints = null; _playIndex = 0; }
+        // User-walked dungeon routes are reusable across generated instances only
+        // when their complete geometry fits the current room and both endpoints
+        // match the live player/target. The recording is then followed strictly
+        // forward; individual points are never re-ranked by target distance.
+        public bool TryPrepareDungeonTopology(DungeonLayout layout, int roomId,
+            Vector3 from, Vector3 target, out string routeName)
+        {
+            routeName = null;
+            if (layout == null || IsRecording || _dungeonPlayback) return _dungeonPlayback;
+            Route best = null;
+            List<Vector3> bestPoints = null;
+            float bestCost = float.MaxValue;
+            foreach (Route route in _routes.Where(x => !x.Bundled && x.Points.Count >= 2))
+            {
+                List<Vector3> points = route.Points.Select(V).ToList();
+                float minimumY = points.Min(x => x.Y), maximumY = points.Max(x => x.Y);
+                if (maximumY - minimumY < 3f ||
+                    points.Any(point => !layout.IsInside(roomId, point, 0.1f))) continue;
+                foreach (bool reverse in new[] { false, true })
+                {
+                    List<Vector3> oriented = reverse
+                        ? points.AsEnumerable().Reverse().ToList() : points;
+                    float startDistance = Vector3.Distance(from, oriented[0]);
+                    float targetDistance = Vector3.Distance(target, oriented[oriented.Count - 1]);
+                    if (startDistance > 8f || targetDistance > 6f) continue;
+                    float cost = startDistance + targetDistance +
+                        (route.Playfield == Playfield.ModelIdentity.Instance ? 0 : 1f);
+                    if (cost >= bestCost) continue;
+                    best = route;
+                    bestPoints = oriented;
+                    bestCost = cost;
+                }
+            }
+            if (best == null) return false;
+            StopPlayback();
+            _playing = best;
+            _playPoints = bestPoints;
+            _playIndex = 0;
+            _dungeonPlayback = true;
+            _lastDungeonReportedIndex = 0;
+            routeName = best.Name;
+            _say($"Prepared recorded dungeon topology '{best.Name}' with {_playPoints.Count} ordered point(s); " +
+                $"endpoint match cost={bestCost:0.0}m, source PF={best.Playfield}, live PF={Playfield.ModelIdentity.Instance}.");
+            return true;
+        }
+
+        public bool TryNavigatePreparedDungeonTopology(Vector3 target,
+            MovementArbiter movement, MovementOwner owner, out bool completed)
+        {
+            completed = false;
+            SimpleChar player = DynelManager.LocalPlayer;
+            if (!_dungeonPlayback || _playing == null || _playPoints == null ||
+                player == null || Game.IsZoning ||
+                Vector3.Distance(target, _playPoints[_playPoints.Count - 1]) > 6f) return false;
+            int previousIndex = _playIndex;
+            while (_playIndex < _playPoints.Count - 1 &&
+                Vector3.Distance(player.Position, _playPoints[_playIndex]) <= 1.2f)
+                _playIndex++;
+            Vector3 waypoint = _playPoints[_playIndex];
+            if (_playIndex > previousIndex && (_playIndex == _playPoints.Count - 1 ||
+                _playIndex - _lastDungeonReportedIndex >= 5 ||
+                Math.Abs(waypoint.Y - _playPoints[_lastDungeonReportedIndex].Y) >= 0.75f))
+            {
+                _lastDungeonReportedIndex = _playIndex;
+                _say($"Recorded dungeon topology '{_playing.Name}' forward progress " +
+                    $"{_playIndex + 1}/{_playPoints.Count}: waypoint={waypoint}.");
+            }
+            if (_playIndex == _playPoints.Count - 1 &&
+                Vector3.Distance(player.Position, waypoint) <= 1.5f)
+            {
+                completed = true;
+                StopPlayback();
+                return true;
+            }
+            // Raw recorded legs are the fallback precisely when the generated
+            // navmesh cannot express the connected switchback corridor.
+            if (movement.Owner != owner || !SMovementController.IsNavigating())
+                if (!movement.SetDestination(owner, waypoint))
+                { StopPlayback(); return false; }
+            return true;
+        }
+
+        public void StopPlayback()
+        { _playing = null; _playPoints = null; _playIndex = 0; _dungeonPlayback = false;
+            _lastDungeonReportedIndex = 0; }
 
         private static bool SupportedRecordedFGridRoute(List<Vector3> points, Vector3 start, Vector3 target) =>
             points.Count >= 2 && Vector3.Distance(points[points.Count - 1], target) <= 1.5f &&
