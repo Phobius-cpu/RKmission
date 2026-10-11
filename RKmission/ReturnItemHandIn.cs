@@ -68,7 +68,9 @@ namespace RKmission
                     ? Block("Bound return item is missing before hand-in.") : HandInResult.Waiting;
             if (Mission.List == null) return HandInResult.Waiting;
             if (!Mission.List.Any(x => x.Identity == record.Id))
-                return Block("Bound quest is absent before a verified hand-in.");
+                return _lastSent == DateTime.MinValue
+                    ? Block("Bound quest is absent before hand-in.")
+                    : HandInResult.Waiting;
             Dynel target = DynelManager.GetDynel(roles.WorldTarget);
             if (target == null || target.Identity != issuingTerminal)
                 return HandInResult.Waiting;

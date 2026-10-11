@@ -182,6 +182,34 @@ if (-not $handInTick.Contains('x.Matches(_selected, DynelManager.LocalPlayer.Ide
 }
 Write-Output 'PASS actual ReturnItem hand-in still uses full provenance and diagnoses the exact quest candidate'
 
+foreach ($required in @(
+    'bool itemConsumed = item == null && _lastSent != DateTime.MinValue;',
+    '? Block("Bound quest is absent before hand-in.")',
+    ': HandInResult.Waiting;')) {
+    if (-not $handIn.Contains($required)) { throw "ReturnItem completion acknowledgement race regressed: $required" }
+}
+if ($handIn.Contains('Block("Bound quest is absent before a verified hand-in.")')) {
+    throw 'Post-use quest disappearance is still treated as a fatal error before the inventory cache can converge.'
+}
+
+function Test-ReturnAcknowledgement($actionSent, $questPresent, $itemPresent) {
+    if (-not $itemPresent -and $actionSent -and -not $questPresent) { return 'ProofReady' }
+    if (-not $itemPresent) { return $(if ($actionSent) { 'Waiting' } else { 'Blocked' }) }
+    if (-not $questPresent) { return $(if ($actionSent) { 'Waiting' } else { 'Blocked' }) }
+    return 'Continue'
+}
+
+if ((Test-ReturnAcknowledgement $true $false $true) -ne 'Waiting') {
+    throw 'Quest-first cache convergence must wait after the owned hand-in action.'
+}
+if ((Test-ReturnAcknowledgement $true $false $false) -ne 'ProofReady') {
+    throw 'Quest and item disappearance after the owned action must become completion proof.'
+}
+if ((Test-ReturnAcknowledgement $false $false $true) -ne 'Blocked') {
+    throw 'Quest absence before an owned hand-in must remain blocked.'
+}
+Write-Output 'PASS post-use quest disappearance waits for inventory convergence while pre-use absence remains blocked'
+
 $returnBranch = $resolver.IndexOf('if (record.Kind == RkMissionKind.ReturnItem')
 $repairBranch = $resolver.IndexOf('bool sourceInInventory =')
 if ($returnBranch -lt 0 -or $repairBranch -le $returnBranch -or
