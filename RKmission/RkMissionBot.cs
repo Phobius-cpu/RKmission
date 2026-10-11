@@ -668,6 +668,14 @@ namespace RKmission
             try
             {
                 _missions.Refresh(); // Track acceptance/removal even while local automation is disarmed.
+                // AO can replace the offer anchor with a later authoritative
+                // mission entrance after the initial quest details appeared.
+                // Reconcile only an existing exact quest/character binding;
+                // terminal identity, terminal PF and terminal position remain
+                // immutable acceptance-time provenance.
+                foreach (AcceptedMission accepted in _missions.Records.Where(x =>
+                    x.Present && x.IsRubiKaDestination))
+                    ReconcileAcceptedMissionOrigin(accepted);
                 foreach (int id in _awaitingQuestDetails.ToList())
                 {
                     AcceptedMission resolved = _missions.Records.FirstOrDefault(x =>
@@ -1553,7 +1561,8 @@ namespace RKmission
             origin.Destination = accepted.Entrance;
             _checkpoint.Save(true, Say);
             Say($"Reconciled quest {accepted.Id.Instance} origin to its authoritative accepted entrance " +
-                $"in PF {accepted.PlayfieldId}; offer anchor adjustment={adjustment:0.00}m.");
+                $"in PF {accepted.PlayfieldId}; live entrance adjustment={adjustment:0.00}m; " +
+                $"issuing terminal {origin.TerminalIdentity} at PF {origin.TerminalPlayfield} preserved.");
             return true;
         }
 

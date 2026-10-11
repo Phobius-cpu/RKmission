@@ -122,7 +122,8 @@ foreach ($required in @(
     'origin.DestinationPlayfield != accepted.PlayfieldId',
     'origin.Destination = accepted.Entrance;',
     '_checkpoint.Save(true, Say);',
-    'offer anchor adjustment=')) {
+    'live entrance adjustment=',
+    'issuing terminal {origin.TerminalIdentity} at PF {origin.TerminalPlayfield} preserved')) {
     if (-not $bot.Contains($required)) { throw "Accepted entrance reconciliation regressed: $required" }
 }
 $refresh = $bot.IndexOf('_missions.Refresh(); // Track acceptance/removal even while local automation is disarmed.')
@@ -132,6 +133,30 @@ if ($refresh -lt 0 -or $lateReconcile -le $refresh -or $detailsRemoval -le $late
     throw 'Late quest details no longer reconcile the accepted entrance before release.'
 }
 Write-Output 'PASS exact accepted quest replaces the offer anchor immediately or when delayed details resolve'
+
+$continuousLoop = $bot.IndexOf('foreach (AcceptedMission accepted in _missions.Records.Where(x =>')
+$continuousCall = $bot.IndexOf('ReconcileAcceptedMissionOrigin(accepted);', $continuousLoop)
+$disarmedReturn = $bot.IndexOf('if (!_running) return;', $continuousCall)
+if ($continuousLoop -le $refresh -or $continuousCall -le $continuousLoop -or
+    $disarmedReturn -le $continuousCall -or
+    -not $bot.Contains('x.Present && x.IsRubiKaDestination')) {
+    throw 'Live accepted entrances are not continuously reconciled before the disarmed return/hand-in path.'
+}
+
+$storedEntrance = [double[]](100, 5, 100)
+$authoritativeEntrance = [double[]](140, 5, 122)
+$adjustment = [Math]::Sqrt(
+    [Math]::Pow($storedEntrance[0] - $authoritativeEntrance[0], 2) +
+    [Math]::Pow($storedEntrance[1] - $authoritativeEntrance[1], 2) +
+    [Math]::Pow($storedEntrance[2] - $authoritativeEntrance[2], 2))
+if ($adjustment -le 12) { throw 'Entrance-update fixture must exceed the provenance tolerance.' }
+$storedEntrance = $authoritativeEntrance
+$afterReconcile = [Math]::Sqrt(
+    [Math]::Pow($storedEntrance[0] - $authoritativeEntrance[0], 2) +
+    [Math]::Pow($storedEntrance[1] - $authoritativeEntrance[1], 2) +
+    [Math]::Pow($storedEntrance[2] - $authoritativeEntrance[2], 2))
+if ($afterReconcile -gt 0.01) { throw 'Authoritative entrance reconciliation did not eliminate a >12m stale anchor.' }
+Write-Output 'PASS a >12m live entrance update is reconciled before strict hand-in provenance validation'
 
 $restoreStart = $accepted.IndexOf('private void RestoreReturnItemFromOrigin')
 $restoreEnd = $accepted.IndexOf('private MissionObjectiveBinding FindBinding', $restoreStart)
