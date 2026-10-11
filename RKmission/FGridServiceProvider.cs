@@ -29,6 +29,10 @@ namespace RKmission
         {
             None, CorridorStabilizing, CorridorTransit, RadialCommitted
         }
+        private enum DeterministicPhase
+        {
+            None, ArrivalAnchor, RingArc, DestinationAnchor, RadialApproach, Exhausted
+        }
 
         private sealed class ServiceFile
         {
@@ -159,6 +163,15 @@ namespace RKmission
         private Vector3 _liftAlignmentPoint;
         private Vector3 _radialLastPosition;
         private DateTime _radialLastProgress;
+        private DeterministicPhase _deterministicPhase;
+        private int _deterministicFloor = -1, _deterministicWaypointIndex;
+        private bool _deterministicPortal, _deterministicArrivalApplicable;
+        private int _deterministicRetries;
+        private Vector3? _deterministicTarget;
+        private Vector3 _deterministicArrivalAnchor, _deterministicDestinationAnchor;
+        private Vector3 _deterministicLastPosition;
+        private DateTime _deterministicLastProgress;
+        private List<Vector3> _deterministicArc = new List<Vector3>();
 
         public string LastFailure { get; private set; }
         public bool IsConfigured => _services.Count > 0;
@@ -696,6 +709,164 @@ namespace RKmission
             _liftApproachTarget = null;
             _liftAlignmentPoint = Vector3.Zero;
             _radialLastProgress = DateTime.MinValue;
+        }
+
+        private void ResetDeterministicGeometry(bool exhausted = false)
+        {
+            _deterministicPhase = exhausted ? DeterministicPhase.Exhausted : DeterministicPhase.None;
+            _deterministicFloor = -1;
+            _deterministicWaypointIndex = 0;
+            _deterministicPortal = false;
+            _deterministicArrivalApplicable = false;
+            _deterministicRetries = 0;
+            _deterministicTarget = null;
+            _deterministicArc.Clear();
+            _deterministicLastProgress = DateTime.MinValue;
+        }
+
+        private void SetDeterministicPhase(DeterministicPhase phase, Vector3 player,
+            string label, Vector3 target)
+        {
+            _movement.Release(MovementOwner.FGridTravel);
+            _routes.StopPlayback();
+            _deterministicPhase = phase;
+            _deterministicLastPosition = player;
+            _deterministicLastProgress = DateTime.UtcNow;
+            _say($"FGrid floor {_deterministicFloor} {label}: target " +
+                $"({target.X:0.000},{target.Y:0.000},{target.Z:0.000}), " +
+                $"cross-track {FGridGeometry.RingCrossTrack(player):0.00} m, " +
+                $"distance remaining {LocalRoutePlanner.HorizontalDistance(player, target):0.00} m.");
+        }
+
+        private bool IssueDeterministicTarget(Vector3 player, Vector3 target,
+            string phase, out string reason)
+        {
+            float remaining = LocalRoutePlanner.HorizontalDistance(player, target);
+            if (LocalRoutePlanner.HorizontalDistance(player, _deterministicLastPosition) > 0.25f)
+            {
+                _deterministicLastPosition = player;
+                _deterministicLastProgress = DateTime.UtcNow;
+            }
+            if (DateTime.UtcNow - _deterministicLastProgress > TimeSpan.FromSeconds(9))
+            {
+                _movement.Release(MovementOwner.FGridTravel);
+                _deterministicRetries++;
+                reason = $"{phase} stalled with {remaining:0.00} m remaining; retry " +
+                    $"{_deterministicRetries}/3";
+                _say($"FGrid floor {_deterministicFloor} {reason}.");
+                _deterministicLastPosition = player;
+                _deterministicLastProgress = DateTime.UtcNow;
+                if (_deterministicRetries >= 3) return false;
+            }
+            if (_movement.Owner != MovementOwner.FGridTravel || !SMovementController.IsNavigating())
+                if (!_movement.SetDestination(MovementOwner.FGridTravel, target))
+                { reason = $"controller rejected {phase}"; return false; }
+            _activeNavSource = "deterministic " + phase;
+            reason = $"{phase}; cross-track {FGridGeometry.RingCrossTrack(player):0.00} m, " +
+                $"distance remaining {remaining:0.00} m";
+            return true;
+        }
+
+        private bool TryDeterministicFGridRoute(Vector3 target, int floor, bool portal,
+            out string reason)
+        {
+            reason = "";
+            if (!FGridGeometry.IsModeledFloor(floor) ||
+                !FGridGeometry.IsPlausibleRadialTarget(target)) return false;
+            Vector3 player = DynelManager.LocalPlayer.Position;
+            if (Math.Abs(player.Y - FGridGeometry.FloorY(floor)) > 2.5f)
+            { reason = "deterministic geometry rejected a wrong-floor position"; return false; }
+            if (_deterministicPhase == DeterministicPhase.Exhausted) return false;
+
+            if (!_deterministicTarget.HasValue || _deterministicFloor != floor ||
+                _deterministicPortal != portal ||
+                Vector3.Distance(_deterministicTarget.Value, target) > 0.5f)
+            {
+                bool arrivalApplicable = _deterministicArrivalApplicable;
+                ResetDeterministicGeometry();
+                _deterministicFloor = floor;
+                _deterministicPortal = portal;
+                _deterministicTarget = target;
+                _deterministicDestinationAnchor = FGridGeometry.RingAnchor(target, floor);
+                // Floor 0's lift is at the horizontal center, so it has no
+                // meaningful radial intersection. Floor 1 safely rejoins at
+                // the nearest ring point; later arrivals use the prior lift.
+                _deterministicArrivalAnchor = arrivalApplicable && floor > 1
+                    ? FGridGeometry.RingAnchor(UpLifts[floor - 1], floor)
+                    : FGridGeometry.ProjectToRing(player, floor);
+                _deterministicArrivalApplicable = arrivalApplicable;
+                SetDeterministicPhase(DeterministicPhase.ArrivalAnchor, player,
+                    arrivalApplicable ? "Arrival Anchor" : "Ring Rejoin",
+                    _deterministicArrivalAnchor);
+            }
+
+            if (_deterministicPhase == DeterministicPhase.ArrivalAnchor)
+            {
+                if (LocalRoutePlanner.HorizontalDistance(player, _deterministicArrivalAnchor) >
+                    FGridGeometry.AnchorAcceptanceRadius)
+                    return IssueDeterministicTarget(player, _deterministicArrivalAnchor,
+                        _deterministicArrivalApplicable ? "Arrival Anchor" : "Ring Rejoin", out reason);
+                _deterministicArc = FGridGeometry.ShortestArc(_deterministicArrivalAnchor,
+                    _deterministicDestinationAnchor, floor);
+                _deterministicWaypointIndex = 0;
+                SetDeterministicPhase(DeterministicPhase.RingArc, player, "Ring Arc",
+                    _deterministicArc[0]);
+            }
+
+            if (_deterministicPhase == DeterministicPhase.RingArc)
+            {
+                float crossTrack = FGridGeometry.RingCrossTrack(player);
+                if (crossTrack > FGridGeometry.RingCrossTrackTolerance)
+                {
+                    _deterministicRetries++;
+                    if (_deterministicRetries >= 3)
+                    { reason = $"Ring Arc exceeded cross-track tolerance ({crossTrack:0.00} m)"; return false; }
+                    _deterministicArrivalAnchor = FGridGeometry.ProjectToRing(player, floor);
+                    SetDeterministicPhase(DeterministicPhase.ArrivalAnchor, player,
+                        "Ring Rejoin", _deterministicArrivalAnchor);
+                    return true;
+                }
+                while (_deterministicWaypointIndex < _deterministicArc.Count &&
+                    LocalRoutePlanner.HorizontalDistance(player,
+                        _deterministicArc[_deterministicWaypointIndex]) <=
+                        FGridGeometry.AnchorAcceptanceRadius)
+                    _deterministicWaypointIndex++;
+                if (_deterministicWaypointIndex < _deterministicArc.Count)
+                    return IssueDeterministicTarget(player,
+                        _deterministicArc[_deterministicWaypointIndex], "Ring Arc", out reason);
+                SetDeterministicPhase(DeterministicPhase.DestinationAnchor, player,
+                    portal ? "Exit Anchor" : "Lift Anchor", _deterministicDestinationAnchor);
+            }
+
+            if (_deterministicPhase == DeterministicPhase.DestinationAnchor)
+            {
+                if (LocalRoutePlanner.HorizontalDistance(player, _deterministicDestinationAnchor) >
+                    FGridGeometry.AnchorAcceptanceRadius)
+                    return IssueDeterministicTarget(player, _deterministicDestinationAnchor,
+                        portal ? "Exit Anchor" : "Lift Anchor", out reason);
+                SetDeterministicPhase(DeterministicPhase.RadialApproach, player,
+                    "Radial Approach", target);
+            }
+
+            if (_deterministicPhase == DeterministicPhase.RadialApproach)
+            {
+                float radialError = FGridGeometry.RadialCrossTrack(player,
+                    _deterministicDestinationAnchor, target);
+                if (radialError > FGridGeometry.RadialCrossTrackTolerance)
+                {
+                    _deterministicRetries++;
+                    if (_deterministicRetries >= 3)
+                    { reason = $"Radial Approach drifted {radialError:0.00} m off line"; return false; }
+                    SetDeterministicPhase(DeterministicPhase.DestinationAnchor, player,
+                        portal ? "Exit Anchor recovery" : "Lift Anchor recovery",
+                        _deterministicDestinationAnchor);
+                    return true;
+                }
+                if (LocalRoutePlanner.HorizontalDistance(player, target) <=
+                    (portal ? 1.5f : 0.8f)) return true;
+                return IssueDeterministicTarget(player, target, "Radial Approach", out reason);
+            }
+            return false;
         }
 
         private bool TickLiftPreApproach(Vector3 lift, int floor, out string reason,
@@ -1401,6 +1572,17 @@ namespace RKmission
         private bool TryPreferredFGridRoute(Vector3 target, int floor, bool portal,
             out string navigationReason)
         {
+            if (FGridGeometry.IsModeledFloor(floor) &&
+                _deterministicPhase != DeterministicPhase.Exhausted)
+            {
+                if (TryDeterministicFGridRoute(target, floor, portal, out navigationReason))
+                    return true;
+                // Keep the proven recorded/Recast/SharpNav stack as a guarded
+                // fallback until deterministic geometry has passed live AO tests.
+                ResetDeterministicGeometry(true);
+                _say($"FGrid floor {floor} deterministic geometry fallback: " +
+                    $"{navigationReason}; retaining legacy internal navigation.");
+            }
             if (!portal && _floorDepartureCompletedFloor == floor &&
                 DateTime.UtcNow < _floorDepartureSettledAt)
             {
@@ -1674,6 +1856,7 @@ namespace RKmission
                     ResetMeshNavigation();
                     ResetLocalRecovery();
                     ResetLiftApproach();
+                    ResetDeterministicGeometry();
                     // Halt both controller navigation and any direct movement
                     // input before the new lift arrival is allowed to settle.
                     StopFGridArrivalMotion();
@@ -1686,6 +1869,7 @@ namespace RKmission
                     _floorDepartureSettledAt = DateTime.MinValue;
                     _floorDepartureSkippedPoints = 0;
                     _floorDeparturePending = previousFloor >= 0 && floor == previousFloor + 1;
+                    _deterministicArrivalApplicable = _floorDeparturePending && floor > 1;
                     _say($"Fixer Grid floor {floor}; target floor {_route.Floor}.");
                     if (advancedDuringSettle)
                         _say($"FGrid floor {previousFloor} advanced to floor {floor} during the arrival settle; " +
@@ -2137,6 +2321,7 @@ namespace RKmission
             _movement.Release(MovementOwner.FGridTravel);
             ResetMeshNavigation();
             ResetLiftApproach();
+            ResetDeterministicGeometry();
             _routes.StopPlayback();
             if (_joinedByProvider && Team.IsInTeam)
                 Team.Leave();
