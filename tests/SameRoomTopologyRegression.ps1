@@ -26,6 +26,14 @@ if (-not $dungeon.Contains('DungeonTransitPlanner.Candidates(_layout') -or
 }
 Write-Output 'PASS combat uses shared transit and bounds retries without 3m reset loops'
 
+if (-not $dungeon.Contains('MovementOwner activeOwner = MovementArbiter.Current.Owner;') -or
+    -not $dungeon.Contains('activeOwner == MovementOwner.CombatPosition ||') -or
+    -not $dungeon.Contains('(activeOwner == MovementOwner.None && _requestedOwner == MovementOwner.CombatPosition)') -or
+    -not $dungeon.Contains('if (destinationIsCombatOwned) _destination = null;')) {
+    throw 'Combat reset no longer preserves destinations owned by loot or other movement work.'
+}
+Write-Output 'PASS combat reset clears combat-owned destinations without invalidating active loot or other owners'
+
 if (-not $dungeon.Contains('private const float LootUseRange = 3f') -or
     -not $dungeon.Contains('_loot.MissionInteractionReady = LootInteractionReady') -or
     -not $dungeon.Contains('DungeonTransitPlanner.Candidates(_layout') -or

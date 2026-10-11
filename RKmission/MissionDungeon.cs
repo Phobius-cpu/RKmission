@@ -1081,6 +1081,9 @@ namespace RKmission
 
         private void ResetCombatApproach()
         {
+            MovementOwner activeOwner = MovementArbiter.Current.Owner;
+            bool destinationIsCombatOwned = activeOwner == MovementOwner.CombatPosition ||
+                (activeOwner == MovementOwner.None && _requestedOwner == MovementOwner.CombatPosition);
             _combatApproachTarget = Identity.None;
             _combatApproaches.Clear();
             _combatApproachIndex = 0;
@@ -1089,7 +1092,7 @@ namespace RKmission
             _combatBlockedCorridors.Clear();
             _combatRetreat = null;
             _combatStalls = 0;
-            _destination = null;
+            if (destinationIsCombatOwned) _destination = null;
         }
 
         private void TryCombatRetreat(Vector3 position, Vector3 blockedDirection)
