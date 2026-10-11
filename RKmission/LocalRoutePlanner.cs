@@ -51,6 +51,13 @@ namespace RKmission
         public static bool TryDungeonGroundCost(Vector3 origin, Vector3 destination, out float cost)
             => TryGroundCost(origin, destination, out cost, 1.5f, 1f, false, 1f);
 
+        // Exposes the executed straight-path corridor for same-room staging.
+        // Callers can select a real ramp/stair vertex instead of guessing X/Z
+        // points at an elevation that may have no walkable surface.
+        public static bool TryDungeonGroundPath(Vector3 origin, Vector3 destination,
+            out float cost, out List<Vector3> points)
+            => TryGroundPath(origin, destination, out cost, out points, 1.5f, 3f, 3f);
+
         // Combat needs a second check: a generated polygon corridor may pass
         // through visible collision geometry inside a single AO room.
         public static bool TryDungeonCombatCost(Vector3 origin, Vector3 destination, out float cost)
@@ -70,7 +77,17 @@ namespace RKmission
             float originSnap, float destinationSnap, bool verifyFGridFloor, float finalTolerance,
             bool verifyCombatCorridor = false)
         {
+            List<Vector3> unused;
+            return TryGroundPath(origin, destination, out cost, out unused, originSnap,
+                destinationSnap, finalTolerance, verifyFGridFloor, verifyCombatCorridor);
+        }
+
+        private static bool TryGroundPath(Vector3 origin, Vector3 destination, out float cost,
+            out List<Vector3> points, float originSnap, float destinationSnap, float finalTolerance,
+            bool verifyFGridFloor = false, bool verifyCombatCorridor = false)
+        {
             cost = float.PositiveInfinity;
+            points = new List<Vector3>();
             if (!AcceptedMissions.Finite(origin) || !AcceptedMissions.Finite(destination) ||
                 SMovementController.NavAgent?.HasPathfinder != true) return false;
             var query = new NavMeshQuery(SMovementController.NavAgent.NavMesh, 8192);
@@ -96,6 +113,8 @@ namespace RKmission
                 if (verifyCombatCorridor && !ClearInteractionSegment(
                     previous + Vector3.Up * 1.2f, point + Vector3.Up * 1.2f)) return false;
                 length += Vector3.Distance(previous, point);
+                if (points.Count == 0 || Vector3.Distance(points[points.Count - 1], point) > 0.25f)
+                    points.Add(point);
                 previous = point;
             }
             if (Vector3.Distance(previous, destination) > finalTolerance) return false;

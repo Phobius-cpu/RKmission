@@ -101,6 +101,7 @@ namespace RKmission
         private DateTime _lootNearStarted;
         private int _lootProgressVersion;
         private bool _lootProbeNextSide;
+        private float _lootBestVerticalGap = float.PositiveInfinity;
         private int _floor;
         private DungeonLiftController.Lift _activeLift;
         private DateTime _liftStarted;
@@ -1586,6 +1587,9 @@ namespace RKmission
                 _lootNearStarted = DateTime.MinValue;
                 _lootProbeNextSide = false;
                 _lootTransitStaging = false;
+                _lootBestVerticalGap = next != null
+                    ? Math.Abs(next.Position.Y - DynelManager.LocalPlayer.Position.Y)
+                    : float.PositiveInfinity;
                 _lootApproachPoints.Clear();
                 if (next != null) BuildLootApproaches(room, next.Position);
                 _destination = null;
@@ -1676,6 +1680,8 @@ namespace RKmission
                     _destination = null;
                     _lootLastProgress = now;
                     _lootLastPosition = position;
+                    _lootBestVerticalGap = Math.Min(_lootBestVerticalGap,
+                        Math.Abs(next.Position.Y - position.Y));
                     _say($"Loot {next.Identity} transit staging reached; rebuilding direct final approaches from new position {position}.");
                     BuildLootApproaches(room, next.Position);
                 }
@@ -1757,9 +1763,32 @@ namespace RKmission
             List<DungeonTransitPlanner.Route> transit = DungeonTransitPlanner.Candidates(_layout,
                 room.Instance, player, target, new[] { 3f, 5f, 8f, 12f }, 0.4f)
                 .Where(route => Vector3.Distance(player, route.Destination) >= 1.5f).ToList();
+            float verticalGap = Math.Abs(target.Y - player.Y);
+            int insufficient = 0;
+            if (verticalGap > 3f)
+            {
+                float requiredGap = Math.Min(_lootBestVerticalGap, verticalGap) - 0.75f;
+                insufficient = transit.Count(route =>
+                    Math.Abs(target.Y - route.Destination.Y) > requiredGap);
+                transit = transit.Where(route =>
+                    Math.Abs(target.Y - route.Destination.Y) <= requiredGap).ToList();
+            }
             _lootApproachPoints.AddRange(transit.Select(route => route.Destination));
-            _say($"Loot direct final unavailable; transit staging selected with {_lootApproachPoints.Count} complete candidate(s)" +
-                (transit.Count > 0 ? $", best cost={transit[0].Cost:0.0}m." : "."));
+            if (transit.Count > 0)
+            {
+                DungeonTransitPlanner.Route best = transit[0];
+                string elevation = best.TargetLevel ? "target-level" :
+                    $"vertically progressive (+{best.VerticalProgress:0.0}m)";
+                _say($"Loot direct final unavailable; {elevation} transit selected with " +
+                    $"{transit.Count} complete candidate(s), best cost={best.Cost:0.0}m, " +
+                    $"source={(best.CorridorDerived ? "navmesh corridor" : "surface sample")}; " +
+                    $"rejected {insufficient} candidate(s) for insufficient vertical progress.");
+            }
+            else if (verticalGap > 3f)
+                _say($"Loot direct final unavailable; no complete ramp-connected route made meaningful elevation progress; " +
+                    $"rejected {insufficient} same-level candidate(s), player Y={player.Y:0.0}, target Y={target.Y:0.0}.");
+            else
+                _say("Loot direct final unavailable; no complete same-room transit route was found.");
         }
 
         private bool LootInteractionReady(Dynel loot)

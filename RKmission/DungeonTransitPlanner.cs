@@ -14,6 +14,9 @@ namespace RKmission
         {
             public Vector3 Destination;
             public float Cost;
+            public float VerticalProgress;
+            public bool CorridorDerived;
+            public bool TargetLevel;
         }
 
         public static bool TryCost(DungeonLayout layout, int roomId, Vector3 from,
@@ -29,6 +32,7 @@ namespace RKmission
         public static List<Route> Candidates(DungeonLayout layout, int roomId,
             Vector3 from, Vector3 target, float[] radii, float clearance)
         {
+            float verticalGap = Math.Abs(target.Y - from.Y);
             Vector3 toward = from - target;
             toward.Y = 0;
             toward = toward.Magnitude > 0.1f ? toward.Normalize() : Vector3.Forward;
@@ -50,17 +54,62 @@ namespace RKmission
                             !points.Any(other => Vector3.Distance(other, point) < 0.8f))
                             points.Add(point);
                     }
-            return points.Select(point =>
+            var routes = points.Select(point =>
                 {
                     float cost;
                     return new Route { Destination = point,
                         Cost = TryCost(layout, roomId, from, point, out cost)
-                            ? cost : float.PositiveInfinity };
+                            ? cost : float.PositiveInfinity,
+                        VerticalProgress = Progress(from, target, point),
+                        TargetLevel = Math.Abs(point.Y - target.Y) <= 1.5f };
                 })
                 .Where(route => !float.IsInfinity(route.Cost))
-                .OrderBy(route => Math.Abs(route.Destination.Y - target.Y))
+                .ToList();
+
+            // Ask the mesh for the actual corridor toward the target surface.
+            // Its crossing vertices reveal ramps and stairs even when radial
+            // samples miss a narrow gallery. Use progressive vertices only;
+            // final interaction range/visibility remains the consumer's job.
+            try
+            {
+                if (LocalRoutePlanner.TryDungeonGroundPath(from, target,
+                    out float corridorCost, out List<Vector3> corridor))
+                {
+                    float traversed = 0;
+                    Vector3 previous = from;
+                    foreach (Vector3 point in corridor)
+                    {
+                        traversed += Vector3.Distance(previous, point);
+                        previous = point;
+                        float progress = Progress(from, target, point);
+                        if (progress < 0.75f || !layout.IsInside(roomId, point, clearance) ||
+                            routes.Any(route => Vector3.Distance(route.Destination, point) < 0.8f)) continue;
+                        routes.Add(new Route
+                        {
+                            Destination = point,
+                            Cost = Math.Min(traversed, corridorCost),
+                            VerticalProgress = progress,
+                            CorridorDerived = true,
+                            TargetLevel = Math.Abs(point.Y - target.Y) <= 1.5f
+                        });
+                    }
+                }
+            }
+            catch { }
+
+            bool separated = verticalGap > 3f;
+            bool hasProgressive = separated && routes.Any(route =>
+                route.TargetLevel || route.VerticalProgress >= Math.Min(2f, verticalGap * 0.25f));
+            return routes
+                .OrderBy(route => hasProgressive && !(route.TargetLevel ||
+                    route.VerticalProgress >= Math.Min(2f, verticalGap * 0.25f)))
+                .ThenByDescending(route => separated ? route.VerticalProgress : 0)
+                .ThenBy(route => Math.Abs(route.Destination.Y - target.Y))
                 .ThenBy(route => route.Cost)
                 .ToList();
         }
+
+        private static float Progress(Vector3 from, Vector3 target, Vector3 point)
+            => Math.Max(0, Math.Abs(target.Y - from.Y) - Math.Abs(target.Y - point.Y));
     }
 }

@@ -16,6 +16,17 @@ if (-not $transit.Contains('TryDungeonGroundCost') -or
 }
 Write-Output 'PASS shared transit uses complete ordinary dungeon routes across target/current elevations'
 
+if (-not $transit.Contains('TryDungeonGroundPath') -or
+    -not $transit.Contains('CorridorDerived') -or
+    -not $transit.Contains('VerticalProgress') -or
+    -not $transit.Contains('hasProgressive') -or
+    -not $dungeon.Contains('_lootBestVerticalGap') -or
+    -not $dungeon.Contains('insufficient vertical progress') -or
+    -not $dungeon.Contains('no complete ramp-connected route made meaningful elevation progress')) {
+    throw 'Multi-level corridor discovery, monotonic elevation guard, or diagnostics regressed.'
+}
+Write-Output 'PASS multi-level loot discovers navmesh corridor elevations and rejects recycled same-level staging'
+
 if (-not $dungeon.Contains('DungeonTransitPlanner.Candidates(_layout') -or
     -not $dungeon.Contains('Combat local firing approach unavailable') -or
     -not $dungeon.Contains('Combat same-room transit completed') -or
@@ -52,7 +63,7 @@ if ($directBuild -lt 0 -or $transitBuild -lt 0 -or $directBuild -gt $transitBuil
     -not $dungeon.Contains('LocalRoutePlanner.ClearInteractionSegment(point + Vector3.Up') -or
     -not $dungeon.Contains('_lootTransitStaging = _lootApproachPoints.Count == 0;') -or
     -not $dungeon.Contains('Loot direct final approach selected:') -or
-    -not $dungeon.Contains('Loot direct final unavailable; transit staging selected') -or
+    -not $dungeon.Contains('Loot direct final unavailable; {elevation} transit selected') -or
     -not $dungeon.Contains('transit staging reached; rebuilding direct final approaches from new position') -or
     -not $dungeon.Contains('BuildLootApproaches(room, next.Position);')) {
     throw 'Direct-final-first loot selection or post-staging rebuild regressed.'
