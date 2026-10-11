@@ -127,6 +127,7 @@ namespace ManagerLoot
         public Func<Dynel, int, bool> MissionRoomContains { get; set; }
         public Func<int, IEnumerable<Dynel>> MissionRoomDynels { get; set; }
         public Func<Dynel, bool> MissionLootAllowed { get; set; }
+        public Func<Dynel, bool> MissionInteractionReady { get; set; }
         // Independent of combat/phase permissions: an objective is final work,
         // even if it entered the discovery ledger before its metadata arrived.
         public Func<MissionIdentity, bool> MissionLootReserved { get; set; }
@@ -549,8 +550,8 @@ namespace ManagerLoot
 
             // AO# exposes rendered server text through these existing N3 messages.
             // Numeric FeedbackMessage ids have no verified lockpick mapping here.
-            if (e is ChatTextMessage chat) ObserveLockpickFeedback(chat.Text);
-            else if (e is FormatFeedbackMessage feedback) ObserveLockpickFeedback(feedback.Message);
+            if (e is ChatTextMessage chat) ObserveMissionFeedback(chat.Text);
+            else if (e is FormatFeedbackMessage feedback) ObserveMissionFeedback(feedback.Message);
 
             switch (e.N3MessageType)
             {
@@ -606,6 +607,20 @@ namespace ManagerLoot
 
                     break;
             }
+        }
+
+        private void ObserveMissionFeedback(string message)
+        {
+            ObserveLockpickFeedback(message);
+            if (MissionRoomId < 0 || CurrentProcess != ProcessState.Opening ||
+                _pendingMissionLoot == MissionIdentity.None || string.IsNullOrWhiteSpace(message) ||
+                message.IndexOf("too far away", StringComparison.OrdinalIgnoreCase) < 0) return;
+            MissionIdentity identity = _pendingMissionLoot;
+            _pendingMissionLoot = MissionIdentity.None;
+            CurrentCorpse = null;
+            CurrentProcess = ProcessState.Open_Corpse;
+            SetMissionSource(identity, MissionSourceState.PendingApproach);
+            Chat.WriteLine($"RKMission: Loot {identity} reported too far away; opening ownership released back to approach.");
         }
 
         private void ContainerOpened(object sender, Container container)
@@ -742,7 +757,10 @@ namespace ManagerLoot
                         && (MissionRoomId < 0 || !_finishedMissionLoot.Contains(c.Identity))
                         && (MissionRoomId < 0 || IsInMissionRoom(c, MissionRoomId)))
                             .OrderBy(d => MissionRoomId >= 0 && d.Identity.Type == IdentityType.Corpse ? 0 : 1)
-                            .ThenBy(d => d.Position.DistanceFrom(DynelManager.LocalPlayer.Position)).FirstOrDefault(c => DynelManager.LocalPlayer.Position.Distance2DFrom(c.Position) < 6);
+                            .ThenBy(d => d.Position.DistanceFrom(DynelManager.LocalPlayer.Position))
+                            .FirstOrDefault(c => MissionRoomId >= 0
+                                ? MissionInteractionReady?.Invoke(c) == true
+                                : DynelManager.LocalPlayer.Position.Distance2DFrom(c.Position) < 6);
 
                         if (dynel == null) return;
                         if (Spell.HasPendingCast || Item.HasPendingUse || PerkAction.List.Any(perk => perk.IsExecuting)) return;

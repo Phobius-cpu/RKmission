@@ -26,9 +26,9 @@ namespace RKmission
                 ? new[] { toward, diagonalA, side, -diagonalB,
                     -toward, -diagonalA, -side, diagonalB }
                 : new[] { toward, side, -side, -toward };
-            float[] heights = combatFiringSide && Math.Abs(target.Y - from.Y) > 1.5f
+            float[] heights = Math.Abs(target.Y - from.Y) > 1.5f
                 ? new[] { target.Y, from.Y, (target.Y + from.Y) * 0.5f }
-                : new[] { from.Y };
+                : new[] { target.Y };
             foreach (float radius in radii)
                 foreach (Vector3 direction in directions)
                     foreach (float height in heights)
