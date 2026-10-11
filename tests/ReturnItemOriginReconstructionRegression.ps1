@@ -4,6 +4,7 @@ $accepted = Get-Content -LiteralPath (Join-Path $root 'RKmission/AcceptedMission
 $checkpoint = Get-Content -LiteralPath (Join-Path $root 'RKmission/MissionCheckpoint.cs') -Raw
 $resolver = Get-Content -LiteralPath (Join-Path $root 'RKmission/UseItemRoleResolver.cs') -Raw
 $handIn = Get-Content -LiteralPath (Join-Path $root 'RKmission/ReturnItemHandIn.cs') -Raw
+$bot = Get-Content -LiteralPath (Join-Path $root 'RKmission/RkMissionBot.cs') -Raw
 
 foreach ($required in @(
     'public Identity VerifiedIssuingTerminal = Identity.None;',
@@ -111,6 +112,27 @@ foreach ($required in @(
 }
 Write-Output 'PASS full provenance failure reports every strict comparison and stored/current identity values'
 
+foreach ($required in @(
+    'BindAcceptedMissionOrigin(acceptedId, destination, window.PendingAutoLocation);',
+    'ReconcileAcceptedMissionOrigin(accepted);',
+    'private bool ReconcileAcceptedMissionOrigin(AcceptedMission accepted)',
+    'x.QuestInstance == accepted.Id.Instance',
+    'x.CharacterInstance == DynelManager.LocalPlayer.Identity.Instance',
+    'x.TerminalInstance != 0',
+    'origin.DestinationPlayfield != accepted.PlayfieldId',
+    'origin.Destination = accepted.Entrance;',
+    '_checkpoint.Save(true, Say);',
+    'offer anchor adjustment=')) {
+    if (-not $bot.Contains($required)) { throw "Accepted entrance reconciliation regressed: $required" }
+}
+$refresh = $bot.IndexOf('_missions.Refresh(); // Track acceptance/removal even while local automation is disarmed.')
+$lateReconcile = $bot.IndexOf('ReconcileAcceptedMissionOrigin(resolved);', $refresh)
+$detailsRemoval = $bot.IndexOf('_awaitingQuestDetails.Remove(id);', $lateReconcile)
+if ($refresh -lt 0 -or $lateReconcile -le $refresh -or $detailsRemoval -le $lateReconcile) {
+    throw 'Late quest details no longer reconcile the accepted entrance before release.'
+}
+Write-Output 'PASS exact accepted quest replaces the offer anchor immediately or when delayed details resolve'
+
 $restoreStart = $accepted.IndexOf('private void RestoreReturnItemFromOrigin')
 $restoreEnd = $accepted.IndexOf('private MissionObjectiveBinding FindBinding', $restoreStart)
 $restore = $accepted.Substring($restoreStart, $restoreEnd - $restoreStart)
@@ -123,7 +145,7 @@ if ($restore.Contains('IdentityType.MissionTerminal') -or
 }
 Write-Output 'PASS classification ignores entrance geometry but never guesses unmatched or merely typed terminals'
 
-$handInPath = Get-Content -LiteralPath (Join-Path $root 'RKmission/RkMissionBot.cs') -Raw
+$handInPath = $bot
 $handInStart = $handInPath.IndexOf('private bool TickReturnHandIn')
 $handInEnd = $handInPath.IndexOf('private ', $handInStart + 1)
 $handInTick = $handInPath.Substring($handInStart, $handInEnd - $handInStart)

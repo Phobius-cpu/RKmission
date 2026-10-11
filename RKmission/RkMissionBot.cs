@@ -668,8 +668,14 @@ namespace RKmission
             try
             {
                 _missions.Refresh(); // Track acceptance/removal even while local automation is disarmed.
-                _awaitingQuestDetails.RemoveWhere(id => _missions.Records.Any(x =>
-                    x.Id.Instance == id && x.Present && x.IsRubiKaDestination));
+                foreach (int id in _awaitingQuestDetails.ToList())
+                {
+                    AcceptedMission resolved = _missions.Records.FirstOrDefault(x =>
+                        x.Id.Instance == id && x.Present && x.IsRubiKaDestination);
+                    if (resolved == null) continue;
+                    ReconcileAcceptedMissionOrigin(resolved);
+                    _awaitingQuestDetails.Remove(id);
+                }
                 if (!_running) return;
                 if (_autoLogisticsRunning || _automaticLogistics.IsActive)
                 {
@@ -1397,6 +1403,8 @@ namespace RKmission
                 {
                     int acceptedId = accepted?.Id.Instance ?? (updateId > 0 ? updateId : pending);
                     BindAcceptedMissionOrigin(acceptedId, destination, window.PendingAutoLocation);
+                    if (accepted?.IsRubiKaDestination == true)
+                        ReconcileAcceptedMissionOrigin(accepted);
                     if (_autoAcceptedIds.Add(acceptedId)) _autoAcceptedCount++;
                     _autoAcceptedPlayfields[acceptedId] = destination;
                     if (accepted == null || !accepted.IsRubiKaDestination)
@@ -1527,6 +1535,26 @@ namespace RKmission
             _checkpoint.Save(true, Say);
             Say($"Bound accepted quest {questId} to issuing terminal {_rollingTerminalIdentity} " +
                 $"at PF {_rollingTerminalPlayfield} ({LocalRoutePlanner.Coordinates(_rollingTerminalPosition)}).");
+        }
+
+        private bool ReconcileAcceptedMissionOrigin(AcceptedMission accepted)
+        {
+            if (accepted == null || !accepted.Present || !accepted.IsRubiKaDestination ||
+                !AcceptedMissions.Finite(accepted.Entrance)) return false;
+            MissionOriginBinding origin = _checkpoint.OriginTerminals.FirstOrDefault(x =>
+                x.QuestInstance == accepted.Id.Instance &&
+                x.CharacterInstance > 0 &&
+                x.CharacterInstance == DynelManager.LocalPlayer.Identity.Instance &&
+                x.TerminalInstance != 0);
+            if (origin == null || origin.DestinationPlayfield != accepted.PlayfieldId) return false;
+
+            float adjustment = Vector3.Distance(origin.Destination, accepted.Entrance);
+            if (adjustment <= 0.01f) return true;
+            origin.Destination = accepted.Entrance;
+            _checkpoint.Save(true, Say);
+            Say($"Reconciled quest {accepted.Id.Instance} origin to its authoritative accepted entrance " +
+                $"in PF {accepted.PlayfieldId}; offer anchor adjustment={adjustment:0.00}m.");
+            return true;
         }
 
         private bool ReturnToRollTerminal()
