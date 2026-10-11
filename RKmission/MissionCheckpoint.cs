@@ -56,6 +56,11 @@ namespace RKmission
         public Vector3 TerminalPosition { get; set; }
         public DateTime AcceptedAtUtc { get; set; }
 
+        public bool MatchesQuestCharacter(Identity quest, Identity character) =>
+            QuestInstance > 0 && QuestInstance == quest.Instance &&
+            CharacterInstance > 0 && CharacterInstance == character.Instance &&
+            TerminalInstance > 0;
+
         public bool Matches(AcceptedMission mission, Identity character) =>
             mission != null && QuestInstance == mission.Id.Instance &&
             CharacterInstance > 0 && CharacterInstance == character.Instance &&

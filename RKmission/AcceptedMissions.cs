@@ -290,7 +290,8 @@ namespace RKmission
                 (mission.Kind != RkMissionKind.Unknown && mission.Kind != RkMissionKind.ReturnItem)) return;
 
             MissionOriginBinding origin = _checkpoint.OriginTerminals.FirstOrDefault(x =>
-                x.Matches(mission, character) && mission.Actions.OfType<UseItemOnItemAction>()
+                x.MatchesQuestCharacter(mission.Id, character) &&
+                    mission.Actions.OfType<UseItemOnItemAction>()
                     .Any(action => action.Destination == x.TerminalIdentity));
             if (origin == null) return;
 
