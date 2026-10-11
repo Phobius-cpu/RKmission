@@ -145,7 +145,9 @@ namespace RKmission
             var carried = Inventory.Items.Where(x => x.Slot.Type == IdentityType.Inventory).ToList();
             candidates = string.Join(", ", carried.Select(DescribeItem));
 
-            var persisted = carried.Where(x => x.UniqueIdentity == record.RepairToolIdentity ||
+            var persisted = carried.Where(x =>
+                (record.RepairToolIdentity != Identity.None &&
+                    x.UniqueIdentity == record.RepairToolIdentity) ||
                 (record.RepairToolLowId != 0 && x.LowId == record.RepairToolLowId) ||
                 (record.RepairToolHighId != 0 && x.HighId == record.RepairToolHighId)).ToList();
             if (Unique(persisted, out tool))

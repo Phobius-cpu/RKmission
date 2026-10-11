@@ -20,6 +20,10 @@ Write-Output 'PASS unknown-kind retained UseItem actions use the same structural
 
 foreach ($required in @(
     'record.RepairToolIdentity',
+    'record.RepairToolIdentity != Identity.None',
+    'x.UniqueIdentity == record.RepairToolIdentity',
+    'record.RepairToolLowId != 0 && x.LowId == record.RepairToolLowId',
+    'record.RepairToolHighId != 0 && x.HighId == record.RepairToolHighId',
     'record.RepairToolLowId',
     'record.RepairToolHighId',
     'record.QuestActionIdentities',
@@ -30,6 +34,20 @@ foreach ($required in @(
     if (-not $resolver.Contains($required)) { throw "Repair tool evidence/fail-safe regressed: $required" }
 }
 Write-Output 'PASS repair tool uses persisted/template evidence then unique quest-text inventory matching'
+
+$persistedIdentityGuard = [regex]::Match($resolver,
+    '\(record\.RepairToolIdentity != Identity\.None &&\s*x\.UniqueIdentity == record\.RepairToolIdentity\)')
+if (-not $persistedIdentityGuard.Success) {
+    throw 'Identity.None can still act as persisted repair-tool identity evidence.'
+}
+$persistedTier = $resolver.IndexOf('var persisted =')
+$questActionTier = $resolver.IndexOf('var ids = new HashSet<int>')
+$questTextTier = $resolver.IndexOf('string text =')
+if ($persistedTier -lt 0 -or $questActionTier -le $persistedTier -or $questTextTier -le $questActionTier) {
+    throw 'Repair-tool evidence tiers no longer fall through from persisted metadata to QuestActions and quest text.'
+}
+Write-Output 'PASS Identity.None is ignored while valid persisted identity and LowId/HighId evidence remain available'
+Write-Output 'PASS empty persisted metadata falls through to QuestAction and quest-text evidence'
 
 foreach ($required in @(
     'QuestShortInfo',
