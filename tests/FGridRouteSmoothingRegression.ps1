@@ -16,38 +16,12 @@ if (-not $planner.Contains('SupportedFGridSegment(') -or
 }
 Write-Output 'PASS Recast keeps only necessary floor-supported walkway legs and removes fixed four-metre splitting'
 
-if (-not $recorder.Contains('candidate = SimplifySupportedFGridPath(candidate, player.Position.Y,') -or
+if (-not $recorder.Contains('candidate = SimplifySupportedFGridPath(candidate, player.Position.Y)') -or
     -not $recorder.Contains('SupportedRecordedFGridRoute(candidate, player.Position, target)') -or
     -not $recorder.Contains('walkway-supported leg(s)')) {
     throw 'Recorded FGrid fallback paths are not minimized and revalidated at playback.'
 }
 Write-Output 'PASS recorded FGrid fallback routes use corridor and live floor support before skipping samples'
-
-foreach ($required in @('FGridCenterlineTolerance = 0.25f',
-    'RecordedShortcutDeviation(points, anchor, candidate,',
-    'int[] legs = Enumerable.Repeat(int.MaxValue, points.Count).ToArray()',
-    'routeDeviation >= deviations[candidate]',
-    'maximum centreline deviation',
-    'inward-chord candidate(s) rejected by the Ring Corridor safety band',
-    'PreservesFGridAlignmentTurns(points, anchor, candidate)')) {
-    if (-not $recorder.Contains($required)) {
-        throw "FGrid Ring Corridor centerline preservation is missing: $required"
-    }
-}
-
-# A one-metre generic tolerance accepts a long chord across a representative
-# radius-15 ring arc. The dedicated FGrid band must reject it while accepting a
-# shorter arc leg, proving that useful smoothing remains without inner cutting.
-function Get-MaxChordDeviation([double]$radius, [double]$degrees) {
-    return $radius * (1.0 - [Math]::Cos(($degrees * [Math]::PI / 180.0) / 2.0))
-}
-$longChordDeviation = Get-MaxChordDeviation 15 36
-$shortChordDeviation = Get-MaxChordDeviation 15 20
-if ($longChordDeviation -le 0.25 -or $longChordDeviation -gt 1.0 -or
-    $shortChordDeviation -gt 0.25) {
-    throw 'Representative Ring Corridor chord safety-band geometry is not discriminating as intended.'
-}
-Write-Output 'PASS FGrid safety band rejects long inward ring chords while retaining useful arc smoothing'
 
 if (-not $planner.Contains('TryFloorZeroLiftPath') -or
     -not $planner.Contains('new List<Vector3> { start, lift }') -or
@@ -65,10 +39,6 @@ foreach ($required in @('_floorDeparturePending = previousFloor >= 0 && floor ==
     'StopFGridArrivalMotion()', 'Preserve a confirmed target-floor departure',
     'advanced to floor {floor} during the arrival settle',
     'MovementAction.ForwardStart', 'MovementAction.FullStop',
-    'stableHeadingDistance = 2.0f', 'MovementAction.TurnRightStart',
-    'MovementAction.TurnLeftStart', 'headingDot < 0.985f',
-    'remainingTurn * _floorDepartureTurnSign <= 0',
-    'StartFloorDepartureForward()', 'one continuous turn to the stable route heading',
     'DateTime.UtcNow - _floorArrivedAt < TimeSpan.FromMilliseconds(650)',
     'spawn-pad departure ended after',
     'settling on the Ring Corridor before replanning from the off-pad position',

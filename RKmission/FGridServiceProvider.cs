@@ -108,9 +108,6 @@ namespace RKmission
         private Vector3 _recastLastPosition;
         private DateTime _recastLastProgress;
         private bool _floorDeparturePending, _floorDepartureActive;
-        private bool _floorDepartureTurning;
-        private MovementAction _floorDepartureTurnStop;
-        private float _floorDepartureTurnSign;
         private int _floorDepartureFloor = -1;
         private Vector3 _floorDepartureOrigin, _floorDepartureDirection;
         private DateTime _floorArrivedAt, _floorDepartureStarted, _floorDepartureSettledAt;
@@ -162,9 +159,6 @@ namespace RKmission
         private Vector3 _liftAlignmentPoint;
         private Vector3 _radialLastPosition;
         private DateTime _radialLastProgress;
-        private Vector3? _radialLegTarget;
-        private Vector3 _radialLegOrigin;
-        private int _radialMicroRecoveryAttempts;
 
         public string LastFailure { get; private set; }
         public bool IsConfigured => _services.Count > 0;
@@ -702,8 +696,6 @@ namespace RKmission
             _liftApproachTarget = null;
             _liftAlignmentPoint = Vector3.Zero;
             _radialLastProgress = DateTime.MinValue;
-            _radialLegTarget = null;
-            _radialMicroRecoveryAttempts = 0;
         }
 
         private bool TickLiftPreApproach(Vector3 lift, int floor, out string reason,
@@ -769,9 +761,7 @@ namespace RKmission
                     _liftApproachPhase = LiftApproachPhase.RadialCommitted;
                     _radialLastPosition = player;
                     _radialLastProgress = DateTime.UtcNow;
-                    _radialLegTarget = null;
-                    _radialMicroRecoveryAttempts = 0;
-                    _say($"FGrid floor {floor} Lift Approach committed at the Alignment Point; turning approximately 90 degrees for bounded monitored radial legs.");
+                    _say($"FGrid floor {floor} Lift Approach committed at the Alignment Point; turning approximately 90 degrees for one straight radial leg.");
                     return false;
                 }
                 if (!_routes.TryNavigateFGridCorridorToAlignment(routeName, lift,
@@ -789,84 +779,23 @@ namespace RKmission
             reason = "";
             Vector3 player = DynelManager.LocalPlayer.Position;
             if (LocalRoutePlanner.HorizontalDistance(player, lift) <= 0.8f) return true;
-
-            Vector3 radial = lift - _liftAlignmentPoint;
-            radial.Y = 0;
-            if (radial.Magnitude < 0.1f)
-            { reason = "committed radial lift approach has no usable direction"; return false; }
-            radial = radial.Normalize();
-            Vector3 fromAlignment = player - _liftAlignmentPoint;
-            fromAlignment.Y = 0;
-            float radialProgress = Vector3.Dot(fromAlignment, radial);
-            Vector3 radialProjection = _liftAlignmentPoint + radial * radialProgress;
-            radialProjection.Y = player.Y;
-            float crossTrack = LocalRoutePlanner.HorizontalDistance(player, radialProjection);
-            if (crossTrack > 0.70f)
-            {
-                reason = $"committed radial lift approach drifted {crossTrack:0.00} m off the preserved radial line; Ring Corridor recentering remains disabled";
-                return false;
-            }
+            if (!LocalRoutePlanner.SupportedFGridSegment(player, lift, player.Y,
+                out string supportReason))
+            { reason = "committed straight radial lift leg lost floor support: " + supportReason; return false; }
             if (LocalRoutePlanner.HorizontalDistance(player, _radialLastPosition) > 0.25f)
             {
                 _radialLastPosition = player;
                 _radialLastProgress = DateTime.UtcNow;
             }
-
-            if (_radialLegTarget.HasValue)
+            if (DateTime.UtcNow - _radialLastProgress > TimeSpan.FromSeconds(9))
             {
-                float commandedDistance = LocalRoutePlanner.HorizontalDistance(
-                    _radialLegOrigin, _radialLegTarget.Value);
-                float actualDistance = Math.Max(0f, Vector3.Dot(player - _radialLegOrigin, radial));
-                bool legComplete = LocalRoutePlanner.HorizontalDistance(player,
-                    _radialLegTarget.Value) <= 0.82f ||
-                    actualDistance >= Math.Max(0.25f, commandedDistance - 0.82f);
-                if (legComplete)
-                {
-                    _movement.Release(MovementOwner.FGridTravel);
-                    _radialLegTarget = null;
-                    _radialMicroRecoveryAttempts = 0;
-                }
-                else if (DateTime.UtcNow - _radialLastProgress <= TimeSpan.FromSeconds(9))
-                {
-                    reason = "advancing on a bounded monitored Lift Approach leg";
-                    return true;
-                }
-                else
-                {
-                    _movement.Release(MovementOwner.FGridTravel);
-                    _radialLegTarget = null;
-                    _radialMicroRecoveryAttempts++;
-                    if (_radialMicroRecoveryAttempts > 2)
-                    {
-                        reason = "committed radial Lift Approach stalled after two line-preserving micro-recovery attempts; Ring Corridor recentering remains disabled";
-                        return false;
-                    }
-                    _radialLastPosition = player;
-                    _radialLastProgress = DateTime.UtcNow;
-                    _say($"FGrid committed Lift Approach stalled; line-preserving radial micro-recovery {_radialMicroRecoveryAttempts}/2 will retry a tiny bounded step without returning to the Ring Corridor.");
-                }
+                reason = "committed straight radial lift approach stalled; large recentering is disabled after commitment";
+                return false;
             }
-
-            float remaining = LocalRoutePlanner.HorizontalDistance(player, lift);
-            float legLength = Math.Min(_radialMicroRecoveryAttempts > 0 ? 1.10f : 1.40f,
-                remaining);
-            Vector3 legTarget = radialProjection + radial * legLength;
-            legTarget.Y = player.Y;
-            bool supported = LocalRoutePlanner.SupportedFGridSegment(player, legTarget,
-                player.Y, out string supportReason);
-            if (!supported)
-                _say($"FGrid bounded Lift Approach leg has a local support rejection ({supportReason}); preserving the accepted Alignment Point and attempting only this {legLength:0.00} m monitored radial step.");
-            _movement.Release(MovementOwner.FGridTravel);
-            if (!_movement.SetDestination(MovementOwner.FGridTravel, legTarget))
-            { reason = "controller rejected a bounded committed radial Lift Approach leg"; return false; }
-            _radialLegOrigin = player;
-            _radialLegTarget = legTarget;
-            _radialLastPosition = player;
-            _radialLastProgress = DateTime.UtcNow;
-            _activeNavSource = "bounded committed radial lift approach";
-            reason = supported
-                ? $"advancing {legLength:0.00} m on a floor-supported monitored Lift Approach leg"
-                : $"cautiously probing {legLength:0.00} m on the preserved radial line after a local support rejection";
+            if (_movement.Owner != MovementOwner.FGridTravel || !SMovementController.IsNavigating())
+                if (!_movement.SetDestination(MovementOwner.FGridTravel, lift))
+                { reason = "controller rejected the committed straight radial lift leg"; return false; }
+            _activeNavSource = "committed straight radial lift approach";
             return true;
         }
 
@@ -900,7 +829,7 @@ namespace RKmission
                 bool supportedApproach = LocalRoutePlanner.SupportedFGridSegment(
                     player, lift, player.Y, out string supportReason);
                 bool recordedAccepted = centeredAndStable && nearAlignment &&
-                    radialHeading && expectedTurn;
+                    radialHeading && expectedTurn && supportedApproach;
 
                 _say($"FGrid post-recovery alignment evaluation after attempt {_localRecoveryAttempt}/3: " +
                     $"recorded geometry {(recordedAccepted ? "accepted" : "rejected")}; " +
@@ -940,7 +869,7 @@ namespace RKmission
             bool liveSupported = LocalRoutePlanner.SupportedFGridSegment(player, lift,
                 player.Y, out string liveSupportReason);
             bool liveAccepted = stableRecovery && reasonableDistance &&
-                reasonableRadialTurn;
+                reasonableRadialTurn && liveSupported;
 
             _say($"FGrid post-recovery live-geometry alignment evaluation after attempt {_localRecoveryAttempt}/3: " +
                 $"{(liveAccepted ? "accepted" : "rejected")}; Ring Corridor displacement " +
@@ -965,13 +894,11 @@ namespace RKmission
             _liftApproachPhase = LiftApproachPhase.RadialCommitted;
             _radialLastPosition = player;
             _radialLastProgress = DateTime.UtcNow;
-            _radialLegTarget = null;
-            _radialMicroRecoveryAttempts = 0;
             _localRecoveryAwaitingSafeResume = false;
             _say($"FGrid floor {floor} recovered position promoted: Alignment Point accepted after " +
                 $"recovery attempt {_localRecoveryAttempt}/3 using {geometrySource}; " +
-                "turning approximately 90 degrees and committing bounded monitored radial " +
-                "Lift Approach legs without another Ring Corridor recovery.");
+                "turning approximately 90 degrees and " +
+                "committing the straight radial Lift Approach without another Ring Corridor recovery.");
             reason = "recovered position promoted to the lift Alignment Point";
             return true;
         }
@@ -1213,50 +1140,16 @@ namespace RKmission
                 { _floorDeparturePending = false; return false; }
                 _floorDepartureOrigin = player;
                 _floorDepartureDirection = direction;
+                DynelManager.LocalPlayer.Rotation = Quaternion.LookRotation(direction, Vector3.Up);
+                _movement.SetMovement(MovementOwner.FGridTravel, MovementAction.ForwardStart);
+                _movement.SetMovement(MovementOwner.FGridTravel, MovementAction.Update);
                 _floorDepartureActive = true;
                 _floorDepartureStarted = DateTime.UtcNow;
-                Vector3 currentForward = DynelManager.LocalPlayer.Rotation.Forward;
-                currentForward.Y = 0;
-                float headingDot = currentForward.Magnitude < 0.1f ? 1f :
-                    Vector3.Dot(currentForward.Normalize(), direction);
-                if (headingDot < 0.985f)
-                {
-                    float turn = currentForward.Z * direction.X - currentForward.X * direction.Z;
-                    MovementAction turnStart = turn >= 0
-                        ? MovementAction.TurnRightStart : MovementAction.TurnLeftStart;
-                    _floorDepartureTurnStop = turn >= 0
-                        ? MovementAction.TurnRightStop : MovementAction.TurnLeftStop;
-                    _floorDepartureTurnSign = turn >= 0 ? 1f : -1f;
-                    _movement.SetMovement(MovementOwner.FGridTravel, turnStart);
-                    _movement.SetMovement(MovementOwner.FGridTravel, MovementAction.Update);
-                    _floorDepartureTurning = true;
-                }
-                else StartFloorDepartureForward();
                 _say($"FGrid floor {_floorDepartureFloor} lift arrival settled; taking one bounded " +
-                    "floor-supported step off the spawn pad after one continuous turn to the stable route heading" +
+                    "floor-supported step off the spawn pad before replanning" +
                     (_floorDepartureSkippedPoints > 0
                         ? $" after skipping {_floorDepartureSkippedPoints} near-spawn Recast point(s)."
                         : "."));
-                return true;
-            }
-            if (_floorDepartureTurning)
-            {
-                Vector3 currentForward = DynelManager.LocalPlayer.Rotation.Forward;
-                currentForward.Y = 0;
-                float headingDot = currentForward.Magnitude < 0.1f ? 1f :
-                    Vector3.Dot(currentForward.Normalize(), _floorDepartureDirection);
-                float remainingTurn = currentForward.Z * _floorDepartureDirection.X -
-                    currentForward.X * _floorDepartureDirection.Z;
-                bool passedHeading = remainingTurn * _floorDepartureTurnSign <= 0;
-                if (headingDot < 0.985f && !passedHeading &&
-                    DateTime.UtcNow - _floorDepartureStarted < TimeSpan.FromSeconds(2.5))
-                    return true;
-                _movement.SetMovement(MovementOwner.FGridTravel, _floorDepartureTurnStop);
-                _movement.SetMovement(MovementOwner.FGridTravel, MovementAction.Update);
-                _floorDepartureTurning = false;
-                _floorDepartureOrigin = player;
-                _floorDepartureStarted = DateTime.UtcNow;
-                StartFloorDepartureForward();
                 return true;
             }
             Vector3 displacement = player - _floorDepartureOrigin;
@@ -1287,12 +1180,10 @@ namespace RKmission
             reason = "no supported outward Recast direction was available";
             _floorDepartureSkippedPoints = 0;
             const float minimumDirectionDistance = 0.4f;
-            const float stableHeadingDistance = 2.0f;
             // Raw forward input can coast beyond the requested one-metre step
             // between AO update ticks. Validate a longer corridor so that the
             // entire observed departure remains on the supported walkway.
             const float validatedDepartureDistance = 2.5f;
-            Vector3 fallback = Vector3.Zero;
             for (int index = 1; index < _recastWaypoints.Count; index++)
             {
                 Vector3 candidateDirection = _recastWaypoints[index] - player;
@@ -1311,20 +1202,10 @@ namespace RKmission
                     reason = supportReason;
                     continue;
                 }
-                if (fallback.Magnitude < 0.1f) fallback = candidateDirection;
-                if (LocalRoutePlanner.HorizontalDistance(player, _recastWaypoints[index]) <
-                    stableHeadingDistance) continue;
                 direction = candidateDirection;
                 return true;
             }
-            direction = fallback;
-            return direction.Magnitude >= 0.1f;
-        }
-
-        private void StartFloorDepartureForward()
-        {
-            _movement.SetMovement(MovementOwner.FGridTravel, MovementAction.ForwardStart);
-            _movement.SetMovement(MovementOwner.FGridTravel, MovementAction.Update);
+            return false;
         }
 
         private void StopFloorDeparture()
@@ -1335,7 +1216,7 @@ namespace RKmission
                 _movement.SetMovement(MovementOwner.FGridTravel, MovementAction.FullStop);
                 _movement.Release(MovementOwner.FGridTravel);
             }
-            _floorDeparturePending = _floorDepartureActive = _floorDepartureTurning = false;
+            _floorDeparturePending = _floorDepartureActive = false;
         }
 
         private void StopFGridArrivalMotion()
