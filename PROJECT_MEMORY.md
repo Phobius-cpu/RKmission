@@ -1,6 +1,6 @@
 # RKMission Project Memory
 
-_Last updated: 2026-10-04_
+_Last updated: 2026-10-12_
 
 ## 2026-10-03 post-crossing lateral motion follow-up
 
@@ -2825,3 +2825,67 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
   artifact-resolution checks. Live AO must prove floor-4 Recast failure to
   SharpNav/recorded fallback, continued lift traversal, selected portal exit,
   and final destination settlement.
+
+## 2026-10-12 shared utility bags and mission-reward routing checkpoint
+
+### Inventory / Logistics — VALIDATED / AWAITING AO TEST
+
+- Commit `75b172588f48bf5fb7b1e1254ddea9943c13f1a9` (`Load arbitrary
+  carried bags for operational items`) first made carried-bag operational items
+  visible. Live AO evidence validated its central use case: a lockpick located
+  only inside the shared utility bag was found and used on a locked chest. The
+  log reached `Process: PickingLock`, reported `Lockpicking successful.`, opened
+  the chest, and completed loot processing.
+- That first implementation also opened every backpack after injection or
+  zoning and left the bags open. The user clarified that shared operational
+  bags used by other plugins are normally named `fannypack` and `syncbag`.
+  Commit `b5b04c2b6f4ca610428694850b576da85c3d01fe` (`Limit operational
+  loading to shared utility bags`) therefore limits the operational source to
+  main inventory plus those recognized shared utility bags. After pulling and
+  compiling, the user reported that this behavior appears to work as intended.
+- The same source is intended for every explicitly supported usable or
+  operational item: lockpicks, valid HP/nano recovery items, supported usable
+  rings, Wen-Wen, registered taunt/utility items, grenades or meteorite-type
+  consumables, and comparable known handler paths.
+- Bag membership is not authority. An item still needs a known consumer, a
+  valid recovery effect, a registered handler/ID, or another explicit supported
+  use path. Unrelated contents such as implants and Nano Formula Recompilers
+  must not become operational or protected merely because they are stored in a
+  utility bag.
+- Lockpick visibility from the utility bag is live **VALIDATED**. The refined
+  bag-opening behavior at `b5b04c2b...` is user-observed as working. Recovery
+  item use from a utility bag remains **AWAITING AO TEST** unless later live
+  evidence explicitly validates it.
+- Existing continuity remains current: `75b3d864a535dac618ac0b6a916d1f19a61d9946`
+  (`Normalize existing main Keeps into loot bags`) is live validated for moving
+  an existing main-inventory Keep into an available RK Loot bag, and deferred
+  Keep continuity across logistics cycles is live validated.
+
+### UI — DROPPED
+
+- The user considered showing native-style cooldown overlays for usable items
+  inside `fannypack` / `syncbag`. AOSharp exposes cooldown state through
+  `DynelManager.LocalPlayer.Cooldowns`, including total and remaining time, but
+  investigation found no obvious supported API that forces native backpack
+  icons to render the same overlay as main inventory. A separate custom utility
+  bar was considered and explicitly dropped. Do not pursue it unless the user
+  reopens the idea.
+
+### Inventory / Logistics — INVESTIGATING
+
+- Immediately after a mission completed and the character returned to the
+  mission terminal, the user reported that the mission reward item was not
+  placed into the `RK Junk` bag as expected. This is a new issue. No diagnosis
+  or fix exists yet; do not imply otherwise.
+- The immediate next CHAT priority is to diagnose mission reward -> `RK Junk`
+  routing/normalization after terminal return. Keep this workstream separate
+  from Travel, Dungeon, Combat, Objectives/Lifecycle, and UI.
+
+### Workflow continuity
+
+- Maintain states `IDEA`, `INVESTIGATING`, `DECIDED`, `READY FOR WORK`,
+  `IN WORK`, `AWAITING AO TEST`, and `VALIDATED`.
+- The user pulls, compiles, and tests locally. Do not claim AO runtime
+  validation until live logs establish it. Collect related changes into an
+  implementation batch and enter WORK only when the user explicitly requests
+  implementation or approves the batch.

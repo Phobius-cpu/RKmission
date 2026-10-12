@@ -1768,3 +1768,65 @@ entrance. A focused synthetic PF665 check confirms City of Home `/tell scty bs`
 beats Atalas when the City of Home/Priest Fontain waypoint is closer. Build and
 regression details and the remaining live AO matrix are in
 `docs/history/2026-10-09-travel-reliability-batch-a.md`.
+
+## 2026-10-12 - Shared utility-bag refinement and live lockpick validation
+
+Commit `75b172588f48bf5fb7b1e1254ddea9943c13f1a9` initially loaded
+operational items from arbitrary carried bags. The user's AO run proved the
+important functional path: RKMission found a lockpick stored only in the shared
+utility bag, entered `Process: PickingLock`, logged `Lockpicking successful.`,
+opened the locked chest, and completed loot processing.
+
+The user then reported that injection/zoning opened all backpacks and left them
+open. They clarified that the shared bags used by their plugins are normally
+named `fannypack` and `syncbag`, not arbitrary unnamed backpacks. The resulting
+decision was to source operational items from main inventory and only those
+recognized shared utility bags. Commit
+`b5b04c2b6f4ca610428694850b576da85c3d01fe` (`Limit operational loading
+to shared utility bags`) implemented that refinement. After pulling and
+compiling it, the user said the behavior appeared to work as intended.
+
+The shared source applies to explicitly supported lockpicks, valid HP/nano
+recovery items, usable rings, Wen-Wen, registered taunt/utility items,
+grenades/meteorite-type consumables, and other items with a concrete supported
+consumer. Merely being inside a utility bag does not make an item operational
+or protected. Implants, Nano Formula Recompilers, and unrelated contents still
+fall through ordinary classification unless a known consumer, valid recovery
+effect, registered handler/ID, or other explicit use path authorizes them.
+Lockpick-in-bag behavior is live validated; recovery-item use from a utility bag
+still needs explicit live validation unless later evidence records it.
+
+## 2026-10-12 - Utility cooldown display idea dropped
+
+The user asked whether usable items in `fannypack` / `syncbag` could display a
+cooldown like items in main inventory. Investigation found accessible cooldown
+state in `DynelManager.LocalPlayer.Cooldowns`, including total and remaining
+time, but no obvious supported AOSharp API for forcing the native backpack icon
+overlay. A separate custom utility bar was considered. The user explicitly
+dropped the idea; it should not be pursued unless reopened.
+
+## 2026-10-12 - Mission reward did not route to RK Junk
+
+Immediately after a mission finished and the character returned to the mission
+terminal, the user reported that the mission reward item was not placed into
+the `RK Junk` bag as expected. Record this as **Inventory / Logistics —
+INVESTIGATING**. It has not been diagnosed or fixed. The next CHAT priority
+after this persistence checkpoint is to investigate reward-to-`RK Junk`
+routing/normalization without claiming an implementation exists.
+
+Existing Inventory / Logistics validation remains in force:
+`75b3d864a535dac618ac0b6a916d1f19a61d9946` moved an existing main Keep
+into an available RK Loot bag in live AO testing; deferred Keep cross-cycle
+continuity is live validated; utility-bag lockpick visibility is live validated;
+and the `b5b04c2b...` utility-bag refinement appears correct from the user's
+post-pull observation. The user continues to pull, compile, and run AO tests;
+runtime validation must come from live evidence.
+
+## 2026-10-12 - Conversation continuity checkpoint
+
+The user requested that current memory and conversation state be persisted to
+GitHub `main`. Continue to keep Travel, Dungeon, Combat, Inventory/Logistics,
+Objectives/Lifecycle, and UI as distinct workstreams. Use the states `IDEA`,
+`INVESTIGATING`, `DECIDED`, `READY FOR WORK`, `IN WORK`, `AWAITING AO TEST`,
+and `VALIDATED`. CHAT remains the default for investigation and planning;
+implementation begins only after an explicit request or approved batch.
