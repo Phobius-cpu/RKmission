@@ -9,12 +9,15 @@ using Newtonsoft.Json;
 
 namespace RKmission
 {
-    // Records user-walked routes and replays them only when both endpoints match.
+    // Records user-walked routes and replays matching ordered route sections.
     // This deliberately does not synthesize FGrid paths across unobserved gaps.
     internal sealed class NavigationRouteRecorder : IDisposable
     {
         private const float RecordedCorridorTolerance = 1f;
         private const float RecordedHeightTolerance = 1.25f;
+        private const float DungeonSourceAttachDistance = 4f;
+        private const float DungeonTargetAttachDistance = 4f;
+        private const float DungeonMinimumVerticalSpan = 1.5f;
         private sealed class RouteFile { public List<Route> Routes { get; set; } = new List<Route>(); }
         private sealed class Route
         {
@@ -23,6 +26,18 @@ namespace RKmission
             public List<float[]> Points { get; set; } = new List<float[]>();
             public DateTime RecordedAtUtc { get; set; }
             [JsonIgnore] public bool Bundled { get; set; }
+        }
+        private sealed class DungeonSubpath
+        {
+            public Route Route;
+            public List<Vector3> Points;
+            public int SourceIndex;
+            public int TargetIndex;
+            public bool Reversed;
+            public float SourceDistance;
+            public float TargetDistance;
+            public float VerticalSpan;
+            public float Cost;
         }
 
         private readonly string _path;
@@ -412,18 +427,16 @@ namespace RKmission
             return true;
         }
 
-        // User-walked dungeon routes are reusable across generated instances only
-        // when their complete geometry fits the current room and both endpoints
-        // match the live player/target. The recording is then followed strictly
-        // forward; individual points are never re-ranked by target distance.
+        // A user-walked dungeon recording is a topology skeleton, not necessarily
+        // an endpoint-to-endpoint journey. Select one ordered interior section and
+        // then follow it strictly; playback never re-ranks points by target distance.
         public bool TryPrepareDungeonTopology(DungeonLayout layout, int roomId,
             Vector3 from, Vector3 target, out string routeName)
         {
             routeName = null;
             if (layout == null || IsRecording || _dungeonPlayback) return _dungeonPlayback;
-            Route best = null;
-            List<Vector3> bestPoints = null;
-            float bestCost = float.MaxValue;
+            DungeonSubpath best = null;
+            int eligibleRecordings = 0;
             foreach (Route route in _routes.Where(x => !x.Bundled && x.Points.Count >= 2))
             {
                 List<Vector3> points = route.Points.Select(V).ToList();
@@ -433,34 +446,95 @@ namespace RKmission
                 // admitting real switchbacks such as a roughly 2.7m ramp. A
                 // user-walked route is the physical authority here: generated
                 // room polygons can clip a valid switchback near a wall/edge.
-                if (maximumY - minimumY < 1.5f ||
+                if (maximumY - minimumY < DungeonMinimumVerticalSpan ||
                     !IsContinuousDungeonRecording(points)) continue;
+                eligibleRecordings++;
                 foreach (bool reverse in new[] { false, true })
                 {
                     List<Vector3> oriented = reverse
                         ? points.AsEnumerable().Reverse().ToList() : points;
-                    float startDistance = Vector3.Distance(from, oriented[0]);
-                    float targetDistance = Vector3.Distance(target, oriented[oriented.Count - 1]);
-                    if (startDistance > 8f || targetDistance > 6f) continue;
-                    float cost = startDistance + targetDistance +
-                        (route.Playfield == Playfield.ModelIdentity.Instance ? 0 : 1f);
-                    if (cost >= bestCost) continue;
-                    best = route;
-                    bestPoints = oriented;
-                    bestCost = cost;
+                    DungeonSubpath candidate = FindDungeonSubpath(route, oriented,
+                        reverse, from, target);
+                    if (candidate == null || best != null && candidate.Cost >= best.Cost) continue;
+                    best = candidate;
                 }
             }
-            if (best == null) return false;
+            if (best == null)
+            {
+                if (eligibleRecordings > 0)
+                    _say($"No viable recorded dungeon topology subpath: checked {eligibleRecordings} continuous multi-level recording(s); " +
+                        $"source attach must be <= {DungeonSourceAttachDistance:0.0}m and target attach <= {DungeonTargetAttachDistance:0.0}m with ordered vertical progress.");
+                return false;
+            }
             StopPlayback();
-            _playing = best;
-            _playPoints = bestPoints;
+            _playing = best.Route;
+            _playPoints = best.Points;
             _playIndex = 0;
             _dungeonPlayback = true;
             _lastDungeonReportedIndex = 0;
-            routeName = best.Name;
-            _say($"Prepared recorded dungeon topology '{best.Name}' with {_playPoints.Count} ordered point(s); " +
-                $"endpoint match cost={bestCost:0.0}m, source PF={best.Playfield}, live PF={Playfield.ModelIdentity.Instance}.");
+            routeName = best.Route.Name;
+            string direction = best.Reversed ? "reverse" : "forward";
+            _say($"Prepared recorded dungeon topology '{best.Route.Name}' subpath {best.SourceIndex}->{best.TargetIndex} " +
+                $"({_playPoints.Count} points, {direction}); source attach={best.SourceDistance:0.0}m, " +
+                $"target attach={best.TargetDistance:0.0}m, vertical span={best.VerticalSpan:0.0}m.");
             return true;
+        }
+
+        private static DungeonSubpath FindDungeonSubpath(Route route, List<Vector3> points,
+            bool reversed, Vector3 from, Vector3 target)
+        {
+            float initialVerticalGap = Math.Abs(target.Y - from.Y);
+            if (initialVerticalGap < DungeonMinimumVerticalSpan) return null;
+            float direction = Math.Sign(target.Y - from.Y);
+            DungeonSubpath best = null;
+            for (int source = 0; source < points.Count - 1; source++)
+            {
+                float sourceDistance = Vector3.Distance(from, points[source]);
+                if (sourceDistance > DungeonSourceAttachDistance) continue;
+                float pathLength = 0f;
+                float verticalRegression = 0f;
+                float minimumY = points[source].Y, maximumY = points[source].Y;
+                for (int end = source + 1; end < points.Count; end++)
+                {
+                    Vector3 leg = points[end] - points[end - 1];
+                    pathLength += leg.Magnitude;
+                    verticalRegression += Math.Max(0f, -direction * (points[end].Y - points[end - 1].Y));
+                    minimumY = Math.Min(minimumY, points[end].Y);
+                    maximumY = Math.Max(maximumY, points[end].Y);
+                    float targetDistance = Vector3.Distance(target, points[end]);
+                    if (targetDistance > DungeonTargetAttachDistance) continue;
+                    float verticalSpan = maximumY - minimumY;
+                    float finalVerticalGap = Math.Abs(target.Y - points[end].Y);
+                    float verticalProgress = initialVerticalGap - finalVerticalGap;
+                    float directedProgress = direction * (points[end].Y - points[source].Y);
+                    if (verticalSpan < DungeonMinimumVerticalSpan ||
+                        verticalProgress < Math.Min(1f, initialVerticalGap * 0.5f) ||
+                        directedProgress < 0.75f || pathLength < 1.5f) continue;
+
+                    float directLength = Vector3.Distance(points[source], points[end]);
+                    float unnecessaryDistance = Math.Max(0f, pathLength - directLength);
+                    float cost = sourceDistance * 3f + targetDistance * 3f +
+                        pathLength + unnecessaryDistance * 0.5f + verticalRegression * 8f +
+                        finalVerticalGap * 2f + (reversed ? 0.05f : 0f) +
+                        (route.Playfield == Playfield.ModelIdentity.Instance ? 0f : 1f);
+                    if (best != null && cost >= best.Cost) continue;
+                    int originalSource = reversed ? points.Count - 1 - source : source;
+                    int originalTarget = reversed ? points.Count - 1 - end : end;
+                    best = new DungeonSubpath
+                    {
+                        Route = route,
+                        Points = points.GetRange(source, end - source + 1),
+                        SourceIndex = originalSource,
+                        TargetIndex = originalTarget,
+                        Reversed = reversed,
+                        SourceDistance = sourceDistance,
+                        TargetDistance = targetDistance,
+                        VerticalSpan = verticalSpan,
+                        Cost = cost
+                    };
+                }
+            }
+            return best;
         }
 
         private static bool IsContinuousDungeonRecording(List<Vector3> points) =>

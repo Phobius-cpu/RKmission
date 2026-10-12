@@ -43,15 +43,17 @@ if (-not $dungeon.Contains('_navRoutes.TryPrepareDungeonTopology(_layout') -or
 }
 Write-Output 'PASS combat fallback selects and plays generic recorded dungeon topology'
 
-if (-not $recorder.Contains('maximumY - minimumY < 1.5f') -or
+if (-not $recorder.Contains('maximumY - minimumY < DungeonMinimumVerticalSpan') -or
     $recorder.Contains('maximumY - minimumY < 3f') -or
-    -not $recorder.Contains('startDistance > 8f || targetDistance > 6f') -or
+    -not $recorder.Contains('sourceDistance > DungeonSourceAttachDistance') -or
+    -not $recorder.Contains('targetDistance > DungeonTargetAttachDistance') -or
+    -not $recorder.Contains('Points = points.GetRange(source, end - source + 1)') -or
     $recorder.Contains('points.Any(point => !layout.IsInside(roomId, point, 0.1f))') -or
     -not $recorder.Contains('IsContinuousDungeonRecording(points)') -or
     -not $recorder.Contains('Vector3.Distance(points[i - 1], points[i]) <= 5f')) {
-    throw 'Recorded topology span, endpoint, or deterministic continuity gates regressed.'
+    throw 'Recorded topology span, attachment, subpath, or deterministic continuity gates regressed.'
 }
-Write-Output 'PASS 2.7m user-walked recordings bypass speculative room polygons while discontinuous or mismatched routes remain gated'
+Write-Output 'PASS user-walked subpaths bypass speculative room polygons while flat, discontinuous, or mismatched routes remain gated'
 
 if (-not $recorder.Contains('_playIndex++') -or $recorder.Contains('_playIndex--') -or
     -not $recorder.Contains('movement.SetDestination(owner, waypoint)') -or
