@@ -51,6 +51,8 @@ namespace RKmission
         public IEnumerable<int> Rooms => _rooms.Values.Distinct();
         public bool HasSteps => _steps.Count > 0;
         public bool HasKillTarget => _steps.Any(x => x.Action is KillPersonAction);
+        public Identity KillTarget => _steps.Where(x => !x.Done && x.Action is KillPersonAction)
+            .Select(x => x.Target).FirstOrDefault();
         public bool CollectedReturnItem => Returning && ReturnItem != null;
         public string StepSummary => string.Join(", ", _steps.Select(x =>
             $"{x.Action.Type}:{x.Target}={x.State}" +
@@ -416,6 +418,9 @@ namespace RKmission
 
         public int? PendingRoom => _steps.Where(x => !x.Done && _rooms.ContainsKey(x.Target))
             .Select(x => (int?)_rooms[x.Target]).FirstOrDefault();
+
+        public int? RoomFor(Identity target) => _rooms.TryGetValue(target, out int room)
+            ? (int?)room : null;
 
         public bool ProtectsMissionItem(Identity identity) => _steps.Any(step =>
             step.InventoryItem == identity ||

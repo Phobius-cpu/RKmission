@@ -108,6 +108,9 @@ namespace RKmission
         private int _floor;
         private DungeonLiftController.Lift _activeLift;
         private DateTime _liftStarted;
+        private DateTime _killFinaleOwnershipAt, _killFinaleLastDiagnostic;
+        private string _killFinaleState;
+        private static readonly TimeSpan KillFinaleOwnershipWatchdog = TimeSpan.FromSeconds(7);
 
         private enum TransitionPhase { SourceApproach, ProbeDoor, OpenDoor, TargetCenterline, SafeInterior }
         private sealed class Transition
@@ -200,6 +203,7 @@ namespace RKmission
             _lootRecordedRoute = null;
             _objectiveApproaches.Clear();
             _objectiveApproachTarget = null;
+            ResetKillFinaleOwnership();
             _loot.ResetMissionLootSkips();
             _loot.IgnoreOrdinaryMissionLoot = false;
             _lifts.Reset();
@@ -527,6 +531,9 @@ namespace RKmission
                     $"{containers} containers, {corpses} corpses currently visible.");
             }
             if (TickCombatRecovery(room)) return;
+            if (_objective.Finale && _objective.FinalActionsAllowed &&
+                _objective.HasKillTarget && !_objective.RewardConfirmed &&
+                TickKillPersonFinale(room)) return;
             if (_readiness.InCombat)
             {
                 if (FightInRoom(room))
@@ -732,10 +739,133 @@ namespace RKmission
         private bool BeginObjectiveFinale()
         {
             if (_objective.PreflightFinale(out string reason))
-            { _objective.BeginFinale(); return true; }
+            {
+                _objective.BeginFinale();
+                ResetKillFinaleOwnership();
+                return true;
+            }
             Stop();
             _say("Objective finale preflight failed: " + reason);
             return false;
+        }
+
+        // KillPerson is intentionally excluded from MissionObjective.Tick: guarded
+        // combat owns it. During the finale, bind that ownership to the exact quest
+        // identity instead of relying on the ordinary room candidate scan.
+        private bool TickKillPersonFinale(Room room)
+        {
+            Identity targetId = _objective.KillTarget;
+            if (targetId == Identity.None) return false;
+            DateTime now = DateTime.UtcNow;
+            Dynel live = DynelManager.GetDynel(targetId);
+            SimpleChar enemy = live == null ? null : new SimpleChar(live);
+            int? mappedRoom = _objective.RoomFor(targetId);
+
+            if (enemy != null && enemy.IsValid && enemy.IsAlive)
+            {
+                Room liveRoom = Playfield.Rooms.FirstOrDefault(candidate =>
+                    _layout.ContainsDynel(candidate.Instance, enemy));
+                // Refresh repairs stale remembered room membership from Mali's
+                // current live containment before any route decision.
+                if (liveRoom != null && mappedRoom != liveRoom.Instance)
+                {
+                    _objective.Refresh(_layout);
+                    mappedRoom = _objective.RoomFor(targetId);
+                }
+            }
+
+            bool combatOwns = _combat.Target == targetId;
+            bool movementOwns = MovementArbiter.Current.Owner == MovementOwner.CombatPosition ||
+                MovementArbiter.Current.Owner == MovementOwner.DoorTransition;
+            string state;
+            if (enemy == null || !enemy.IsValid || !enemy.IsAlive)
+            {
+                state = mappedRoom.HasValue && mappedRoom.Value != room.Instance
+                    ? "routing to remembered room" : "bounded reacquire wait";
+                if (mappedRoom.HasValue && mappedRoom.Value != room.Instance)
+                {
+                    LogKillFinale(targetId, null, mappedRoom, room, state, combatOwns, movementOwns, false);
+                    if (RouteToRoom(mappedRoom.Value)) return true;
+                }
+                if (_combat.Target == targetId) _combat.Reset();
+                if (MovementArbiter.Current.Owner == MovementOwner.CombatPosition)
+                    MovementArbiter.Current.Release(MovementOwner.CombatPosition);
+                movementOwns = MovementArbiter.Current.Owner == MovementOwner.DoorTransition;
+                LogKillFinale(targetId, null, mappedRoom, room, state, false, movementOwns, false);
+                ReclaimKillFinaleIfUnowned(now, targetId, mappedRoom, room, state, false, movementOwns);
+                return true;
+            }
+
+            if (mappedRoom.HasValue && mappedRoom.Value != room.Instance)
+            {
+                state = "routing to live mapped room";
+                LogKillFinale(targetId, enemy, mappedRoom, room, state, combatOwns, movementOwns, false);
+                if (RouteToRoom(mappedRoom.Value)) return true;
+                ReclaimKillFinaleIfUnowned(now, targetId, mappedRoom, room, state, combatOwns, movementOwns);
+                return true;
+            }
+
+            state = enemy.DistanceFrom(DynelManager.LocalPlayer) > EngagementRange
+                ? "same-room exact-target transit/approach" : "exact-target combat handoff";
+            _requestedOwner = MovementOwner.CombatPosition;
+            _scanTarget = Identity.None;
+            _scanWaypoints.Clear();
+            _loot.MissionActionsPaused = true;
+            CombatTickResult result = _combat.Tick(enemy, room.Instance,
+                target => ApproachCombatEnemy(target, room.Instance),
+                () => { _waitingForLoot = Identity.None; ResetCombatApproach(); }, EngagementRange);
+            if (_combat.Target == targetId) _objective.ArmKill(enemy);
+            if (result == CombatTickResult.ApproachUnavailable)
+                BeginCombatRecovery(room, enemy);
+            combatOwns = _combat.Target == targetId;
+            movementOwns = MovementArbiter.Current.Owner == MovementOwner.CombatPosition;
+            LogKillFinale(targetId, enemy, mappedRoom, room, state, combatOwns, movementOwns, false);
+            ReclaimKillFinaleIfUnowned(now, targetId, mappedRoom, room, state, combatOwns, movementOwns);
+            return true;
+        }
+
+        private void ReclaimKillFinaleIfUnowned(DateTime now, Identity target, int? mappedRoom,
+            Room current, string state, bool combatOwns, bool movementOwns)
+        {
+            if (combatOwns || movementOwns || _transition != null ||
+                _combatRecoveries.Values.Any(x => x.Active))
+            {
+                _killFinaleOwnershipAt = now;
+                return;
+            }
+            if (_killFinaleOwnershipAt == DateTime.MinValue) _killFinaleOwnershipAt = now;
+            if (now - _killFinaleOwnershipAt < KillFinaleOwnershipWatchdog) return;
+            _killFinaleOwnershipAt = now;
+            _combat.Reset();
+            ResetCombatApproach();
+            _destination = null;
+            MovementArbiter.Current.Halt(MovementOwner.CombatPosition);
+            _say($"KillPerson finale had no combat or movement owner for " +
+                $"{KillFinaleOwnershipWatchdog.TotalSeconds:0}s; reclaiming exact target {target}. " +
+                $"mapped room={mappedRoom?.ToString() ?? "unknown"}, current room={current.Instance}, state={state}.");
+        }
+
+        private void LogKillFinale(Identity target, SimpleChar live, int? mappedRoom,
+            Room current, string state, bool combatOwns, bool movementOwns, bool force)
+        {
+            DateTime now = DateTime.UtcNow;
+            if (!force && _killFinaleState == state &&
+                now - _killFinaleLastDiagnostic < TimeSpan.FromSeconds(7)) return;
+            _killFinaleState = state;
+            _killFinaleLastDiagnostic = now;
+            string liveDetail = live == null ? "live=false" :
+                $"live=true, distance={live.DistanceFrom(DynelManager.LocalPlayer):0.0}m, target Y={live.Position.Y:0.0}";
+            _say($"KillPerson finale ownership: target={target}, {liveDetail}, " +
+                $"mapped room={mappedRoom?.ToString() ?? "unknown"}, current room={current.Instance}, " +
+                $"final actions={_objective.FinalActionsAllowed}, movement owner={MovementArbiter.Current.Owner}, " +
+                $"combat target={_combat.Target}, combat owns={combatOwns}, movement owns={movementOwns}, state={state}.");
+        }
+
+        private void ResetKillFinaleOwnership()
+        {
+            _killFinaleOwnershipAt = DateTime.MinValue;
+            _killFinaleLastDiagnostic = DateTime.MinValue;
+            _killFinaleState = null;
         }
 
         private bool NavigateObjective(Room room, Vector3 target)
