@@ -62,6 +62,15 @@ Assert ($bot.Contains('TryBindSavedTerminalToSurveyedOrigin();') -and
     $bot.Contains('TimeSpan.FromSeconds(30)') -and
     $bot.Contains('waiting for its exact live terminal identity')) `
     'post-warp logistics waits boundedly for live surveyed-origin evidence'
+Assert ($bot.Contains('private const float RollTerminalApproachDistance = 2f;') -and
+    $bot.Contains('<= RollTerminalApproachDistance') -and
+    -not $bot.Contains('_rollTerminalPosition) <= 6f')) `
+    'post-warp return closes to 2m of the saved mission terminal before logistics verification'
+Assert ($bot.Contains('LogisticsOriginDiagnostic(_rollLogisticsSite)') -and
+    $bot.Contains('player-to-saved-terminal=') -and
+    $bot.Contains('player-to-surveyed-origin=') -and
+    $bot.Contains('exact terminal=')) `
+    'bounded origin verification reports saved, surveyed, and exact-live-terminal evidence'
 Assert (-not $bot.Contains('string site = _logisticsNavigator.FindVerifiedOriginSite();')) `
     'automatic logistics cannot select an unrelated nearby surveyed origin'
 Assert ($bot.Contains('if (!_handInExitVerified && !_verifiedExitReported)') -and

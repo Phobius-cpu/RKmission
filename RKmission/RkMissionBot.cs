@@ -61,6 +61,7 @@ namespace RKmission
         private Vector3 _rollingTerminalPosition;
         private DateTime _nextReturnMove, _returnStarted;
         private DateTime _logisticsOriginWaitStarted;
+        private const float RollTerminalApproachDistance = 2f;
         private bool _running, _dungeonStarted, _clearanceReported, _verifiedRun, _travelInvalidated;
         private Identity _observedDungeon = Identity.None;
         private Identity _activeDungeon = Identity.None;
@@ -1119,12 +1120,14 @@ namespace RKmission
                 {
                     Wait(string.IsNullOrEmpty(_rollLogisticsSite)
                         ? "Saved roller terminal has no unique surveyed logistics-origin binding yet; waiting for its exact live terminal identity."
-                        : $"Waiting for surveyed logistics origin '{_rollLogisticsSite}' and terminal {_rollLogisticsTerminalIdentity} to become visible after zoning.");
+                        : $"Waiting for surveyed logistics origin '{_rollLogisticsSite}' and terminal {_rollLogisticsTerminalIdentity} " +
+                            $"to become live-verifiable after the 2m approach; {LogisticsOriginDiagnostic(_rollLogisticsSite)}.");
                     return true;
                 }
                 string failure = string.IsNullOrEmpty(_rollLogisticsSite)
                     ? "the saved roller terminal could not be bound to one unique surveyed OA, Borealis, or ICC logistics origin"
-                    : $"surveyed logistics origin '{_rollLogisticsSite}' with terminal {_rollLogisticsTerminalIdentity} was not live-verified within 30 seconds";
+                    : $"surveyed logistics origin '{_rollLogisticsSite}' with terminal {_rollLogisticsTerminalIdentity} was not live-verified within 30 seconds; " +
+                        LogisticsOriginDiagnostic(_rollLogisticsSite);
                 Stop();
                 Say("Automatic mission cycle stopped before logistics: " + failure + ".");
                 return true;
@@ -1632,7 +1635,7 @@ namespace RKmission
             if (_returnStarted == DateTime.MinValue) _returnStarted = DateTime.UtcNow;
             if (DateTime.UtcNow - _returnStarted > TimeSpan.FromMinutes(3))
             { Stop(); Say("Return to the mission terminal timed out."); return false; }
-            if (Vector3.Distance(DynelManager.LocalPlayer.Position, _rollTerminalPosition) <= 6f)
+            if (Vector3.Distance(DynelManager.LocalPlayer.Position, _rollTerminalPosition) <= RollTerminalApproachDistance)
             { _movement.Release(MovementOwner.OutdoorTravel); _returnStarted = DateTime.MinValue; return true; }
             if (DateTime.UtcNow >= _nextReturnMove)
             {
@@ -1640,6 +1643,32 @@ namespace RKmission
                 _nextReturnMove = DateTime.UtcNow.AddSeconds(3);
             }
             return false;
+        }
+
+        private string LogisticsOriginDiagnostic(string site)
+        {
+            SimpleChar player = DynelManager.LocalPlayer;
+            if (player == null) return "local player unavailable";
+            LogisticsRouteCatalog.Route route = _logisticsRoutes?.Routes
+                .Where(x => string.Equals(x.Site, site, StringComparison.OrdinalIgnoreCase) &&
+                    x.OriginPlayfield == Playfield.ModelIdentity.Instance &&
+                    string.Equals(x.OriginTerminalIdentity, _rollLogisticsTerminalIdentity,
+                        StringComparison.OrdinalIgnoreCase))
+                .OrderBy(x => Vector3.Distance(_rollTerminalPosition,
+                    new Vector3(x.OriginPosition[0], x.OriginPosition[1], x.OriginPosition[2])))
+                .FirstOrDefault();
+            float savedDistance = Vector3.Distance(player.Position, _rollTerminalPosition);
+            if (route == null)
+                return $"player-to-saved-terminal={savedDistance:0.0}m, matching surveyed route unavailable";
+            Vector3 origin = new Vector3(route.OriginPosition[0], route.OriginPosition[1], route.OriginPosition[2]);
+            Dynel terminal = DynelManager.AllDynels.FirstOrDefault(x =>
+                x.Identity.Type == IdentityType.MissionTerminal &&
+                string.Equals(x.Identity.ToString(), _rollLogisticsTerminalIdentity,
+                    StringComparison.OrdinalIgnoreCase));
+            string live = terminal == null ? "not visible" :
+                $"visible, live-to-origin={Vector3.Distance(terminal.Position, origin):0.0}m";
+            return $"player-to-saved-terminal={savedDistance:0.0}m, " +
+                $"player-to-surveyed-origin={Vector3.Distance(player.Position, origin):0.0}m, exact terminal={live}";
         }
 
         private bool TickReturnHandIn()

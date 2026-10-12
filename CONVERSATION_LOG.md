@@ -1830,3 +1830,7 @@ Objectives/Lifecycle, and UI as distinct workstreams. Use the states `IDEA`,
 `INVESTIGATING`, `DECIDED`, `READY FOR WORK`, `IN WORK`, `AWAITING AO TEST`,
 and `VALIDATED`. CHAT remains the default for investigation and planning;
 implementation begins only after an explicit request or approved batch.
+
+## 2026-10-12 - Close final logistics approach to the saved terminal
+
+The user reported that the verified Scottyboi return reached Old Athen but stopped short of the saved mission terminal, then failed surveyed-origin verification after 30 seconds. They approved a 2 m approach. The automatic cycle now moves within 2 m of the saved terminal before checking the exact terminal identity and surveyed origin. Fail-closed verification and timeout remain, with focused distance/visibility diagnostics. The focused regression and Release build passed; the user will pull, compile, and validate in AO.

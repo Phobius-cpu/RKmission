@@ -2889,3 +2889,9 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
   validation until live logs establish it. Collect related changes into an
   implementation batch and enter WORK only when the user explicitly requests
   implementation or approves the batch.
+
+## 2026-10-12 automatic logistics terminal final approach
+
+- AO validation showed the verified Scottyboi warp reaching Old Athen PF 540, but final logistics stopped after waiting 30 seconds for the saved exact terminal and surveyed `oa` origin. The return path considered itself complete within 6 m of the saved terminal, while the surveyed origin is offset from that saved position; the character could therefore stop outside the origin verifier's independent 6 m gate.
+- Automatic return now closes to within 2 m of the saved mission terminal before the existing exact-identity and surveyed-origin verification. The bounded fail-closed timeout remains. Waiting and failure diagnostics report player distance to the saved terminal, player distance to the surveyed origin, and whether the exact terminal is visible at the expected origin.
+- Focused regression and Release compilation pass locally. AO runtime validation remains with the user; no successful bank/shop cycle is claimed.
