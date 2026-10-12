@@ -2599,13 +2599,14 @@ namespace RKmission
                 if (now - crossing.LastAction < TimeSpan.FromSeconds(2))
                     return;
                 MovementArbiter.Current.Halt(_requestedOwner);
-                if (++crossing.DoorAttempts > 5)
-                {
-                    FailTransition("door did not open after five attempts");
-                    return;
-                }
                 if (door.IsLocked)
                 {
+                    if (!CarriedItems.BackpackSnapshotsReady) return;
+                    if (++crossing.DoorAttempts > 5)
+                    {
+                        FailTransition("door did not open after five attempts");
+                        return;
+                    }
                     Item pick = CarriedItems.FindLockpick();
                     if (pick == null)
                     {
@@ -2617,6 +2618,11 @@ namespace RKmission
                 }
                 else
                 {
+                    if (++crossing.DoorAttempts > 5)
+                    {
+                        FailTransition("door did not open after five attempts");
+                        return;
+                    }
                     door.Use();
                     _say($"Transition {edge.Source}->{edge.Target}: open attempt {crossing.DoorAttempts} on {door.Identity} (door {doorDistance:0.0}m, AO# {aoDoorDistance:0.0}m, passage open={passageOpen}).");
                 }

@@ -185,6 +185,12 @@ namespace RKmission
             _observedNano = player.MaxNano > 0 ? player.NanoPercent : 100;
             _buffSignature = buffs;
             if (pending) _quietAt = _lastProgress = now;
+            if ((healthLow || nanoLow) && !CarriedItems.BackpackSnapshotsReady)
+            {
+                // Snapshot loading is finite work, not failed recovery progress.
+                _lastProgress = now;
+                return true;
+            }
             bool handlerStarting = CombatHandler.Instance != null &&
                 now - _started < TimeSpan.FromSeconds(_settings.HandlerStartSeconds);
             if (now - _started >= TimeSpan.FromSeconds(_settings.TimeoutSeconds) ||
@@ -241,6 +247,9 @@ namespace RKmission
 
         private bool TryRecovery(bool healthLow, bool nanoLow, DateTime now)
         {
+            // Do not conclude that recovery supplies are absent while carried bag
+            // snapshots are still being restored after zoning.
+            if (!CarriedItems.BackpackSnapshotsReady) return true;
             var player = DynelManager.LocalPlayer;
             var actions = new List<RecoveryAction>();
             // Shared.Kits also checks carried backpacks for usable recharge

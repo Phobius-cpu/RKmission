@@ -1173,6 +1173,8 @@ namespace ManagerLoot
                             if (DynelManager.LocalPlayer.IsAttacking || DynelManager.NPCs.Any(c => c.IsAttacking && c.FightingTarget?.Identity == DynelManager.LocalPlayer.Identity)) return;
 
                             var chest = new Chest(dynel);
+                            if (chest.IsLocked && !RKmission.CarriedItems.BackpackSnapshotsReady)
+                                return;
                             CurrentCorpse = dynel;
                             BindMissionLoot(dynel);
                             Timeout = Time.AONormalTime + 2;
@@ -2040,19 +2042,9 @@ namespace ManagerLoot
             try {
             if (Time.AONormalTime >= ZoneDelay)
             {
-                var lootBags = Inventory.Backpacks.Where(bag =>
-                    ManagedBagFamily.IsProtected(bag.Name) ||
-                    Rules.Any(r => ManagedBagFamily.Matches(bag.Name, r.BagName))).ToList();
-
-                foreach (var item in Inventory.Items)
-                {
-                    if (lootBags.Any(bag => bag.Identity.Instance == item.UniqueIdentity.Instance))
-                    {
-                        item?.Use(); // Open
-                        item?.Use(); // Close
-                    }
-                }
-                CurrentProcess = ProcessState.Open_Corpse;
+                RKmission.CarriedItems.UpdateBackpackSnapshots();
+                if (RKmission.CarriedItems.BackpackSnapshotsReady)
+                    CurrentProcess = ProcessState.Open_Corpse;
             }
             }
             catch (Exception ex)

@@ -118,6 +118,7 @@ namespace RKmission
             _longTravel = new RubiKaTravelPlanner(pluginDir, _warp, _fgrid, _movement, _navRoutes, Say);
             _entranceResolver = new MissionEntranceResolver(pluginDir, Say);
             _checkpoint = MissionCheckpoint.Load(pluginDir, Say);
+            CarriedItems.Initialize();
             if (_checkpoint.OriginTerminals == null)
                 _checkpoint.OriginTerminals = new List<MissionOriginBinding>();
             _missions.AttachCheckpoint(_checkpoint, Say);
@@ -178,6 +179,7 @@ namespace RKmission
             Game.OnUpdate -= Update;
             Game.TeleportStarted -= ZoningStarted;
             Game.TeleportEnded -= ZoningEnded;
+            CarriedItems.Teardown();
             Network.N3MessageSent -= _readiness.ObserveAction;
             Network.N3MessageSent -= _missions.ObserveSent;
             Network.N3MessageReceived -= _missions.ObserveQuest;
@@ -622,6 +624,7 @@ namespace RKmission
 
         private void ZoningEnded(object sender, EventArgs args)
         {
+            CarriedItems.ResetBackpackSnapshots();
             _nextTick = DateTime.UtcNow.AddSeconds(2); // Let quest/door state settle after a zone.
         }
 
@@ -676,6 +679,7 @@ namespace RKmission
             _nextTick = DateTime.UtcNow.AddMilliseconds(_travel.UpdateIntervalMilliseconds);
             try
             {
+                CarriedItems.UpdateBackpackSnapshots();
                 _missions.Refresh(); // Track acceptance/removal even while local automation is disarmed.
                 // AO can replace the offer anchor with a later authoritative
                 // mission entrance after the initial quest details appeared.
