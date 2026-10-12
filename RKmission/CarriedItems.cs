@@ -11,6 +11,7 @@ namespace RKmission
     {
         private const int MaxBackpackLoadAttempts = 3;
         private const double BackpackResponseSeconds = 2.5;
+        private static readonly string[] UtilityBagNames = { "fannypack", "syncbag" };
         private static readonly string[] LockpickNames = { "Lock Pick", "Personal Lockpick", "Personal Lock Pick" };
         private static readonly Dictionary<Identity, BackpackSnapshot> BackpackSnapshots =
             new Dictionary<Identity, BackpackSnapshot>();
@@ -51,7 +52,7 @@ namespace RKmission
             _initialized = false;
         }
 
-        // AO can discard carried-container contents while zoning. Load one bag at
+        // AO can discard carried-container contents while zoning. Load one recognized utility bag at
         // a time and wait for positive evidence before advancing. Empty bags need
         // ContainerOpened; non-empty bags can also be confirmed by their snapshot.
         public static void ResetBackpackSnapshots()
@@ -111,7 +112,7 @@ namespace RKmission
 
         private static void ReconcileBackpacks()
         {
-            var carried = new HashSet<Identity>(Inventory.Backpacks.Select(bag => bag.Identity));
+            var carried = new HashSet<Identity>(UtilityBackpacks().Select(bag => bag.Identity));
             foreach (Identity removed in BackpackSnapshots.Keys.Where(id => !carried.Contains(id)).ToList())
                 BackpackSnapshots.Remove(removed);
             foreach (Identity identity in carried)
@@ -139,10 +140,19 @@ namespace RKmission
             if (_waitingFor == container.Identity) _waitingFor = Identity.None;
         }
 
+        private static IEnumerable<Backpack> UtilityBackpacks() => Inventory.Backpacks
+            .Where(bag => bag != null && IsUtilityBagName(bag.Name));
+
+        public static bool IsUtilityBagName(string name) => UtilityBagNames.Any(candidate =>
+            string.Equals(name?.Trim(), candidate, StringComparison.OrdinalIgnoreCase));
+
+        // Discoverability is deliberately separate from operational authority.
+        // Consumers still decide whether an item is a lockpick, valid recovery item,
+        // registered handler item, or otherwise explicitly supported.
         public static IEnumerable<Item> All() => Inventory.Items
             .Where(item => item != null && item.Slot.Type == IdentityType.Inventory &&
                 item.UniqueIdentity.Type != IdentityType.Container)
-            .Concat(Inventory.Backpacks.SelectMany(bag => Inventory.GetContainerItems(bag.Identity))
+            .Concat(UtilityBackpacks().SelectMany(bag => Inventory.GetContainerItems(bag.Identity))
                 .Where(item => item != null && item.UniqueIdentity.Type != IdentityType.Container));
 
         public static Item FindExact(params string[] names) => All().FirstOrDefault(item =>

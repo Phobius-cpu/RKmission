@@ -48,8 +48,8 @@ namespace RKmission
                 return true;
             }
 
-            bool sourceInInventory = InMainInventory(action.Source);
-            bool destinationInInventory = InMainInventory(action.Destination);
+            bool sourceInInventory = InCarriedItems(action.Source);
+            bool destinationInInventory = InCarriedItems(action.Destination);
             bool sourceInWorld = DynelManager.GetDynel(action.Source) != null;
             bool destinationInWorld = DynelManager.GetDynel(action.Destination) != null;
 
@@ -116,8 +116,8 @@ namespace RKmission
             return false;
         }
 
-        private static bool InMainInventory(Identity identity) => Inventory.Items.Any(item =>
-            item.Slot.Type == IdentityType.Inventory && item.UniqueIdentity == identity);
+        private static bool InCarriedItems(Identity identity) => CarriedItems.All().Any(item =>
+            item.UniqueIdentity == identity);
 
         private static bool IsWorldObject(Identity identity) =>
             identity.Type == IdentityType.Terminal || identity.Type == IdentityType.MissionTerminal;
@@ -147,7 +147,7 @@ namespace RKmission
             out string evidence, out string candidates)
         {
             tool = null;
-            var carried = Inventory.Items.Where(x => x.Slot.Type == IdentityType.Inventory).ToList();
+            var carried = CarriedItems.All().ToList();
             candidates = string.Join(", ", carried.Select(DescribeItem));
 
             var persisted = carried.Where(x =>

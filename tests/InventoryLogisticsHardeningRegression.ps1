@@ -25,7 +25,12 @@ $loot = Get-Content (Join-Path $root 'RKmission/Plugins/ManagerLoot/ManagerLoot.
 $ready = Get-Content (Join-Path $root 'RKmission/MissionReadiness.cs') -Raw
 $cycle = Get-Content (Join-Path $root 'RKmission/AutomaticLogisticsCycle.cs') -Raw
 $route = Get-Content (Join-Path $root 'RKmission/LogisticsRouteNavigator.cs') -Raw
-Assert ($carried.Contains('Inventory.Backpacks.SelectMany') -and $carried.Contains('Personal Lockpick')) 'carried lookup covers arbitrary backpacks and conservative lockpick names'
+Assert ($carried.Contains('UtilityBackpacks().SelectMany') -and $carried.Contains('Personal Lockpick')) 'carried lookup covers recognized utility bags and conservative lockpick names'
+$carriedType = $assembly.GetType('RKmission.CarriedItems', $true)
+$utilityName = $carriedType.GetMethod('IsUtilityBagName', [Reflection.BindingFlags]'Public,Static')
+Assert ($utilityName.Invoke($null, @(' FANNYPACK ')) -and $utilityName.Invoke($null, @('syncbag')) -and
+    -not $utilityName.Invoke($null, @('my fannypack')) -and
+    -not $utilityName.Invoke($null, @('syncbag 01'))) 'utility bag matching is trimmed, case-insensitive, and exact'
 Assert ($dungeon.Contains('CarriedItems.FindLockpick()')) 'locked doors use shared carried lookup'
 Assert ($loot.Contains('RKmission.CarriedItems.FindLockpick()')) 'locked chests use shared carried lookup'
 Assert ($ready.Contains('foreach (Item item in CarriedItems.All())')) 'recovery uses shared carried enumeration'

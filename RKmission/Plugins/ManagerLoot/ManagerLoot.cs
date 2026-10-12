@@ -132,6 +132,17 @@ namespace ManagerLoot
         private const double LootWindowDwellSeconds = 1.5;
         private const double ListedMoveConfirmationSeconds = 2.0;
         private const int MaxListedMoveAttempts = 2;
+        private const int MaxManagedBagLoadAttempts = 3;
+        private const double ManagedBagResponseSeconds = 2.5;
+        private sealed class ManagedBagSnapshot
+        {
+            public int Attempts;
+            public double SentAt;
+            public bool Confirmed, Exhausted;
+        }
+        private readonly Dictionary<MissionIdentity, ManagedBagSnapshot> _managedBagSnapshots =
+            new Dictionary<MissionIdentity, ManagedBagSnapshot>();
+        private MissionIdentity _waitingForManagedBag = MissionIdentity.None;
         private sealed class ListedItemTransfer
         {
             public MissionIdentity Identity;
@@ -917,6 +928,8 @@ namespace ManagerLoot
         {
             ZoneDelay = Time.AONormalTime + 6;
             openedContainers.Clear();
+            _managedBagSnapshots.Clear();
+            _waitingForManagedBag = MissionIdentity.None;
             CurrentProcess = ProcessState.Load_Backpacks;
         }
 
@@ -1018,6 +1031,15 @@ namespace ManagerLoot
         private void ContainerOpened(object sender, Container container)
         {
             if (!_settings["Enable"].AsBool()) return;
+
+            if (container != null && _managedBagSnapshots.TryGetValue(container.Identity,
+                out ManagedBagSnapshot managedSnapshot))
+            {
+                managedSnapshot.Confirmed = true;
+                if (_waitingForManagedBag == container.Identity)
+                    _waitingForManagedBag = MissionIdentity.None;
+                return;
+            }
 
             if (container.Identity.Type != IdentityType.Corpse && container.Identity.Type != IdentityType.Container) return;
             if (Inventory.Items.Any(i => i.UniqueIdentity == container.Identity)) return;
@@ -2042,9 +2064,43 @@ namespace ManagerLoot
             try {
             if (Time.AONormalTime >= ZoneDelay)
             {
-                RKmission.CarriedItems.UpdateBackpackSnapshots();
-                if (RKmission.CarriedItems.BackpackSnapshotsReady)
-                    CurrentProcess = ProcessState.Open_Corpse;
+                var managedBags = Inventory.Backpacks.Where(bag => bag != null &&
+                    (ManagedBagFamily.IsProtected(bag.Name) || Rules.Any(rule =>
+                        !string.IsNullOrWhiteSpace(rule.BagName) &&
+                        ManagedBagFamily.Matches(bag.Name, rule.BagName)))).ToList();
+                var carried = new HashSet<MissionIdentity>(managedBags.Select(bag => bag.Identity));
+                foreach (MissionIdentity removed in _managedBagSnapshots.Keys
+                    .Where(identity => !carried.Contains(identity)).ToList())
+                    _managedBagSnapshots.Remove(removed);
+                foreach (var bag in managedBags)
+                {
+                    if (!_managedBagSnapshots.TryGetValue(bag.Identity, out ManagedBagSnapshot snapshot))
+                        _managedBagSnapshots[bag.Identity] = snapshot = new ManagedBagSnapshot();
+                    if (!snapshot.Confirmed && Inventory.GetContainerItems(bag.Identity).Any())
+                        snapshot.Confirmed = true;
+                }
+
+                double now = Time.AONormalTime;
+                if (_waitingForManagedBag != MissionIdentity.None &&
+                    _managedBagSnapshots.TryGetValue(_waitingForManagedBag, out ManagedBagSnapshot waiting) &&
+                    !waiting.Confirmed && !waiting.Exhausted)
+                {
+                    if (now < waiting.SentAt + ManagedBagResponseSeconds) return;
+                    if (waiting.Attempts >= MaxManagedBagLoadAttempts) waiting.Exhausted = true;
+                    _waitingForManagedBag = MissionIdentity.None;
+                }
+                if (_managedBagSnapshots.Values.All(snapshot => snapshot.Confirmed || snapshot.Exhausted))
+                { CurrentProcess = ProcessState.Open_Corpse; return; }
+                if (Item.HasPendingUse) return;
+
+                var next = _managedBagSnapshots.First(pair => !pair.Value.Confirmed && !pair.Value.Exhausted);
+                Item bagItem = Inventory.Items.FirstOrDefault(item => item != null &&
+                    item.UniqueIdentity == next.Key);
+                if (bagItem == null) { next.Value.Exhausted = true; return; }
+                bagItem.Use();
+                next.Value.Attempts++;
+                next.Value.SentAt = now;
+                _waitingForManagedBag = next.Key;
             }
             }
             catch (Exception ex)
