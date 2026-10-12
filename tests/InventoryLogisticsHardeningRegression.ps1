@@ -32,4 +32,11 @@ Assert ($ready.Contains('foreach (Item item in CarriedItems.All())')) 'recovery 
 Assert ($cycle.Contains('Phase.NormalizeInventory') -and $cycle.Contains('managed inventory normalization failed')) 'normalization gates destructive planning'
 Assert ($cycle.Contains('bank-eligible Keep=0') -and $cycle.Contains('Keep in RK Junk=0')) 'final reconciliation checks stranded Keep'
 Assert ((Get-Content (Join-Path $root 'RKmission/ManagedInventoryNormalizer.cs') -Raw).Contains('staging bank-eligible Keep')) 'bagged bank fallback is staged to main before deposit'
+$normalizer = Get-Content (Join-Path $root 'RKmission/ManagedInventoryNormalizer.cs') -Raw
+Assert ($normalizer.Contains('private bool _toMain, _pending;') -and
+    $normalizer.Contains('sourceNow == _sourceBefore - 1') -and
+    $normalizer.Contains('destinationNow == _destinationBefore + 1')) 'normalization verifies exact source and destination count deltas without using Identity.None as pending state'
+Assert ($normalizer.Contains('StagedForBank >= _maximumBankStages') -and
+    $cycle.Contains('_normalizer.Start(_maximumItems)')) 'bank staging respects the requested automatic-cycle item limit'
+Assert ($cycle.Contains('BaggedBankEligibleCount()')) 'final reconciliation detects bank-eligible Keep still inside bags'
 Assert ($route.Contains('DynelManager.LocalPlayer.MovementState == MovementState.Fly')) 'walking routes reject Fly state at start and return'

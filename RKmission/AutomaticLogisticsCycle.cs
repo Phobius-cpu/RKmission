@@ -189,7 +189,7 @@ namespace RKmission
                         return;
                     }
                     if (DateTime.UtcNow - _inventoryLoadStarted < TimeSpan.FromMilliseconds(250)) return;
-                    _normalizer.Start();
+                    _normalizer.Start(_maximumItems);
                     _phase = Phase.NormalizeInventory;
                     return;
                 case Phase.NormalizeInventory:
@@ -319,11 +319,12 @@ namespace RKmission
                     { Fail("post-logistics reconciliation lost the exact surveyed origin"); return; }
                     if (Item.HasPendingUse || Spell.HasPendingCast) return;
                     int bankable = _bank.CountStorableKeepItems();
+                    int baggedBankable = _normalizer.BaggedBankEligibleCount();
                     int misplaced = _normalizer.MisplacedKeepCount();
                     int saleEligible = _shop.CountEligibleRejectItems();
-                    if (_normalizer.HasPendingTransfer || bankable > 0 || misplaced > 0 ||
+                    if (_normalizer.HasPendingTransfer || bankable > 0 || baggedBankable > 0 || misplaced > 0 ||
                         (_plannedRejects <= _maximumItems && saleEligible > 0))
-                    { Fail($"final reconciliation held: bank-eligible Keep={bankable}, Keep in RK Junk={misplaced}, sale-eligible requested Reject={saleEligible}, normalization pending={_normalizer.HasPendingTransfer}"); return; }
+                    { Fail($"final reconciliation held: bank-eligible Keep in main={bankable}, in bags={baggedBankable}, Keep in RK Junk={misplaced}, sale-eligible requested Reject={saleEligible}, normalization pending={_normalizer.HasPendingTransfer}"); return; }
                     _say($"Post-logistics reconciliation verified at {_site}: bank-eligible Keep=0, Keep in RK Junk=0, " +
                         $"requested RK Junk Reject remaining={saleEligible}; no transfer or destructive action is pending.");
                     Complete();
