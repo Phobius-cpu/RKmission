@@ -68,7 +68,8 @@ namespace RKmission
             public readonly List<Vector3> Waypoints = new List<Vector3>();
             public int WaypointIndex, Failures;
             public float TransitCost;
-            public bool Active, HoldReported, UsedRoomDetour, Transit;
+            public string RecordedRoute;
+            public bool Active, HoldReported, UsedRoomDetour, Transit, RecordedTransit;
         }
         private sealed class CombatBlockedCorridor
         {
@@ -1079,7 +1080,11 @@ namespace RKmission
             if (route != null) recovery.Waypoints.AddRange(route.Waypoints);
             recovery.TransitCost = route?.Cost ?? float.PositiveInfinity;
             recovery.Transit = recovery.Waypoints.Count > 0;
+            recovery.RecordedTransit = false;
+            recovery.RecordedRoute = null;
             recovery.WaypointStarted = DateTime.MinValue;
+            if (!recovery.Transit && attemptAvailable)
+                TryStartRecordedCombatTopology(room, enemy, recovery, position);
             _combatCheckedRooms.Remove(room.Instance);
             _clearedRooms.Remove(room.Instance);
             _roomStates[room.Instance] = RoomClearanceState.CombatDeferred;
@@ -1092,7 +1097,12 @@ namespace RKmission
             MovementArbiter.Current.Halt(_requestedOwner);
             MovementArbiter.Current.Halt(MovementOwner.CombatPosition);
             float distance = enemy.DistanceFrom(DynelManager.LocalPlayer);
-            if (recovery.Transit)
+            if (recovery.RecordedTransit)
+                _say($"Combat local firing approach unavailable for {enemy.Identity} in room {room.Instance}; " +
+                    $"same-room recorded topology '{recovery.RecordedRoute}' prepared, distance={distance:0.0}m, " +
+                    $"player Y={position.Y:0.0}, target Y={enemy.Position.Y:0.0}, retry={recovery.Failures}/{MaxCombatTopologyAttempts}. " +
+                    "Room remains unfinished.");
+            else if (recovery.Transit)
                 _say($"Combat local firing approach unavailable for {enemy.Identity} in room {room.Instance}; " +
                     $"same-room transit route started with {recovery.Waypoints.Count} waypoint(s), distance={distance:0.0}m, path cost={recovery.TransitCost:0.0}m, " +
                     $"player Y={position.Y:0.0}, target Y={enemy.Position.Y:0.0}, retry={recovery.Failures}/{MaxCombatTopologyAttempts}, " +
@@ -1108,7 +1118,7 @@ namespace RKmission
         {
             bool verticallySeparated = Math.Abs(enemy.Position.Y - position.Y) >=
                 CombatTopologyVerticalSeparation;
-            return DungeonTransitPlanner.Candidates(_layout,
+            List<DungeonTransitPlanner.Route> candidates = DungeonTransitPlanner.Candidates(_layout,
                 room.Instance, position, enemy.Position, new[] { 4f, 7f, 10f, 14f }, 0.4f)
                 .Where(candidate => candidate.Waypoints.Count > 0 &&
                     Vector3.Distance(candidate.Destination, position) >= 3f)
@@ -1117,7 +1127,30 @@ namespace RKmission
                 .ThenByDescending(candidate => verticallySeparated ? candidate.VerticalProgress : 0)
                 .ThenByDescending(candidate => candidate.CorridorDerived)
                 .ThenBy(candidate => candidate.Cost)
-                .FirstOrDefault();
+                .ToList();
+            DungeonTransitPlanner.Route route = candidates.FirstOrDefault(candidate =>
+                DungeonTransitPlanner.IsPhysicallyProgressive(position, candidate.Waypoints));
+            if (route == null && candidates.Count > 0)
+            {
+                DungeonTransitPlanner.Route rejected = candidates[0];
+                _say($"Combat generated same-room route rejected: vertical-only leg or no physical walking progression " +
+                    $"from {position} through {rejected.Waypoints.Count} waypoint(s).");
+            }
+            return route;
+        }
+
+        private bool TryStartRecordedCombatTopology(Room room, SimpleChar enemy,
+            CombatRecovery recovery, Vector3 position)
+        {
+            if (_navRoutes == null || !_navRoutes.TryPrepareDungeonTopology(_layout,
+                room.Instance, position, enemy.Position, out string routeName)) return false;
+            recovery.RecordedTransit = true;
+            recovery.RecordedRoute = routeName;
+            recovery.Transit = true;
+            recovery.WaypointStarted = recovery.LastProgress = DateTime.UtcNow;
+            recovery.LastPosition = position;
+            _destination = null;
+            return true;
         }
 
         private static float CombatRecoveryRouteCost(Vector3 from, Vector3 to)
@@ -1137,6 +1170,7 @@ namespace RKmission
             SimpleChar enemy = EnemyCandidates(room).FirstOrDefault(x => x.Identity == recovery.Enemy);
             if (enemy == null)
             {
+                if (recovery.RecordedTransit) _navRoutes?.StopPlayback();
                 _combatRecoveries.Remove(room.Instance);
                 _roomStates[room.Instance] = RoomClearanceState.Reopened;
                 MovementArbiter.Current.Halt(MovementOwner.CombatPosition);
@@ -1158,6 +1192,7 @@ namespace RKmission
             if (newVantage && (now >= recovery.RetryAt ||
                 enemy.IsInLineOfSight && enemy.IsInAttackRange(true)))
             {
+                if (recovery.RecordedTransit) _navRoutes?.StopPlayback();
                 recovery.Active = false;
                 recovery.Waypoints.Clear();
                 _roomStates[room.Instance] = RoomClearanceState.Reopened;
@@ -1165,6 +1200,44 @@ namespace RKmission
                 ResetCombatApproach();
                 _say($"Combat topology changed or a valid attack opening appeared in room {room.Instance}; rebuilding local firing approaches to {enemy.Identity}.");
                 return false;
+            }
+            if (recovery.RecordedTransit)
+            {
+                _requestedOwner = MovementOwner.CombatPosition;
+                bool completed = false;
+                bool navigating = _navRoutes != null &&
+                    _navRoutes.TryNavigatePreparedDungeonTopology(enemy.Position,
+                        MovementArbiter.Current, _requestedOwner, out completed);
+                if (Vector3.Distance(position, recovery.LastPosition) > 0.5f)
+                {
+                    recovery.LastPosition = position;
+                    recovery.LastProgress = now;
+                }
+                if (!navigating || now - recovery.LastProgress > TimeSpan.FromSeconds(7) ||
+                    now - recovery.WaypointStarted > TimeSpan.FromSeconds(45))
+                {
+                    FailCombatRecoveryRoute(recovery, "recorded topology failed/stalled");
+                    return true;
+                }
+                float initialGap = Math.Abs(recovery.EnemyPosition.Y - recovery.Anchor.Y);
+                float verticalProgress = initialGap - Math.Abs(enemy.Position.Y - position.Y);
+                bool betterVerticalVantage = initialGap >= CombatTopologyVerticalSeparation &&
+                    verticalProgress >= Math.Min(1.5f, initialGap * 0.5f);
+                bool meaningfulHorizontalProgress = Vector3.Distance(position, recovery.Anchor) >= 12f;
+                if (!completed && !betterVerticalVantage && !meaningfulHorizontalProgress)
+                    return true;
+                string routeName = recovery.RecordedRoute;
+                _navRoutes.StopPlayback();
+                recovery.Active = false;
+                recovery.Transit = recovery.RecordedTransit = false;
+                recovery.RecordedRoute = null;
+                _combat.Reset();
+                ResetCombatApproach();
+                _roomStates[room.Instance] = RoomClearanceState.Reopened;
+                _say(completed
+                    ? $"Combat recorded topology '{routeName}' completed; rebuilding firing candidates."
+                    : $"Combat recorded topology '{routeName}' reached a materially better vantage; rebuilding firing candidates.");
+                return true;
             }
             if (recovery.WaypointIndex < recovery.Waypoints.Count)
             {
@@ -1212,7 +1285,12 @@ namespace RKmission
                 { recovery.LastPosition = position; recovery.LastProgress = now; }
                 if (now - recovery.LastProgress > TimeSpan.FromSeconds(7) ||
                     now - recovery.WaypointStarted > TimeSpan.FromSeconds(15))
-                    FailCombatRecoveryRoute(recovery, "no movement progress");
+                {
+                    if (TryStartRecordedCombatTopology(room, enemy, recovery, position))
+                        _say($"Combat generated same-room route stalled; using ordered recorded topology '{recovery.RecordedRoute}' under retry {recovery.Failures}/{MaxCombatTopologyAttempts}.");
+                    else
+                        FailCombatRecoveryRoute(recovery, "no movement progress");
+                }
                 return true;
             }
             if (recovery.Failures < MaxCombatTopologyAttempts && now >= recovery.RetryAt)
@@ -1267,14 +1345,20 @@ namespace RKmission
 
         private void FailCombatRecoveryRoute(CombatRecovery recovery, string reason)
         {
-            Vector3 point = recovery.Waypoints[recovery.WaypointIndex];
+            Vector3 point = recovery.RecordedTransit ? recovery.LastPosition :
+                recovery.WaypointIndex < recovery.Waypoints.Count
+                    ? recovery.Waypoints[recovery.WaypointIndex] : recovery.LastPosition;
             MovementArbiter.Current.Halt(MovementOwner.CombatPosition);
+            if (recovery.RecordedTransit) _navRoutes?.StopPlayback();
             recovery.Waypoints.Clear();
             recovery.WaypointIndex = 0;
-            recovery.Transit = false;
+            string routeKind = recovery.RecordedTransit
+                ? $"recorded topology '{recovery.RecordedRoute}'" : "same-room transit";
+            recovery.Transit = recovery.RecordedTransit = false;
+            recovery.RecordedRoute = null;
             recovery.RetryAt = DateTime.UtcNow.AddSeconds(15);
             _destination = null;
-            _say($"Combat same-room transit failed at {point} ({reason}); retry={recovery.Failures}/{MaxCombatTopologyAttempts}, " +
+            _say($"Combat {routeKind} failed at {point} ({reason}); retry={recovery.Failures}/{MaxCombatTopologyAttempts}, " +
                 $"path cost={recovery.TransitCost:0.0}m; deferring unfinished room {_currentRoom}.");
         }
 

@@ -20,6 +20,26 @@ namespace RKmission
             public List<Vector3> Waypoints = new List<Vector3>();
         }
 
+        // A walking corridor cannot change floors without making meaningful
+        // horizontal progress. Reject synthetic navmesh vertices that merely
+        // project the same X/Z position onto another elevation.
+        public static bool IsPhysicallyProgressive(Vector3 from,
+            IEnumerable<Vector3> waypoints)
+        {
+            if (waypoints == null) return false;
+            Vector3 previous = from;
+            bool hasWalkingLeg = false;
+            foreach (Vector3 point in waypoints)
+            {
+                float horizontal = HorizontalDistance(previous, point);
+                float vertical = Math.Abs(point.Y - previous.Y);
+                if (vertical >= 1.25f && horizontal < 0.75f) return false;
+                if (horizontal >= 1.25f) hasWalkingLeg = true;
+                previous = point;
+            }
+            return hasWalkingLeg;
+        }
+
         public static bool TryCost(DungeonLayout layout, int roomId, Vector3 from,
             Vector3 destination, out float cost)
         {
@@ -149,5 +169,11 @@ namespace RKmission
 
         private static float Progress(Vector3 from, Vector3 target, Vector3 point)
             => Math.Max(0, Math.Abs(target.Y - from.Y) - Math.Abs(target.Y - point.Y));
+
+        private static float HorizontalDistance(Vector3 from, Vector3 to)
+        {
+            float x = to.X - from.X, z = to.Z - from.Z;
+            return (float)Math.Sqrt(x * x + z * z);
+        }
     }
 }

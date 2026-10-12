@@ -428,7 +428,10 @@ namespace RKmission
             {
                 List<Vector3> points = route.Points.Select(V).ToList();
                 float minimumY = points.Min(x => x.Y), maximumY = points.Max(x => x.Y);
-                if (maximumY - minimumY < 3f ||
+                // Combat topology recovery starts at a 1.5m separation. Keep
+                // the recording gate above incidental floor noise while still
+                // admitting real switchbacks such as a roughly 2.7m ramp.
+                if (maximumY - minimumY < 1.5f ||
                     points.Any(point => !layout.IsInside(roomId, point, 0.1f))) continue;
                 foreach (bool reverse in new[] { false, true })
                 {
