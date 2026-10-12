@@ -40,6 +40,8 @@ namespace RKmission
         private readonly HashSet<Identity> _pickedUpItems = new HashSet<Identity>();
         private readonly MissionCompletionTracker _completion = new MissionCompletionTracker();
         private DateTime _acknowledgementStarted;
+        private DateTime _lastObservationLog;
+        private int _lastObservationSeconds = -1;
         private bool _serverCompletion;
         private string _roleResolutionFailure;
         public bool Finale { get; private set; }
@@ -51,6 +53,9 @@ namespace RKmission
         public IEnumerable<int> Rooms => _rooms.Values.Distinct();
         public bool HasSteps => _steps.Count > 0;
         public bool HasKillTarget => _steps.Any(x => x.Action is KillPersonAction);
+        public bool HasFindPersonTarget => _steps.Any(x => x.Action is FindPersonAction);
+        public Identity FindPersonTarget => _steps.Where(x => !x.Done && x.Action is FindPersonAction)
+            .Select(x => x.Target).FirstOrDefault();
         public Identity KillTarget => _steps.Where(x => !x.Done && x.Action is KillPersonAction)
             .Select(x => x.Target).FirstOrDefault();
         public bool CollectedReturnItem => Returning && ReturnItem != null;
@@ -151,6 +156,9 @@ namespace RKmission
             if (Finale) return;
             Finale = true;
             _say("Other rooms checked and ordinary enemies cleared; starting the reserved objective finale. Any loot deferred by combat will be collected before exit.");
+            if (HasFindPersonTarget)
+                _say($"FindPerson finale: exact target={FindPersonTarget}, mapped room=" +
+                    $"{RoomFor(FindPersonTarget)?.ToString() ?? "unknown"}; target remains protected during observation.");
         }
 
         public bool PreflightFinale(out string reason)
@@ -189,9 +197,38 @@ namespace RKmission
                 }
                 else if (step.Action is FindPersonAction)
                 {
-                    if (Targeting.Target?.Identity != step.Target) step.ObservationStarted = DateTime.MinValue;
-                    else if (step.ObservationStarted == DateTime.MinValue) step.ObservationStarted = now;
-                    else if (now - step.ObservationStarted >= TimeSpan.FromSeconds(30)) step.Proof = true;
+                    if (Targeting.Target?.Identity != step.Target)
+                    {
+                        if (step.ObservationStarted != DateTime.MinValue)
+                            _say($"FindPerson observation reset: exact target {step.Target} is no longer selected.");
+                        step.ObservationStarted = DateTime.MinValue;
+                        _lastObservationSeconds = -1;
+                    }
+                    else if (step.ObservationStarted == DateTime.MinValue)
+                    {
+                        step.ObservationStarted = now;
+                        _lastObservationLog = now;
+                        _lastObservationSeconds = 0;
+                        _say($"FindPerson observation started for exact target {step.Target}; 30 seconds of uninterrupted selection required.");
+                    }
+                    else
+                    {
+                        int seconds = (int)(now - step.ObservationStarted).TotalSeconds;
+                        if (seconds >= 30)
+                        {
+                            step.Proof = true;
+                            if (_lastObservationSeconds < 30)
+                                _say($"FindPerson observation complete for exact target {step.Target} after {seconds} seconds.");
+                            _lastObservationSeconds = seconds;
+                        }
+                        else if (seconds >= 10 && seconds / 10 > _lastObservationSeconds / 10 &&
+                            now - _lastObservationLog >= TimeSpan.FromSeconds(5))
+                        {
+                            _lastObservationSeconds = seconds;
+                            _lastObservationLog = now;
+                            _say($"FindPerson observation progress: exact target={step.Target}, {seconds}/30 seconds.");
+                        }
+                    }
                 }
                 else if (step.Action is FindItemAction && !step.Pickup)
                     step.Proof |= Targeting.Target?.Identity == step.Target;
@@ -214,6 +251,10 @@ namespace RKmission
             Evidence = evidence;
             foreach (Step step in _steps) step.State = StepState.Completed;
             _say($"Mission {_record.Id.Instance}: objective proof accepted; evidence={evidence}.");
+            Identity releasedFindPerson = _steps.Where(x => x.Action is FindPersonAction)
+                .Select(x => x.Target).FirstOrDefault();
+            if (releasedFindPerson != Identity.None)
+                _say($"FindPerson completion release: exact target {releasedFindPerson} is no longer held and may enter normal combat/corpse processing.");
         }
 
         public void ObserveMessage(N3Message message)

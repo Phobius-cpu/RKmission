@@ -77,6 +77,8 @@ namespace RKmission
         private MissionObjective _objective;
         private bool _exiting;
         private bool _reservedAggroReported;
+        private DateTime _reservedProtectionStarted;
+        private static readonly TimeSpan ReservedProtectionTimeout = TimeSpan.FromSeconds(5);
         private int _entryRoom;
         private Vector3 _entryPosition, _exitThreshold, _exitAcross;
         private Identity _exitDoor = Identity.None;
@@ -184,6 +186,7 @@ namespace RKmission
             _clearedRooms.Clear();
             _combatCheckedRooms.Clear();
             _reservedAggroReported = false;
+            _reservedProtectionStarted = DateTime.MinValue;
             _visitedRooms.Clear();
             _surveyedRooms.Clear();
             _roomStates.Clear();
@@ -447,8 +450,9 @@ namespace RKmission
                 _clearedRooms.Contains(x.Instance) || _combatCheckedRooms.Contains(x.Instance));
             _objective.FinalActionsAllowed = allRoomsChecked && !ordinaryEnemiesRemain &&
                 (_loot.UnfinishedMissionLootCount == 0 ||
-                    (_objective.HasKillTarget && _combatCheckedRooms.Count > 0));
-            bool reservedAggro = GuardReservedEnemy();
+                    ((_objective.HasKillTarget || _objective.HasFindPersonTarget) &&
+                        _combatCheckedRooms.Count > 0));
+            bool reservedAggro = GuardReservedEnemy(ordinaryEnemiesRemain);
             if (!IsRunning) return;
             _loot.MissionActionsPaused = _readiness.InCombat;
             // An established doorway crossing retains its existing ownership and
@@ -548,11 +552,12 @@ namespace RKmission
                     CombatRecoveryWaiting = true;
                     return;
                 }
-                if (reservedAggro && _objective.HasKillTarget)
+                if (reservedAggro && (_objective.HasKillTarget || _objective.HasFindPersonTarget))
                 {
                     // The reserved target's aggro prevents chest interaction.
-                    // Sweep every room for ordinary enemies, then kill it and
-                    // return for the deferred loot before exiting.
+                    // Sweep every room for ordinary enemies, then give the
+                    // exact objective its normal finale ownership. Deferred
+                    // loot remains pending until combat permits interaction.
                     if (ScanRemainingRoom(room)) return;
                     _combatCheckedRooms.Add(room.Instance);
                     _roomStates[room.Instance] = RoomClearanceState.CombatChecked;
@@ -1527,7 +1532,7 @@ namespace RKmission
                 _scanWaypoints.Add(point);
         }
 
-        private bool GuardReservedEnemy()
+        private bool GuardReservedEnemy(bool ordinaryEnemiesRemain)
         {
             var player = DynelManager.LocalPlayer;
             if (_record.State != MissionProgress.CompletedByUser && !(_objective.Finale && _objective.FinalActionsAllowed) &&
@@ -1538,14 +1543,36 @@ namespace RKmission
                 _objective.HoldEnemy(player.FightingTarget.Identity)) ||
                 player.Pets.Any(x => x.Character?.IsAttacking == true && x.Character.FightingTarget?.IsAlive == true &&
                     _objective.HoldEnemy(x.Character.FightingTarget.Identity));
-            bool reservedAggro = !(_objective.Finale && _objective.FinalActionsAllowed) && DynelManager.NPCs.Any(x => x.IsAlive && _objective.HoldEnemy(x.Identity) &&
-                x.IsAttacking && owned.Contains(x.FightingTarget?.Identity ?? Identity.None));
+            Identity findPersonTarget = _objective.FindPersonTarget;
+            bool attackingFindPerson = findPersonTarget != Identity.None &&
+                (((player.IsAttacking || player.IsAttackPending) &&
+                    player.FightingTarget?.Identity == findPersonTarget) ||
+                player.Pets.Any(x => x.Character?.IsAttacking == true &&
+                    x.Character.FightingTarget?.Identity == findPersonTarget));
+            var hostileReserved = DynelManager.NPCs.Where(x => x.IsAlive && _objective.HoldEnemy(x.Identity) &&
+                x.IsAttacking && owned.Contains(x.FightingTarget?.Identity ?? Identity.None)).ToList();
+            bool reservedAggro = !(_objective.Finale && _objective.FinalActionsAllowed) && hostileReserved.Count > 0;
             if (attackingReserved)
             {
                 player.StopAttack(); // Includes pet follow; prevent the reserved kill.
                 Targeting.SelectSelf();
+                if (_reservedProtectionStarted == DateTime.MinValue)
+                    _reservedProtectionStarted = DateTime.UtcNow;
             }
-            if ((attackingReserved || reservedAggro) && !_objective.HasKillTarget)
+            else
+                _reservedProtectionStarted = DateTime.MinValue;
+            bool findPersonReserved = _objective.HasFindPersonTarget &&
+                (hostileReserved.Any(x => x.Identity == findPersonTarget) || attackingFindPerson);
+            if (attackingFindPerson && findPersonReserved &&
+                DateTime.UtcNow - _reservedProtectionStarted >= ReservedProtectionTimeout)
+            {
+                Stop();
+                _say($"FindPerson protection could not be maintained for exact target {_objective.FindPersonTarget}: " +
+                    $"player/pet attack remained active after repeated cancellation for {ReservedProtectionTimeout.TotalSeconds:0}s. " +
+                    "Stopping to prevent an unsafe reserved-target kill.");
+                return true;
+            }
+            if ((attackingReserved || reservedAggro) && !_objective.HasKillTarget && !findPersonReserved)
             {
                 Stop();
                 _say("Reserved objective enemy engaged before the other enemies were cleared. Attacks stopped; resolve its aggro before resuming. Objective order was not waived.");
@@ -1553,7 +1580,14 @@ namespace RKmission
             }
             if ((attackingReserved || reservedAggro) && !_reservedAggroReported)
             {
-                _say("Reserved objective enemy engaged early; clearing ordinary enemies first. Loot blocked by combat will be collected before exit.");
+                string identity = findPersonReserved
+                    ? $"FindPerson exact target={_objective.FindPersonTarget}"
+                    : "reserved objective target";
+                int ordinaryCount = Playfield.Rooms.Sum(room => EnemyCandidates(room)
+                    .Count(enemy => !_objective.IsObjective(enemy.Identity)));
+                _say($"Reserved {identity} aggro detected in room {player.Room?.Instance.ToString() ?? "unknown"}; " +
+                    $"ordinary enemies={ordinaryCount}, ordinary remaining={ordinaryEnemiesRemain}. " +
+                    "Target remains held while ordinary enemies are cleared; combat-blocked loot will be collected before exit.");
                 _reservedAggroReported = true;
             }
             if (!attackingReserved && !reservedAggro)
