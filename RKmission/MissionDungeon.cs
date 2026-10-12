@@ -71,6 +71,17 @@ namespace RKmission
             public string RecordedRoute;
             public bool Active, HoldReported, UsedRoomDetour, Transit, RecordedTransit;
         }
+        private sealed class CombatTopologyHandoff
+        {
+            public int RoomId, DungeonInstance;
+            public Identity Enemy;
+            public Vector3 EnemyPosition, TargetSide;
+            public string RouteName;
+            public DateTime ExpiresAt;
+            public NavigationRouteRecorder.DungeonTopologyContinuation Continuation;
+        }
+        private CombatTopologyHandoff _combatTopologyHandoff;
+        private static readonly TimeSpan CombatTopologyHandoffLifetime = TimeSpan.FromSeconds(30);
         private sealed class CombatBlockedCorridor
         {
             public Vector3 Origin, Direction;
@@ -108,6 +119,7 @@ namespace RKmission
         private bool _lootProbeNextSide;
         private float _lootBestVerticalGap = float.PositiveInfinity;
         private bool _lootRecordedTransit;
+        private bool _lootRecordedFallbackAttempted;
         private string _lootRecordedRoute;
         private const float LootStagingRevisitTolerance = 2f;
         private readonly List<Vector3> _lootVisitedStaging = new List<Vector3>();
@@ -204,12 +216,14 @@ namespace RKmission
             _combat.Reset();
             ResetCombatApproach();
             _combatRecoveries.Clear();
+            _combatTopologyHandoff = null;
             CombatRecoveryWaiting = false;
             _scanTarget = Identity.None;
             _scanWaypoints.Clear();
             _waitingForLoot = Identity.None;
             _lootTransitStaging = false;
             _lootRecordedTransit = false;
+            _lootRecordedFallbackAttempted = false;
             _lootRecordedRoute = null;
             _lootVisitedStaging.Clear();
             _objectiveApproaches.Clear();
@@ -313,6 +327,8 @@ namespace RKmission
             _activeLift = null;
             _layout = null;
             _combatRecoveries.Clear();
+            _combatTopologyHandoff = null;
+            _navRoutes?.StopPlayback();
             CombatRecoveryWaiting = false;
             MovementArbiter.Current.StopAll();
         }
@@ -487,6 +503,7 @@ namespace RKmission
                 _activeLift = null;
                 _liftStarted = DateTime.MinValue;
                 _currentRoom = -1;
+                _combatTopologyHandoff = null;
                 _destination = null;
                 _roomQuietAt = DateTime.MinValue;
             }
@@ -506,6 +523,7 @@ namespace RKmission
             if (_currentRoom < 0)
             {
                 _currentRoom = room.Instance;
+                _combatTopologyHandoff = null;
                 _visitedRooms.Add(room.Instance);
                 if (!_clearedRooms.Contains(room.Instance)) _roomStates[room.Instance] = RoomClearanceState.Entered;
                 _roomQuietAt = DateTime.MinValue;
@@ -1207,7 +1225,8 @@ namespace RKmission
             if (newVantage && (now >= recovery.RetryAt ||
                 enemy.IsInLineOfSight && enemy.IsInAttackRange(true)))
             {
-                if (recovery.RecordedTransit) _navRoutes?.StopPlayback();
+                if (recovery.RecordedTransit)
+                    PreserveCombatTopologyHandoff(room, enemy, recovery);
                 recovery.Active = false;
                 recovery.Waypoints.Clear();
                 _roomStates[room.Instance] = RoomClearanceState.Reopened;
@@ -1242,7 +1261,8 @@ namespace RKmission
                 if (!completed && !betterVerticalVantage && !meaningfulHorizontalProgress)
                     return true;
                 string routeName = recovery.RecordedRoute;
-                _navRoutes.StopPlayback();
+                if (!completed) PreserveCombatTopologyHandoff(room, enemy, recovery);
+                else _navRoutes.StopPlayback();
                 recovery.Active = false;
                 recovery.Transit = recovery.RecordedTransit = false;
                 recovery.RecordedRoute = null;
@@ -1356,6 +1376,30 @@ namespace RKmission
                     $"player Y={position.Y:0.0}, target Y={enemy.Position.Y:0.0}; mission remains armed.");
             }
             return true;
+        }
+
+        private void PreserveCombatTopologyHandoff(Room room, SimpleChar enemy,
+            CombatRecovery recovery)
+        {
+            if (_navRoutes == null || !_navRoutes.PauseDungeonTopology(enemy.Position,
+                out NavigationRouteRecorder.DungeonTopologyContinuation continuation))
+            {
+                _navRoutes?.StopPlayback();
+                return;
+            }
+            _combatTopologyHandoff = new CombatTopologyHandoff
+            {
+                RoomId = room.Instance,
+                DungeonInstance = Playfield.ModelIdentity.Instance,
+                Enemy = enemy.Identity,
+                EnemyPosition = enemy.Position,
+                TargetSide = continuation.TargetSide,
+                RouteName = recovery.RecordedRoute,
+                ExpiresAt = DateTime.UtcNow + CombatTopologyHandoffLifetime,
+                Continuation = continuation
+            };
+            _say($"Combat recorded topology '{recovery.RecordedRoute}' paused at firing vantage; " +
+                "preserving forward continuation for post-combat topology.");
         }
 
         private void FailCombatRecoveryRoute(CombatRecovery recovery, string reason)
@@ -1910,6 +1954,7 @@ namespace RKmission
                 _lootProbeNextSide = false;
                 _lootTransitStaging = false;
                 _lootRecordedTransit = false;
+                _lootRecordedFallbackAttempted = false;
                 _lootRecordedRoute = null;
                 _lootVisitedStaging.Clear();
                 _lootBestDistance = next != null
@@ -1973,6 +2018,7 @@ namespace RKmission
             if (next == null)
             {
                 if (_lootRecordedTransit) _navRoutes?.StopPlayback();
+                _combatTopologyHandoff = null;
                 _waitingForLoot = Identity.None;
                 _lootApproachPoints.Clear();
                 _lootProbeNextSide = false;
@@ -2002,13 +2048,15 @@ namespace RKmission
                         next.Position, MovementArbiter.Current, _requestedOwner, out bool completed))
                     {
                         _lootRecordedTransit = false;
+                        _lootRecordedFallbackAttempted = true;
                         _say($"Loot {next.Identity} recorded topology '{_lootRecordedRoute}' could not continue; route remains unfinished.");
-                        ResolveLootApproachFailure(next, room.Instance, "recorded same-room topology playback failed");
+                        BuildLootApproaches(room, next.Position);
                         return true;
                     }
                     if (completed)
                     {
                         _lootRecordedTransit = false;
+                        _combatTopologyHandoff = null;
                         _lootLastProgress = now;
                         _lootLastPosition = position;
                         _lootBestVerticalGap = Math.Min(_lootBestVerticalGap,
@@ -2101,6 +2149,7 @@ namespace RKmission
                 _navRoutes?.StopPlayback();
                 _lootRecordedTransit = false;
             }
+            _combatTopologyHandoff = null;
             MovementArbiter.Current.Halt(_requestedOwner);
             if (_lootNearStarted == DateTime.MinValue)
                 _say($"Loot {next.Identity} interaction-ready=true at 3D distance={distance:0.0}m; " +
@@ -2142,12 +2191,30 @@ namespace RKmission
                 _say($"Loot direct final approach selected: {_lootApproachPoints.Count} complete, interaction-clear candidate(s) from {player}.");
                 return;
             }
+            float verticalGap = Math.Abs(target.Y - player.Y);
+            if (!_lootRecordedFallbackAttempted && TryUseCombatTopologyHandoff(room, player,
+                target, out string inheritedRoute))
+            {
+                _lootRecordedTransit = true;
+                _lootRecordedRoute = inheritedRoute;
+                _say($"Loot inheriting recorded topology '{inheritedRoute}' from combat; " +
+                    "resuming/reacquiring toward the target before generated staging.");
+                return;
+            }
+            if (!_lootRecordedFallbackAttempted && verticalGap >= CombatTopologyVerticalSeparation &&
+                _navRoutes != null && _navRoutes.TryPrepareDungeonTopology(_layout,
+                    room.Instance, player, target, out _lootRecordedRoute))
+            {
+                _lootRecordedTransit = true;
+                _say($"Loot direct final unavailable; using ordered recorded topology '{_lootRecordedRoute}'; " +
+                    $"prepared recorded loot topology before generated staging at vertical gap {verticalGap:0.0}m.");
+                return;
+            }
             List<DungeonTransitPlanner.Route> transit = DungeonTransitPlanner.Candidates(_layout,
                 room.Instance, player, target, new[] { 3f, 5f, 8f, 12f }, 0.4f)
                 .Where(route => Vector3.Distance(player, route.Destination) >= 1.5f)
                 .Where(route => !_lootVisitedStaging.Any(visited =>
                     Vector3.Distance(visited, route.Destination) <= LootStagingRevisitTolerance)).ToList();
-            float verticalGap = Math.Abs(target.Y - player.Y);
             int insufficient = 0;
             if (verticalGap > 3f)
             {
@@ -2169,19 +2236,37 @@ namespace RKmission
                     $"rejected {insufficient} candidate(s) for insufficient vertical progress.");
             }
             else if (verticalGap > 3f)
-            {
-                _lootRecordedTransit = _navRoutes != null &&
-                    _navRoutes.TryPrepareDungeonTopology(_layout, room.Instance, player, target,
-                        out _lootRecordedRoute);
-                if (_lootRecordedTransit)
-                    _say($"Loot direct final unavailable; no complete ramp-connected navmesh route made meaningful elevation progress; " +
-                        $"using ordered recorded topology '{_lootRecordedRoute}', rejected {insufficient} same-level candidate(s).");
-                else
-                    _say($"Loot direct final unavailable; no complete ramp-connected route made meaningful elevation progress; " +
-                        $"rejected {insufficient} same-level candidate(s), player Y={player.Y:0.0}, target Y={target.Y:0.0}.");
-            }
+                _say($"Loot direct final unavailable; no complete ramp-connected route made meaningful elevation progress; " +
+                    $"rejected {insufficient} same-level candidate(s), player Y={player.Y:0.0}, target Y={target.Y:0.0}.");
             else
                 _say("Loot direct final unavailable; no complete same-room transit route was found.");
+        }
+
+        private bool TryUseCombatTopologyHandoff(Room room, Vector3 player,
+            Vector3 target, out string routeName)
+        {
+            routeName = null;
+            CombatTopologyHandoff handoff = _combatTopologyHandoff;
+            if (handoff == null) return false;
+            bool stale = DateTime.UtcNow > handoff.ExpiresAt ||
+                handoff.RoomId != room.Instance ||
+                handoff.DungeonInstance != Playfield.ModelIdentity.Instance;
+            bool unrelated = Vector3.Distance(target, handoff.TargetSide) > 6f ||
+                Math.Abs(target.Y - handoff.TargetSide.Y) > CombatTopologyVerticalSeparation;
+            if (stale || unrelated)
+            {
+                _combatTopologyHandoff = null;
+                _say("Loot recorded topology continuation unavailable; falling back to generated staging.");
+                return false;
+            }
+            if (_navRoutes == null || !_navRoutes.TryPrepareDungeonTopologyContinuation(
+                handoff.Continuation, player, target, out routeName))
+            {
+                _combatTopologyHandoff = null;
+                _say("Loot recorded topology continuation unavailable; falling back to generated staging.");
+                return false;
+            }
+            return true;
         }
 
         private bool LootInteractionReady(Dynel loot)
@@ -2214,6 +2299,7 @@ namespace RKmission
             _lootTransitStaging = false;
             if (_lootRecordedTransit) _navRoutes?.StopPlayback();
             _lootRecordedTransit = false;
+            _lootRecordedFallbackAttempted = false;
             _lootRecordedRoute = null;
             _lootNearStarted = DateTime.MinValue;
             _destination = null;

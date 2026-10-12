@@ -40,6 +40,15 @@ namespace RKmission
             public float Cost;
         }
 
+        internal sealed class DungeonTopologyContinuation
+        {
+            public string RouteName;
+            public int Playfield;
+            public List<Vector3> Points;
+            public int ProgressIndex;
+            public Vector3 TargetSide;
+        }
+
         private readonly string _path;
         private readonly Action<string> _say;
         private readonly List<Route> _routes = new List<Route>();
@@ -575,6 +584,71 @@ namespace RKmission
             if (movement.Owner != owner || !SMovementController.IsNavigating())
                 if (!movement.SetDestination(owner, waypoint))
                 { StopPlayback(); return false; }
+            return true;
+        }
+
+        // Preserve only the selected, oriented dungeon subpath. Reacquisition can
+        // move forward within this slice, but can never enter a later descending
+        // branch from the original recording.
+        public bool PauseDungeonTopology(Vector3 targetSide,
+            out DungeonTopologyContinuation continuation)
+        {
+            continuation = null;
+            if (!_dungeonPlayback || _playing == null || _playPoints == null ||
+                _playPoints.Count < 2) return false;
+            continuation = new DungeonTopologyContinuation
+            {
+                RouteName = _playing.Name,
+                Playfield = Playfield.ModelIdentity.Instance,
+                Points = new List<Vector3>(_playPoints),
+                ProgressIndex = Math.Max(0, Math.Min(_playIndex, _playPoints.Count - 1)),
+                TargetSide = targetSide
+            };
+            StopPlayback();
+            return true;
+        }
+
+        public bool TryPrepareDungeonTopologyContinuation(
+            DungeonTopologyContinuation continuation, Vector3 from, Vector3 target,
+            out string routeName)
+        {
+            routeName = null;
+            if (continuation == null || continuation.Playfield != Playfield.ModelIdentity.Instance ||
+                continuation.Points == null || continuation.Points.Count < 2 ||
+                Vector3.Distance(target, continuation.TargetSide) > 6f ||
+                Math.Abs(target.Y - continuation.TargetSide.Y) > DungeonMinimumVerticalSpan)
+                return false;
+
+            int first = Math.Max(0, Math.Min(continuation.ProgressIndex,
+                continuation.Points.Count - 1));
+            int best = first;
+            float bestDistance = Vector3.Distance(from, continuation.Points[first]);
+            for (int i = first + 1; i < continuation.Points.Count; i++)
+            {
+                float distance = Vector3.Distance(from, continuation.Points[i]);
+                if (distance < bestDistance) { best = i; bestDistance = distance; }
+            }
+            if (bestDistance > DungeonSourceAttachDistance ||
+                Vector3.Distance(target, continuation.Points[continuation.Points.Count - 1]) >
+                    DungeonTargetAttachDistance)
+                return false;
+
+            int start = Math.Max(first, best - 1);
+            List<Vector3> remaining = continuation.Points.GetRange(start,
+                continuation.Points.Count - start);
+            if (remaining.Count < 2) return false;
+            StopPlayback();
+            _playing = new Route { Name = continuation.RouteName,
+                Playfield = continuation.Playfield };
+            _playPoints = remaining;
+            _playIndex = 0;
+            _dungeonPlayback = true;
+            _lastDungeonReportedIndex = 0;
+            routeName = continuation.RouteName;
+            _say($"Prepared recorded loot topology '{routeName}' from forward combat progress " +
+                $"{start + 1}/{continuation.Points.Count} ({remaining.Count} point(s)); " +
+                $"source attach={bestDistance:0.0}m, target attach=" +
+                $"{Vector3.Distance(target, remaining[remaining.Count - 1]):0.0}m.");
             return true;
         }
 
