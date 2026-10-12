@@ -449,8 +449,10 @@ namespace RKmission
         public int? RoomFor(Identity target) => _rooms.TryGetValue(target, out int room)
             ? (int?)room : null;
 
-        public bool ProtectsMissionItem(Identity identity) => _steps.Any(step =>
-            step.InventoryItem == identity ||
-            (step.Action is FindItemAction && step.Target == identity));
+        public bool ProtectsMissionItem(Identity identity) => identity != Identity.None && !RewardConfirmed &&
+            _record.State != MissionProgress.CompletedAutomatically &&
+            _record.State != MissionProgress.CompletedByUser && _steps.Any(step =>
+                !step.Proof && !step.Done && (step.InventoryItem == identity ||
+                (step.Action is FindItemAction && step.Target == identity)));
     }
 }

@@ -115,7 +115,19 @@ namespace ManagerLoot
             state == MissionSourceState.SkippedInsufficientSkill || state == MissionSourceState.SkippedNoLockpick ||
             state == MissionSourceState.SkippedRepeatedFailure || state == MissionSourceState.SkippedNoCapacity;
         private readonly HashSet<MissionIdentity> _objectiveLootItems = new HashSet<MissionIdentity>();
-        private readonly HashSet<MissionIdentity> _rememberedMissionItems = new HashSet<MissionIdentity>();
+        private sealed class MissionItemReservation
+        {
+            public MissionIdentity Owner;
+            public MissionIdentity Item;
+            public int LowId, HighId, QualityLevel;
+            public string Name, Context;
+
+            public bool Matches(Item item) => item != null && Item == item.UniqueIdentity &&
+                LowId == item.LowId && HighId == item.HighId && QualityLevel == item.QualityLevel &&
+                string.Equals(Name, item.Name, StringComparison.Ordinal);
+        }
+        private readonly List<MissionItemReservation> _missionItemReservations =
+            new List<MissionItemReservation>();
         private readonly HashSet<MissionIdentity> _selectedItems = new HashSet<MissionIdentity>();
         private const int MaxMissionLockpickAttempts = 3;
         private const double LockpickRetryDelaySeconds = 1;
@@ -141,6 +153,8 @@ namespace ManagerLoot
         // even if it entered the discovery ledger before its metadata arrived.
         public Func<MissionIdentity, bool> MissionLootReserved { get; set; }
         public Func<Item, bool> MissionItemProtected { get; set; }
+        public Func<MissionIdentity, bool> MissionReservationActive { get; set; }
+        public MissionIdentity ActiveMissionOwner { get; set; } = MissionIdentity.None;
         public Func<Item, bool> OperationalItemProtected { get; set; }
         public MissionIdentity MissionObjectiveContainer { get; set; } = MissionIdentity.None;
         // RKMission temporarily owns the stationary recovery window. Preserve
@@ -221,26 +235,64 @@ namespace ManagerLoot
                 $"{x.Key} state={x.Value} room={(_missionLootRooms.TryGetValue(x.Key, out int room) ? room.ToString() : "unknown")} " +
                 (DynelManager.GetDynel(x.Key) == null ? "not currently visible" : "still visible")));
         public IEnumerable<MissionIdentity> MissionObjectiveItems => _objectiveLootItems;
-        public void ProtectPendingHandIn(Item item)
+        internal static bool UsableMissionItemIdentity(MissionIdentity identity) =>
+            identity != MissionIdentity.None && identity.Type != IdentityType.None && identity.Instance != 0;
+        public void BeginMissionReservations(MissionIdentity owner)
         {
-            if (item != null) _rememberedMissionItems.Add(item.UniqueIdentity);
+            if (owner != MissionIdentity.None)
+                _missionItemReservations.RemoveAll(x => x.Owner == owner);
         }
-        public void RememberMissionCriticalInventory()
+        public void ReleaseMissionReservations(MissionIdentity owner)
+        {
+            if (owner != MissionIdentity.None)
+                _missionItemReservations.RemoveAll(x => x.Owner == owner);
+        }
+        public void ProtectPendingHandIn(MissionIdentity owner, Item item) =>
+            ReserveMissionItem(owner, item, "pending Return Item hand-in");
+        public void RememberMissionCriticalInventory(MissionIdentity owner)
         {
             foreach (Item item in Inventory.Items.Where(i => i.Slot.Type == IdentityType.Inventory))
-                if (ProtectedMissionItem(item)) _rememberedMissionItems.Add(item.UniqueIdentity);
+                if (MissionItemProtected?.Invoke(item) ?? false)
+                    ReserveMissionItem(owner, item, "active objective inventory item");
+        }
+        private void ReserveMissionItem(MissionIdentity owner, Item item, string context)
+        {
+            if (owner == MissionIdentity.None || item == null || !UsableMissionItemIdentity(item.UniqueIdentity))
+                return;
+            _missionItemReservations.RemoveAll(x => x.Owner == owner && x.Item == item.UniqueIdentity);
+            _missionItemReservations.Add(new MissionItemReservation
+            {
+                Owner = owner,
+                Item = item.UniqueIdentity,
+                LowId = item.LowId,
+                HighId = item.HighId,
+                QualityLevel = item.QualityLevel,
+                Name = item.Name,
+                Context = context
+            });
+        }
+        private MissionItemReservation ActiveMissionReservation(Item item)
+        {
+            _missionItemReservations.RemoveAll(x =>
+                !(MissionReservationActive?.Invoke(x.Owner) ?? false));
+            return _missionItemReservations.FirstOrDefault(x => x.Matches(item));
         }
         private bool ProtectedMissionItem(Item item) =>
             item.UniqueIdentity.Type == IdentityType.MissionKey ||
-            _rememberedMissionItems.Contains(item.UniqueIdentity) ||
+            ActiveMissionReservation(item) != null ||
             (MissionItemProtected?.Invoke(item) ?? false);
 
         internal string ProtectionReason(Item item)
         {
             if (item == null) return null;
             if (item.UniqueIdentity.Type == IdentityType.MissionKey) return "mission key";
-            if (_rememberedMissionItems.Contains(item.UniqueIdentity)) return "reserved mission item";
-            if (MissionItemProtected?.Invoke(item) ?? false) return "mission objective";
+            MissionItemReservation reservation = ActiveMissionReservation(item);
+            if (reservation != null)
+                return $"reserved mission item (mission {reservation.Owner.Instance}, {reservation.Context})";
+            if (MissionItemProtected?.Invoke(item) ?? false)
+                return ActiveMissionOwner != MissionIdentity.None
+                    ? $"mission objective (mission {ActiveMissionOwner.Instance})"
+                    : "mission objective";
             if (OperationalItemProtected?.Invoke(item) ?? false) return "operational item";
             if (Inventory.Backpacks.Any(bag =>
                 ManagedBagFamily.IsProtected(bag.Name) &&

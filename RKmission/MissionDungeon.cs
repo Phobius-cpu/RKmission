@@ -220,6 +220,8 @@ namespace RKmission
             _liftStarted = DateTime.MinValue;
             _record = record;
             _objective = new MissionObjective(record, _say);
+            _loot.BeginMissionReservations(record.Id);
+            _loot.ActiveMissionOwner = record.Id;
             _exiting = false;
             _entryRoom = DynelManager.LocalPlayer.Room.Instance;
             _entryPosition = DynelManager.LocalPlayer.Position;
@@ -283,9 +285,12 @@ namespace RKmission
 
         public void Stop()
         {
-            _loot.RememberMissionCriticalInventory();
-            if (_objective?.CollectedReturnItem == true)
-                _loot.ProtectPendingHandIn(_objective.ReturnItem);
+            if (_record != null)
+            {
+                _loot.RememberMissionCriticalInventory(_record.Id);
+                if (_objective?.CollectedReturnItem == true)
+                    _loot.ProtectPendingHandIn(_record.Id, _objective.ReturnItem);
+            }
             IsRunning = false;
             _readiness.Stop();
             _loot.MissionActionsPaused = false;
@@ -296,6 +301,7 @@ namespace RKmission
             _loot.MissionInteractionReady = null;
             _loot.MissionLootReserved = null;
             _loot.MissionItemProtected = null;
+            _loot.ActiveMissionOwner = Identity.None;
             _loot.IgnoreOrdinaryMissionLoot = false;
             _loot.MissionObjectiveContainer = Identity.None;
             _destination = null;

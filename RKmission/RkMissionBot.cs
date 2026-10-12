@@ -92,6 +92,14 @@ namespace RKmission
             _readiness = new MissionReadiness(Say, MissionReadinessSettings.Load(pluginDir, Say));
             _inventory = InventoryPolicy.Load(pluginDir, Say);
             _loot.OperationalItemProtected = _inventory.IsOperationalItem;
+            _loot.MissionReservationActive = owner =>
+            {
+                AcceptedMission mission = _missions.Find(owner);
+                return mission != null && !mission.Completed &&
+                    (mission.Present || mission.ReturnHandInPending ||
+                    mission.State == MissionProgress.InProgress ||
+                    mission.State == MissionProgress.AwaitingHandIn);
+            };
             _logisticsProbe = new LogisticsProbe(pluginDir, _loot, Say);
             _logisticsRoutes = new LogisticsRouteCatalog(pluginDir, Say);
             _logisticsNavigator = new LogisticsRouteNavigator(_logisticsRoutes, _movement, Say);
@@ -631,6 +639,7 @@ namespace RKmission
             }
             _selected.State = MissionProgress.CompletedByUser;
             _selected.ReturnHandInPending = false;
+            _loot.ReleaseMissionReservations(_selected.Id);
             _checkpoint.OriginTerminals.RemoveAll(x => x.QuestInstance == _selected.Id.Instance);
             _missions.RemoveObjectiveMetadata(_selected);
             _checkpoint.Save(true, Say);
@@ -1247,6 +1256,7 @@ namespace RKmission
                     {
                         _selected.State = MissionProgress.CompletedAutomatically;
                         _selected.CompletionEvidence = _dungeon.Objective.Evidence;
+                        _loot.ReleaseMissionReservations(_selected.Id);
                         _missions.RemoveObjectiveMetadata(_selected);
                     }
                     Say(_selected.ReturnHandInPending
@@ -1655,6 +1665,7 @@ namespace RKmission
                 _movement.Release(MovementOwner.OutdoorTravel);
                 _selected.ReturnHandInPending = false;
                 _selected.State = MissionProgress.CompletedAutomatically;
+                _loot.ReleaseMissionReservations(_selected.Id);
                 _selected.CompletionEvidence =
                     "Exact return item used on its verified issuing terminal; item consumed and bound quest absent for 2 s";
                 _checkpoint.OriginTerminals.Remove(origin);
