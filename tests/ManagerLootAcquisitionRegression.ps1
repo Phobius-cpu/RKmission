@@ -95,3 +95,15 @@ if (-not $loot.Contains('identity != MissionIdentity.None') -or
     throw 'Return Item protection no longer uses the full usable-identity guard.'
 }
 Write-Output 'PASS None source identities reach ManagerLoot rules instead of matching an unusable Return Item placeholder'
+
+if (-not $loot.Contains('ReferenceEquals(stored, item)') -or
+    -not $loot.Contains('? stored.UniqueIdentity == item.UniqueIdentity') -or
+    -not $loot.Contains(': ReferenceEquals(stored, item)')) {
+    throw 'Protected-bag membership can again collide globally on an unusable item identity.'
+}
+if (-not $loot.Contains('RuleNameMatches(item.Name, item.Id, r.Name') -or
+    -not $loot.Contains("ruleName.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries)") -or
+    -not $loot.Contains(".All(word => itemName.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0)")) {
+    throw 'Exact or partial-name ManagerLoot matching regressed for listed source items.'
+}
+Write-Output 'PASS None source items reach exact/partial rules while the observed protected-bag object remains protected'

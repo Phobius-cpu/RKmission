@@ -306,6 +306,18 @@ namespace ManagerLoot
             ActiveMissionReservation(item) != null ||
             (MissionItemProtected?.Invoke(item) ?? false);
 
+        internal static bool SameProtectedBagItem(Item item, Item stored)
+        {
+            if (item == null || stored == null) return false;
+            return HasUsableIdentity(item.UniqueIdentity)
+                ? stored.UniqueIdentity == item.UniqueIdentity
+                : ReferenceEquals(stored, item);
+        }
+
+        private static bool ProtectedBagContains(Item item) => Inventory.Backpacks.Any(bag =>
+            ManagedBagFamily.IsProtected(bag.Name) &&
+            Inventory.GetContainerItems(bag.Identity).Any(stored => SameProtectedBagItem(item, stored)));
+
         internal string ProtectionReason(Item item)
         {
             if (item == null) return null;
@@ -318,10 +330,7 @@ namespace ManagerLoot
                     ? $"mission objective (mission {ActiveMissionOwner.Instance})"
                     : "mission objective";
             if (OperationalItemProtected?.Invoke(item) ?? false) return "operational item";
-            if (Inventory.Backpacks.Any(bag =>
-                ManagedBagFamily.IsProtected(bag.Name) &&
-                Inventory.GetContainerItems(bag.Identity).Any(stored =>
-                    stored.UniqueIdentity == item.UniqueIdentity)))
+            if (ProtectedBagContains(item))
                 return "RKM Keep/Mission bag";
             return null;
         }
@@ -1392,6 +1401,16 @@ namespace ManagerLoot
         private Rule GetRuleForItem(Item item) =>
             Classify(item) == ItemClassification.Keep ? GetMatchingRule(item) : null;
 
+        internal static bool RuleNameMatches(string itemName, int itemId, string ruleName, bool exact)
+        {
+            if (string.IsNullOrWhiteSpace(itemName) || string.IsNullOrWhiteSpace(ruleName)) return false;
+            if (int.TryParse(ruleName, out int id)) return itemId == id;
+            return exact
+                ? string.Equals(itemName, ruleName, StringComparison.OrdinalIgnoreCase)
+                : ruleName.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries)
+                    .All(word => itemName.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
         private Rule GetMatchingRule(Item item)
         {
             if (item == null || Rules == null) return null;
@@ -1399,12 +1418,8 @@ namespace ManagerLoot
             {
                 // First matching name/ID retains the original ordered-rule precedence.
                 Rule rule = Rules.FirstOrDefault(r =>
-                    !string.IsNullOrWhiteSpace(r.Name) &&
-                    (int.TryParse(r.Name, out int id) ? item.Id == id :
-                    string.Equals(r.Exact, "true", StringComparison.OrdinalIgnoreCase)
-                        ? string.Equals(item.Name, r.Name, StringComparison.OrdinalIgnoreCase)
-                        : r.Name.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries)
-                            .All(word => item.Name.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0)));
+                    RuleNameMatches(item.Name, item.Id, r.Name,
+                        string.Equals(r.Exact, "true", StringComparison.OrdinalIgnoreCase)));
                 if (rule == null || !int.TryParse(rule.Quantity, out int quantity) || quantity < 1 ||
                     !int.TryParse(rule.Lql, out int low) || !int.TryParse(rule.Hql, out int high) ||
                     item.QualityLevel < low || item.QualityLevel > high) return null;

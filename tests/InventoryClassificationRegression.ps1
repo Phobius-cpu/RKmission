@@ -14,6 +14,16 @@ $operationalName = $policy.GetMethod('IsBuiltInOperationalName',
 $bagFamily = $assembly.GetType('ManagerLoot.ManagedBagFamily', $true)
 $protectedBag = $bagFamily.GetMethod('IsProtected',
     [System.Reflection.BindingFlags]'Public,Static')
+$managerLoot = $assembly.GetType('ManagerLoot.ManagerLoot', $true)
+$sameProtectedBagItem = $managerLoot.GetMethod('SameProtectedBagItem',
+    [System.Reflection.BindingFlags]'NonPublic,Static')
+$ruleNameMatches = $managerLoot.GetMethod('RuleNameMatches',
+    [System.Reflection.BindingFlags]'NonPublic,Static')
+$coreAssembly = [System.Reflection.Assembly]::LoadFrom((Join-Path (Split-Path $dll) 'AOSharp.Core.dll'))
+$commonAssembly = [System.Reflection.Assembly]::LoadFrom((Join-Path (Split-Path $dll) 'AOSharp.Common.dll'))
+$itemType = $coreAssembly.GetType('AOSharp.Core.Inventory.Item', $true)
+$identityType = $commonAssembly.GetType('AOSharp.Common.GameData.Identity', $true)
+$identityKind = $commonAssembly.GetType('AOSharp.Common.GameData.IdentityType', $true)
 $policyInstance = [System.Activator]::CreateInstance($policy, $true)
 
 function Assert-Equal($actual, $expected, $case) {
@@ -31,6 +41,27 @@ Assert-Equal ($protectedBag.Invoke($null, @('RKM Sell 01'))) $false 'Sell bag is
 Assert-Equal ($policy.GetProperty('AutomaticSellTriggerItems').GetValue($policyInstance)) 15 'automatic Sell pressure defaults to 15 Rejects'
 Assert-Equal ($policy.GetProperty('AutomaticLogisticsItemLimit').GetValue($policyInstance)) 20 'automatic logistics defaults to 20 items per destination'
 
+$none = [System.Activator]::CreateInstance($identityType, @([System.Enum]::Parse($identityKind, 'None'), 0))
+$slotA = [System.Activator]::CreateInstance($identityType, @([System.Enum]::Parse($identityKind, 'Inventory'), 64))
+$slotB = [System.Activator]::CreateInstance($identityType, @([System.Enum]::Parse($identityKind, 'Inventory'), 65))
+$usable = [System.Activator]::CreateInstance($identityType, @([System.Enum]::Parse($identityKind, 'WeaponInstance'), 12345))
+function New-TestItem($identity, $slot) {
+    $item = [System.Runtime.Serialization.FormatterServices]::GetUninitializedObject($itemType)
+    $itemType.GetField('UniqueIdentity').SetValue($item, $identity)
+    $itemType.GetField('Slot').SetValue($item, $slot)
+    return $item
+}
+$usableOtherSlot = New-TestItem $usable $slotB
+$usableSource = New-TestItem $usable $slotA
+$noneStored = New-TestItem $none $slotA
+$noneSource = New-TestItem $none $slotB
+Assert-Equal ($sameProtectedBagItem.Invoke($null, @($usableSource, $usableOtherSlot))) $true 'usable identity proves protected-bag membership across snapshots'
+Assert-Equal ($sameProtectedBagItem.Invoke($null, @($noneSource, $noneStored))) $false 'unrelated None identity does not inherit protected-bag membership'
+Assert-Equal ($sameProtectedBagItem.Invoke($null, @($noneStored, $noneStored))) $true 'actual protected-bag snapshot item remains protected with None identity'
+Assert-Equal ($ruleNameMatches.Invoke($null, @('Pharma Tech Tutoring Device', 55682, 'Tutoring Device', $false))) $true 'partial Tutoring Device rule matches live item'
+Assert-Equal ($ruleNameMatches.Invoke($null, @('Burst of Speed Stim', 85368, 'Burst of Speed Stim', $true))) $true 'Burst of Speed Stim exact rule matches live item'
+Assert-Equal ($ruleNameMatches.Invoke($null, @('Bow Construction Kit', 137213, 'Tutoring Device', $false))) $false 'unlisted live item does not match unrelated rule'
+
 # AOSharp inventory and Item construction require a running AO client. Check
 # the branch relationship in source so an unlisted Keep-bag item still wins
 # over a removed or nonmatching ManagerLoot rule.
@@ -43,8 +74,10 @@ if ($reasonStart -lt 0 -or $classifyStart -lt 0 -or $classifyEnd -lt 0) {
 }
 $reason = $source.Substring($reasonStart, $classifyStart - $reasonStart)
 $classify = $source.Substring($classifyStart, $classifyEnd - $classifyStart)
-if (-not $reason.Contains('ManagedBagFamily.IsProtected(bag.Name)') -or
-    -not $reason.Contains('stored.UniqueIdentity == item.UniqueIdentity') -or
+if (-not $source.Contains('ManagedBagFamily.IsProtected(bag.Name)') -or
+    -not $source.Contains('HasUsableIdentity(item.UniqueIdentity)') -or
+    -not $source.Contains('ReferenceEquals(stored, item)') -or
+    -not $reason.Contains('ProtectedBagContains(item)') -or
     $reason.Contains('GetMatchingRule(') -or
     $classify.IndexOf('ProtectionReason(item)') -gt $classify.IndexOf('GetMatchingRule(item)')) {
     throw 'Keep-bag content protection no longer precedes ManagerLoot rules.'
