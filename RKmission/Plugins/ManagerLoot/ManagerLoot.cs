@@ -129,6 +129,29 @@ namespace ManagerLoot
         private readonly List<MissionItemReservation> _missionItemReservations =
             new List<MissionItemReservation>();
         private readonly HashSet<MissionIdentity> _selectedItems = new HashSet<MissionIdentity>();
+        private const double LootWindowDwellSeconds = 1.5;
+        private const double ListedMoveConfirmationSeconds = 2.0;
+        private const int MaxListedMoveAttempts = 2;
+        private sealed class ListedItemTransfer
+        {
+            public MissionIdentity Identity;
+            public MissionIdentity SourceSlot;
+            public int Id, LowId, HighId, QualityLevel, InventoryCountBefore, Attempts;
+            public string Name;
+            public Rule Rule;
+            public bool Objective, Verified, NonActionable;
+            public double SentAt;
+        }
+        private sealed class SourceAcquisition
+        {
+            public MissionIdentity Source;
+            public double OpenedAt;
+            public readonly List<ListedItemTransfer> Items = new List<ListedItemTransfer>();
+            public int Current;
+            public bool DwellLogged, CapacityLogged, SkippedNoCapacity;
+        }
+        private SourceAcquisition _sourceAcquisition;
+        private readonly List<ListedItemTransfer> _verifiedSelectedDetails = new List<ListedItemTransfer>();
         private const int MaxMissionLockpickAttempts = 3;
         private const double LockpickRetryDelaySeconds = 1;
         private readonly Dictionary<MissionIdentity, LockpickAttempt> _missionLockpicks = new Dictionary<MissionIdentity, LockpickAttempt>();
@@ -179,13 +202,13 @@ namespace ManagerLoot
             _missionRoomTraversals++;
         }
 
-        public void EndMissionRoom()
+        public void EndMissionRoom(bool restoreUserState = true)
         {
             MissionRoomId = -1;
             _pendingMissionLoot = MissionIdentity.None; // Explicitly release ownership on stop/exit.
-            if (_enabledForMission && _settings != null && _settings["Enable"].AsBool())
+            if (restoreUserState && _enabledForMission && _settings != null && _settings["Enable"].AsBool())
                 Helper_Enable();
-            _enabledForMission = false;
+            if (restoreUserState) _enabledForMission = false;
         }
 
         public void ResetMissionLootSkips()
@@ -206,6 +229,7 @@ namespace ManagerLoot
             MissionObjectiveContainer = MissionIdentity.None;
             CurrentCorpse = null;
             CorpseContainer = null;
+            _sourceAcquisition = null;
             CurrentProcess = ProcessState.Load_Backpacks;
         }
         private bool ReservedMissionLoot(MissionIdentity identity) => MissionLootReserved?.Invoke(identity) == true;
@@ -311,6 +335,8 @@ namespace ManagerLoot
             if (ProtectionReason(item) != null)
                 return ItemClassification.Protected;
             if (_selectedItems.Contains(item.UniqueIdentity)) return ItemClassification.Keep;
+            if (!HasUsableIdentity(item.UniqueIdentity) &&
+                _verifiedSelectedDetails.Any(selected => SameItemDetails(item, selected))) return ItemClassification.Keep;
             if (_settings == null || Rules == null) return ItemClassification.Unknown;
             bool listed = GetMatchingRule(item) != null;
             if (newlyAcquiredDuringMission) return listed ? ItemClassification.Keep : ItemClassification.Reject;
@@ -463,6 +489,196 @@ namespace ManagerLoot
                 SetMissionSource(CorpseContainer.Identity, MissionSourceState.Completed);
                 if (_pendingMissionLoot == CorpseContainer.Identity) _pendingMissionLoot = MissionIdentity.None;
             }
+        }
+
+        private static bool SameItemDetails(Item item, ListedItemTransfer selected) => item != null &&
+            item.Id == selected.Id && item.LowId == selected.LowId && item.HighId == selected.HighId &&
+            item.QualityLevel == selected.QualityLevel &&
+            string.Equals(item.Name, selected.Name, StringComparison.Ordinal);
+
+        private static bool HasUsableIdentity(MissionIdentity identity) =>
+            identity != MissionIdentity.None && identity.Type != IdentityType.None && identity.Instance != 0;
+
+        private bool SameSelectedItem(Item item, ListedItemTransfer selected) => item != null &&
+            (HasUsableIdentity(selected.Identity) && item.UniqueIdentity == selected.Identity ||
+             !HasUsableIdentity(selected.Identity) && item.Slot == selected.SourceSlot && SameItemDetails(item, selected));
+
+        private int MatchingInventoryCount(ListedItemTransfer selected) => Inventory.Items.Count(item =>
+            item.Slot.Type == IdentityType.Inventory && item.UniqueIdentity.Type != IdentityType.Container &&
+            SameItemDetails(item, selected));
+
+        private Item AcquiredInventoryItem(ListedItemTransfer selected) => Inventory.Items.LastOrDefault(item =>
+            item.Slot.Type == IdentityType.Inventory && item.UniqueIdentity.Type != IdentityType.Container &&
+            (HasUsableIdentity(selected.Identity) && item.UniqueIdentity == selected.Identity || SameItemDetails(item, selected)));
+
+        private void BeginSourceAcquisition(Container container)
+        {
+            _sourceAcquisition = new SourceAcquisition { Source = container.Identity, OpenedAt = Time.AONormalTime };
+            var oneEachNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var ruleSelections = new Dictionary<Rule, int>();
+            foreach (Item item in container.Items ?? Enumerable.Empty<Item>())
+            {
+                bool objective = container.Identity == MissionObjectiveContainer;
+                Rule rule = GetMatchingRule(item);
+                bool selected = objective || Classify(item) == ItemClassification.Keep;
+                if (!selected) continue;
+
+                if (!objective && rule != null)
+                {
+                    if (string.Equals(rule.OneEach, "true", StringComparison.OrdinalIgnoreCase) &&
+                        !oneEachNames.Add(item.Name)) continue;
+                    if (int.TryParse(rule.Quantity, out int quantity) && quantity != 999)
+                    {
+                        int alreadyOwned = Inventory.Items.Count(existing =>
+                            existing.Slot.Type == IdentityType.Inventory && GetMatchingRule(existing) == rule);
+                        int selectedForRule = ruleSelections.TryGetValue(rule, out int count) ? count : 0;
+                        if (alreadyOwned + selectedForRule >= quantity) continue;
+                        ruleSelections[rule] = selectedForRule + 1;
+                    }
+                }
+
+                var transfer = new ListedItemTransfer
+                {
+                    Identity = item.UniqueIdentity,
+                    SourceSlot = item.Slot,
+                    Id = item.Id,
+                    LowId = item.LowId,
+                    HighId = item.HighId,
+                    QualityLevel = item.QualityLevel,
+                    Name = item.Name,
+                    Rule = rule,
+                    Objective = objective
+                };
+                transfer.InventoryCountBefore = MatchingInventoryCount(transfer);
+                _sourceAcquisition.Items.Add(transfer);
+            }
+            Chat.WriteLine($"RKMission: ManagerLoot selected {_sourceAcquisition.Items.Count}/{container.Items?.Count ?? 0} item(s) from {container.Identity}.");
+        }
+
+        private bool SourceStillContains(ListedItemTransfer selected) => CorpseContainer?.Items != null &&
+            CorpseContainer.Items.Any(item => SameSelectedItem(item, selected));
+
+        private void RecordVerifiedTransfer(ListedItemTransfer selected)
+        {
+            selected.Verified = true;
+            MissionLootProgress++;
+            Item acquired = AcquiredInventoryItem(selected);
+            if (acquired != null)
+            {
+                if (HasUsableIdentity(acquired.UniqueIdentity)) _selectedItems.Add(acquired.UniqueIdentity);
+                if (!HasUsableIdentity(acquired.UniqueIdentity) &&
+                    !_verifiedSelectedDetails.Any(existing => SameItemDetails(acquired, existing)))
+                    _verifiedSelectedDetails.Add(selected);
+                if (selected.Objective && HasUsableIdentity(acquired.UniqueIdentity))
+                    _objectiveLootItems.Add(acquired.UniqueIdentity);
+                if (!selected.Objective && selected.Rule != null)
+                {
+                    UpdateRule(selected.Rule);
+                    if (!string.IsNullOrWhiteSpace(selected.Rule.BagName))
+                    {
+                        Container bag = Inventory.Backpacks
+                            .Where(candidate => ManagedBagFamily.Matches(candidate.Name, selected.Rule.BagName))
+                            .OrderBy(candidate => ManagedBagFamily.Order(candidate.Name, selected.Rule.BagName))
+                            .ThenBy(candidate => candidate.Name, StringComparer.OrdinalIgnoreCase)
+                            .FirstOrDefault(candidate => candidate.Items.Count < 21);
+                        if (bag != null) acquired.MoveToContainer(bag);
+                    }
+                }
+            }
+            Chat.WriteLine($"RKMission: Verified listed-item transfer '{selected.Name}', id={selected.Id}, QL={selected.QualityLevel} from {_sourceAcquisition.Source}.");
+            _sourceAcquisition.Current++;
+        }
+
+        private bool ProcessMissionSourceAcquisition()
+        {
+            if (_sourceAcquisition == null || CorpseContainer == null) return false;
+            if (_sourceAcquisition.Current < _sourceAcquisition.Items.Count)
+            {
+                ListedItemTransfer selected = _sourceAcquisition.Items[_sourceAcquisition.Current];
+                bool leftSource = !SourceStillContains(selected);
+                bool appearedInInventory = MatchingInventoryCount(selected) > selected.InventoryCountBefore ||
+                    HasUsableIdentity(selected.Identity) && Inventory.Items.Any(item => item.UniqueIdentity == selected.Identity);
+                if (leftSource && appearedInInventory)
+                {
+                    RecordVerifiedTransfer(selected);
+                    return true;
+                }
+
+                if (selected.Attempts == 0 && Inventory.NumFreeSlots <= 1)
+                {
+                    bool critical = selected.Objective || IsMissionCriticalLoot(_sourceAcquisition.Source);
+                    if (critical)
+                    {
+                        SetMissionSource(_sourceAcquisition.Source, MissionSourceState.CriticalBlocked);
+                        if (!_sourceAcquisition.CapacityLogged)
+                            Chat.WriteLine($"RKMission: Critical loot {_sourceAcquisition.Source} remains held because the main inventory has no safe free slot.");
+                        _sourceAcquisition.CapacityLogged = true;
+                        return true;
+                    }
+                    _sourceAcquisition.SkippedNoCapacity = true;
+                    SetMissionSource(_sourceAcquisition.Source, MissionSourceState.SkippedNoCapacity);
+                    foreach (ListedItemTransfer remaining in _sourceAcquisition.Items.Skip(_sourceAcquisition.Current))
+                        remaining.NonActionable = true;
+                    _sourceAcquisition.Current = _sourceAcquisition.Items.Count;
+                    if (!_sourceAcquisition.CapacityLogged)
+                        Chat.WriteLine($"RKMission: Optional loot {_sourceAcquisition.Source} safely skipped because the main inventory has no safe free slot.");
+                    _sourceAcquisition.CapacityLogged = true;
+                    return true;
+                }
+
+                if (selected.Attempts == 0 || Time.AONormalTime >= selected.SentAt + ListedMoveConfirmationSeconds)
+                {
+                    if (selected.Attempts >= MaxListedMoveAttempts)
+                    {
+                        bool critical = selected.Objective || IsMissionCriticalLoot(_sourceAcquisition.Source);
+                        if (critical)
+                        {
+                            SetMissionSource(_sourceAcquisition.Source, MissionSourceState.CriticalBlocked);
+                            if (!selected.NonActionable)
+                                Chat.WriteLine($"RKMission: Listed-item transfer timed out for critical '{selected.Name}', id={selected.Id}, QL={selected.QualityLevel}; source remains held.");
+                            selected.NonActionable = true;
+                            return true;
+                        }
+                        selected.NonActionable = true;
+                        Chat.WriteLine($"RKMission: Listed-item transfer remained ambiguous for '{selected.Name}', id={selected.Id}, QL={selected.QualityLevel}; safely skipping after {selected.Attempts} bounded attempt(s).");
+                        _sourceAcquisition.Current++;
+                        return true;
+                    }
+
+                    Item sourceItem = CorpseContainer.Items?.FirstOrDefault(item => SameSelectedItem(item, selected));
+                    if (sourceItem == null)
+                    {
+                        if (Time.AONormalTime < _sourceAcquisition.OpenedAt + ListedMoveConfirmationSeconds)
+                            return true;
+                        bool critical = selected.Objective || IsMissionCriticalLoot(_sourceAcquisition.Source);
+                        if (critical)
+                        {
+                            SetMissionSource(_sourceAcquisition.Source, MissionSourceState.CriticalBlocked);
+                            if (!selected.NonActionable)
+                                Chat.WriteLine($"RKMission: Critical listed item '{selected.Name}', id={selected.Id}, QL={selected.QualityLevel} disappeared before a verified move; source remains held.");
+                            selected.NonActionable = true;
+                            return true;
+                        }
+                        selected.NonActionable = true;
+                        Chat.WriteLine($"RKMission: Listed item '{selected.Name}', id={selected.Id}, QL={selected.QualityLevel} disappeared without inventory evidence; safely classifying it non-actionable.");
+                        _sourceAcquisition.Current++;
+                        return true;
+                    }
+                    selected.Attempts++;
+                    selected.SentAt = Time.AONormalTime;
+                    Chat.WriteLine($"RKMission: Moving listed item '{selected.Name}', id={selected.Id}, QL={selected.QualityLevel} from {_sourceAcquisition.Source} (attempt {selected.Attempts}/{MaxListedMoveAttempts}).");
+                    sourceItem.MoveToInventory();
+                }
+                return true;
+            }
+
+            if (Time.AONormalTime < _sourceAcquisition.OpenedAt + LootWindowDwellSeconds) return true;
+            if (!_sourceAcquisition.DwellLogged)
+            {
+                _sourceAcquisition.DwellLogged = true;
+                Chat.WriteLine($"RKMission: Loot-window visual dwell complete for {_sourceAcquisition.Source}.");
+            }
+            return false;
         }
 
         private void TrackMissionLoot(MissionIdentity identity, int roomId)
@@ -770,6 +986,7 @@ namespace ManagerLoot
             _observedContainerCount = container.Items?.Count ?? 0;
             CurrentCorpse = DynelManager.GetDynel(container.Identity);
             SetMissionSource(container.Identity, MissionSourceState.Looting);
+            if (MissionRoomId >= 0) BeginSourceAcquisition(container);
             if (_missionLockpicks.TryGetValue(container.Identity, out LockpickAttempt lockpick))
                 lockpick.Outcome = LockpickOutcome.Success;
 
@@ -963,6 +1180,12 @@ namespace ManagerLoot
                     case ProcessState.Move_To_Inventory:
                         if (Spell.HasPendingCast || Item.HasPendingUse || PerkAction.List.Any(perk => perk.IsExecuting)) return;
                         if (CorpseContainer == null) { CurrentProcess = ProcessState.Open_Corpse; break; }
+                        if (MissionRoomId >= 0 && _sourceAcquisition != null)
+                        {
+                            if (ProcessMissionSourceAcquisition()) return;
+                            CurrentProcess = ProcessState.Close_Corpse;
+                            break;
+                        }
                         var contents = CorpseContainer.Items;
                         if (contents == null) return; // Keep pending ownership until data is available.
                         if (contents.Count < _observedContainerCount) MissionLootProgress++;
@@ -1074,11 +1297,26 @@ namespace ManagerLoot
                         break;
                     case ProcessState.Close_Corpse:
                         if (Item.HasPendingUse) return;
-                        FinishMissionContainer();
+                        if (MissionRoomId >= 0 && _sourceAcquisition != null &&
+                            Time.AONormalTime < _sourceAcquisition.OpenedAt + LootWindowDwellSeconds) return;
+                        int verifiedTransfers = _sourceAcquisition?.Items.Count(item => item.Verified) ?? 0;
+                        int selectedTransfers = _sourceAcquisition?.Items.Count ?? 0;
+                        int unselectedLeftovers = Math.Max(0, (CorpseContainer?.Items?.Count ?? 0) -
+                            (_sourceAcquisition?.Items.Count(item => !item.Verified && !item.NonActionable) ?? 0));
+                        if (MissionRoomId >= 0 && _sourceAcquisition != null)
+                            Chat.WriteLine($"RKMission: Loot source {_sourceAcquisition.Source} settled after {verifiedTransfers}/{selectedTransfers} selected transfer(s); {unselectedLeftovers} unselected/non-actionable item(s) ignored.");
+                        if (_sourceAcquisition?.SkippedNoCapacity == true)
+                        {
+                            _finishedMissionLoot.Add(_sourceAcquisition.Source);
+                            if (_pendingMissionLoot == _sourceAcquisition.Source) _pendingMissionLoot = MissionIdentity.None;
+                        }
+                        else
+                            FinishMissionContainer();
                         //Chat.WriteLine("Closing corpse and clearing references.", ChatColor.Yellow);
                         Dynel closingCorpse = CurrentCorpse;
                         CurrentCorpse = null;
                         CorpseContainer = null;
+                        _sourceAcquisition = null;
                         CurrentProcess = ProcessState.Open_Corpse;
                         if (closingCorpse != null && closingCorpse.Position.DistanceFrom(DynelManager.LocalPlayer.Position) < 6)
                             closingCorpse.Use();

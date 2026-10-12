@@ -2199,7 +2199,7 @@ namespace RKmission
                 Started = now, PhaseStarted = now, LastProgress = now,
                 BestDistance = float.MaxValue
             };
-            _loot.EndMissionRoom();
+            _loot.EndMissionRoom(restoreUserState: false);
             _destination = null;
             _observedRoom = -1;
             _say($"Transition {source}->{target}: source approach {edge.SourceApproach}, door center {edge.DoorCenter}, " +
