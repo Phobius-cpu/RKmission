@@ -30,7 +30,7 @@ Assert ($dungeon.Contains('CarriedItems.FindLockpick()')) 'locked doors use shar
 Assert ($loot.Contains('RKmission.CarriedItems.FindLockpick()')) 'locked chests use shared carried lookup'
 Assert ($ready.Contains('foreach (Item item in CarriedItems.All())')) 'recovery uses shared carried enumeration'
 Assert ($cycle.Contains('Phase.NormalizeInventory') -and $cycle.Contains('managed inventory normalization failed')) 'normalization gates destructive planning'
-Assert ($cycle.Contains('bank-eligible Keep=0') -and $cycle.Contains('Keep in RK Junk=0')) 'final reconciliation checks stranded Keep'
+Assert ($cycle.Contains('unprocessed planned bank Keep=0') -and $cycle.Contains('Keep in RK Junk=0')) 'final reconciliation checks stranded Keep'
 Assert ((Get-Content (Join-Path $root 'RKmission/ManagedInventoryNormalizer.cs') -Raw).Contains('staging bank-eligible Keep')) 'bagged bank fallback is staged to main before deposit'
 $normalizer = Get-Content (Join-Path $root 'RKmission/ManagedInventoryNormalizer.cs') -Raw
 Assert ($normalizer.Contains('private bool _toMain, _pending;') -and
@@ -39,4 +39,18 @@ Assert ($normalizer.Contains('private bool _toMain, _pending;') -and
 Assert ($normalizer.Contains('StagedForBank >= _maximumBankStages') -and
     $cycle.Contains('_normalizer.Start(_maximumItems)')) 'bank staging respects the requested automatic-cycle item limit'
 Assert ($cycle.Contains('BaggedBankEligibleCount()')) 'final reconciliation detects bank-eligible Keep still inside bags'
+Assert ($loot.Contains('PreserveVerifiedKeepOwnership(Item source, Item destination)') -and
+    $loot.Contains('item.Slot == selected.SourceSlot') -and
+    $normalizer.Contains('_loot.PreserveVerifiedKeepOwnership(_sourceItem, destinationItem)')) 'verified normalization rebinds Keep by usable identity or exact destination slot/details'
+Assert ($normalizer.Contains('LowId == _itemLowId') -and $normalizer.Contains('HighId == _itemHighId') -and
+    $normalizer.Contains('_destinationSlotsBefore')) 'normalization uses exact detail and one-item destination evidence'
+Assert ($normalizer.Contains('bank-stage limit') -and $normalizer.Contains('shop execution is blocked')) 'bank cap cannot leave Keep in Junk and proceed to sale'
+Assert ($cycle.Contains('planned bank Keep mismatch at target') -and
+    $cycle.Contains('keep < _plannedBankKeeps')) 'bank target cannot silently skip a vanished planned Keep'
+Assert (([regex]::Matches($cycle, '_normalizer\.MisplacedKeepCount\(\)').Count -ge 3) -and
+    $cycle.Contains('shop phase held:') -and $cycle.Contains('shop phase held after snapshot refresh:')) 'shop is gated on zero misplaced Keep before and after travel'
+Assert ($cycle.Contains('_expectedRemainingRejects = rejectEligible - _plannedRejects') -and
+    $cycle.Contains('extra Reject beyond requested batch={saleEligible} (expected)')) 'bounded sale reconciliation accepts Rejects beyond cycle N'
+Assert ($cycle.Contains('_expectedRemainingBankKeeps = bankEligible - _plannedBankKeeps') -and
+    $cycle.Contains('unprocessedPlannedBankKeeps')) 'bounded bank reconciliation distinguishes planned and extra Keep'
 Assert ($route.Contains('DynelManager.LocalPlayer.MovementState == MovementState.Fly')) 'walking routes reject Fly state at start and return'

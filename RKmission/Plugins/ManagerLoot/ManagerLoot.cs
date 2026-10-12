@@ -152,6 +152,7 @@ namespace ManagerLoot
         }
         private SourceAcquisition _sourceAcquisition;
         private readonly List<ListedItemTransfer> _verifiedSelectedDetails = new List<ListedItemTransfer>();
+        private readonly List<ListedItemTransfer> _verifiedNormalizedKeeps = new List<ListedItemTransfer>();
         private const int MaxMissionLockpickAttempts = 3;
         private const double LockpickRetryDelaySeconds = 1;
         private readonly Dictionary<MissionIdentity, LockpickAttempt> _missionLockpicks = new Dictionary<MissionIdentity, LockpickAttempt>();
@@ -350,6 +351,9 @@ namespace ManagerLoot
             if (HasUsableIdentity(item.UniqueIdentity) && _selectedItems.Contains(item.UniqueIdentity))
                 return ItemClassification.Keep;
             if (!HasUsableIdentity(item.UniqueIdentity) &&
+                _verifiedNormalizedKeeps.Any(selected => item.Slot == selected.SourceSlot &&
+                    SameItemDetails(item, selected))) return ItemClassification.Keep;
+            if (!HasUsableIdentity(item.UniqueIdentity) &&
                 _verifiedSelectedDetails.Any(selected => SameItemDetails(item, selected))) return ItemClassification.Keep;
             if (_settings == null || Rules == null) return ItemClassification.Unknown;
             bool listed = GetMatchingRule(item) != null;
@@ -515,6 +519,36 @@ namespace ManagerLoot
 
         private static bool HasUsableIdentity(MissionIdentity identity) =>
             identity != MissionIdentity.None && identity.Type != IdentityType.None && identity.Instance != 0;
+
+        // Called only after RKMission has observed an exact one-item source
+        // departure and destination arrival. None identities remain scoped to
+        // the verified destination slot so identical unrelated items do not
+        // inherit Keep ownership.
+        internal bool PreserveVerifiedKeepOwnership(Item source, Item destination)
+        {
+            if (source == null || destination == null || source.Id != destination.Id ||
+                source.LowId != destination.LowId || source.HighId != destination.HighId ||
+                source.QualityLevel != destination.QualityLevel ||
+                !string.Equals(source.Name, destination.Name, StringComparison.Ordinal)) return false;
+            if (HasUsableIdentity(destination.UniqueIdentity))
+            {
+                RememberSelectedIdentity(destination.UniqueIdentity);
+                return true;
+            }
+            _verifiedNormalizedKeeps.RemoveAll(existing => existing.SourceSlot == destination.Slot);
+            _verifiedNormalizedKeeps.Add(new ListedItemTransfer
+            {
+                Identity = destination.UniqueIdentity,
+                SourceSlot = destination.Slot,
+                Id = destination.Id,
+                LowId = destination.LowId,
+                HighId = destination.HighId,
+                QualityLevel = destination.QualityLevel,
+                Name = destination.Name,
+                Verified = true
+            });
+            return true;
+        }
 
         private void RememberSelectedIdentity(MissionIdentity identity)
         {

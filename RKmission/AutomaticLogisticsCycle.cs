@@ -41,7 +41,8 @@ namespace RKmission
         private DateTime _inventoryLoadStarted;
         private DateTime _groundingStarted;
         private string _site;
-        private int _maximumItems, _stored, _sold, _plannedRejects;
+        private int _maximumItems, _stored, _sold, _plannedBankKeeps, _expectedRemainingBankKeeps;
+        private int _plannedRejects, _expectedRemainingRejects;
         private bool _bankPlanned, _shopPlanned, _inventoryLoadRequested, _missionCycleRun;
         private bool _groundRequested;
         private string _deferredFailure;
@@ -100,7 +101,8 @@ namespace RKmission
                 return false;
             }
             _stored = _sold = 0;
-            _plannedRejects = 0;
+            _plannedBankKeeps = _expectedRemainingBankKeeps = 0;
+            _plannedRejects = _expectedRemainingRejects = 0;
             _bankPlanned = _shopPlanned = false;
             _inventoryLoadRequested = false;
             _inventoryLoadStarted = DateTime.UtcNow;
@@ -196,12 +198,15 @@ namespace RKmission
                     _normalizer.Tick();
                     if (_normalizer.Failed) { Fail("managed inventory normalization failed: " + _normalizer.Failure); return; }
                     if (_normalizer.IsActive) return;
-                    int keepPlan = _bank.CountStorableKeepItems();
-                    int rejectPlan = _shop.CountEligibleRejectItems();
-                    _plannedRejects = rejectPlan;
-                    _bankPlanned = keepPlan > 0;
-                    _shopPlanned = rejectPlan > 0;
-                    _say($"Automatic logistics plan at {_site}: bank Keep={keepPlan}, shop Reject={rejectPlan}, " +
+                    int bankEligible = _bank.CountStorableKeepItems();
+                    int rejectEligible = _shop.CountEligibleRejectItems();
+                    _plannedBankKeeps = Math.Min(_maximumItems, bankEligible);
+                    _expectedRemainingBankKeeps = bankEligible - _plannedBankKeeps;
+                    _plannedRejects = Math.Min(_maximumItems, rejectEligible);
+                    _expectedRemainingRejects = rejectEligible - _plannedRejects;
+                    _bankPlanned = _plannedBankKeeps > 0;
+                    _shopPlanned = _plannedRejects > 0;
+                    _say($"Automatic logistics plan at {_site}: bank Keep={_plannedBankKeeps}, shop Reject={_plannedRejects}, " +
                         $"limit={_maximumItems} per destination; {_shop.SellInventorySummary()}.");
                     if (_bankPlanned) _phase = Phase.StartBank;
                     else if (_shopPlanned) _phase = Phase.StartShop;
@@ -215,10 +220,12 @@ namespace RKmission
                 case Phase.TravelBank:
                     if (RouteFailed("bank outward route")) return;
                     if (!_route.AtTarget) return;
-                    int keep = Math.Min(_maximumItems, _bank.CountStorableKeepItems());
-                    if (keep > 0)
+                    int keep = _bank.CountStorableKeepItems();
+                    if (keep < _plannedBankKeeps)
+                    { Fail($"planned bank Keep mismatch at target: planned {_plannedBankKeeps}, now classified {keep}; bank transaction was held"); return; }
+                    if (_plannedBankKeeps > 0)
                     {
-                        if (!_bank.StartStore(keep, true))
+                        if (!_bank.StartStore(_plannedBankKeeps, true))
                         { Fail("bank storage did not start: " + (_bank.LastFailure ?? "unknown reason")); return; }
                         _phase = Phase.Bank;
                     }
@@ -239,6 +246,9 @@ namespace RKmission
                     else BeginReconciliation();
                     return;
                 case Phase.StartShop:
+                    int unsafeKeep = _normalizer.MisplacedKeepCount();
+                    if (unsafeKeep > 0)
+                    { Fail($"shop phase held: {unsafeKeep} known Keep item(s) remain in RK Junk"); return; }
                     if (!_route.Start(_site, "shop", true))
                     { Fail("shop route did not start: " + (_route.LastFailure ?? "unknown reason")); return; }
                     _phase = Phase.TravelShop;
@@ -279,6 +289,9 @@ namespace RKmission
                         return;
                     }
                     if (DateTime.UtcNow - _inventoryLoadStarted < TimeSpan.FromMilliseconds(250)) return;
+                    int shopUnsafeKeep = _normalizer.MisplacedKeepCount();
+                    if (shopUnsafeKeep > 0)
+                    { Fail($"shop phase held after snapshot refresh: {shopUnsafeKeep} known Keep item(s) remain in RK Junk"); return; }
                     int reject = Math.Min(_maximumItems, _shop.CountEligibleRejectItems());
                     if (reject > 0)
                     {
@@ -322,11 +335,15 @@ namespace RKmission
                     int baggedBankable = _normalizer.BaggedBankEligibleCount();
                     int misplaced = _normalizer.MisplacedKeepCount();
                     int saleEligible = _shop.CountEligibleRejectItems();
-                    if (_normalizer.HasPendingTransfer || bankable > 0 || baggedBankable > 0 || misplaced > 0 ||
-                        (_plannedRejects <= _maximumItems && saleEligible > 0))
-                    { Fail($"final reconciliation held: bank-eligible Keep in main={bankable}, in bags={baggedBankable}, Keep in RK Junk={misplaced}, sale-eligible requested Reject={saleEligible}, normalization pending={_normalizer.HasPendingTransfer}"); return; }
-                    _say($"Post-logistics reconciliation verified at {_site}: bank-eligible Keep=0, Keep in RK Junk=0, " +
-                        $"requested RK Junk Reject remaining={saleEligible}; no transfer or destructive action is pending.");
+                    int unprocessedPlannedBankKeeps = Math.Max(0, bankable - _expectedRemainingBankKeeps);
+                    int unprocessedRequestedRejects = Math.Max(0, saleEligible - _expectedRemainingRejects);
+                    if (_normalizer.HasPendingTransfer || baggedBankable > 0 || misplaced > 0 ||
+                        _stored < _plannedBankKeeps || unprocessedPlannedBankKeeps > 0 ||
+                        _sold < _plannedRejects || unprocessedRequestedRejects > 0)
+                    { Fail($"final reconciliation held: bank-eligible Keep in main={bankable}, in bags={baggedBankable}, Keep in RK Junk={misplaced}, unprocessed planned bank Keep={unprocessedPlannedBankKeeps}, extra bank Keep beyond requested batch={Math.Min(bankable, _expectedRemainingBankKeeps)}, unprocessed requested Reject={unprocessedRequestedRejects}, extra Reject beyond requested batch={Math.Min(saleEligible, _expectedRemainingRejects)}, normalization pending={_normalizer.HasPendingTransfer}"); return; }
+                    _say($"Post-logistics reconciliation verified at {_site}: Keep in RK Junk=0, " +
+                        $"unprocessed planned bank Keep=0, extra bank-eligible Keep beyond requested batch={bankable} (expected), " +
+                        $"unprocessed requested Reject=0, extra Reject beyond requested batch={saleEligible} (expected); no transfer or destructive action is pending.");
                     Complete();
                     return;
             }
