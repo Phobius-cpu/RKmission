@@ -106,7 +106,7 @@ namespace RKmission
             _bankTransactions = new BankTransactions(_logisticsNavigator, _loot, _inventory, Say);
             _shopSale = new ShopSaleTest(_logisticsNavigator, _loot, _inventory, Say);
             _automaticLogistics = new AutomaticLogisticsCycle(_logisticsNavigator,
-                _bankTransactions, _shopSale, Say);
+                _bankTransactions, _shopSale, _loot, _inventory, Say);
             _deathRecovery = new DeathRecoveryController(_readiness, _movement, Say);
             _travel = new LocalMissionTravel(Say, pluginDir);
             _warp = new ScottyboiWarpProvider(pluginDir, Say, _movement);

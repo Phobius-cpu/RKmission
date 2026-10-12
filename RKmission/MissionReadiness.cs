@@ -245,10 +245,7 @@ namespace RKmission
             var actions = new List<RecoveryAction>();
             // Shared.Kits also checks carried backpacks for usable recharge
             // items; retain the effect and skill checks below before use.
-            var carried = Inventory.Items.Where(x => x.Slot.Type == IdentityType.Inventory)
-                .Concat(Inventory.Backpacks.SelectMany(bp => Inventory.GetContainerItems(bp.Identity)))
-                .Where(x => x.UniqueIdentity.Type != IdentityType.Container);
-            foreach (Item item in carried)
+            foreach (Item item in CarriedItems.All())
                 AddRecovery(actions, item, "item:" + item.Id + ":" + item.QualityLevel,
                     healthLow, nanoLow, now);
             foreach (PerkAction perk in PerkAction.List.Where(x => x.IsAvailable && !x.IsPending && !x.IsExecuting))

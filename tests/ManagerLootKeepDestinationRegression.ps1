@@ -24,9 +24,10 @@ function Assert-Equal($actual, $expected, $case) {
     Write-Output "PASS $case"
 }
 
-Assert-Equal (Resolve '') 'RKM Keep' 'blank listed destination defaults to RKM Keep'
-Assert-Equal (Resolve '   ') 'RKM Keep' 'legacy Inventory stored as blank defaults to RKM Keep'
-Assert-Equal (Resolve 'RKM Keep') 'RKM Keep' 'explicit RKM Keep retains family semantics'
+Assert-Equal (Resolve '') 'RK Loot' 'blank listed destination defaults to RK Loot'
+Assert-Equal (Resolve '   ') 'RK Loot' 'legacy Inventory stored as blank defaults to RK Loot'
+Assert-Equal (Resolve 'RKM Keep') 'RKM Keep' 'explicit legacy RKM Keep remains recognized'
+Assert-Equal (Resolve ' RK Loot 02 ') 'RK Loot 02' 'numbered canonical destination remains exact'
 Assert-Equal (Resolve ' RKM Keep 02 ') 'RKM Keep 02' 'numbered Keep destination remains exact'
 Assert-Equal (Resolve ' Custom Loot ') 'Custom Loot' 'custom destination remains explicit'
 
@@ -55,4 +56,4 @@ if ($record.IndexOf('UpdateRule(selected.Rule)') -gt $record.IndexOf('selected.V
     throw 'Destination resolution no longer follows verified acquisition and rule consumption.'
 }
 Write-Output 'PASS objectives stay in main and missing/full bags preserve Keep ownership without bag creation'
-Write-Output 'PASS post-exit KeepBagName shares the blank-to-RKM-Keep destination policy'
+Write-Output 'PASS post-exit KeepBagName shares the blank-to-RK-Loot destination policy'

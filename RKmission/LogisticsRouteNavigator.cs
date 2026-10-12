@@ -195,8 +195,9 @@ namespace RKmission
             { LastFailure = "surveyed logistics target has not been reached"; _say("Reach a surveyed logistics target with /rkm logistics travel <site> <bank|shop> first."); return false; }
             if (Game.IsZoning || DynelManager.LocalPlayer == null ||
                 Playfield.ModelIdentity.Instance != _route.DestinationPlayfield ||
+                DynelManager.LocalPlayer.MovementState == MovementState.Fly ||
                 Vector3.Distance(DynelManager.LocalPlayer.Position, V(_route.DestinationPosition)) > 8f)
-            { LastFailure = "character is no longer beside the surveyed logistics target"; _say("Return held: stand beside the same surveyed bank/shop target in its expected playfield."); return false; }
+            { LastFailure = "character is not on foot beside the surveyed logistics target"; _say("Return held: be on foot beside the same surveyed bank/shop target in its expected playfield."); return false; }
             if (_route.Stages.Count == 1)
             { Finish("Already beside the mission terminal; no return route was needed."); return true; }
             _atTarget = false;

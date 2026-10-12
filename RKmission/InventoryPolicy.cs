@@ -44,7 +44,7 @@ namespace RKmission
         }
 
         // ManagerLoot calls this before its Keep/Reject decision, including
-        // for items already in RKM Sell.
+        // for items already in RK Junk (including legacy RKM Sell aliases).
         public bool IsOperationalItem(Item item)
         {
             if (item == null) return false;
@@ -62,7 +62,7 @@ namespace RKmission
             // Both RKMission's locked-door path and ManagerLoot's chest path
             // request this exact name. Other consumables require effect data
             // or a consumer registration, not a matching substring.
-            return string.Equals(name, "Lock Pick", StringComparison.Ordinal);
+            return CarriedItems.IsLockpickName(name);
         }
 
         public void BeginMissionInventorySnapshot()
@@ -82,7 +82,7 @@ namespace RKmission
         }
 
         // Reuse Manager.Loot's value decision and the AOSharp item transfer.
-        // Only newly collected rejects enter a pre-existing RKM Sell bag. This
+        // Only newly collected rejects enter a pre-existing RK Junk family bag. This
         // staging move is checked against both inventories; it is not a sale.
         public InventorySettlement TickAfterVerifiedExit(ManagerLoot.ManagerLoot loot, Action<string> say)
         {
@@ -114,7 +114,7 @@ namespace RKmission
                     return InventorySettlement.Moving;
                 else if (!inMain || _moveAttempts >= 2)
                 {
-                    SettlementFailure = $"Move to RKM Sell was not verified for item {_pendingItem}.";
+                    SettlementFailure = $"Move to RK Junk was not verified for item {_pendingItem}.";
                     return InventorySettlement.Blocked;
                 }
             }
@@ -159,7 +159,7 @@ namespace RKmission
                 return InventorySettlement.Blocked;
             }
             if (_stagedRejects > 0)
-                say($"Verified {_stagedRejects} newly collected reject item(s) staged in RKM Sell bag(s); no sale was performed.");
+                say($"Verified {_stagedRejects} newly collected reject item(s) staged in RK Junk bag(s); no sale was performed.");
             bool enough = ClassifyAfterVerifiedExit(loot, say);
             return enough ? InventorySettlement.Ready : InventorySettlement.NeedsSpace;
         }
@@ -250,13 +250,13 @@ namespace RKmission
             AutomaticLogisticsReason = !enoughCapacity
                 ? $"main inventory has {Inventory.NumFreeSlots} free slot(s), below the {MinimumFreeSlots}-slot safety margin"
                 : sellPressure
-                    ? $"RKM Sell has {ObservedSellRejects} observed Reject item(s), reaching the {AutomaticSellTriggerItems}-item recycle threshold"
+                    ? $"RK Junk has {ObservedSellRejects} observed Reject item(s), reaching the {AutomaticSellTriggerItems}-item recycle threshold"
                     : null;
             say($"Post-exit inventory classification: protected={classes.Count(x => x == ManagerLoot.ItemClassification.Protected)}, " +
                 $"keep={classes.Count(x => x == ManagerLoot.ItemClassification.Keep)}, " +
                 $"reject={classes.Count(x => x == ManagerLoot.ItemClassification.Reject)}, " +
                 $"unknown={classes.Count(x => x == ManagerLoot.ItemClassification.Unknown)}, " +
-                $"RKM Sell Reject={ObservedSellRejects}/{AutomaticSellTriggerItems}, " +
+                $"RK Junk Reject={ObservedSellRejects}/{AutomaticSellTriggerItems}, " +
                 $"free slots={Inventory.NumFreeSlots}. " +
                 (enoughCapacity ? "Capacity is sufficient for the next mission." :
                     "LogisticsRequired: capacity is low; automatic terminal logistics will be queued."));

@@ -32,11 +32,15 @@ function Assert-Equal($actual, $expected, $case) {
 }
 
 Assert-Equal ($operationalName.Invoke($null, @('Lock Pick'))) $true 'actual Lock Pick is operational'
+Assert-Equal ($operationalName.Invoke($null, @('Personal Lockpick'))) $true 'Personal Lockpick is operational'
+Assert-Equal ($operationalName.Invoke($null, @('Personal Lock Pick'))) $true 'Personal Lock Pick is operational'
 Assert-Equal ($operationalName.Invoke($null, @('Eye Implant: Vehicle Air, Shiny'))) $false 'Vehicle Air implant is not operational by name'
 Assert-Equal ($operationalName.Invoke($null, @('Nano Formula Recompiler'))) $false 'recompiler is not operational by name'
 Assert-Equal ($operationalName.Invoke($null, @('Cluster Bullets'))) $false 'cluster bullets require a consumer registration'
-Assert-Equal ($protectedBag.Invoke($null, @('RKM Keep 01'))) $true 'numbered Keep bag is protected'
-Assert-Equal ($protectedBag.Invoke($null, @('RKM Mission'))) $true 'Mission bag is protected'
+Assert-Equal ($protectedBag.Invoke($null, @('RK Loot 01'))) $true 'numbered Loot bag is protected'
+Assert-Equal ($protectedBag.Invoke($null, @('RKM Keep 01'))) $true 'legacy numbered Keep bag is protected'
+Assert-Equal ($protectedBag.Invoke($null, @('RKM Mission'))) $false 'retired Mission name is not protected by bag name'
+Assert-Equal ($protectedBag.Invoke($null, @('RKM Archive 001'))) $false 'retired Archive name is not managed/protected'
 Assert-Equal ($protectedBag.Invoke($null, @('RKM Sell 01'))) $false 'Sell bag is not hard protected'
 Assert-Equal ($policy.GetProperty('AutomaticSellTriggerItems').GetValue($policyInstance)) 15 'automatic Sell pressure defaults to 15 Rejects'
 Assert-Equal ($policy.GetProperty('AutomaticLogisticsItemLimit').GetValue($policyInstance)) 20 'automatic logistics defaults to 20 items per destination'
@@ -82,4 +86,4 @@ if (-not $source.Contains('ManagedBagFamily.IsProtected(bag.Name)') -or
     $classify.IndexOf('ProtectionReason(item)') -gt $classify.IndexOf('GetMatchingRule(item)')) {
     throw 'Keep-bag content protection no longer precedes ManagerLoot rules.'
 }
-Write-Output 'PASS RKM Keep content protection precedes missing ManagerLoot rule'
+Write-Output 'PASS RK Loot content protection precedes missing ManagerLoot rule'

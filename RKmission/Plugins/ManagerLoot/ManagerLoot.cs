@@ -335,7 +335,7 @@ namespace ManagerLoot
                     : "mission objective";
             if (OperationalItemProtected?.Invoke(item) ?? false) return "operational item";
             if (ProtectedBagContains(item))
-                return "RKM Keep/Mission bag";
+                return "RK Loot/legacy RKM Keep bag";
             return null;
         }
 
@@ -1144,7 +1144,7 @@ namespace ManagerLoot
                             Timeout = Time.AONormalTime + 2;
                             if (chest.IsLocked)
                             {
-                                var lockPick = Inventory.Items.FirstOrDefault(p => p.Name == "Lock Pick");
+                                var lockPick = RKmission.CarriedItems.FindLockpick();
                                 if (MissionRoomId >= 0)
                                 {
                                     if (lockPick == null)

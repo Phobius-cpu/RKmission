@@ -33,7 +33,7 @@ namespace RKmission
         public string LastFailure { get; private set; }
         public int CompletedCount => _completed;
         public string Status => _phase == Phase.Idle ? "inactive" : _phase == Phase.StagingOnlySent ?
-            $"staging '{_itemName}' (id={_itemId}, QL={_itemQl}) from main into RKM Sell; awaiting verification" :
+            $"staging '{_itemName}' (id={_itemId}, QL={_itemQl}) from main into RK Junk; awaiting verification" :
             $"{_phase} at {_actor}; verified sales={_completed}/{_requested}, " +
             $"item='{_itemName ?? "unselected"}' ({_itemId}, QL {_itemQl})";
 
@@ -62,7 +62,7 @@ namespace RKmission
                 .Where(x => x != null).ToArray();
             Item[] eligible = sell.Where(x => _policy.CanAutoSell(x, _loot, true, false, out _) &&
                 main.All(y => !SameItem(x, y)) && sell.Count(y => SameItem(x, y)) == 1).ToArray();
-            var protectedItems = sell.Select(x => new { Item = x, Location = "RKM Sell" })
+            var protectedItems = sell.Select(x => new { Item = x, Location = "RK Junk" })
                 .Concat(main.Select(x => new { Item = x, Location = "main" }))
                 .Where(x => _loot.Classify(x.Item) == ManagerLoot.ItemClassification.Protected).ToArray();
             int sellRejects = sell.Count(x => _loot.Classify(x) == ManagerLoot.ItemClassification.Reject);
@@ -70,23 +70,23 @@ namespace RKmission
             int sellProtected = sell.Count(x => _loot.Classify(x) == ManagerLoot.ItemClassification.Protected);
             int sellUnknown = sell.Length - sellRejects - sellKeeps - sellProtected;
             int mainRejects = main.Count(x => _loot.Classify(x) == ManagerLoot.ItemClassification.Reject);
-            _say($"Shop preview: {eligible.Length} eligible item(s) from {sellBags.Length} RKM Sell bag(s), " +
+            _say($"Shop preview: {eligible.Length} eligible item(s) from {sellBags.Length} RK Junk bag(s), " +
                 $"{sell.Length} observed bag item(s) [Reject={sellRejects}, Keep={sellKeeps}, " +
                 $"Protected={sellProtected}, Unknown={sellUnknown}]; " +
                 $"main Reject={mainRejects} (excluded), main free slots={Inventory.NumFreeSlots}; no item moved.");
             if (sellBags.Length == 0)
-                _say("Shop preview: no RKM Sell bag was found. The shop test will not select from main inventory.");
+                _say("Shop preview: no RK Junk bag was found. The shop test will not select from main inventory.");
             else if (sell.Length == 0)
-                _say("Shop preview: no items were observed in RKM Sell. If it contains items, open the bag and preview again.");
+                _say("Shop preview: no items were observed in RK Junk. If it contains items, open the bag and preview again.");
             else if (sellRejects > eligible.Length)
-                _say($"Shop preview: {sellRejects - eligible.Length} Reject item(s) were excluded because their id/QL/name is duplicated in RKM Sell or main inventory.");
+                _say($"Shop preview: {sellRejects - eligible.Length} Reject item(s) were excluded because their id/QL/name is duplicated in RK Junk or main inventory.");
             for (int i = 0; i < Math.Min(8, eligible.Length); i++)
             {
                 Item item = eligible[i];
                 _say($"Shop eligible{(i == 0 ? " (next test item)" : "")}: " +
                     $"'{item.Name}', id={item.Id}, QL={item.QualityLevel}.");
             }
-            _say($"Shop preview: {protectedItems.Length} protected item(s) in main/RKM Sell (first 8 below).");
+            _say($"Shop preview: {protectedItems.Length} protected item(s) in main/RK Junk (first 8 below).");
             foreach (var entry in protectedItems.Take(8))
                 _say($"Shop protected ({entry.Location}, {_loot.ProtectionReason(entry.Item)}): " +
                     $"'{entry.Item.Name}', id={entry.Item.Id}, QL={entry.Item.QualityLevel}.");
@@ -116,9 +116,9 @@ namespace RKmission
                 ManagerLoot.ManagedBagFamily.Sell)).OrderBy(x => ManagerLoot.ManagedBagFamily.Order(x.Name,
                 ManagerLoot.ManagedBagFamily.Sell)).ToArray();
             if (bags.Any(b => Inventory.GetContainerItems(b.Identity).Any(x => x != null && SameItem(item, x))))
-            { _say("Shop staging held: the same id/QL/name is already observed in RKM Sell; no item moved."); return; }
+            { _say("Shop staging held: the same id/QL/name is already observed in RK Junk; no item moved."); return; }
             var bag = bags.FirstOrDefault(x => x.Items.Count < 21);
-            if (bag == null) { _say("Shop staging held: no RKM Sell bag with space was found; no item moved."); return; }
+            if (bag == null) { _say("Shop staging held: no RK Junk bag with space was found; no item moved."); return; }
             Remember(item);
             _sourceBag = bag.Identity;
             _mainBefore = MainItems().Count(Matches);
@@ -163,7 +163,7 @@ namespace RKmission
                 _loot.Classify(item) == ManagerLoot.ItemClassification.Protected);
             int eligible = sell.Count(item => _policy.CanAutoSell(item, _loot, true, false, out _) &&
                 main.All(other => !SameItem(item, other)) && sell.Count(other => SameItem(item, other)) == 1);
-            return $"RKM Sell bags={bags.Length}, observed items={sell.Length} " +
+            return $"RK Junk bags={bags.Length}, observed items={sell.Length} " +
                 $"[Reject={rejects}, Keep={keeps}, Protected={protectedItems}, " +
                 $"Unknown={sell.Length - rejects - keeps - protectedItems}, eligible={eligible}]";
         }
@@ -221,7 +221,7 @@ namespace RKmission
             _say(old == Phase.AddSent || old == Phase.AcceptSent
                 ? $"Shop sale stopped after {_completed} verified sale(s), with an item possibly in the trade window. Inspect the shop and inventory before retrying."
                 : old == Phase.StageMoveSent || old == Phase.StagingOnlySent
-                    ? $"Shop sale stopped after {_completed} verified sale(s); a bag move may have been sent. Inspect RKM Sell and main inventory."
+                    ? $"Shop sale stopped after {_completed} verified sale(s); a bag move may have been sent. Inspect RK Junk and main inventory."
                     : $"Shop sale stopped after {_completed} verified sale(s); no further item was submitted.");
         }
 
@@ -260,7 +260,7 @@ namespace RKmission
             {
                 var bag = Inventory.Backpacks.FirstOrDefault(x => x.Identity == _sourceBag &&
                     ManagerLoot.ManagedBagFamily.Matches(x.Name, ManagerLoot.ManagedBagFamily.Sell));
-                if (bag == null) { Fail("selected RKM Sell bag disappeared or was renamed"); return; }
+                if (bag == null) { Fail("selected RK Junk bag disappeared or was renamed"); return; }
                 int main = MainItems().Count(Matches);
                 int stored = Inventory.GetContainerItems(_sourceBag).Count(Matches);
                 if (main == _mainBefore - 1 && stored == _bagBefore + 1)
@@ -269,7 +269,7 @@ namespace RKmission
                     _say($"Shop staging verified: '{_itemName}' left main and appeared in '{bag.Name}'. " +
                         "No sale occurred; use /rkm logistics shop preview.");
                 }
-                else if (TimedOut(8)) Fail($"main-to-RKM Sell move not verified (main={main}, bag={stored})");
+                else if (TimedOut(8)) Fail($"main-to-RK Junk move not verified (main={main}, bag={stored})");
                 return;
             }
             if (_route.FindVerifiedShopActor(_actor.ToString()) == null)
@@ -281,7 +281,7 @@ namespace RKmission
                 {
                     _phase = Phase.Selecting;
                     _phaseStarted = DateTime.UtcNow;
-                    _say("Exact shop trade opened and inventory update received; selecting one unprotected Reject from RKM Sell.");
+                    _say("Exact shop trade opened and inventory update received; selecting one unprotected Reject from RK Junk.");
                 }
                 else if (TimedOut(10)) Fail($"shop did not finish opening (trade={_openSeen}, inventory={_shopSeen})");
                 return;
@@ -298,7 +298,7 @@ namespace RKmission
                     _phase = Phase.Selecting;
                     _phaseStarted = DateTime.UtcNow;
                     _say($"Verified {_completed}/{_requested} sale(s); shop trade remains open. " +
-                        "Selecting the next RKM Sell Reject item.");
+                        "Selecting the next RK Junk Reject item.");
                 }
                 else
                 {
@@ -321,7 +321,7 @@ namespace RKmission
                 { if (TimedOut(10)) Fail("another item use or spell remained pending"); return; }
                 Item[] main = MainItems();
                 if (Inventory.NumFreeSlots < 1)
-                { Fail("no free main-inventory slot to stage a Reject from RKM Sell"); return; }
+                { Fail("no free main-inventory slot to stage a Reject from RK Junk"); return; }
                 var sellItems = Inventory.Backpacks
                     .Where(bag => ManagerLoot.ManagedBagFamily.Matches(bag.Name,
                         ManagerLoot.ManagedBagFamily.Sell))
@@ -343,9 +343,9 @@ namespace RKmission
                         Result = VerifiedOperationResult.Succeeded;
                         LastFailure = null;
                         _say($"Shop selling finished after {_completed} verified sale(s); " +
-                            "no further unprotected, unambiguous Reject item was found in RKM Sell.");
+                            "no further unprotected, unambiguous Reject item was found in RK Junk.");
                     }
-                    else Fail("no unprotected, unambiguous ManagerLoot Reject item in an RKM Sell bag");
+                    else Fail("no unprotected, unambiguous ManagerLoot Reject item in an RK Junk bag");
                     return;
                 }
                 Remember(staged.Item);
@@ -353,11 +353,11 @@ namespace RKmission
                 _mainBefore = main.Count(Matches);
                 _bagBefore = Inventory.GetContainerItems(_sourceBag).Count(Matches);
                 if (_bagBefore != 1)
-                { Fail("selected RKM Sell item is duplicated in its bag"); return; }
+                { Fail("selected RK Junk item is duplicated in its bag"); return; }
                 _phase = Phase.StageMoveSent;
                 _phaseStarted = DateTime.UtcNow;
                 staged.Item.MoveToInventory();
-                _say($"Moving one Reject '{_itemName}' from RKM Sell into main inventory before the shop trade.");
+                _say($"Moving one Reject '{_itemName}' from RK Junk into main inventory before the shop trade.");
                 return;
             }
             if (_phase == Phase.StageMoveSent)
@@ -369,10 +369,10 @@ namespace RKmission
                 {
                     Item item = main.SingleOrDefault(Matches);
                     if (item == null) { Fail("staged Reject item could not be identified in main inventory"); return; }
-                    _say($"RKM Sell staging verified for '{_itemName}'; adding it to the shop trade.");
+                    _say($"RK Junk staging verified for '{_itemName}'; adding it to the shop trade.");
                     BeginAdd(item);
                 }
-                else if (TimedOut(8)) Fail("RKM Sell to main-inventory move was not verified");
+                else if (TimedOut(8)) Fail("RK Junk to main-inventory move was not verified");
                 return;
             }
             int currentMain = MainItems().Count(Matches);
@@ -453,9 +453,9 @@ namespace RKmission
                 (old == Phase.AddSent || old == Phase.AcceptSent
                     ? $"Inspect the trade window and '{_itemName}' before retrying; no trade action was retried."
                     : old == Phase.StagingOnlySent
-                        ? $"Check main inventory and RKM Sell for '{_itemName}'; the staging move was not retried."
+                        ? $"Check main inventory and RK Junk for '{_itemName}'; the staging move was not retried."
                     : old == Phase.StageMoveSent
-                        ? $"Check whether '{_itemName}' moved from RKM Sell to main inventory."
+                        ? $"Check whether '{_itemName}' moved from RK Junk to main inventory."
                         : "No item was submitted for sale."));
         }
 

@@ -3,42 +3,58 @@ using System.Text.RegularExpressions;
 
 namespace ManagerLoot
 {
-    // A family request is only the unsuffixed RKM name. A numbered rule remains exact.
     internal static class ManagedBagFamily
     {
-        public const string Keep = "RKM Keep";
-        public const string Mission = "RKM Mission";
-        public const string Sell = "RKM Sell";
-        public const string Archive = "RKM Archive";
+        public const string Keep = "RK Loot";
+        public const string Sell = "RK Junk";
+        public const string LegacyKeep = "RKM Keep";
+        public const string LegacySell = "RKM Sell";
 
-        private static bool IsFamily(string name) =>
-            string.Equals(name, Keep, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(name, Sell, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(name, Archive, StringComparison.OrdinalIgnoreCase);
+        private static string Normalize(string value) => string.IsNullOrWhiteSpace(value) ? string.Empty :
+            Regex.Replace(value.Trim(), @"\s+", " ");
+        private static bool Same(string left, string right) =>
+            string.Equals(Normalize(left), Normalize(right), StringComparison.OrdinalIgnoreCase);
+        private static bool IsRoot(string requested, string canonical, string legacy) =>
+            Same(requested, canonical) || Same(requested, legacy);
+        private static bool TryMember(string name, string root, out int number)
+        {
+            number = 0;
+            string normalized = Normalize(name);
+            if (Same(normalized, root)) return true;
+            Match suffix = Regex.Match(normalized, "^" + Regex.Escape(root) + @"\s+(?<number>\d{2,})$",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            return suffix.Success && int.TryParse(suffix.Groups["number"].Value, out number) && number > 0;
+        }
 
         public static bool Matches(string bagName, string requested)
         {
             if (string.IsNullOrWhiteSpace(bagName) || string.IsNullOrWhiteSpace(requested)) return false;
-            bagName = bagName.Trim();
-            requested = requested.Trim();
-            if (string.Equals(bagName, requested, StringComparison.OrdinalIgnoreCase)) return true;
-            if (!IsFamily(requested)) return false;
-            string digits = string.Equals(requested, Archive, StringComparison.OrdinalIgnoreCase) ? @"\d{3,}" : @"\d{2,}";
-            Match suffix = Regex.Match(bagName, "^" + Regex.Escape(requested) + " (?<number>" + digits + ")$",
-                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-            return suffix.Success && int.TryParse(suffix.Groups["number"].Value, out int number) && number > 0;
+            if (Same(bagName, requested)) return true;
+            if (IsRoot(requested, Keep, LegacyKeep))
+                return TryMember(bagName, Keep, out _) || TryMember(bagName, LegacyKeep, out _);
+            if (IsRoot(requested, Sell, LegacySell))
+                return TryMember(bagName, Sell, out _) || TryMember(bagName, LegacySell, out _);
+            return false;
         }
 
         public static int Order(string bagName, string requested)
         {
-            if (string.Equals(bagName?.Trim(), requested?.Trim(), StringComparison.OrdinalIgnoreCase)) return 0;
-            Match suffix = Regex.Match(bagName ?? "", @" (\d+)$");
-            return suffix.Success && int.TryParse(suffix.Groups[1].Value, out int number)
-                ? number : int.MaxValue;
+            if (IsRoot(requested, Keep, LegacyKeep))
+            {
+                if (TryMember(bagName, Keep, out int canonical)) return canonical;
+                if (TryMember(bagName, LegacyKeep, out int legacy)) return 1000000 + legacy;
+            }
+            if (IsRoot(requested, Sell, LegacySell))
+            {
+                if (TryMember(bagName, Sell, out int canonical)) return canonical;
+                if (TryMember(bagName, LegacySell, out int legacy)) return 1000000 + legacy;
+            }
+            return Same(bagName, requested) ? 0 : int.MaxValue;
         }
 
-        public static bool IsProtected(string bagName) =>
-            Matches(bagName, Keep) ||
-            string.Equals(bagName?.Trim(), Mission, StringComparison.OrdinalIgnoreCase);
+        public static bool IsKeep(string bagName) => Matches(bagName, Keep);
+        public static bool IsSell(string bagName) => Matches(bagName, Sell);
+        public static bool IsManaged(string bagName) => IsKeep(bagName) || IsSell(bagName);
+        public static bool IsProtected(string bagName) => IsKeep(bagName);
     }
 }

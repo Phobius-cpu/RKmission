@@ -2606,7 +2606,8 @@ namespace RKmission
                 }
                 if (door.IsLocked)
                 {
-                    if (!Inventory.Find("Lock Pick", out Item pick))
+                    Item pick = CarriedItems.FindLockpick();
+                    if (pick == null)
                     {
                         FailTransition("locked door requires a Lock Pick");
                         return;
