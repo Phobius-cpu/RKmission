@@ -44,7 +44,8 @@ Write-Output 'PASS recorded multi-level topology is geometry-matched and travers
 
 if (-not $dungeon.Contains('DungeonTransitPlanner.Candidates(_layout') -or
     -not $dungeon.Contains('Combat local firing approach unavailable') -or
-    -not $dungeon.Contains('Combat same-room transit completed') -or
+    -not $dungeon.Contains('Combat same-room transit waypoint') -or
+    -not $dungeon.Contains('route exhausted without LOS') -or
     -not $dungeon.Contains('MaxCombatTopologyAttempts = 3') -or
     -not $dungeon.Contains('Vector3.Distance(position, recovery.Anchor) >= 12f') -or
     $dungeon.Contains('Vector3.Distance(position, recovery.Anchor) >= 3f ||')) {

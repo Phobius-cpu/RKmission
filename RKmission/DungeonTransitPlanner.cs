@@ -17,6 +17,7 @@ namespace RKmission
             public float VerticalProgress;
             public bool CorridorDerived;
             public bool TargetLevel;
+            public List<Vector3> Waypoints = new List<Vector3>();
         }
 
         public static bool TryCost(DungeonLayout layout, int roomId, Vector3 from,
@@ -54,15 +55,7 @@ namespace RKmission
                             !points.Any(other => Vector3.Distance(other, point) < 0.8f))
                             points.Add(point);
                     }
-            var routes = points.Select(point =>
-                {
-                    float cost;
-                    return new Route { Destination = point,
-                        Cost = TryCost(layout, roomId, from, point, out cost)
-                            ? cost : float.PositiveInfinity,
-                        VerticalProgress = Progress(from, target, point),
-                        TargetLevel = Math.Abs(point.Y - target.Y) <= 1.5f };
-                })
+            var routes = points.Select(point => BuildRoute(layout, roomId, from, target, point))
                 .Where(route => !float.IsInfinity(route.Cost))
                 .ToList();
 
@@ -90,14 +83,17 @@ namespace RKmission
                             Cost = Math.Min(traversed, corridorCost),
                             VerticalProgress = progress,
                             CorridorDerived = true,
-                            TargetLevel = Math.Abs(point.Y - target.Y) <= 1.5f
+                            TargetLevel = Math.Abs(point.Y - target.Y) <= 1.5f,
+                            Waypoints = ProgressiveWaypoints(layout, roomId, from,
+                                corridor.TakeWhile(vertex => Vector3.Distance(vertex, point) > 0.25f)
+                                    .Concat(new[] { point }))
                         });
                     }
                 }
             }
             catch { }
 
-            bool separated = verticalGap > 3f;
+            bool separated = verticalGap >= 1.5f;
             bool hasProgressive = separated && routes.Any(route =>
                 route.TargetLevel || route.VerticalProgress >= Math.Min(2f, verticalGap * 0.25f));
             return routes
@@ -107,6 +103,48 @@ namespace RKmission
                 .ThenBy(route => Math.Abs(route.Destination.Y - target.Y))
                 .ThenBy(route => route.Cost)
                 .ToList();
+        }
+
+        private static Route BuildRoute(DungeonLayout layout, int roomId, Vector3 from,
+            Vector3 target, Vector3 destination)
+        {
+            try
+            {
+                float cost;
+                List<Vector3> corridor;
+                if (!LocalRoutePlanner.TryDungeonGroundPath(from, destination, out cost, out corridor))
+                    return new Route { Destination = destination, Cost = float.PositiveInfinity };
+                return new Route
+                {
+                    Destination = destination,
+                    Cost = cost,
+                    VerticalProgress = Progress(from, target, destination),
+                    TargetLevel = Math.Abs(destination.Y - target.Y) <= 1.5f,
+                    Waypoints = ProgressiveWaypoints(layout, roomId, from,
+                        corridor.Concat(new[] { destination }))
+                };
+            }
+            catch { return new Route { Destination = destination, Cost = float.PositiveInfinity }; }
+        }
+
+        // Keep a bounded, strictly forward representation of the already-complete
+        // navmesh corridor. Each issued leg is still routed by the movement controller.
+        private static List<Vector3> ProgressiveWaypoints(DungeonLayout layout, int roomId,
+            Vector3 from, IEnumerable<Vector3> corridor)
+        {
+            const int maximum = 12;
+            var useful = new List<Vector3>();
+            Vector3 previous = from;
+            foreach (Vector3 point in corridor)
+            {
+                if (!layout.IsInside(roomId, point, 0.3f) ||
+                    Vector3.Distance(previous, point) < 1.25f) continue;
+                if (useful.Count < maximum - 1) useful.Add(point);
+                else if (useful.Count == maximum - 1) useful.Add(point);
+                else useful[maximum - 1] = point;
+                previous = point;
+            }
+            return useful;
         }
 
         private static float Progress(Vector3 from, Vector3 target, Vector3 point)
