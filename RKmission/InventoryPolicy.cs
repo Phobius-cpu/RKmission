@@ -44,6 +44,7 @@ namespace RKmission
         private List<InventoryOccurrence>? _inventoryAtDungeonEntry;
         private Identity _pendingItem = Identity.None, _pendingBag = Identity.None;
         private Identity _pendingSourceSlot = Identity.None;
+        private bool _movePending;
         private DateTime _moveSent;
         private DateTime _settlementStarted;
         private int _moveAttempts;
@@ -90,6 +91,7 @@ namespace RKmission
         public void BeginMissionInventorySnapshot()
         {
             _pendingItem = _pendingBag = _pendingSourceSlot = Identity.None;
+            _movePending = false;
             _moveAttempts = 0;
             _stagedRejects = 0;
             _settlementStarted = DateTime.MinValue;
@@ -123,7 +125,7 @@ namespace RKmission
                 SettlementFailure = "Post-exit item staging made no safe completion within two minutes.";
                 return InventorySettlement.Blocked;
             }
-            if (_pendingItem != Identity.None)
+            if (_movePending)
             {
                 bool sourceStillMatches = Inventory.Items.Any(x =>
                     x.Slot == _pendingSourceSlot && PendingDetailsMatch(x));
@@ -135,6 +137,7 @@ namespace RKmission
                     Identity verifiedSlot = _pendingSourceSlot;
                     string verifiedDestination = _pendingDestination;
                     _pendingItem = _pendingBag = _pendingSourceSlot = Identity.None;
+                    _movePending = false;
                     _moveAttempts = 0;
                     if (ManagerLoot.ManagedBagFamily.Matches(verifiedDestination, ManagerLoot.ManagedBagFamily.Sell))
                         _stagedRejects++;
@@ -160,7 +163,7 @@ namespace RKmission
                     x.Slot.Type == IdentityType.Inventory &&
                     x.UniqueIdentity.Type != IdentityType.Container &&
                     IsNewMissionOccurrence(x) &&
-                    (_pendingItem == Identity.None || x.UniqueIdentity == _pendingItem)))
+                    (!_movePending || (x.Slot == _pendingSourceSlot && PendingDetailsMatch(x)))))
                 {
                     bool newlyAcquired = IsNewMissionOccurrence(item);
                     ManagerLoot.ItemClassification classification = loot.Classify(item, newlyAcquired);
@@ -175,11 +178,13 @@ namespace RKmission
                         .OrderBy(x => ManagerLoot.ManagedBagFamily.Order(x.Name, requested))
                         .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
                     if (bag == null) break;
-                    if (_pendingItem != item.UniqueIdentity)
+                    if (!_movePending || item.Slot != _pendingSourceSlot ||
+                        !PendingDetailsMatch(item))
                     {
                         _pendingItem = item.UniqueIdentity;
                         _moveAttempts = 0;
                     }
+                    _movePending = true;
                     _pendingBag = bag.Identity;
                     _pendingSourceSlot = item.Slot;
                     _pendingDestination = bag.Name;
@@ -201,7 +206,7 @@ namespace RKmission
                     return InventorySettlement.Moving;
                 }
             }
-            if (_pendingItem != Identity.None)
+            if (_movePending)
             {
                 SettlementFailure = $"No available destination bag to verify/retry item {_pendingItem}.";
                 return InventorySettlement.Blocked;

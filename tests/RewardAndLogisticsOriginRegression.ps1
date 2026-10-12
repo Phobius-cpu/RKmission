@@ -25,6 +25,13 @@ Assert ($policy.Contains('destination-count increase') -and
     $policy.Contains('bagMatchCount > _pendingBagMatchCount') -and
     $policy.Contains('!sourceStillMatches')) `
     'duplicate-identity reward moves require source-slot removal and destination-count increase'
+Assert ($policy.Contains('private bool _movePending;') -and
+    $policy.Contains('if (_movePending)') -and
+    $policy.Contains('_movePending = true;') -and
+    $policy.Contains('_movePending = false;')) `
+    'Identity.None rewards retain explicit pending-transfer state through confirmation'
+Assert (-not $policy.Contains('if (_pendingItem != Identity.None)')) `
+    'item identity is never reused as the pending-transfer sentinel'
 Assert ($policy.Contains('Inventory.GetContainerItems(x.Identity).Count < 21')) `
     'RK Junk eligibility uses the loaded container snapshot rather than the backpack wrapper count'
 Assert ($policy.Contains('if (!inSellBag && !newlyAcquiredMain)')) `
