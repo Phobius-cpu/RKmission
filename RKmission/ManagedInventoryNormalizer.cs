@@ -14,12 +14,14 @@ namespace RKmission
         private readonly ManagerLoot.ManagerLoot _loot;
         private readonly InventoryPolicy _policy;
         private readonly Action<string> _say;
+        private readonly DeferredKeepLedger _deferredKeeps;
         private Identity _source = Identity.None, _destination = Identity.None;
         private DateTime _sent;
         private bool _toMain, _pending, _existingMainReservationsCollected;
         private int _itemId, _itemLowId, _itemHighId, _itemQl, _sourceBefore, _destinationBefore, _maximumBankStages;
         private string _itemName, _sourceLabel;
         private Item _sourceItem;
+        private DeferredKeepLedger.Entry _deferredTransferEntry;
         private HashSet<Identity> _destinationSlotsBefore = new HashSet<Identity>();
         public bool IsActive { get; private set; }
         public bool Failed { get; private set; }
@@ -34,19 +36,21 @@ namespace RKmission
             IsActive = true; Failed = false; Failure = null; Rescued = StagedForBank = 0;
             BankReservations.Clear();
             _pending = false; _source = _destination = Identity.None;
+            _deferredTransferEntry = null;
             _existingMainReservationsCollected = false;
             _maximumBankStages = Math.Max(1, maximumBankStages);
         }
 
-        public ManagedInventoryNormalizer(ManagerLoot.ManagerLoot loot, InventoryPolicy policy, Action<string> say)
-        { _loot = loot; _policy = policy; _say = say; }
+        public ManagedInventoryNormalizer(ManagerLoot.ManagerLoot loot, InventoryPolicy policy,
+            DeferredKeepLedger deferredKeeps, Action<string> say)
+        { _loot = loot; _policy = policy; _deferredKeeps = deferredKeeps; _say = say; }
 
         public void Tick()
         {
             if (!IsActive || Failed || Item.HasPendingUse || Spell.HasPendingCast) return;
             if (_pending)
             {
-                int sourceNow = Matching(Inventory.GetContainerItems(_source));
+                int sourceNow = Matching(SourceItems());
                 int destinationNow = _toMain ? Matching(MainItems()) :
                     Matching(Inventory.GetContainerItems(_destination));
                 if (sourceNow == _sourceBefore - 1 && destinationNow == _destinationBefore + 1)
@@ -54,8 +58,15 @@ namespace RKmission
                     Item destinationItem = DestinationItems().FirstOrDefault(item => MatchesDetails(item) &&
                         (!_destinationSlotsBefore.Contains(item.Slot) ||
                          (Usable(item.UniqueIdentity) && item.UniqueIdentity == _sourceItem.UniqueIdentity)));
-                    if (destinationItem == null || !_loot.PreserveVerifiedKeepOwnership(_sourceItem, destinationItem))
+                    if (destinationItem == null || (_deferredTransferEntry == null &&
+                        !_loot.PreserveVerifiedKeepOwnership(_sourceItem, destinationItem)))
                     { Fail($"Keep '{_itemName}' arrived, but exact destination ownership could not be rebound safely"); return; }
+                    bool wasDeferredTransfer = _deferredTransferEntry != null;
+                    if (wasDeferredTransfer)
+                    {
+                        _deferredKeeps.ConsumeOne(_deferredTransferEntry);
+                        _deferredTransferEntry = null;
+                    }
                     Rescued++;
                     if (_toMain)
                     {
@@ -64,8 +75,9 @@ namespace RKmission
                     }
                     _say($"Inventory normalization verified Keep '{_itemName}' (id={_itemId}, QL={_itemQl}) moved from {_sourceLabel} " +
                         (_toMain ? $"to main for bank fallback ({StagedForBank}/{_maximumBankStages})." : "to RK Loot."));
-                    _say($"Inventory normalization: preserved Keep ownership for '{_itemName}' after verified {_sourceLabel} -> " +
-                        (_toMain ? "main" : "RK Loot") + " transfer.");
+                    if (!wasDeferredTransfer)
+                        _say($"Inventory normalization: preserved Keep ownership for '{_itemName}' after verified {_sourceLabel} -> " +
+                            (_toMain ? "main" : "RK Loot") + " transfer.");
                     _pending = false; _source = _destination = Identity.None; return;
                 }
                 if (DateTime.UtcNow - _sent > TimeSpan.FromSeconds(8))
@@ -84,6 +96,7 @@ namespace RKmission
             {
                 if (!_existingMainReservationsCollected)
                 {
+                    if (!RestoreDeferredMainKeeps()) return;
                     if (!ReserveExistingMainKeeps()) return;
                     _existingMainReservationsCollected = true;
                 }
@@ -130,7 +143,7 @@ namespace RKmission
             _itemId = item.Id; _itemLowId = item.LowId; _itemHighId = item.HighId;
             _itemQl = item.QualityLevel; _itemName = item.Name; _sourceItem = item;
             _source = source; _destination = destination; _toMain = toMain;
-            _sourceBefore = Matching(Inventory.GetContainerItems(source));
+            _sourceBefore = Matching(SourceItems());
             _destinationBefore = toMain ? Matching(MainItems()) :
                 Matching(Inventory.GetContainerItems(destination));
             _destinationSlotsBefore = new HashSet<Identity>(DestinationItems().Where(MatchesDetails).Select(x => x.Slot));
@@ -176,16 +189,87 @@ namespace RKmission
             return true;
         }
 
+        private bool RestoreDeferredMainKeeps()
+        {
+            Item[] main = MainItems();
+            foreach (DeferredKeepLedger.Entry entry in _deferredKeeps.Entries)
+            {
+                Item[] matches = _deferredKeeps.Matches(entry, main);
+                if (matches.Length == 0)
+                {
+                    _deferredKeeps.Remove(entry);
+                    _say($"Inventory normalization: expired deferred Keep {entry.Describe()}; no exact main-inventory match remains.");
+                    continue;
+                }
+                if (matches.Length != entry.ExpectedCount)
+                {
+                    Fail($"deferred Keep ambiguity: expected {entry.ExpectedCount}, observed {matches.Length} exact main-inventory match(es) for {entry.Describe()}; no item was reserved");
+                    return false;
+                }
+                if (matches.Any(item => _policy.IsOperationalItem(item) || _loot.ProtectionReason(item) != null))
+                {
+                    _deferredKeeps.Remove(entry);
+                    _say($"Inventory normalization: expired deferred Keep {entry.Describe()} because it is now operational or protected.");
+                    continue;
+                }
+                var destination = Inventory.Backpacks.Where(bag =>
+                    !string.IsNullOrWhiteSpace(entry.RequestedDestination) &&
+                    ManagerLoot.ManagedBagFamily.Matches(bag.Name, entry.RequestedDestination) && bag.Items.Count < 21)
+                    .OrderBy(bag => ManagerLoot.ManagedBagFamily.Order(bag.Name, entry.RequestedDestination))
+                    .ThenBy(bag => bag.Name, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
+                if (destination != null)
+                {
+                    Item item = matches.First();
+                    Prepare(item, Identity.None, destination.Identity, false);
+                    _deferredTransferEntry = entry;
+                    item.MoveToContainer(destination);
+                    _sourceLabel = "deferred main inventory";
+                    _say($"Inventory normalization: moving restored deferred Keep '{item.Name}' from main to {destination.Name}; the current RK Loot destination takes precedence over bank fallback.");
+                    return false;
+                }
+                int remaining = _maximumBankStages - BankReservations.Count;
+                if (entry.ExpectedCount > remaining)
+                {
+                    Fail($"deferred Keep {entry.Describe()} has exact multiplicity {entry.ExpectedCount}, but only {remaining} reservation slot(s) remain; the cycle will not split an indistinguishable fingerprint batch");
+                    return false;
+                }
+                foreach (Item item in matches)
+                {
+                    BankReservations.Reserve(item, "deferred Keep carry-forward");
+                    StagedForBank++;
+                    _say($"Inventory normalization: restored deferred Keep '{item.Name}' for bank fallback ({StagedForBank}/{_maximumBankStages}).");
+                }
+            }
+            return true;
+        }
+
         private bool IsSafeBankEligible(Item item) => item != null &&
             !_policy.IsOperationalItem(item) && _loot.ProtectionReason(item) == null &&
             _policy.IsBankEligible(item, _loot);
 
-        public int MainBankEligibleCount() => MainItems().Count(IsSafeBankEligible);
+        public int MainBankEligibleCount()
+        {
+            Item[] main = MainItems();
+            return main.Count(item => IsSafeBankEligible(item) ||
+                _deferredKeeps.Entries.Any(entry => entry.Matches(item) &&
+                    !_policy.IsOperationalItem(item) && _loot.ProtectionReason(item) == null));
+        }
+
+        public int RetainDeferredMainKeeps()
+        {
+            Item[] deferred = MainItems().Where(IsSafeBankEligible).ToArray();
+            _deferredKeeps.Replace(deferred, item => _loot.KeepBagName(item));
+            return _deferredKeeps.Count;
+        }
+
+        public void ExpireDepositedDeferredKeeps() => _deferredKeeps.RemoveMissing(MainItems());
 
         private bool MatchesDetails(Item item) => item != null && item.Id == _itemId &&
             item.LowId == _itemLowId && item.HighId == _itemHighId && item.QualityLevel == _itemQl &&
             string.Equals(item.Name, _itemName, StringComparison.Ordinal);
         private IEnumerable<Item> DestinationItems() => _toMain ? MainItems() : Inventory.GetContainerItems(_destination);
+        private IEnumerable<Item> SourceItems() => _source == Identity.None ? MainItems() :
+            Inventory.GetContainerItems(_source);
         private static bool Usable(Identity identity) => identity != Identity.None &&
             identity.Type != IdentityType.None && identity.Instance != 0;
         private static Item[] MainItems() => Inventory.Items.Where(item => item != null &&

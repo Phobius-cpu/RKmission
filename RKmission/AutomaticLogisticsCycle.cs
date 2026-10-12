@@ -35,6 +35,7 @@ namespace RKmission
         private readonly BankTransactions _bank;
         private readonly ShopSaleTest _shop;
         private readonly ManagedInventoryNormalizer _normalizer;
+        private readonly DeferredKeepLedger _deferredKeeps = new DeferredKeepLedger();
         private readonly Action<string> _say;
         private Phase _phase;
         private DateTime _nextTick;
@@ -67,7 +68,7 @@ namespace RKmission
             _route = route;
             _bank = bank;
             _shop = shop;
-            _normalizer = new ManagedInventoryNormalizer(loot, policy, say);
+            _normalizer = new ManagedInventoryNormalizer(loot, policy, _deferredKeeps, say);
             _say = say;
             Game.OnUpdate += OnUpdate;
             Inventory.ContainerOpened += OnContainerOpened;
@@ -239,6 +240,7 @@ namespace RKmission
                     { Fail("bank storage was not verified: " + (_bank.LastFailure ?? "unknown reason")); return; }
                     if (_normalizer.BankReservations.Count != 0)
                     { Fail($"bank storage completed with {_normalizer.BankReservations.Count} unconsumed Keep reservation(s)"); return; }
+                    _normalizer.ExpireDepositedDeferredKeeps();
                     _stored += _bank.CompletedCount;
                     BeginReturn(Phase.ReturnBank, "bank");
                     return;
@@ -335,7 +337,7 @@ namespace RKmission
                         StringComparison.OrdinalIgnoreCase))
                     { Fail("post-logistics reconciliation lost the exact surveyed origin"); return; }
                     if (Item.HasPendingUse || Spell.HasPendingCast) return;
-                    int bankable = _bank.CountStorableKeepItems();
+                    int bankable = _normalizer.MainBankEligibleCount();
                     int baggedBankable = _normalizer.BaggedBankEligibleCount();
                     int misplaced = _normalizer.MisplacedKeepCount();
                     int saleEligible = _shop.CountEligibleRejectItems();
@@ -345,8 +347,10 @@ namespace RKmission
                         _stored < _plannedBankKeeps || unprocessedPlannedBankKeeps > 0 ||
                         _sold < _plannedRejects || unprocessedRequestedRejects > 0)
                     { Fail($"final reconciliation held: bank-eligible Keep in main={bankable}, in bags={baggedBankable}, Keep in RK Junk={misplaced}, unprocessed planned bank Keep={unprocessedPlannedBankKeeps}, extra bank Keep beyond requested batch={Math.Min(bankable, _expectedRemainingBankKeeps)}, unprocessed requested Reject={unprocessedRequestedRejects}, extra Reject beyond requested batch={Math.Min(saleEligible, _expectedRemainingRejects)}, normalization pending={_normalizer.HasPendingTransfer}"); return; }
+                    int retainedDeferredKeeps = _normalizer.RetainDeferredMainKeeps();
                     _say($"Post-logistics reconciliation verified at {_site}: Keep in RK Junk=0, bank Keep reservations=0, " +
-                        $"unprocessed planned bank Keep=0, extra bank-eligible Keep beyond requested batch={bankable} (expected), " +
+                        $"unprocessed planned bank Keep=0, extra bank-eligible Keep beyond requested batch={bankable} " +
+                        $"(deferred to next logistics cycle; retained exact count={retainedDeferredKeeps}), " +
                         $"unprocessed requested Reject=0, extra Reject beyond requested batch={saleEligible} (expected); no transfer or destructive action is pending.");
                     Complete();
                     return;
@@ -486,6 +490,7 @@ namespace RKmission
             Game.OnUpdate -= OnUpdate;
             Inventory.ContainerOpened -= OnContainerOpened;
             Stop(true);
+            _deferredKeeps.Clear();
         }
     }
 }
