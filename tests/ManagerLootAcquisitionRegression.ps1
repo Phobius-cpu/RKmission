@@ -84,3 +84,14 @@ if (-not $dungeon.Contains('_loot.EndMissionRoom(restoreUserState: false)') -or
     throw 'ManagerLoot is still restored/toggled during every room transition.'
 }
 Write-Output 'PASS ManagerLoot stays enabled across room transitions and restores user state at mission end'
+
+if (-not $dungeon.Contains('ManagerLoot.ManagerLoot.UsableMissionItemIdentity(_objective.ReturnItem.UniqueIdentity)') -or
+    -not $dungeon.Contains('_objective.ReturnItem.UniqueIdentity == item.UniqueIdentity)')) {
+    throw 'A None/zero-like Return Item placeholder can again protect every ordinary source item with a None identity.'
+}
+if (-not $loot.Contains('identity != MissionIdentity.None') -or
+    -not $loot.Contains('identity.Type != IdentityType.None') -or
+    -not $loot.Contains('identity.Instance != 0')) {
+    throw 'Return Item protection no longer uses the full usable-identity guard.'
+}
+Write-Output 'PASS None source identities reach ManagerLoot rules instead of matching an unusable Return Item placeholder'
