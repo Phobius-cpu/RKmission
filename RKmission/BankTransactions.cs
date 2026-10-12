@@ -21,10 +21,12 @@ namespace RKmission
         private Operation _operation;
         private Phase _phase;
         private DateTime _phaseStarted, _nextTick;
-        private int _itemId, _itemQl, _mainBefore, _bankBefore;
+        private int _itemId, _itemLowId, _itemHighId, _itemQl, _mainBefore, _bankBefore;
         private int _requested, _completed;
         private string _itemName, _terminalIdentity;
         private bool _automaticRun;
+        private BankKeepReservationLedger _reservations;
+        private Item _reservedItem;
 
         public bool IsActive => _phase != Phase.Idle;
         public VerifiedOperationResult Result { get; private set; }
@@ -46,9 +48,47 @@ namespace RKmission
         public int CountStorableKeepItems() => MainItems().Count(x =>
             _policy.IsBankEligible(x, _loot));
 
-        public bool StartRoundTrip() => Start(Operation.RoundTrip, 1, false);
-        public bool StartStore(int count, bool automaticRun = false) =>
-            Start(Operation.Store, count, automaticRun);
+        public bool StartRoundTrip()
+        {
+            _reservations = null;
+            return Start(Operation.RoundTrip, 1, false);
+        }
+        public bool StartStore(int count, bool automaticRun = false)
+        {
+            _reservations = null;
+            return Start(Operation.Store, count, automaticRun);
+        }
+        public bool StartReservedStore(int count, BankKeepReservationLedger reservations)
+        {
+            if (reservations == null || reservations.Count != count)
+            {
+                LastFailure = $"planned bank Keep reservation count is {reservations?.Count ?? 0}, expected {count}";
+                Result = VerifiedOperationResult.Failed;
+                return false;
+            }
+            if (!TryValidateReservations(reservations, count, out string error))
+            {
+                LastFailure = error;
+                Result = VerifiedOperationResult.Failed;
+                return false;
+            }
+            _reservations = reservations;
+            return Start(Operation.Store, count, true);
+        }
+
+        public bool TryValidateReservations(BankKeepReservationLedger reservations, int expected, out string error)
+        {
+            error = null;
+            if (reservations == null || reservations.Count != expected)
+            {
+                error = $"planned bank Keep reservation mismatch at target: planned {expected}, resolved {reservations?.Count ?? 0}";
+                return false;
+            }
+            if (!reservations.TryResolve(MainItems(), out Item[] resolved, out error)) return false;
+            if (resolved.Length == expected) return true;
+            error = $"planned bank Keep reservation mismatch at target: planned {expected}, resolved {resolved.Length}";
+            return false;
+        }
 
         private bool Start(Operation operation, int count, bool automaticRun)
         {
@@ -70,7 +110,8 @@ namespace RKmission
             }
             _terminalIdentity = terminal.Identity.ToString();
             _itemName = null;
-            _itemId = _itemQl = 0;
+            _reservedItem = null;
+            _itemId = _itemLowId = _itemHighId = _itemQl = 0;
             _operation = operation;
             _automaticRun = automaticRun;
             _requested = count;
@@ -144,6 +185,13 @@ namespace RKmission
                 Item[] main = MainItems();
                 Item[] bank = BankItems();
                 var candidates = main.Where(x => _policy.IsBankEligible(x, _loot));
+                if (_operation == Operation.Store && _reservations != null)
+                {
+                    if (!_reservations.TrySelectNext(main, out Item reserved, out string reservationError))
+                    { Fail(reservationError); return; }
+                    _reservedItem = reserved;
+                    candidates = new[] { reserved };
+                }
                 if (_operation == Operation.RoundTrip)
                     candidates = candidates.Where(x => main.Count(y => SameItem(x, y)) == 1 &&
                         bank.All(y => !SameItem(x, y)));
@@ -163,6 +211,8 @@ namespace RKmission
                     return;
                 }
                 _itemId = item.Id;
+                _itemLowId = item.LowId;
+                _itemHighId = item.HighId;
                 _itemQl = item.QualityLevel;
                 _itemName = item.Name;
                 _mainBefore = main.Count(Matches);
@@ -183,19 +233,24 @@ namespace RKmission
                     if (_operation == Operation.Store)
                     {
                         _completed++;
+                        if (_reservations != null && !_reservations.ConsumeVerified(_reservedItem))
+                        { Fail($"verified deposit '{_itemName}' did not consume exactly one bank Keep reservation"); return; }
                         _say($"Bank storage verified: '{_itemName}', main={mainCount}, bank={bankCount}; " +
-                            $"{_completed}/{_requested} item(s) stored.");
+                            $"{_completed}/{_requested} item(s) stored; {_reservations?.Count ?? 0} reservation(s) remain.");
                         if (_completed >= _requested)
                         {
                             _phase = Phase.Idle;
                             Result = VerifiedOperationResult.Succeeded;
                             LastFailure = null;
+                            _reservations = null;
+                            _reservedItem = null;
                             _say($"Bank storage complete: {_completed} item(s) remain in the bank. " +
                                 (_automaticRun ? "Automatic return will start next." :
                                     "You can now use /rkm logistics return."));
                         }
                         else
                         {
+                            _reservedItem = null;
                             _phase = Phase.Settling;
                             _phaseStarted = DateTime.UtcNow;
                         }
@@ -231,6 +286,7 @@ namespace RKmission
 
         private bool TimedOut(int seconds) => DateTime.UtcNow - _phaseStarted >= TimeSpan.FromSeconds(seconds);
         private bool Matches(Item item) => item != null && item.Id == _itemId &&
+            item.LowId == _itemLowId && item.HighId == _itemHighId &&
             item.QualityLevel == _itemQl && string.Equals(item.Name, _itemName, StringComparison.Ordinal);
         private static bool SameItem(Item left, Item right) => left.Id == right.Id &&
             left.QualityLevel == right.QualityLevel && string.Equals(left.Name, right.Name, StringComparison.Ordinal);

@@ -198,7 +198,7 @@ namespace RKmission
                     _normalizer.Tick();
                     if (_normalizer.Failed) { Fail("managed inventory normalization failed: " + _normalizer.Failure); return; }
                     if (_normalizer.IsActive) return;
-                    int bankEligible = _bank.CountStorableKeepItems();
+                    int bankEligible = _normalizer.BankReservations.Count;
                     int rejectEligible = _shop.CountEligibleRejectItems();
                     _plannedBankKeeps = Math.Min(_maximumItems, bankEligible);
                     _expectedRemainingBankKeeps = bankEligible - _plannedBankKeeps;
@@ -220,12 +220,12 @@ namespace RKmission
                 case Phase.TravelBank:
                     if (RouteFailed("bank outward route")) return;
                     if (!_route.AtTarget) return;
-                    int keep = _bank.CountStorableKeepItems();
-                    if (keep < _plannedBankKeeps)
-                    { Fail($"planned bank Keep mismatch at target: planned {_plannedBankKeeps}, now classified {keep}; bank transaction was held"); return; }
+                    if (!_bank.TryValidateReservations(_normalizer.BankReservations,
+                        _plannedBankKeeps, out string reservationError))
+                    { Fail(reservationError + "; bank transaction was held"); return; }
                     if (_plannedBankKeeps > 0)
                     {
-                        if (!_bank.StartStore(_plannedBankKeeps, true))
+                        if (!_bank.StartReservedStore(_plannedBankKeeps, _normalizer.BankReservations))
                         { Fail("bank storage did not start: " + (_bank.LastFailure ?? "unknown reason")); return; }
                         _phase = Phase.Bank;
                     }
@@ -235,6 +235,8 @@ namespace RKmission
                     if (_bank.IsActive) return;
                     if (_bank.Result != VerifiedOperationResult.Succeeded)
                     { Fail("bank storage was not verified: " + (_bank.LastFailure ?? "unknown reason")); return; }
+                    if (_normalizer.BankReservations.Count != 0)
+                    { Fail($"bank storage completed with {_normalizer.BankReservations.Count} unconsumed Keep reservation(s)"); return; }
                     _stored += _bank.CompletedCount;
                     BeginReturn(Phase.ReturnBank, "bank");
                     return;
@@ -335,13 +337,13 @@ namespace RKmission
                     int baggedBankable = _normalizer.BaggedBankEligibleCount();
                     int misplaced = _normalizer.MisplacedKeepCount();
                     int saleEligible = _shop.CountEligibleRejectItems();
-                    int unprocessedPlannedBankKeeps = Math.Max(0, bankable - _expectedRemainingBankKeeps);
+                    int unprocessedPlannedBankKeeps = _normalizer.BankReservations.Count;
                     int unprocessedRequestedRejects = Math.Max(0, saleEligible - _expectedRemainingRejects);
                     if (_normalizer.HasPendingTransfer || baggedBankable > 0 || misplaced > 0 ||
                         _stored < _plannedBankKeeps || unprocessedPlannedBankKeeps > 0 ||
                         _sold < _plannedRejects || unprocessedRequestedRejects > 0)
                     { Fail($"final reconciliation held: bank-eligible Keep in main={bankable}, in bags={baggedBankable}, Keep in RK Junk={misplaced}, unprocessed planned bank Keep={unprocessedPlannedBankKeeps}, extra bank Keep beyond requested batch={Math.Min(bankable, _expectedRemainingBankKeeps)}, unprocessed requested Reject={unprocessedRequestedRejects}, extra Reject beyond requested batch={Math.Min(saleEligible, _expectedRemainingRejects)}, normalization pending={_normalizer.HasPendingTransfer}"); return; }
-                    _say($"Post-logistics reconciliation verified at {_site}: Keep in RK Junk=0, " +
+                    _say($"Post-logistics reconciliation verified at {_site}: Keep in RK Junk=0, bank Keep reservations=0, " +
                         $"unprocessed planned bank Keep=0, extra bank-eligible Keep beyond requested batch={bankable} (expected), " +
                         $"unprocessed requested Reject=0, extra Reject beyond requested batch={saleEligible} (expected); no transfer or destructive action is pending.");
                     Complete();

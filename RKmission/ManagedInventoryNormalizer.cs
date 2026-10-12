@@ -27,10 +27,12 @@ namespace RKmission
         public int Rescued { get; private set; }
         public int StagedForBank { get; private set; }
         public bool HasPendingTransfer => _pending;
+        public BankKeepReservationLedger BankReservations { get; } = new BankKeepReservationLedger();
 
         public void Start(int maximumBankStages)
         {
             IsActive = true; Failed = false; Failure = null; Rescued = StagedForBank = 0;
+            BankReservations.Clear();
             _pending = false; _source = _destination = Identity.None;
             _maximumBankStages = Math.Max(1, maximumBankStages);
         }
@@ -53,7 +55,12 @@ namespace RKmission
                          (Usable(item.UniqueIdentity) && item.UniqueIdentity == _sourceItem.UniqueIdentity)));
                     if (destinationItem == null || !_loot.PreserveVerifiedKeepOwnership(_sourceItem, destinationItem))
                     { Fail($"Keep '{_itemName}' arrived, but exact destination ownership could not be rebound safely"); return; }
-                    Rescued++; if (_toMain) StagedForBank++;
+                    Rescued++;
+                    if (_toMain)
+                    {
+                        BankReservations.Reserve(destinationItem, _sourceLabel);
+                        StagedForBank++;
+                    }
                     _say($"Inventory normalization verified Keep '{_itemName}' (id={_itemId}, QL={_itemQl}) moved from {_sourceLabel} " +
                         (_toMain ? $"to main for bank fallback ({StagedForBank}/{_maximumBankStages})." : "to RK Loot."));
                     _say($"Inventory normalization: preserved Keep ownership for '{_itemName}' after verified {_sourceLabel} -> " +

@@ -45,12 +45,12 @@ Assert ($loot.Contains('PreserveVerifiedKeepOwnership(Item source, Item destinat
 Assert ($normalizer.Contains('LowId == _itemLowId') -and $normalizer.Contains('HighId == _itemHighId') -and
     $normalizer.Contains('_destinationSlotsBefore')) 'normalization uses exact detail and one-item destination evidence'
 Assert ($normalizer.Contains('bank-stage limit') -and $normalizer.Contains('shop execution is blocked')) 'bank cap cannot leave Keep in Junk and proceed to sale'
-Assert ($cycle.Contains('planned bank Keep mismatch at target') -and
-    $cycle.Contains('keep < _plannedBankKeeps')) 'bank target cannot silently skip a vanished planned Keep'
+Assert ($cycle.Contains('TryValidateReservations(_normalizer.BankReservations') -and
+    $cycle.Contains('bank transaction was held')) 'bank target cannot silently skip a missing or ambiguous planned Keep reservation'
 Assert (([regex]::Matches($cycle, '_normalizer\.MisplacedKeepCount\(\)').Count -ge 3) -and
     $cycle.Contains('shop phase held:') -and $cycle.Contains('shop phase held after snapshot refresh:')) 'shop is gated on zero misplaced Keep before and after travel'
 Assert ($cycle.Contains('_expectedRemainingRejects = rejectEligible - _plannedRejects') -and
     $cycle.Contains('extra Reject beyond requested batch={saleEligible} (expected)')) 'bounded sale reconciliation accepts Rejects beyond cycle N'
 Assert ($cycle.Contains('_expectedRemainingBankKeeps = bankEligible - _plannedBankKeeps') -and
-    $cycle.Contains('unprocessedPlannedBankKeeps')) 'bounded bank reconciliation distinguishes planned and extra Keep'
+    $cycle.Contains('unprocessedPlannedBankKeeps = _normalizer.BankReservations.Count')) 'bounded bank reconciliation requires all planned reservations to be consumed'
 Assert ($route.Contains('DynelManager.LocalPlayer.MovementState == MovementState.Fly')) 'walking routes reject Fly state at start and return'
