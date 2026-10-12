@@ -265,6 +265,14 @@ namespace ManagerLoot
             return (_settings["Reverse"].AsBool() ? !listed : listed)
                 ? ItemClassification.Keep : ItemClassification.Reject;
         }
+
+        // RKMission owns post-mission movement, but ManagerLoot remains the
+        // authority for the selected rule and its requested destination.
+        public string KeepBagName(Item item)
+        {
+            Rule rule = GetMatchingRule(item);
+            return string.IsNullOrWhiteSpace(rule?.BagName) ? null : rule.BagName.Trim();
+        }
         public bool HasUnprocessedMissionLoot(int roomId, Func<Dynel, bool> include = null) =>
             !IgnoreOrdinaryMissionLoot && (MissionRoomDynels?.Invoke(roomId) ?? DynelManager.AllDynels).Any(x =>
                 (x.Identity.Type == IdentityType.Corpse || x.Identity.Type == IdentityType.Container) &&

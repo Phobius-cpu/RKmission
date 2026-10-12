@@ -34,6 +34,39 @@ namespace RKmission
         public string ActiveSite => _route?.Site;
         public string ActivePurpose => _route?.Purpose;
 
+        // Automatic mission-cycle handoff only. Route Start deliberately
+        // remains strict for both manual callers and the final verification.
+        public bool TryGroundAtVerifiedOrigin(string site, bool requestLeaveFly, out bool ready, out string failure)
+        {
+            ready = false;
+            failure = null;
+            if (Game.IsZoning || DynelManager.LocalPlayer == null)
+            { failure = "player is zoning or unavailable"; return false; }
+            LogisticsRouteCatalog.Route route = _catalog.Routes.FirstOrDefault(x =>
+                string.Equals(x.Site, site, StringComparison.OrdinalIgnoreCase));
+            var player = DynelManager.LocalPlayer;
+            if (route == null || Playfield.ModelIdentity.Instance != route.OriginPlayfield ||
+                Vector3.Distance(player.Position, V(route.OriginPosition)) > 6f)
+            { failure = "saved surveyed origin playfield or position was lost"; return false; }
+            if (!DynelManager.AllDynels.Any(x => x.Identity.Type == IdentityType.MissionTerminal &&
+                string.Equals(x.Identity.ToString(), route.OriginTerminalIdentity, StringComparison.OrdinalIgnoreCase) &&
+                Vector3.Distance(x.Position, V(route.OriginPosition)) <= 15f))
+            { failure = $"recorded origin terminal {route.OriginTerminalIdentity} is not visible"; return false; }
+            if (player.MovementState != MovementState.Fly)
+            {
+                if (_movement.Owner == MovementOwner.LogisticsTravel)
+                    _movement.Release(MovementOwner.LogisticsTravel);
+                ready = _movement.Owner == MovementOwner.None;
+                if (!ready) failure = $"movement owner {_movement.Owner} conflicts with logistics";
+                return ready;
+            }
+            if (_movement.Owner != MovementOwner.None && _movement.Owner != MovementOwner.LogisticsTravel)
+            { failure = $"movement owner {_movement.Owner} conflicts with automatic landing"; return false; }
+            if (requestLeaveFly)
+                _movement.SetMovement(MovementOwner.LogisticsTravel, MovementAction.LeaveFly);
+            return true;
+        }
+
         public string FindVerifiedOriginSite()
         {
             if (Game.IsZoning || DynelManager.LocalPlayer == null) return null;

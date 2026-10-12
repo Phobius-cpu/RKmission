@@ -29,6 +29,7 @@ namespace RKmission
         private DateTime _settlementStarted;
         private int _moveAttempts;
         private int _stagedRejects;
+        private string _pendingDestination;
         [JsonIgnore] public string? SettlementFailure { get; private set; }
         [JsonIgnore] public bool AutomaticLogisticsRequired { get; private set; }
         [JsonIgnore] public string? AutomaticLogisticsReason { get; private set; }
@@ -100,9 +101,14 @@ namespace RKmission
                     x.UniqueIdentity == _pendingItem);
                 if (!inMain && inBag)
                 {
+                    Identity verifiedItem = _pendingItem;
+                    string verifiedDestination = _pendingDestination;
                     _pendingItem = _pendingBag = Identity.None;
                     _moveAttempts = 0;
-                    _stagedRejects++;
+                    if (ManagerLoot.ManagedBagFamily.Matches(verifiedDestination, ManagerLoot.ManagedBagFamily.Sell))
+                        _stagedRejects++;
+                    say($"Verified post-mission inventory move for item {verifiedItem} into '{verifiedDestination}'.");
+                    _pendingDestination = null;
                 }
                 else if (DateTime.UtcNow - _moveSent < TimeSpan.FromSeconds(5))
                     return InventorySettlement.Moving;
@@ -120,13 +126,17 @@ namespace RKmission
                     !_inventoryAtDungeonEntry.Contains(x.UniqueIdentity) &&
                     (_pendingItem == Identity.None || x.UniqueIdentity == _pendingItem)))
                 {
-                    if (loot.Classify(item, newlyAcquiredDuringMission: true) !=
-                        ManagerLoot.ItemClassification.Reject) continue;
+                    bool newlyAcquired = !_inventoryAtDungeonEntry.Contains(item.UniqueIdentity);
+                    ManagerLoot.ItemClassification classification = loot.Classify(item, newlyAcquired);
+                    string requested = classification == ManagerLoot.ItemClassification.Keep
+                        ? loot.KeepBagName(item) :
+                        CanAutoSell(item, loot, false, newlyAcquired, out _)
+                            ? ManagerLoot.ManagedBagFamily.Sell : null;
+                    if (string.IsNullOrWhiteSpace(requested)) continue;
                     var bag = Inventory.Backpacks
-                        .Where(x => ManagerLoot.ManagedBagFamily.Matches(x.Name,
-                            ManagerLoot.ManagedBagFamily.Sell) && x.Items.Count < 21)
-                        .OrderBy(x => ManagerLoot.ManagedBagFamily.Order(x.Name,
-                            ManagerLoot.ManagedBagFamily.Sell)).FirstOrDefault();
+                        .Where(x => ManagerLoot.ManagedBagFamily.Matches(x.Name, requested) && x.Items.Count < 21)
+                        .OrderBy(x => ManagerLoot.ManagedBagFamily.Order(x.Name, requested))
+                        .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
                     if (bag == null) break;
                     if (_pendingItem != item.UniqueIdentity)
                     {
@@ -134,6 +144,7 @@ namespace RKmission
                         _moveAttempts = 0;
                     }
                     _pendingBag = bag.Identity;
+                    _pendingDestination = bag.Name;
                     if (Item.HasPendingUse || Spell.HasPendingCast)
                         return InventorySettlement.Moving;
                     item.MoveToContainer(bag);
@@ -144,13 +155,40 @@ namespace RKmission
             }
             if (_pendingItem != Identity.None)
             {
-                SettlementFailure = $"No available RKM Sell bag to verify/retry item {_pendingItem}.";
+                SettlementFailure = $"No available destination bag to verify/retry item {_pendingItem}.";
                 return InventorySettlement.Blocked;
             }
             if (_stagedRejects > 0)
                 say($"Verified {_stagedRejects} newly collected reject item(s) staged in RKM Sell bag(s); no sale was performed.");
             bool enough = ClassifyAfterVerifiedExit(loot, say);
             return enough ? InventorySettlement.Ready : InventorySettlement.NeedsSpace;
+        }
+
+        public bool CanAutoSell(Item item, ManagerLoot.ManagerLoot loot, bool inSellBag,
+            bool newlyAcquiredMain, out string reason)
+        {
+            reason = null;
+            if (item == null) { reason = "item is unavailable"; return false; }
+            ManagerLoot.ItemClassification classification = loot.Classify(item, newlyAcquiredMain);
+            if (classification != ManagerLoot.ItemClassification.Reject)
+            { reason = $"classification is {classification}"; return false; }
+            if (IsOperationalItem(item) || loot.ProtectionReason(item) != null)
+            { reason = "item is mission-critical, protected, or operational"; return false; }
+            if (!inSellBag && !newlyAcquiredMain)
+            { reason = "pre-existing main-inventory Reject was not explicitly staged"; return false; }
+            return true;
+        }
+
+        public bool IsBankEligible(Item item, ManagerLoot.ManagerLoot loot)
+        {
+            if (item == null || loot.Classify(item) != ManagerLoot.ItemClassification.Keep) return false;
+            string requested = loot.KeepBagName(item);
+            if (string.IsNullOrWhiteSpace(requested)) return true;
+            // A usable rule destination wins. If it does not exist or every
+            // matching bag is full, retaining the confirmed Keep in main for
+            // verified bank storage is the safe fallback.
+            return !Inventory.Backpacks.Any(bag =>
+                ManagerLoot.ManagedBagFamily.Matches(bag.Name, requested) && bag.Items.Count < 21);
         }
 
         public static InventoryPolicy Load(string pluginDir, Action<string> say)

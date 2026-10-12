@@ -95,8 +95,8 @@ namespace RKmission
             _logisticsProbe = new LogisticsProbe(pluginDir, _loot, Say);
             _logisticsRoutes = new LogisticsRouteCatalog(pluginDir, Say);
             _logisticsNavigator = new LogisticsRouteNavigator(_logisticsRoutes, _movement, Say);
-            _bankTransactions = new BankTransactions(_logisticsNavigator, _loot, Say);
-            _shopSale = new ShopSaleTest(_logisticsNavigator, _loot, Say);
+            _bankTransactions = new BankTransactions(_logisticsNavigator, _loot, _inventory, Say);
+            _shopSale = new ShopSaleTest(_logisticsNavigator, _loot, _inventory, Say);
             _automaticLogistics = new AutomaticLogisticsCycle(_logisticsNavigator,
                 _bankTransactions, _shopSale, Say);
             _deathRecovery = new DeathRecoveryController(_readiness, _movement, Say);

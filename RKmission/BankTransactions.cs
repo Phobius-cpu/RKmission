@@ -16,6 +16,7 @@ namespace RKmission
 
         private readonly LogisticsRouteNavigator _route;
         private readonly ManagerLoot.ManagerLoot _loot;
+        private readonly InventoryPolicy _policy;
         private readonly Action<string> _say;
         private Operation _operation;
         private Phase _phase;
@@ -33,16 +34,17 @@ namespace RKmission
             $"{_operation} {_phase}, verified stores={_completed}/{_requested}, " +
             $"item='{_itemName ?? "unselected"}' ({_itemId}, QL {_itemQl})";
 
-        public BankTransactions(LogisticsRouteNavigator route, ManagerLoot.ManagerLoot loot, Action<string> say)
+        public BankTransactions(LogisticsRouteNavigator route, ManagerLoot.ManagerLoot loot, InventoryPolicy policy, Action<string> say)
         {
             _route = route;
             _loot = loot;
+            _policy = policy;
             _say = say;
             Game.OnUpdate += OnUpdate;
         }
 
         public int CountStorableKeepItems() => MainItems().Count(x =>
-            _loot.Classify(x) == ManagerLoot.ItemClassification.Keep);
+            _policy.IsBankEligible(x, _loot));
 
         public bool StartRoundTrip() => Start(Operation.RoundTrip, 1, false);
         public bool StartStore(int count, bool automaticRun = false) =>
@@ -141,7 +143,7 @@ namespace RKmission
                 if (!TimedOut(1)) return;
                 Item[] main = MainItems();
                 Item[] bank = BankItems();
-                var candidates = main.Where(x => _loot.Classify(x) == ManagerLoot.ItemClassification.Keep);
+                var candidates = main.Where(x => _policy.IsBankEligible(x, _loot));
                 if (_operation == Operation.RoundTrip)
                     candidates = candidates.Where(x => main.Count(y => SameItem(x, y)) == 1 &&
                         bank.All(y => !SameItem(x, y)));

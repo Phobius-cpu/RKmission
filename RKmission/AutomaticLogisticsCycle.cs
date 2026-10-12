@@ -16,6 +16,7 @@ namespace RKmission
         private enum Phase
         {
             Idle,
+            Grounding,
             LoadingInventory,
             StartBank,
             TravelBank,
@@ -25,7 +26,8 @@ namespace RKmission
             TravelShop,
             LoadingShopInventory,
             Shop,
-            ReturnShop
+            ReturnShop,
+            Reconcile
         }
 
         private readonly LogisticsRouteNavigator _route;
@@ -35,9 +37,11 @@ namespace RKmission
         private Phase _phase;
         private DateTime _nextTick;
         private DateTime _inventoryLoadStarted;
+        private DateTime _groundingStarted;
         private string _site;
         private int _maximumItems, _stored, _sold, _plannedRejects;
         private bool _bankPlanned, _shopPlanned, _inventoryLoadRequested, _missionCycleRun;
+        private bool _groundRequested;
         private string _deferredFailure;
         private readonly HashSet<Identity> _pendingSellBags = new HashSet<Identity>();
         private readonly Dictionary<Identity, int> _sellBagRefreshUses = new Dictionary<Identity, int>();
@@ -85,6 +89,13 @@ namespace RKmission
             }
             _maximumItems = maximumItems;
             _missionCycleRun = missionCycleRun;
+            if (!missionCycleRun && DynelManager.LocalPlayer.MovementState == MovementState.Fly)
+            {
+                LastFailure = "manual automatic-logistics validation must start on foot";
+                Result = VerifiedOperationResult.Failed;
+                _say("Automatic logistics validation held: land beside the exact surveyed terminal first.");
+                return false;
+            }
             _stored = _sold = 0;
             _plannedRejects = 0;
             _bankPlanned = _shopPlanned = false;
@@ -94,7 +105,9 @@ namespace RKmission
             _deferredFailure = null;
             LastFailure = null;
             Result = VerifiedOperationResult.Running;
-            _phase = Phase.LoadingInventory;
+            _groundingStarted = DateTime.UtcNow;
+            _groundRequested = false;
+            _phase = missionCycleRun ? Phase.Grounding : Phase.LoadingInventory;
             _nextTick = DateTime.MinValue;
             _say($"{(_missionCycleRun ? "Automatic mission-cycle logistics" : "Automatic logistics validation")} " +
                 $"started at {_site}: loading RKM Sell bag snapshots before planning up to " +
@@ -128,6 +141,25 @@ namespace RKmission
         {
             switch (_phase)
             {
+                case Phase.Grounding:
+                    if (!_route.TryGroundAtVerifiedOrigin(_site, !_groundRequested,
+                        out bool onFoot, out string groundFailure))
+                    { Fail("automatic ground-state handoff failed: " + groundFailure); return; }
+                    if (!_groundRequested && DynelManager.LocalPlayer.MovementState == MovementState.Fly)
+                    {
+                        _groundRequested = true;
+                        _say($"Automatic logistics at {_site}: verified surveyed origin while flying; " +
+                            "sent one LeaveFly transition and waiting for AO# to report on-foot.");
+                    }
+                    if (onFoot)
+                    {
+                        _phase = Phase.LoadingInventory;
+                        _inventoryLoadStarted = DateTime.UtcNow;
+                        _say($"Automatic logistics at {_site}: on-foot state and exact surveyed origin verified.");
+                    }
+                    else if (DateTime.UtcNow - _groundingStarted > TimeSpan.FromSeconds(15))
+                        Fail("automatic ground-state handoff timed out after 15 seconds; no route start was attempted");
+                    return;
                 case Phase.LoadingInventory:
                     if (!_inventoryLoadRequested)
                     {
@@ -163,7 +195,7 @@ namespace RKmission
                         $"limit={_maximumItems} per destination; {_shop.SellInventorySummary()}.");
                     if (_bankPlanned) _phase = Phase.StartBank;
                     else if (_shopPlanned) _phase = Phase.StartShop;
-                    else Complete();
+                    else BeginReconciliation();
                     return;
                 case Phase.StartBank:
                     if (!_route.Start(_site, "bank", true))
@@ -194,7 +226,7 @@ namespace RKmission
                     if (_route.IsActive) return;
                     if (_route.Result != VerifiedOperationResult.Succeeded) return;
                     if (_shopPlanned) _phase = Phase.StartShop;
-                    else Complete();
+                    else BeginReconciliation();
                     return;
                 case Phase.StartShop:
                     if (!_route.Start(_site, "shop", true))
@@ -267,10 +299,26 @@ namespace RKmission
                     {
                         if (!string.IsNullOrEmpty(_deferredFailure))
                             Fail("shop phase was not completed after verified return: " + _deferredFailure);
-                        else Complete();
+                        else BeginReconciliation();
                     }
                     return;
+                case Phase.Reconcile:
+                    if (Game.IsZoning || DynelManager.LocalPlayer == null) return;
+                    if (!string.Equals(_route.FindVerifiedOriginSite(), _site,
+                        StringComparison.OrdinalIgnoreCase))
+                    { Fail("post-logistics reconciliation lost the exact surveyed origin"); return; }
+                    if (Item.HasPendingUse || Spell.HasPendingCast) return;
+                    _say($"Post-logistics reconciliation verified at {_site}: bankable Keep={_bank.CountStorableKeepItems()}, " +
+                        $"sale-eligible RKM Sell Reject={_shop.CountEligibleRejectItems()}; no item action is pending.");
+                    Complete();
+                    return;
             }
+        }
+
+        private void BeginReconciliation()
+        {
+            _phase = Phase.Reconcile;
+            _nextTick = DateTime.UtcNow.AddMilliseconds(250);
         }
 
         private bool RouteFailed(string phase)

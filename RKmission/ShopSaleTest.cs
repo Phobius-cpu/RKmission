@@ -17,6 +17,7 @@ namespace RKmission
 
         private readonly LogisticsRouteNavigator _route;
         private readonly ManagerLoot.ManagerLoot _loot;
+        private readonly InventoryPolicy _policy;
         private readonly Action<string> _say;
         private Phase _phase;
         private Identity _actor = Identity.None, _sourceBag = Identity.None, _itemSlot = Identity.None;
@@ -36,10 +37,11 @@ namespace RKmission
             $"{_phase} at {_actor}; verified sales={_completed}/{_requested}, " +
             $"item='{_itemName ?? "unselected"}' ({_itemId}, QL {_itemQl})";
 
-        public ShopSaleTest(LogisticsRouteNavigator route, ManagerLoot.ManagerLoot loot, Action<string> say)
+        public ShopSaleTest(LogisticsRouteNavigator route, ManagerLoot.ManagerLoot loot, InventoryPolicy policy, Action<string> say)
         {
             _route = route;
             _loot = loot;
+            _policy = policy;
             _say = say;
             Game.OnUpdate += OnUpdate;
             Network.N3MessageReceived += OnMessage;
@@ -58,7 +60,7 @@ namespace RKmission
                 .ToArray();
             Item[] sell = sellBags.SelectMany(bag => Inventory.GetContainerItems(bag.Identity))
                 .Where(x => x != null).ToArray();
-            Item[] eligible = sell.Where(x => _loot.Classify(x) == ManagerLoot.ItemClassification.Reject &&
+            Item[] eligible = sell.Where(x => _policy.CanAutoSell(x, _loot, true, false, out _) &&
                 main.All(y => !SameItem(x, y)) && sell.Count(y => SameItem(x, y)) == 1).ToArray();
             var protectedItems = sell.Select(x => new { Item = x, Location = "RKM Sell" })
                 .Concat(main.Select(x => new { Item = x, Location = "main" }))
@@ -143,7 +145,7 @@ namespace RKmission
                     ManagerLoot.ManagedBagFamily.Sell))
                 .SelectMany(bag => Inventory.GetContainerItems(bag.Identity))
                 .Where(x => x != null).ToArray();
-            return sell.Count(x => _loot.Classify(x) == ManagerLoot.ItemClassification.Reject &&
+            return sell.Count(x => _policy.CanAutoSell(x, _loot, true, false, out _) &&
                 main.All(y => !SameItem(x, y)) && sell.Count(y => SameItem(x, y)) == 1);
         }
 
@@ -159,7 +161,7 @@ namespace RKmission
             int keeps = sell.Count(item => _loot.Classify(item) == ManagerLoot.ItemClassification.Keep);
             int protectedItems = sell.Count(item =>
                 _loot.Classify(item) == ManagerLoot.ItemClassification.Protected);
-            int eligible = sell.Count(item => _loot.Classify(item) == ManagerLoot.ItemClassification.Reject &&
+            int eligible = sell.Count(item => _policy.CanAutoSell(item, _loot, true, false, out _) &&
                 main.All(other => !SameItem(item, other)) && sell.Count(other => SameItem(item, other)) == 1);
             return $"RKM Sell bags={bags.Length}, observed items={sell.Length} " +
                 $"[Reject={rejects}, Keep={keeps}, Protected={protectedItems}, " +
@@ -329,7 +331,7 @@ namespace RKmission
                         .Where(x => x != null)
                         .Select(x => new { Bag = bag.Identity, Item = x })).ToArray();
                 var staged = sellItems
-                    .Where(x => _loot.Classify(x.Item) == ManagerLoot.ItemClassification.Reject)
+                    .Where(x => _policy.CanAutoSell(x.Item, _loot, true, false, out _))
                     .Where(x => main.All(y => !SameItem(x.Item, y)))
                     .Where(x => sellItems.Count(y => SameItem(x.Item, y.Item)) == 1)
                     .FirstOrDefault();
@@ -415,8 +417,8 @@ namespace RKmission
 
         private void BeginAdd(Item item)
         {
-            if (_loot.Classify(item) != ManagerLoot.ItemClassification.Reject)
-            { Fail("selected item is no longer classified Reject"); return; }
+            if (!_policy.CanAutoSell(item, _loot, true, false, out string saleReason))
+            { Fail("selected item is no longer auto-sale eligible: " + saleReason); return; }
             Remember(item);
             _mainBefore = MainItems().Count(Matches);
             if (_mainBefore != 1)
