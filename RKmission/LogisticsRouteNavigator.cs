@@ -67,12 +67,14 @@ namespace RKmission
             return true;
         }
 
-        public string FindVerifiedOriginSite()
+        public string FindVerifiedOriginSite(string requiredSite = null)
         {
             if (Game.IsZoning || DynelManager.LocalPlayer == null) return null;
             int playfield = Playfield.ModelIdentity.Instance;
             Vector3 player = DynelManager.LocalPlayer.Position;
             string[] matches = _catalog.Routes.Where(route =>
+                    (string.IsNullOrEmpty(requiredSite) ||
+                        string.Equals(route.Site, requiredSite, StringComparison.OrdinalIgnoreCase)) &&
                     route.OriginPlayfield == playfield &&
                     Vector3.Distance(player, V(route.OriginPosition)) <= 6f &&
                     DynelManager.AllDynels.Any(terminal =>

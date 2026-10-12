@@ -109,6 +109,8 @@ namespace RKmission
         public bool HasRollTerminal { get; set; }
         public int RollTerminalPlayfield { get; set; }
         public Vector3 RollTerminalPosition { get; set; }
+        public string RollLogisticsSite { get; set; }
+        public string RollLogisticsTerminalIdentity { get; set; }
         // Per-quest provenance. The global roller location can change among sites.
         public List<MissionOriginBinding> OriginTerminals { get; set; } = new List<MissionOriginBinding>();
         // Exact accepted-objective evidence, scoped to quest identity and character.

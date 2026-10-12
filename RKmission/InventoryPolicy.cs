@@ -23,11 +23,33 @@ namespace RKmission
         public List<int> ProtectedItemIds { get; set; } = new List<int>();
         public List<string> ProtectedNameFragments { get; set; } = new List<string>();
         [JsonIgnore] public bool SkipOptionalLoot { get; private set; }
-        private HashSet<Identity>? _inventoryAtDungeonEntry;
+        private sealed class InventoryOccurrence
+        {
+            public Identity Slot;
+            public Identity Item;
+            public int LowId;
+            public int HighId;
+            public int QualityLevel;
+            public string Name;
+
+            public bool Matches(Item item) => item != null && Slot == item.Slot &&
+                MatchesDetails(item);
+
+            public bool MatchesDetails(Item item) => item != null &&
+                Item == item.UniqueIdentity && LowId == item.LowId && HighId == item.HighId &&
+                QualityLevel == item.QualityLevel &&
+                string.Equals(Name, item.Name ?? string.Empty, StringComparison.Ordinal);
+        }
+
+        private List<InventoryOccurrence>? _inventoryAtDungeonEntry;
         private Identity _pendingItem = Identity.None, _pendingBag = Identity.None;
+        private Identity _pendingSourceSlot = Identity.None;
         private DateTime _moveSent;
         private DateTime _settlementStarted;
         private int _moveAttempts;
+        private int _pendingBagMatchCount;
+        private int _pendingLowId, _pendingHighId, _pendingQualityLevel;
+        private string _pendingName;
         private int _stagedRejects;
         private string _pendingDestination;
         [JsonIgnore] public string? SettlementFailure { get; private set; }
@@ -67,7 +89,7 @@ namespace RKmission
 
         public void BeginMissionInventorySnapshot()
         {
-            _pendingItem = _pendingBag = Identity.None;
+            _pendingItem = _pendingBag = _pendingSourceSlot = Identity.None;
             _moveAttempts = 0;
             _stagedRejects = 0;
             _settlementStarted = DateTime.MinValue;
@@ -75,10 +97,18 @@ namespace RKmission
             AutomaticLogisticsRequired = false;
             AutomaticLogisticsReason = null;
             ObservedSellRejects = 0;
-            _inventoryAtDungeonEntry = new HashSet<Identity>(Inventory.Items
+            _inventoryAtDungeonEntry = Inventory.Items
                 .Where(item => item.Slot.Type == IdentityType.Inventory &&
                     item.UniqueIdentity.Type != IdentityType.Container)
-                .Select(item => item.UniqueIdentity));
+                .Select(item => new InventoryOccurrence
+                {
+                    Slot = item.Slot,
+                    Item = item.UniqueIdentity,
+                    LowId = item.LowId,
+                    HighId = item.HighId,
+                    QualityLevel = item.QualityLevel,
+                    Name = item.Name ?? string.Empty
+                }).ToList();
         }
 
         // Reuse Manager.Loot's value decision and the AOSharp item transfer.
@@ -95,26 +125,32 @@ namespace RKmission
             }
             if (_pendingItem != Identity.None)
             {
-                bool inMain = Inventory.Items.Any(x => x.Slot.Type == IdentityType.Inventory &&
-                    x.UniqueIdentity == _pendingItem);
-                bool inBag = Inventory.GetContainerItems(_pendingBag).Any(x =>
-                    x.UniqueIdentity == _pendingItem);
-                if (!inMain && inBag)
+                bool sourceStillMatches = Inventory.Items.Any(x =>
+                    x.Slot == _pendingSourceSlot && PendingDetailsMatch(x));
+                int bagMatchCount = Inventory.GetContainerItems(_pendingBag)
+                    .Count(PendingDetailsMatch);
+                if (!sourceStillMatches && bagMatchCount > _pendingBagMatchCount)
                 {
                     Identity verifiedItem = _pendingItem;
+                    Identity verifiedSlot = _pendingSourceSlot;
                     string verifiedDestination = _pendingDestination;
-                    _pendingItem = _pendingBag = Identity.None;
+                    _pendingItem = _pendingBag = _pendingSourceSlot = Identity.None;
                     _moveAttempts = 0;
                     if (ManagerLoot.ManagedBagFamily.Matches(verifiedDestination, ManagerLoot.ManagedBagFamily.Sell))
                         _stagedRejects++;
-                    say($"Verified post-mission inventory move for item {verifiedItem} into '{verifiedDestination}'.");
+                    say($"Verified post-mission inventory move for '{_pendingName}', id={_pendingLowId}/{_pendingHighId}, " +
+                        $"QL={_pendingQualityLevel}, item={verifiedItem}, source slot={verifiedSlot}, " +
+                        $"into '{verifiedDestination}' by source-slot removal and destination-count increase.");
                     _pendingDestination = null;
                 }
                 else if (DateTime.UtcNow - _moveSent < TimeSpan.FromSeconds(5))
                     return InventorySettlement.Moving;
-                else if (!inMain || _moveAttempts >= 2)
+                else if (!sourceStillMatches || _moveAttempts >= 2)
                 {
-                    SettlementFailure = $"Move to RK Junk was not verified for item {_pendingItem}.";
+                    SettlementFailure = $"Move to RK Junk was not verified for '{_pendingName}', " +
+                        $"id={_pendingLowId}/{_pendingHighId}, QL={_pendingQualityLevel}, item={_pendingItem}, " +
+                        $"source slot={_pendingSourceSlot}: sourcePresent={sourceStillMatches}, " +
+                        $"destinationMatches={bagMatchCount} (before={_pendingBagMatchCount}).";
                     return InventorySettlement.Blocked;
                 }
             }
@@ -123,10 +159,10 @@ namespace RKmission
                 foreach (Item item in Inventory.Items.Where(x =>
                     x.Slot.Type == IdentityType.Inventory &&
                     x.UniqueIdentity.Type != IdentityType.Container &&
-                    !_inventoryAtDungeonEntry.Contains(x.UniqueIdentity) &&
+                    IsNewMissionOccurrence(x) &&
                     (_pendingItem == Identity.None || x.UniqueIdentity == _pendingItem)))
                 {
-                    bool newlyAcquired = !_inventoryAtDungeonEntry.Contains(item.UniqueIdentity);
+                    bool newlyAcquired = IsNewMissionOccurrence(item);
                     ManagerLoot.ItemClassification classification = loot.Classify(item, newlyAcquired);
                     string requested = classification == ManagerLoot.ItemClassification.Keep
                         ? loot.KeepBagName(item) :
@@ -134,7 +170,8 @@ namespace RKmission
                             ? ManagerLoot.ManagedBagFamily.Sell : null;
                     if (string.IsNullOrWhiteSpace(requested)) continue;
                     var bag = Inventory.Backpacks
-                        .Where(x => ManagerLoot.ManagedBagFamily.Matches(x.Name, requested) && x.Items.Count < 21)
+                        .Where(x => ManagerLoot.ManagedBagFamily.Matches(x.Name, requested) &&
+                            Inventory.GetContainerItems(x.Identity).Count < 21)
                         .OrderBy(x => ManagerLoot.ManagedBagFamily.Order(x.Name, requested))
                         .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
                     if (bag == null) break;
@@ -144,9 +181,20 @@ namespace RKmission
                         _moveAttempts = 0;
                     }
                     _pendingBag = bag.Identity;
+                    _pendingSourceSlot = item.Slot;
                     _pendingDestination = bag.Name;
+                    _pendingLowId = item.LowId;
+                    _pendingHighId = item.HighId;
+                    _pendingQualityLevel = item.QualityLevel;
+                    _pendingName = item.Name ?? string.Empty;
+                    _pendingBagMatchCount = Inventory.GetContainerItems(bag.Identity)
+                        .Count(PendingDetailsMatch);
                     if (Item.HasPendingUse || Spell.HasPendingCast)
                         return InventorySettlement.Moving;
+                    say($"Post-mission staging candidate: '{_pendingName}', id={_pendingLowId}/{_pendingHighId}, " +
+                        $"QL={_pendingQualityLevel}, item={_pendingItem}, source slot={_pendingSourceSlot}, " +
+                        $"ManagerLoot={classification}, destination='{_pendingDestination}', " +
+                        $"destination matches before move={_pendingBagMatchCount}.");
                     item.MoveToContainer(bag);
                     _moveSent = DateTime.UtcNow;
                     _moveAttempts++;
@@ -163,6 +211,39 @@ namespace RKmission
             bool enough = ClassifyAfterVerifiedExit(loot, say);
             return enough ? InventorySettlement.Ready : InventorySettlement.NeedsSpace;
         }
+
+        private bool IsNewMissionOccurrence(Item item)
+        {
+            if (_inventoryAtDungeonEntry == null || item == null ||
+                _inventoryAtDungeonEntry.Any(entry => entry.Matches(item))) return false;
+            List<InventoryOccurrence> baseline = _inventoryAtDungeonEntry
+                .Where(entry => entry.MatchesDetails(item)).ToList();
+            List<Item> current = Inventory.Items.Where(candidate =>
+                    candidate.Slot.Type == IdentityType.Inventory &&
+                    candidate.UniqueIdentity.Type != IdentityType.Container &&
+                    SameOccurrenceDetails(candidate, item)).ToList();
+            int added = current.Count - baseline.Count;
+            if (added <= 0) return false;
+            // If an old equal item changed slot, the new copy cannot be identified
+            // without risking a pre-mission Reject. Only treat the unmatched copies
+            // as new when every baseline copy is still proven in its original slot.
+            List<Item> unmatched = current.Where(candidate =>
+                !baseline.Any(entry => entry.Matches(candidate))).ToList();
+            return unmatched.Count == added && unmatched.Any(candidate =>
+                candidate.Slot == item.Slot && SameOccurrenceDetails(candidate, item));
+        }
+
+        private static bool SameOccurrenceDetails(Item left, Item right) =>
+            left != null && right != null && left.UniqueIdentity == right.UniqueIdentity &&
+            left.LowId == right.LowId && left.HighId == right.HighId &&
+            left.QualityLevel == right.QualityLevel &&
+            string.Equals(left.Name ?? string.Empty, right.Name ?? string.Empty,
+                StringComparison.Ordinal);
+
+        private bool PendingDetailsMatch(Item item) => item != null &&
+            item.UniqueIdentity == _pendingItem && item.LowId == _pendingLowId &&
+            item.HighId == _pendingHighId && item.QualityLevel == _pendingQualityLevel &&
+            string.Equals(item.Name ?? string.Empty, _pendingName ?? string.Empty, StringComparison.Ordinal);
 
         public bool CanAutoSell(Item item, ManagerLoot.ManagerLoot loot, bool inSellBag,
             bool newlyAcquiredMain, out string reason)
@@ -235,8 +316,7 @@ namespace RKmission
                 .Where(item => item.Slot.Type == IdentityType.Inventory &&
                     item.UniqueIdentity.Type != IdentityType.Container)
                 .Select(item => loot.Classify(item,
-                    newlyAcquiredDuringMission: _inventoryAtDungeonEntry != null &&
-                        !_inventoryAtDungeonEntry.Contains(item.UniqueIdentity))).ToList();
+                    newlyAcquiredDuringMission: IsNewMissionOccurrence(item))).ToList();
             _inventoryAtDungeonEntry = null;
             bool enoughCapacity = Inventory.NumFreeSlots >= MinimumFreeSlots;
             ObservedSellRejects = Inventory.Backpacks

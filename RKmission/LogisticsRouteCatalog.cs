@@ -48,6 +48,17 @@ namespace RKmission
             string.Equals(x.Site, site, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(x.Purpose, purpose, StringComparison.OrdinalIgnoreCase));
 
+        public string FindUniqueOriginSite(int playfield, string terminalIdentity, Vector3 terminalPosition)
+        {
+            if (playfield <= 0 || string.IsNullOrWhiteSpace(terminalIdentity)) return null;
+            string[] matches = _routes.Where(route => route.OriginPlayfield == playfield &&
+                    string.Equals(route.OriginTerminalIdentity, terminalIdentity,
+                        StringComparison.OrdinalIgnoreCase) &&
+                    Vector3.Distance(terminalPosition, V(route.OriginPosition)) <= 15f)
+                .Select(route => route.Site).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            return matches.Length == 1 ? matches[0] : null;
+        }
+
         public LogisticsRouteCatalog(string pluginDir, Action<string> say)
         {
             string path = Path.Combine(pluginDir, "Data", "LogisticsRoutes.json");
