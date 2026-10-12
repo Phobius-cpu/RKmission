@@ -107,3 +107,45 @@ if (-not $loot.Contains('RuleNameMatches(item.Name, item.Id, r.Name') -or
     throw 'Exact or partial-name ManagerLoot matching regressed for listed source items.'
 }
 Write-Output 'PASS None source items reach exact/partial rules while the observed protected-bag object remains protected'
+
+$rememberStart = $loot.IndexOf('private void RememberSelectedIdentity(MissionIdentity identity)')
+$rememberEnd = $loot.IndexOf('private bool SameSelectedItem(', $rememberStart)
+$classifyStart = $loot.IndexOf('public ItemClassification Classify(Item item')
+$classifyEnd = $loot.IndexOf('public string KeepBagName(', $classifyStart)
+$resetStart = $loot.IndexOf('public void ResetMissionLootSkips()')
+$resetEnd = $loot.IndexOf('private bool ReservedMissionLoot(', $resetStart)
+if ($rememberStart -lt 0 -or $rememberEnd -lt 0 -or $classifyStart -lt 0 -or
+    $classifyEnd -lt 0 -or $resetStart -lt 0 -or $resetEnd -lt 0) {
+    throw 'Selected-item identity safety paths were not found.'
+}
+$remember = $loot.Substring($rememberStart, $rememberEnd - $rememberStart)
+$classify = $loot.Substring($classifyStart, $classifyEnd - $classifyStart)
+$reset = $loot.Substring($resetStart, $resetEnd - $resetStart)
+if (-not $remember.Contains('if (HasUsableIdentity(identity))') -or
+    -not $remember.Contains('_selectedItems.Add(identity)') -or
+    ([regex]::Matches($loot, '_selectedItems\.Add\(').Count -ne 1)) {
+    throw 'A selected-item insertion can bypass the shared usable-identity guard.'
+}
+if (-not $classify.Contains('HasUsableIdentity(item.UniqueIdentity) && _selectedItems.Contains(item.UniqueIdentity)') -or
+    -not $classify.Contains('!HasUsableIdentity(item.UniqueIdentity)') -or
+    -not $classify.Contains('_verifiedSelectedDetails.Any(selected => SameItemDetails(item, selected))')) {
+    throw 'Classification no longer separates usable selected identities from exact-detail None identity retention.'
+}
+Write-Output 'PASS None identities cannot enter or globally match selected-item identity memory'
+
+if (-not $loot.Contains('RememberSelectedIdentity(acquired.UniqueIdentity)') -or
+    -not $loot.Contains('RememberSelectedIdentity(corpseItem.UniqueIdentity)') -or
+    -not $loot.Contains('RememberSelectedIdentity(selected.UniqueIdentity)')) {
+    throw 'Transactional or legacy selected-item memory bypasses the guarded helper.'
+}
+if (-not $reset.Contains('_selectedItems.RemoveWhere(identity => !HasUsableIdentity(identity))') -or
+    $reset.Contains('_selectedItems.Clear()') -or $reset.Contains('_verifiedSelectedDetails.Clear()')) {
+    throw 'Mission reset does not purge unusable sentinels while retaining post-mission selected ownership.'
+}
+Write-Output 'PASS reset purges contaminated sentinels without forgetting valid or exact-detail selected ownership'
+
+if (-not $classify.Contains('bool listed = GetMatchingRule(item) != null') -or
+    -not $classify.Contains('_settings["Reverse"].AsBool() ? !listed : listed')) {
+    throw 'Reverse-off listed/unlisted classification semantics regressed.'
+}
+Write-Output 'PASS Reverse-off None items independently follow their own listed or unlisted rule result'

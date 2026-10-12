@@ -213,6 +213,10 @@ namespace ManagerLoot
 
         public void ResetMissionLootSkips()
         {
+            // Selected-item ownership can outlive a mission because quantity rules may
+            // already have been consumed. Only purge identities that can alias every
+            // ordinary AO item; exact-detail selections remain intentionally available.
+            _selectedItems.RemoveWhere(identity => !HasUsableIdentity(identity));
             _unreachableMissionLoot.Clear();
             _seenMissionLoot.Clear();
             _finishedMissionLoot.Clear();
@@ -343,7 +347,8 @@ namespace ManagerLoot
             if (item == null) return ItemClassification.Unknown;
             if (ProtectionReason(item) != null)
                 return ItemClassification.Protected;
-            if (_selectedItems.Contains(item.UniqueIdentity)) return ItemClassification.Keep;
+            if (HasUsableIdentity(item.UniqueIdentity) && _selectedItems.Contains(item.UniqueIdentity))
+                return ItemClassification.Keep;
             if (!HasUsableIdentity(item.UniqueIdentity) &&
                 _verifiedSelectedDetails.Any(selected => SameItemDetails(item, selected))) return ItemClassification.Keep;
             if (_settings == null || Rules == null) return ItemClassification.Unknown;
@@ -508,6 +513,12 @@ namespace ManagerLoot
         private static bool HasUsableIdentity(MissionIdentity identity) =>
             identity != MissionIdentity.None && identity.Type != IdentityType.None && identity.Instance != 0;
 
+        private void RememberSelectedIdentity(MissionIdentity identity)
+        {
+            if (HasUsableIdentity(identity))
+                _selectedItems.Add(identity);
+        }
+
         private bool SameSelectedItem(Item item, ListedItemTransfer selected) => item != null &&
             (HasUsableIdentity(selected.Identity) && item.UniqueIdentity == selected.Identity ||
              !HasUsableIdentity(selected.Identity) && item.Slot == selected.SourceSlot && SameItemDetails(item, selected));
@@ -574,7 +585,7 @@ namespace ManagerLoot
             Item acquired = AcquiredInventoryItem(selected);
             if (acquired != null)
             {
-                if (HasUsableIdentity(acquired.UniqueIdentity)) _selectedItems.Add(acquired.UniqueIdentity);
+                RememberSelectedIdentity(acquired.UniqueIdentity);
                 if (!HasUsableIdentity(acquired.UniqueIdentity) &&
                     !_verifiedSelectedDetails.Any(existing => SameItemDetails(acquired, existing)))
                     _verifiedSelectedDetails.Add(selected);
@@ -1235,8 +1246,9 @@ namespace ManagerLoot
                         if (corpseItem != null)
                         {
                             if (Classify(corpseItem) == ItemClassification.Keep)
-                                _selectedItems.Add(corpseItem.UniqueIdentity);
-                            if (CorpseContainer.Identity == MissionObjectiveContainer) _objectiveLootItems.Add(corpseItem.UniqueIdentity);
+                                RememberSelectedIdentity(corpseItem.UniqueIdentity);
+                            if (CorpseContainer.Identity == MissionObjectiveContainer && HasUsableIdentity(corpseItem.UniqueIdentity))
+                                _objectiveLootItems.Add(corpseItem.UniqueIdentity);
                             if (_settings["Reverse"].AsBool() && CorpseContainer.Identity != MissionObjectiveContainer) reverseItems.Add(corpseItem.Id);
                             corpseItem.MoveToInventory();
 
@@ -1292,7 +1304,7 @@ namespace ManagerLoot
                             foreach (Item selected in Inventory.Items.Where(i =>
                                 i.Slot.Type == IdentityType.Inventory &&
                                 GetMatchingRule(i) == invItemNoBag))
-                                _selectedItems.Add(selected.UniqueIdentity);
+                                RememberSelectedIdentity(selected.UniqueIdentity);
                             Rules.Remove(invItemNoBag);
                             SaveRules();
                             RefreshList();
