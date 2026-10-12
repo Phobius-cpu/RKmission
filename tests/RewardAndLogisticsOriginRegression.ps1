@@ -34,6 +34,17 @@ Assert (-not $policy.Contains('if (_pendingItem != Identity.None)')) `
     'item identity is never reused as the pending-transfer sentinel'
 Assert ($policy.Contains('Inventory.GetContainerItems(x.Identity).Count < 21')) `
     'RK Junk eligibility uses the loaded container snapshot rather than the backpack wrapper count'
+Assert ($policy.Contains('Inventory.ContainerOpened += OnContainerOpened;') -and
+    $policy.Contains('container.Identity != _snapshotBag') -and
+    $policy.Contains('_snapshotConfirmed = true;')) `
+    'empty post-zone destination bags require exact ContainerOpened evidence'
+Assert ($policy.Contains('observed > 0') -and
+    $policy.Contains('MaximumDestinationSnapshotUses') -and
+    $policy.Contains('no item move was sent')) `
+    'populated snapshots are positive evidence and empty-bag refresh remains bounded and fail-closed'
+Assert ($policy.IndexOf('EnsureDestinationSnapshot(bag, say, out bool snapshotBlocked)') -lt
+    $policy.IndexOf('item.MoveToContainer(bag);')) `
+    'post-mission staging cannot send a move before destination snapshot verification'
 Assert ($policy.Contains('if (!inSellBag && !newlyAcquiredMain)')) `
     'pre-existing unstaged Rejects remain ineligible for automatic sale'
 
@@ -53,3 +64,6 @@ Assert ($bot.Contains('TryBindSavedTerminalToSurveyedOrigin();') -and
     'post-warp logistics waits boundedly for live surveyed-origin evidence'
 Assert (-not $bot.Contains('string site = _logisticsNavigator.FindVerifiedOriginSite();')) `
     'automatic logistics cannot select an unrelated nearby surveyed origin'
+Assert ($bot.Contains('if (!_handInExitVerified && !_verifiedExitReported)') -and
+    $bot.Contains('_verifiedExitReported = true;')) `
+    'verified mission-exit proof is logged once while settlement spans multiple ticks'

@@ -13,8 +13,10 @@ namespace RKmission
 
     // Only optional corpse/chest work is suppressed; objective interactions
     // continue through MissionObjective and retain their own free-slot checks.
-    internal sealed class InventoryPolicy
+    internal sealed class InventoryPolicy : IDisposable
     {
+        private const int MaximumDestinationSnapshotUses = 3;
+        private static readonly TimeSpan DestinationSnapshotResponse = TimeSpan.FromSeconds(2.5);
         private readonly HashSet<int> _consumerItemIds = new HashSet<int>();
         public int MinimumFreeSlots { get; set; } = 3;
         public int AutomaticSellTriggerItems { get; set; } = 15;
@@ -53,10 +55,21 @@ namespace RKmission
         private string _pendingName;
         private int _stagedRejects;
         private string _pendingDestination;
+        private Identity _snapshotBag = Identity.None;
+        private DateTime _snapshotUseSent;
+        private int _snapshotUses;
+        private bool _snapshotConfirmed, _snapshotEventsAttached;
         [JsonIgnore] public string? SettlementFailure { get; private set; }
         [JsonIgnore] public bool AutomaticLogisticsRequired { get; private set; }
         [JsonIgnore] public string? AutomaticLogisticsReason { get; private set; }
         [JsonIgnore] public int ObservedSellRejects { get; private set; }
+
+        public void Initialize()
+        {
+            if (_snapshotEventsAttached) return;
+            Inventory.ContainerOpened += OnContainerOpened;
+            _snapshotEventsAttached = true;
+        }
 
         // Handlers may register verified item IDs that they actually consume.
         // This does not turn a useful-looking name or arbitrary Use action into
@@ -92,6 +105,7 @@ namespace RKmission
         {
             _pendingItem = _pendingBag = _pendingSourceSlot = Identity.None;
             _movePending = false;
+            ResetDestinationSnapshot();
             _moveAttempts = 0;
             _stagedRejects = 0;
             _settlementStarted = DateTime.MinValue;
@@ -178,6 +192,8 @@ namespace RKmission
                         .OrderBy(x => ManagerLoot.ManagedBagFamily.Order(x.Name, requested))
                         .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
                     if (bag == null) break;
+                    if (!EnsureDestinationSnapshot(bag, say, out bool snapshotBlocked))
+                        return snapshotBlocked ? InventorySettlement.Blocked : InventorySettlement.Moving;
                     if (!_movePending || item.Slot != _pendingSourceSlot ||
                         !PendingDetailsMatch(item))
                     {
@@ -215,6 +231,66 @@ namespace RKmission
                 say($"Verified {_stagedRejects} newly collected reject item(s) staged in RK Junk bag(s); no sale was performed.");
             bool enough = ClassifyAfterVerifiedExit(loot, say);
             return enough ? InventorySettlement.Ready : InventorySettlement.NeedsSpace;
+        }
+
+        private bool EnsureDestinationSnapshot(Backpack bag, Action<string> say, out bool blocked)
+        {
+            blocked = false;
+            if (_snapshotBag != bag.Identity)
+            {
+                _snapshotBag = bag.Identity;
+                _snapshotConfirmed = false;
+                _snapshotUses = 0;
+                _snapshotUseSent = DateTime.MinValue;
+            }
+            int observed = Inventory.GetContainerItems(bag.Identity).Count(item => item != null);
+            if (_snapshotConfirmed || observed > 0)
+            {
+                if (!_snapshotConfirmed)
+                    say($"Post-mission destination snapshot for '{bag.Name}' confirmed by {observed} observed item(s).");
+                _snapshotConfirmed = true;
+                return true;
+            }
+            if (Item.HasPendingUse || Spell.HasPendingCast ||
+                _snapshotUseSent != DateTime.MinValue &&
+                    DateTime.UtcNow - _snapshotUseSent < DestinationSnapshotResponse)
+                return false;
+            if (_snapshotUses >= MaximumDestinationSnapshotUses)
+            {
+                SettlementFailure = $"Destination bag '{bag.Name}' ({bag.Identity}) did not provide positive " +
+                    $"ContainerOpened or populated-snapshot evidence after {_snapshotUses} bounded open request(s); no item move was sent.";
+                blocked = true;
+                return false;
+            }
+            Item bagItem = bag.Item ?? Inventory.Items.FirstOrDefault(item =>
+                item != null && item.UniqueIdentity == bag.Identity);
+            if (bagItem == null)
+            {
+                SettlementFailure = $"Destination bag '{bag.Name}' ({bag.Identity}) has no matching inventory item to open; no item move was sent.";
+                blocked = true;
+                return false;
+            }
+            bagItem.Use();
+            _snapshotUses++;
+            _snapshotUseSent = DateTime.UtcNow;
+            say($"Post-mission destination snapshot requested for '{bag.Name}' ({bag.Identity}); " +
+                $"bounded open request {_snapshotUses}/{MaximumDestinationSnapshotUses}. " +
+                "An empty bag requires ContainerOpened evidence before staging.");
+            return false;
+        }
+
+        private void OnContainerOpened(object sender, Container container)
+        {
+            if (container == null || container.Identity != _snapshotBag) return;
+            _snapshotConfirmed = true;
+        }
+
+        private void ResetDestinationSnapshot()
+        {
+            _snapshotBag = Identity.None;
+            _snapshotUseSent = DateTime.MinValue;
+            _snapshotUses = 0;
+            _snapshotConfirmed = false;
         }
 
         private bool IsNewMissionOccurrence(Item item)
@@ -365,6 +441,14 @@ namespace RKmission
             AutomaticLogisticsRequired = false;
             AutomaticLogisticsReason = null;
             ObservedSellRejects = 0;
+        }
+
+        public void Dispose()
+        {
+            if (!_snapshotEventsAttached) return;
+            Inventory.ContainerOpened -= OnContainerOpened;
+            _snapshotEventsAttached = false;
+            ResetDestinationSnapshot();
         }
     }
 }

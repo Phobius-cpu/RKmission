@@ -72,6 +72,7 @@ namespace RKmission
         private int _associationAttempts;
         private string _waitingReason;
         private bool _exitZoningStarted;
+        private bool _verifiedExitReported;
         private bool _handInExitVerified;
         private DateTime _handInLocateStarted;
         private int _completedMissionWarpTarget;
@@ -93,6 +94,7 @@ namespace RKmission
             _loot.RunEmbedded(System.IO.Path.Combine(pluginDir, "Plugins", "ManagerLoot"), MaliMissionRoller2.Main.Window, _roller.ShowRoller);
             _readiness = new MissionReadiness(Say, MissionReadinessSettings.Load(pluginDir, Say));
             _inventory = InventoryPolicy.Load(pluginDir, Say);
+            _inventory.Initialize();
             _loot.OperationalItemProtected = _inventory.IsOperationalItem;
             _loot.MissionReservationActive = owner =>
             {
@@ -184,6 +186,7 @@ namespace RKmission
             Game.TeleportStarted -= ZoningStarted;
             Game.TeleportEnded -= ZoningEnded;
             CarriedItems.Teardown();
+            _inventory?.Dispose();
             Network.N3MessageSent -= _readiness.ObserveAction;
             Network.N3MessageSent -= _missions.ObserveSent;
             Network.N3MessageReceived -= _missions.ObserveQuest;
@@ -543,6 +546,7 @@ namespace RKmission
             _mapMission = _handoffDoor = Identity.None;
             _verifiedRun = false;
             _exitZoningStarted = false;
+            _verifiedExitReported = false;
             _handInExitVerified = false;
             _handInLocateStarted = DateTime.MinValue;
             _handIn.Reset();
@@ -800,10 +804,13 @@ namespace RKmission
                             $"expected={_selected.PlayfieldId}. Chaining is held.");
                         return;
                     }
-                    if (!_handInExitVerified)
+                    if (!_handInExitVerified && !_verifiedExitReported)
+                    {
                         Say(warpExitVerified
                             ? $"Verified Scottyboi warp from completed mission {_selected.Id.Instance} to playfield {_completedMissionWarpTarget}."
                             : $"Verified exit from mission {_selected.Id.Instance} to its outdoor playfield {_selected.PlayfieldId}.");
+                        _verifiedExitReported = true;
+                    }
                     if (_selected.ReturnHandInPending)
                     {
                         _handInExitVerified = true;
@@ -836,6 +843,7 @@ namespace RKmission
                     _selected = null;
                     _verifiedRun = false;
                     _exitZoningStarted = false;
+                    _verifiedExitReported = false;
                     _completedMissionWarpTarget = 0;
                     _completedMissionWarpAttempted = false;
                     _handInExitVerified = false;
@@ -1329,6 +1337,7 @@ namespace RKmission
             if (DateTime.UtcNow - _dungeonObservedAt < TimeSpan.FromSeconds(1) || DynelManager.LocalPlayer.Room == null) return;
             _selected = record;
             _verifiedRun = true;
+            _verifiedExitReported = false;
             _activeDungeon = Playfield.ModelIdentity;
             _entranceResolver.RecordVerified(bound);
             if (record.Completed)
