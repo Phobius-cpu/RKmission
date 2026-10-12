@@ -360,10 +360,13 @@ namespace ManagerLoot
 
         // RKMission owns post-mission movement, but ManagerLoot remains the
         // authority for the selected rule and its requested destination.
+        internal static string ResolveKeepDestination(Rule rule) =>
+            string.IsNullOrWhiteSpace(rule?.BagName) ? ManagedBagFamily.Keep : rule.BagName.Trim();
+
         public string KeepBagName(Item item)
         {
             Rule rule = GetMatchingRule(item);
-            return string.IsNullOrWhiteSpace(rule?.BagName) ? null : rule.BagName.Trim();
+            return rule == null ? null : ResolveKeepDestination(rule);
         }
         public bool HasUnprocessedMissionLoot(int roomId, Func<Dynel, bool> include = null) =>
             !IgnoreOrdinaryMissionLoot && (MissionRoomDynels?.Invoke(roomId) ?? DynelManager.AllDynels).Any(x =>
@@ -594,15 +597,19 @@ namespace ManagerLoot
                 if (!selected.Objective && selected.Rule != null)
                 {
                     UpdateRule(selected.Rule);
-                    if (!string.IsNullOrWhiteSpace(selected.Rule.BagName))
+                    string requested = ResolveKeepDestination(selected.Rule);
+                    var bag = Inventory.Backpacks
+                        .Where(candidate => ManagedBagFamily.Matches(candidate.Name, requested))
+                        .OrderBy(candidate => ManagedBagFamily.Order(candidate.Name, requested))
+                        .ThenBy(candidate => candidate.Name, StringComparer.OrdinalIgnoreCase)
+                        .FirstOrDefault(candidate => candidate.Items.Count < 21);
+                    if (bag != null)
                     {
-                        Container bag = Inventory.Backpacks
-                            .Where(candidate => ManagedBagFamily.Matches(candidate.Name, selected.Rule.BagName))
-                            .OrderBy(candidate => ManagedBagFamily.Order(candidate.Name, selected.Rule.BagName))
-                            .ThenBy(candidate => candidate.Name, StringComparer.OrdinalIgnoreCase)
-                            .FirstOrDefault(candidate => candidate.Items.Count < 21);
-                        if (bag != null) acquired.MoveToContainer(bag);
+                        acquired.MoveToContainer(bag);
+                        Chat.WriteLine($"RKMission: Keep placement requested for '{selected.Name}' in '{bag.Name}'.");
                     }
+                    else
+                        Chat.WriteLine($"RKMission: Keep destination '{requested}' unavailable or full; leaving '{selected.Name}' safely in main inventory as Keep.");
                 }
             }
             Chat.WriteLine($"RKMission: Verified listed-item transfer '{selected.Name}', id={selected.Id}, QL={selected.QualityLevel} from {_sourceAcquisition.Source}.");
