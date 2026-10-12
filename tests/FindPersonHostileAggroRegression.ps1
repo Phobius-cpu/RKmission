@@ -21,6 +21,11 @@ Write-Output 'PASS FindPerson finale retains exact identity, uninterrupted 30-se
 foreach ($required in @(
     'GuardReservedEnemy(ordinaryEnemiesRemain)',
     'reservedAggro && (_objective.HasKillTarget || _objective.HasFindPersonTarget)',
+    'bool findPersonHeld = findPersonTarget != Identity.None && _objective.HoldEnemy(findPersonTarget)',
+    'bool attackingFindPerson = findPersonHeld &&',
+    'if (!findPersonHeld)',
+    '_reservedProtectionStarted = DateTime.MinValue',
+    'bool findPersonReserved = findPersonHeld &&',
     'Target remains held while ordinary enemies are cleared',
     'ordinary enemies=',
     'ReservedProtectionTimeout = TimeSpan.FromSeconds(5)',
@@ -33,7 +38,11 @@ foreach ($required in @(
 if ($dungeon.Contains('(attackingReserved || reservedAggro) && !_objective.HasKillTarget)')) {
     throw 'FindPerson reserved aggro still follows the old whole-dungeon stop path.'
 }
+if ($dungeon.Contains('bool attackingFindPerson = findPersonTarget != Identity.None &&')) {
+    throw 'Released FindPerson targets can still enter the reserved-target protection path.'
+}
 Write-Output 'PASS early hostile FindPerson aggro continues ordinary room sweep while attacks are cancelled with a bounded safety stop'
+Write-Output 'PASS completed FindPerson targets bypass protection timeout and reset stale protection state'
 
 foreach ($required in @(
     '_objective.HoldEnemy(x.Identity)',

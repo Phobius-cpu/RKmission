@@ -1544,7 +1544,8 @@ namespace RKmission
                 player.Pets.Any(x => x.Character?.IsAttacking == true && x.Character.FightingTarget?.IsAlive == true &&
                     _objective.HoldEnemy(x.Character.FightingTarget.Identity));
             Identity findPersonTarget = _objective.FindPersonTarget;
-            bool attackingFindPerson = findPersonTarget != Identity.None &&
+            bool findPersonHeld = findPersonTarget != Identity.None && _objective.HoldEnemy(findPersonTarget);
+            bool attackingFindPerson = findPersonHeld &&
                 (((player.IsAttacking || player.IsAttackPending) &&
                     player.FightingTarget?.Identity == findPersonTarget) ||
                 player.Pets.Any(x => x.Character?.IsAttacking == true &&
@@ -1561,7 +1562,9 @@ namespace RKmission
             }
             else
                 _reservedProtectionStarted = DateTime.MinValue;
-            bool findPersonReserved = _objective.HasFindPersonTarget &&
+            if (!findPersonHeld)
+                _reservedProtectionStarted = DateTime.MinValue;
+            bool findPersonReserved = findPersonHeld &&
                 (hostileReserved.Any(x => x.Identity == findPersonTarget) || attackingFindPerson);
             if (attackingFindPerson && findPersonReserved &&
                 DateTime.UtcNow - _reservedProtectionStarted >= ReservedProtectionTimeout)
