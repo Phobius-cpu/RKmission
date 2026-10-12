@@ -10,13 +10,37 @@ foreach ($required in @(
     'FindPerson observation started for exact target',
     'FindPerson observation reset: exact target',
     'FindPerson observation complete for exact target',
-    'seconds >= 30',
+    'FindPersonObservationConfirmation = TimeSpan.FromSeconds(5)',
+    'now - step.ObservationStarted >= FindPersonObservationConfirmation',
+    'awaiting mission acknowledgement',
     'FindPerson completion release: exact target')) {
     if (-not $objective.Contains($required)) {
         throw "FindPerson identity/observation regression: $required"
     }
 }
-Write-Output 'PASS FindPerson finale retains exact identity, uninterrupted 30-second observation, and post-proof release'
+if ($objective.Contains('seconds >= 30') -or
+    $objective.Contains('FindPerson observation progress:') -or
+    $objective.Contains('/30 seconds')) {
+    throw 'FindPerson observation still contains the old 30-second threshold or obsolete progress milestones.'
+}
+
+$findPersonBranch = $objective.IndexOf('else if (step.Action is FindPersonAction)')
+$selectionReset = $objective.IndexOf('Targeting.Target?.Identity != step.Target', $findPersonBranch)
+$proofThreshold = $objective.IndexOf('now - step.ObservationStarted >= FindPersonObservationConfirmation', $selectionReset)
+$proofSet = $objective.IndexOf('step.Proof = true;', $proofThreshold)
+$reconcile = $objective.IndexOf('_completion.Reconcile(', $proofSet)
+$rewardConfirmed = $objective.IndexOf('RewardConfirmed = true;', $reconcile)
+$release = $objective.IndexOf('FindPerson completion release: exact target', $rewardConfirmed)
+if ($findPersonBranch -lt 0 -or $selectionReset -le $findPersonBranch -or
+    $proofThreshold -le $selectionReset -or $proofSet -le $proofThreshold) {
+    throw 'FindPerson exact-target selection, interruption reset, or five-second proof ordering regressed.'
+}
+if ($reconcile -le $proofSet -or $rewardConfirmed -le $reconcile -or $release -le $rewardConfirmed) {
+    throw 'FindPerson proof can bypass acknowledgement reconciliation or release before accepted completion.'
+}
+Write-Output 'PASS exact FindPerson target requires an uninterrupted five-second selection before proof'
+Write-Output 'PASS interrupted selection resets observation and proof alone cannot bypass acknowledgement'
+Write-Output 'PASS accepted FindPerson completion releases the target after reconciliation'
 
 foreach ($required in @(
     'GuardReservedEnemy(ordinaryEnemiesRemain)',

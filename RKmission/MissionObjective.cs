@@ -19,6 +19,7 @@ namespace RKmission
         private const float InteractionRayTargetHeight = 0.25f;
         private static readonly TimeSpan ApproachTimeout = TimeSpan.FromSeconds(60);
         private static readonly TimeSpan AcknowledgementTimeout = TimeSpan.FromSeconds(75);
+        private static readonly TimeSpan FindPersonObservationConfirmation = TimeSpan.FromSeconds(5);
         internal enum StepState { Pending, Approaching, ReadyToInteract, ActionSent, AwaitingProof, ProofObserved, Completed, Blocked }
         internal sealed class Step
         {
@@ -40,8 +41,6 @@ namespace RKmission
         private readonly HashSet<Identity> _pickedUpItems = new HashSet<Identity>();
         private readonly MissionCompletionTracker _completion = new MissionCompletionTracker();
         private DateTime _acknowledgementStarted;
-        private DateTime _lastObservationLog;
-        private int _lastObservationSeconds = -1;
         private bool _serverCompletion;
         private string _roleResolutionFailure;
         public bool Finale { get; private set; }
@@ -202,32 +201,19 @@ namespace RKmission
                         if (step.ObservationStarted != DateTime.MinValue)
                             _say($"FindPerson observation reset: exact target {step.Target} is no longer selected.");
                         step.ObservationStarted = DateTime.MinValue;
-                        _lastObservationSeconds = -1;
                     }
                     else if (step.ObservationStarted == DateTime.MinValue)
                     {
                         step.ObservationStarted = now;
-                        _lastObservationLog = now;
-                        _lastObservationSeconds = 0;
-                        _say($"FindPerson observation started for exact target {step.Target}; 30 seconds of uninterrupted selection required.");
+                        _say($"FindPerson observation started for exact target {step.Target}; " +
+                            $"{FindPersonObservationConfirmation.TotalSeconds:0} seconds of uninterrupted selection required.");
                     }
-                    else
+                    else if (!step.Proof && now - step.ObservationStarted >= FindPersonObservationConfirmation)
                     {
                         int seconds = (int)(now - step.ObservationStarted).TotalSeconds;
-                        if (seconds >= 30)
-                        {
-                            step.Proof = true;
-                            if (_lastObservationSeconds < 30)
-                                _say($"FindPerson observation complete for exact target {step.Target} after {seconds} seconds.");
-                            _lastObservationSeconds = seconds;
-                        }
-                        else if (seconds >= 10 && seconds / 10 > _lastObservationSeconds / 10 &&
-                            now - _lastObservationLog >= TimeSpan.FromSeconds(5))
-                        {
-                            _lastObservationSeconds = seconds;
-                            _lastObservationLog = now;
-                            _say($"FindPerson observation progress: exact target={step.Target}, {seconds}/30 seconds.");
-                        }
+                        step.Proof = true;
+                        _say($"FindPerson observation complete for exact target {step.Target} after {seconds} seconds; " +
+                            "awaiting mission acknowledgement.");
                     }
                 }
                 else if (step.Action is FindItemAction && !step.Pickup)
