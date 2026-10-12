@@ -1077,13 +1077,24 @@ namespace RKmission
             recovery.WaypointIndex = 0;
             DungeonTransitPlanner.Route route = attemptAvailable
                 ? FindCombatTransitRoute(room, enemy, position) : null;
-            if (route != null) recovery.Waypoints.AddRange(route.Waypoints);
-            recovery.TransitCost = route?.Cost ?? float.PositiveInfinity;
-            recovery.Transit = recovery.Waypoints.Count > 0;
+            recovery.TransitCost = float.PositiveInfinity;
+            recovery.Transit = false;
             recovery.RecordedTransit = false;
             recovery.RecordedRoute = null;
             recovery.WaypointStarted = DateTime.MinValue;
-            if (!recovery.Transit && attemptAvailable)
+            bool preferRecorded = attemptAvailable && !enemy.IsInLineOfSight &&
+                Math.Abs(enemy.Position.Y - position.Y) >= CombatTopologyVerticalSeparation &&
+                TryStartRecordedCombatTopology(room, enemy, recovery, position);
+            if (preferRecorded && route != null)
+                _say($"Combat matching recorded topology '{recovery.RecordedRoute}' preferred over generated same-room route; " +
+                    $"retry={recovery.Failures}/{MaxCombatTopologyAttempts}.");
+            if (!preferRecorded && route != null)
+            {
+                recovery.Waypoints.AddRange(route.Waypoints);
+                recovery.TransitCost = route.Cost;
+                recovery.Transit = true;
+            }
+            if (!recovery.Transit && !preferRecorded && attemptAvailable)
                 TryStartRecordedCombatTopology(room, enemy, recovery, position);
             _combatCheckedRooms.Remove(room.Instance);
             _clearedRooms.Remove(room.Instance);
@@ -1144,9 +1155,13 @@ namespace RKmission
         {
             if (_navRoutes == null || !_navRoutes.TryPrepareDungeonTopology(_layout,
                 room.Instance, position, enemy.Position, out string routeName)) return false;
+            MovementArbiter.Current.Halt(MovementOwner.CombatPosition);
+            recovery.Waypoints.Clear();
+            recovery.WaypointIndex = 0;
             recovery.RecordedTransit = true;
             recovery.RecordedRoute = routeName;
             recovery.Transit = true;
+            recovery.TransitCost = float.PositiveInfinity;
             recovery.WaypointStarted = recovery.LastProgress = DateTime.UtcNow;
             recovery.LastPosition = position;
             _destination = null;
@@ -1287,7 +1302,7 @@ namespace RKmission
                     now - recovery.WaypointStarted > TimeSpan.FromSeconds(15))
                 {
                     if (TryStartRecordedCombatTopology(room, enemy, recovery, position))
-                        _say($"Combat generated same-room route stalled; using ordered recorded topology '{recovery.RecordedRoute}' under retry {recovery.Failures}/{MaxCombatTopologyAttempts}.");
+                        _say($"Combat generated same-room route stalled; switching to recorded topology '{recovery.RecordedRoute}' under retry={recovery.Failures}/{MaxCombatTopologyAttempts}.");
                     else
                         FailCombatRecoveryRoute(recovery, "no movement progress");
                 }
