@@ -199,9 +199,11 @@ namespace RKmission
                     if (_normalizer.Failed) { Fail("managed inventory normalization failed: " + _normalizer.Failure); return; }
                     if (_normalizer.IsActive) return;
                     int bankEligible = _normalizer.BankReservations.Count;
+                    int totalMainBankEligible = _normalizer.MainBankEligibleCount();
                     int rejectEligible = _shop.CountEligibleRejectItems();
                     _plannedBankKeeps = Math.Min(_maximumItems, bankEligible);
-                    _expectedRemainingBankKeeps = bankEligible - _plannedBankKeeps;
+                    _expectedRemainingBankKeeps = Math.Max(0,
+                        totalMainBankEligible - _plannedBankKeeps);
                     _plannedRejects = Math.Min(_maximumItems, rejectEligible);
                     _expectedRemainingRejects = rejectEligible - _plannedRejects;
                     _bankPlanned = _plannedBankKeeps > 0;

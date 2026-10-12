@@ -47,6 +47,12 @@ namespace RKmission
             });
         }
 
+        public int CountMatching(Item item)
+        {
+            if (item == null) return 0;
+            return _reservations.Count(x => x.Matches(item));
+        }
+
         public bool TryResolve(IEnumerable<Item> currentMain, out Item[] resolved, out string error)
         {
             resolved = Array.Empty<Item>();

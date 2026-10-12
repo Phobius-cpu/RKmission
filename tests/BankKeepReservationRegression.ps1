@@ -17,6 +17,19 @@ Assert ($normalizer.Contains('BankReservations.Reserve(destinationItem, _sourceL
     $normalizer.IndexOf('sourceNow == _sourceBefore - 1')) 'reservations are created only after a verified transfer'
 Assert ($normalizer.Contains('BankReservations.Clear()') -and
     $cycle.Contains('_normalizer.BankReservations.Count')) 'reservations are cycle-local and own automatic bank planning'
+Assert ($normalizer.Contains('ReserveExistingMainKeeps()') -and
+    $normalizer.Contains("reserved existing main Keep") -and
+    $normalizer.Contains('BankReservations.Reserve(item, "existing main inventory")')) 'existing main bank-eligible Keeps are reserved without an item move'
+Assert ($normalizer.Contains('_policy.IsBankEligible(item, _loot)') -and
+    $normalizer.Contains('_policy.IsOperationalItem(item)') -and
+    $normalizer.Contains('_loot.ProtectionReason(item) == null')) 'existing-main reservations retain destination, operational, and protection authority'
+Assert ($normalizer.Contains('BankReservations.CountMatching(representative)') -and
+    $ledger.Contains('public int CountMatching(Item item)')) 'existing and normalized reservations deduplicate by exact fingerprint multiplicity'
+Assert ($normalizer.Contains('int observed = group.Count()') -and
+    $normalizer.Contains('int missing = observed - reserved') -and
+    $normalizer.Contains('partial indistinguishable fingerprint batch')) 'reservation multiplicity cannot exceed exact origin counts or split an ambiguous duplicate batch'
+Assert ($normalizer.Contains('foreach (Item item in group.Take(missing))')) 'two exact main copies can create multiplicity two when both fit the requested batch'
+Assert ($cycle.Contains('totalMainBankEligible - _plannedBankKeeps')) 'main Keeps beyond cycle N are tracked as an expected extra batch'
 
 foreach ($detail in @('item.Id == Id', 'item.LowId == LowId', 'item.HighId == HighId',
     'item.QualityLevel == QualityLevel', 'string.Equals(item.Name, Name, StringComparison.Ordinal)')) {

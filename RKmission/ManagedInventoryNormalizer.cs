@@ -16,7 +16,7 @@ namespace RKmission
         private readonly Action<string> _say;
         private Identity _source = Identity.None, _destination = Identity.None;
         private DateTime _sent;
-        private bool _toMain, _pending;
+        private bool _toMain, _pending, _existingMainReservationsCollected;
         private int _itemId, _itemLowId, _itemHighId, _itemQl, _sourceBefore, _destinationBefore, _maximumBankStages;
         private string _itemName, _sourceLabel;
         private Item _sourceItem;
@@ -34,6 +34,7 @@ namespace RKmission
             IsActive = true; Failed = false; Failure = null; Rescued = StagedForBank = 0;
             BankReservations.Clear();
             _pending = false; _source = _destination = Identity.None;
+            _existingMainReservationsCollected = false;
             _maximumBankStages = Math.Max(1, maximumBankStages);
         }
 
@@ -81,6 +82,11 @@ namespace RKmission
                 .FirstOrDefault(entry => _loot.Classify(entry.Item) == ManagerLoot.ItemClassification.Keep);
             if (misplaced == null)
             {
+                if (!_existingMainReservationsCollected)
+                {
+                    if (!ReserveExistingMainKeeps()) return;
+                    _existingMainReservationsCollected = true;
+                }
                 if (StagedForBank >= _maximumBankStages) { IsActive = false; return; }
                 var baggedFallback = Inventory.Backpacks
                     .Where(bag => !ManagerLoot.ManagedBagFamily.IsKeep(bag.Name))
@@ -133,6 +139,49 @@ namespace RKmission
 
         private int Matching(System.Collections.Generic.IEnumerable<Item> items) => items.Count(item =>
             MatchesDetails(item));
+
+        private bool ReserveExistingMainKeeps()
+        {
+            Item[] main = MainItems();
+            var eligibleGroups = main
+                .Where(IsSafeBankEligible)
+                .GroupBy(item => new { item.Id, item.LowId, item.HighId, item.QualityLevel, item.Name })
+                .OrderBy(group => group.Key.Name, StringComparer.Ordinal)
+                .ThenBy(group => group.Key.Id).ThenBy(group => group.Key.LowId)
+                .ThenBy(group => group.Key.HighId).ThenBy(group => group.Key.QualityLevel);
+
+            foreach (var group in eligibleGroups)
+            {
+                Item representative = group.First();
+                int observed = group.Count();
+                int reserved = BankReservations.CountMatching(representative);
+                int missing = observed - reserved;
+                if (missing <= 0) continue;
+                int remaining = _maximumBankStages - BankReservations.Count;
+                if (remaining <= 0) break;
+                if (missing > remaining)
+                {
+                    Fail($"exact duplicate bank-eligible Keep '{representative.Name}' has {observed} main-inventory match(es), " +
+                        $"but only {remaining} reservation slot(s) remain; the cycle cannot safely reserve a partial indistinguishable fingerprint batch");
+                    return false;
+                }
+                foreach (Item item in group.Take(missing))
+                {
+                    BankReservations.Reserve(item, "existing main inventory");
+                    StagedForBank++;
+                    _say($"Inventory normalization: reserved existing main Keep '{item.Name}' for bank fallback " +
+                        $"({StagedForBank}/{_maximumBankStages}).");
+                }
+            }
+            return true;
+        }
+
+        private bool IsSafeBankEligible(Item item) => item != null &&
+            !_policy.IsOperationalItem(item) && _loot.ProtectionReason(item) == null &&
+            _policy.IsBankEligible(item, _loot);
+
+        public int MainBankEligibleCount() => MainItems().Count(IsSafeBankEligible);
+
         private bool MatchesDetails(Item item) => item != null && item.Id == _itemId &&
             item.LowId == _itemLowId && item.HighId == _itemHighId && item.QualityLevel == _itemQl &&
             string.Equals(item.Name, _itemName, StringComparison.Ordinal);

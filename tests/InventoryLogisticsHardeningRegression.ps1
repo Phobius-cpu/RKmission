@@ -33,7 +33,7 @@ Assert ($cycle.Contains('Phase.NormalizeInventory') -and $cycle.Contains('manage
 Assert ($cycle.Contains('unprocessed planned bank Keep=0') -and $cycle.Contains('Keep in RK Junk=0')) 'final reconciliation checks stranded Keep'
 Assert ((Get-Content (Join-Path $root 'RKmission/ManagedInventoryNormalizer.cs') -Raw).Contains('staging bank-eligible Keep')) 'bagged bank fallback is staged to main before deposit'
 $normalizer = Get-Content (Join-Path $root 'RKmission/ManagedInventoryNormalizer.cs') -Raw
-Assert ($normalizer.Contains('private bool _toMain, _pending;') -and
+Assert ($normalizer.Contains('private bool _toMain, _pending, _existingMainReservationsCollected;') -and
     $normalizer.Contains('sourceNow == _sourceBefore - 1') -and
     $normalizer.Contains('destinationNow == _destinationBefore + 1')) 'normalization verifies exact source and destination count deltas without using Identity.None as pending state'
 Assert ($normalizer.Contains('StagedForBank >= _maximumBankStages') -and
@@ -51,6 +51,6 @@ Assert (([regex]::Matches($cycle, '_normalizer\.MisplacedKeepCount\(\)').Count -
     $cycle.Contains('shop phase held:') -and $cycle.Contains('shop phase held after snapshot refresh:')) 'shop is gated on zero misplaced Keep before and after travel'
 Assert ($cycle.Contains('_expectedRemainingRejects = rejectEligible - _plannedRejects') -and
     $cycle.Contains('extra Reject beyond requested batch={saleEligible} (expected)')) 'bounded sale reconciliation accepts Rejects beyond cycle N'
-Assert ($cycle.Contains('_expectedRemainingBankKeeps = bankEligible - _plannedBankKeeps') -and
+Assert ($cycle.Contains('totalMainBankEligible - _plannedBankKeeps') -and
     $cycle.Contains('unprocessedPlannedBankKeeps = _normalizer.BankReservations.Count')) 'bounded bank reconciliation requires all planned reservations to be consumed'
 Assert ($route.Contains('DynelManager.LocalPlayer.MovementState == MovementState.Fly')) 'walking routes reject Fly state at start and return'
