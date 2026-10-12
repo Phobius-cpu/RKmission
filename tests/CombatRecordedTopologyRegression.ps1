@@ -12,11 +12,12 @@ if (-not $transit.Contains('vertical >= 1.25f && horizontal < 0.75f') -or
 Write-Output 'PASS vertical-only generated legs are rejected as non-walkable'
 
 $findGenerated = $dungeon.IndexOf('FindCombatTransitRoute(room, enemy, position)')
-$recorded = $dungeon.IndexOf('bool preferRecorded = attemptAvailable', $findGenerated)
-if ($findGenerated -lt 0 -or $recorded -lt $findGenerated -or
+$recorded = $dungeon.IndexOf('bool preferRecorded = attemptAvailable')
+if ($findGenerated -lt 0 -or $recorded -lt 0 -or $recorded -gt $findGenerated -or
     -not $dungeon.Contains('!enemy.IsInLineOfSight') -or
     -not $dungeon.Contains('Math.Abs(enemy.Position.Y - position.Y) >= CombatTopologyVerticalSeparation') -or
-    -not $dungeon.Contains("matching recorded topology '{recovery.RecordedRoute}' preferred over generated same-room route") -or
+    -not $dungeon.Contains("matching recorded topology '{recovery.RecordedRoute}' selected before generated same-room routing") -or
+    -not $dungeon.Contains('DungeonTransitPlanner.Route route = !preferRecorded && attemptAvailable') -or
     -not $dungeon.Contains('DungeonTransitPlanner.IsPhysicallyProgressive(position, candidate.Waypoints)')) {
     throw 'Blocked multi-level combat no longer prefers matching recorded ground truth over generated transit.'
 }
@@ -45,10 +46,12 @@ Write-Output 'PASS combat fallback selects and plays generic recorded dungeon to
 if (-not $recorder.Contains('maximumY - minimumY < 1.5f') -or
     $recorder.Contains('maximumY - minimumY < 3f') -or
     -not $recorder.Contains('startDistance > 8f || targetDistance > 6f') -or
-    -not $recorder.Contains('points.Any(point => !layout.IsInside(roomId, point, 0.1f))')) {
-    throw 'Recorded topology span, endpoint, or room-containment gates regressed.'
+    $recorder.Contains('points.Any(point => !layout.IsInside(roomId, point, 0.1f))') -or
+    -not $recorder.Contains('IsContinuousDungeonRecording(points)') -or
+    -not $recorder.Contains('Vector3.Distance(points[i - 1], points[i]) <= 5f')) {
+    throw 'Recorded topology span, endpoint, or deterministic continuity gates regressed.'
 }
-Write-Output 'PASS 2.7m recordings qualify while flat/incidental and mismatched recordings remain gated'
+Write-Output 'PASS 2.7m user-walked recordings bypass speculative room polygons while discontinuous or mismatched routes remain gated'
 
 if (-not $recorder.Contains('_playIndex++') -or $recorder.Contains('_playIndex--') -or
     -not $recorder.Contains('movement.SetDestination(owner, waypoint)') -or

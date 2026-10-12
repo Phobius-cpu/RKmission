@@ -430,9 +430,11 @@ namespace RKmission
                 float minimumY = points.Min(x => x.Y), maximumY = points.Max(x => x.Y);
                 // Combat topology recovery starts at a 1.5m separation. Keep
                 // the recording gate above incidental floor noise while still
-                // admitting real switchbacks such as a roughly 2.7m ramp.
+                // admitting real switchbacks such as a roughly 2.7m ramp. A
+                // user-walked route is the physical authority here: generated
+                // room polygons can clip a valid switchback near a wall/edge.
                 if (maximumY - minimumY < 1.5f ||
-                    points.Any(point => !layout.IsInside(roomId, point, 0.1f))) continue;
+                    !IsContinuousDungeonRecording(points)) continue;
                 foreach (bool reverse in new[] { false, true })
                 {
                     List<Vector3> oriented = reverse
@@ -460,6 +462,11 @@ namespace RKmission
                 $"endpoint match cost={bestCost:0.0}m, source PF={best.Playfield}, live PF={Playfield.ModelIdentity.Instance}.");
             return true;
         }
+
+        private static bool IsContinuousDungeonRecording(List<Vector3> points) =>
+            points != null && points.Count >= 2 &&
+            Enumerable.Range(1, points.Count - 1).All(i =>
+                Vector3.Distance(points[i - 1], points[i]) <= 5f);
 
         public bool TryNavigatePreparedDungeonTopology(Vector3 target,
             MovementArbiter movement, MovementOwner owner, out bool completed)

@@ -30,7 +30,8 @@ Write-Output 'PASS multi-level loot discovers navmesh corridor elevations and re
 
 if (-not $recorder.Contains('TryPrepareDungeonTopology') -or
     -not $recorder.Contains('TryNavigatePreparedDungeonTopology') -or
-    -not $recorder.Contains('points.Any(point => !layout.IsInside(roomId, point, 0.1f))') -or
+    $recorder.Contains('points.Any(point => !layout.IsInside(roomId, point, 0.1f))') -or
+    -not $recorder.Contains('IsContinuousDungeonRecording(points)') -or
     -not $recorder.Contains('!x.Bundled') -or
     -not $recorder.Contains('_playIndex++') -or
     $recorder.Contains('_playIndex--') -or
