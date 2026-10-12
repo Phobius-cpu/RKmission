@@ -17,9 +17,9 @@ namespace RKmission
         private readonly DeferredKeepLedger _deferredKeeps;
         private Identity _source = Identity.None, _destination = Identity.None;
         private DateTime _sent;
-        private bool _toMain, _pending, _existingMainReservationsCollected;
+        private bool _toMain, _pending, _preserveOwnership, _existingMainReservationsCollected;
         private int _itemId, _itemLowId, _itemHighId, _itemQl, _sourceBefore, _destinationBefore, _maximumBankStages;
-        private string _itemName, _sourceLabel;
+        private string _itemName, _sourceLabel, _destinationLabel;
         private Item _sourceItem;
         private DeferredKeepLedger.Entry _deferredTransferEntry;
         private HashSet<Identity> _destinationSlotsBefore = new HashSet<Identity>();
@@ -58,7 +58,7 @@ namespace RKmission
                     Item destinationItem = DestinationItems().FirstOrDefault(item => MatchesDetails(item) &&
                         (!_destinationSlotsBefore.Contains(item.Slot) ||
                          (Usable(item.UniqueIdentity) && item.UniqueIdentity == _sourceItem.UniqueIdentity)));
-                    if (destinationItem == null || (_deferredTransferEntry == null &&
+                    if (destinationItem == null || (_preserveOwnership && _deferredTransferEntry == null &&
                         !_loot.PreserveVerifiedKeepOwnership(_sourceItem, destinationItem)))
                     { Fail($"Keep '{_itemName}' arrived, but exact destination ownership could not be rebound safely"); return; }
                     bool wasDeferredTransfer = _deferredTransferEntry != null;
@@ -74,10 +74,10 @@ namespace RKmission
                         StagedForBank++;
                     }
                     _say($"Inventory normalization verified Keep '{_itemName}' (id={_itemId}, QL={_itemQl}) moved from {_sourceLabel} " +
-                        (_toMain ? $"to main for bank fallback ({StagedForBank}/{_maximumBankStages})." : "to RK Loot."));
-                    if (!wasDeferredTransfer)
+                        (_toMain ? $"to main for bank fallback ({StagedForBank}/{_maximumBankStages})." : $"to {_destinationLabel}."));
+                    if (_preserveOwnership && !wasDeferredTransfer)
                         _say($"Inventory normalization: preserved Keep ownership for '{_itemName}' after verified {_sourceLabel} -> " +
-                            (_toMain ? "main" : "RK Loot") + " transfer.");
+                            (_toMain ? "main" : _destinationLabel) + " transfer.");
                     _pending = false; _source = _destination = Identity.None; return;
                 }
                 if (DateTime.UtcNow - _sent > TimeSpan.FromSeconds(8))
@@ -97,6 +97,7 @@ namespace RKmission
                 if (!_existingMainReservationsCollected)
                 {
                     if (!RestoreDeferredMainKeeps()) return;
+                    if (!PlaceExistingMainKeep()) return;
                     if (!ReserveExistingMainKeeps()) return;
                     _existingMainReservationsCollected = true;
                 }
@@ -115,15 +116,17 @@ namespace RKmission
                 return;
             }
 
+            string requested = _loot.KeepBagName(misplaced.Item);
             var destination = Inventory.Backpacks
-                .Where(bag => ManagerLoot.ManagedBagFamily.IsKeep(bag.Name) && bag.Items.Count < 21)
-                .OrderBy(bag => ManagerLoot.ManagedBagFamily.Order(bag.Name, ManagerLoot.ManagedBagFamily.Keep))
+                .Where(bag => !string.IsNullOrWhiteSpace(requested) &&
+                    ManagerLoot.ManagedBagFamily.Matches(bag.Name, requested) && bag.Items.Count < 21)
+                .OrderBy(bag => ManagerLoot.ManagedBagFamily.Order(bag.Name, requested))
                 .ThenBy(bag => bag.Name, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
             _sourceLabel = $"RK Junk '{misplaced.Bag.Name}'";
             if (destination != null)
             {
                 string destinationName = destination.Name;
-                Prepare(misplaced.Item, misplaced.Bag.Identity, destination.Identity, false);
+                Prepare(misplaced.Item, misplaced.Bag.Identity, destination.Identity, false, true, destinationName);
                 misplaced.Item.MoveToContainer(destination);
                 _say($"Inventory normalization: moving Keep '{misplaced.Item.Name}' from {misplaced.Bag.Name} to {destinationName}.");
             }
@@ -138,11 +141,15 @@ namespace RKmission
             }
         }
 
-        private void Prepare(Item item, Identity source, Identity destination, bool toMain)
+        private void Prepare(Item item, Identity source, Identity destination, bool toMain,
+            bool preserveOwnership = true, string destinationLabel = "")
         {
             _itemId = item.Id; _itemLowId = item.LowId; _itemHighId = item.HighId;
             _itemQl = item.QualityLevel; _itemName = item.Name; _sourceItem = item;
             _source = source; _destination = destination; _toMain = toMain;
+            _preserveOwnership = preserveOwnership;
+            _destinationLabel = string.IsNullOrWhiteSpace(destinationLabel)
+                ? (toMain ? "main" : "requested Keep destination") : destinationLabel;
             _sourceBefore = Matching(SourceItems());
             _destinationBefore = toMain ? Matching(MainItems()) :
                 Matching(Inventory.GetContainerItems(destination));
@@ -152,6 +159,30 @@ namespace RKmission
 
         private int Matching(System.Collections.Generic.IEnumerable<Item> items) => items.Count(item =>
             MatchesDetails(item));
+
+        private bool PlaceExistingMainKeep()
+        {
+            foreach (Item item in MainItems().Where(item => item != null &&
+                _loot.Classify(item) == ManagerLoot.ItemClassification.Keep &&
+                !_policy.IsOperationalItem(item) && _loot.ProtectionReason(item) == null))
+            {
+                string requested = _loot.KeepBagName(item);
+                var destination = Inventory.Backpacks.Where(bag =>
+                    !string.IsNullOrWhiteSpace(requested) &&
+                    ManagerLoot.ManagedBagFamily.Matches(bag.Name, requested) && bag.Items.Count < 21)
+                    .OrderBy(bag => ManagerLoot.ManagedBagFamily.Order(bag.Name, requested))
+                    .ThenBy(bag => bag.Name, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
+                if (destination == null) continue;
+
+                _sourceLabel = "existing main inventory";
+                bool preserveOwnership = !ManagerLoot.ManagedBagFamily.IsKeep(destination.Name);
+                Prepare(item, Identity.None, destination.Identity, false, preserveOwnership, destination.Name);
+                item.MoveToContainer(destination);
+                _say($"Inventory normalization: moving existing main Keep '{item.Name}' to {destination.Name}.");
+                return false;
+            }
+            return true;
+        }
 
         private bool ReserveExistingMainKeeps()
         {
@@ -220,7 +251,7 @@ namespace RKmission
                 if (destination != null)
                 {
                     Item item = matches.First();
-                    Prepare(item, Identity.None, destination.Identity, false);
+                    Prepare(item, Identity.None, destination.Identity, false, false, destination.Name);
                     _deferredTransferEntry = entry;
                     item.MoveToContainer(destination);
                     _sourceLabel = "deferred main inventory";

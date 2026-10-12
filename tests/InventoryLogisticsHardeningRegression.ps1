@@ -33,7 +33,7 @@ Assert ($cycle.Contains('Phase.NormalizeInventory') -and $cycle.Contains('manage
 Assert ($cycle.Contains('unprocessed planned bank Keep=0') -and $cycle.Contains('Keep in RK Junk=0')) 'final reconciliation checks stranded Keep'
 Assert ((Get-Content (Join-Path $root 'RKmission/ManagedInventoryNormalizer.cs') -Raw).Contains('staging bank-eligible Keep')) 'bagged bank fallback is staged to main before deposit'
 $normalizer = Get-Content (Join-Path $root 'RKmission/ManagedInventoryNormalizer.cs') -Raw
-Assert ($normalizer.Contains('private bool _toMain, _pending, _existingMainReservationsCollected;') -and
+Assert ($normalizer.Contains('private bool _toMain, _pending, _preserveOwnership, _existingMainReservationsCollected;') -and
     $normalizer.Contains('sourceNow == _sourceBefore - 1') -and
     $normalizer.Contains('destinationNow == _destinationBefore + 1')) 'normalization verifies exact source and destination count deltas without using Identity.None as pending state'
 Assert ($normalizer.Contains('StagedForBank >= _maximumBankStages') -and
