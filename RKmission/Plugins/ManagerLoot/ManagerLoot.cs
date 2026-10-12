@@ -86,12 +86,21 @@ namespace ManagerLoot
         private readonly HashSet<MissionIdentity> _finishedMissionLoot = new HashSet<MissionIdentity>();
         private enum MissionSourceState
         {
-            Discovered, PendingApproach, Opening, Lockpicking, Looting, Completed,
+            Discovered, PendingApproach, DeferredApproach, Opening, Lockpicking, Looting, Completed,
             SkippedUnreachable, SkippedInsufficientSkill, SkippedNoLockpick,
             SkippedRepeatedFailure, SkippedNoCapacity, CriticalBlocked
         }
         private readonly Dictionary<MissionIdentity, MissionSourceState> _missionSources =
             new Dictionary<MissionIdentity, MissionSourceState>();
+        private const int MaxOrdinaryApproachAttempts = 2;
+        private sealed class DeferredApproach
+        {
+            public int Attempts;
+            public int RetryAfterTraversal;
+        }
+        private readonly Dictionary<MissionIdentity, DeferredApproach> _deferredApproaches =
+            new Dictionary<MissionIdentity, DeferredApproach>();
+        private int _missionRoomTraversals;
         public int MissionLootProgress { get; private set; }
         private int _observedContainerCount;
         private void SetMissionSource(MissionIdentity identity, MissionSourceState state)
@@ -151,6 +160,11 @@ namespace ManagerLoot
             }
         }
 
+        public void ObserveMissionRoomTraversal()
+        {
+            _missionRoomTraversals++;
+        }
+
         public void EndMissionRoom()
         {
             MissionRoomId = -1;
@@ -166,6 +180,8 @@ namespace ManagerLoot
             _seenMissionLoot.Clear();
             _finishedMissionLoot.Clear();
             _missionSources.Clear();
+            _deferredApproaches.Clear();
+            _missionRoomTraversals = 0;
             MissionLootProgress = 0;
             _observedContainerCount = 0;
             _objectiveLootItems.Clear();
@@ -190,6 +206,10 @@ namespace ManagerLoot
             !Settled(x.Value) && ReservedMissionLoot(x.Key));
         public int CriticalBlockedMissionLootCount => _missionSources.Count(x =>
             x.Value == MissionSourceState.CriticalBlocked);
+        public bool DeferredMissionLootWaitingForTraversal => _deferredApproaches.Any(x =>
+            !IsMissionCriticalLoot(x.Key) &&
+            x.Value.Attempts < MaxOrdinaryApproachAttempts &&
+            _missionRoomTraversals < x.Value.RetryAfterTraversal);
         public bool HasPendingMissionCorpse(int roomId) => !IgnoreOrdinaryMissionLoot &&
             (MissionRoomDynels?.Invoke(roomId) ?? DynelManager.AllDynels).Any(x =>
                 x.Identity.Type == IdentityType.Corpse && IsInMissionRoom(x, roomId) &&
@@ -265,6 +285,39 @@ namespace ManagerLoot
             if (_pendingMissionLoot == identity && CorpseContainer == null) _pendingMissionLoot = MissionIdentity.None;
         }
 
+        public bool DeferMissionLoot(MissionIdentity identity, out int attempt, out int maxAttempts)
+        {
+            maxAttempts = MaxOrdinaryApproachAttempts;
+            if (IsMissionCriticalLoot(identity))
+            {
+                attempt = 1;
+                SetMissionSource(identity, MissionSourceState.CriticalBlocked);
+                return false;
+            }
+            if (!_deferredApproaches.TryGetValue(identity, out DeferredApproach deferred))
+                _deferredApproaches[identity] = deferred = new DeferredApproach();
+            attempt = ++deferred.Attempts;
+            if (attempt >= MaxOrdinaryApproachAttempts)
+            {
+                SkipUnreachableMissionLoot(identity);
+                return false;
+            }
+            deferred.RetryAfterTraversal = _missionRoomTraversals + 1;
+            SetMissionSource(identity, MissionSourceState.DeferredApproach);
+            if (CurrentCorpse?.Identity == identity && CorpseContainer == null)
+            {
+                CurrentCorpse = null;
+                CurrentProcess = ProcessState.Open_Corpse;
+            }
+            if (_pendingMissionLoot == identity && CorpseContainer == null) _pendingMissionLoot = MissionIdentity.None;
+            return true;
+        }
+
+        private bool DeferredApproachReady(MissionIdentity identity) =>
+            IsMissionCriticalLoot(identity) ||
+            !_deferredApproaches.TryGetValue(identity, out DeferredApproach deferred) ||
+            _missionRoomTraversals >= deferred.RetryAfterTraversal;
+
         private LockpickAttempt MissionLockpick(MissionIdentity identity)
         {
             if (!_missionLockpicks.TryGetValue(identity, out LockpickAttempt attempt))
@@ -329,12 +382,13 @@ namespace ManagerLoot
             foreach (Dynel candidate in candidates) TrackMissionLoot(candidate.Identity, roomId);
             Dynel selected = candidates.Where(x =>
                 !_unreachableMissionLoot.Contains(x.Identity)
-                && !_finishedMissionLoot.Contains(x.Identity))
+                && !_finishedMissionLoot.Contains(x.Identity)
+                && DeferredApproachReady(x.Identity))
             .OrderBy(x => x.Identity == _pendingMissionLoot ? 0 : 1)
             .ThenBy(x => x.Identity.Type == IdentityType.Corpse ? 0 : 1)
             .ThenBy(x => x.DistanceFrom(DynelManager.LocalPlayer)).FirstOrDefault();
             if (selected != null && _missionSources.TryGetValue(selected.Identity, out MissionSourceState state) &&
-                state == MissionSourceState.Discovered)
+                (state == MissionSourceState.Discovered || state == MissionSourceState.DeferredApproach))
                 SetMissionSource(selected.Identity, MissionSourceState.PendingApproach);
             return selected;
         }
@@ -373,6 +427,7 @@ namespace ManagerLoot
             // Earlier ordinary rules may have skipped it or left the quest
             // item behind before objective metadata arrived. Retry once as final work.
             _unreachableMissionLoot.Remove(identity);
+            _deferredApproaches.Remove(identity);
             _finishedMissionLoot.Remove(identity);
             openedContainers.Remove(identity.Instance);
             _missionLockpicks.Remove(identity);

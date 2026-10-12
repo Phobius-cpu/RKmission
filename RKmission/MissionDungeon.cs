@@ -107,6 +107,11 @@ namespace RKmission
         private float _lootBestVerticalGap = float.PositiveInfinity;
         private bool _lootRecordedTransit;
         private string _lootRecordedRoute;
+        private const float LootStagingRevisitTolerance = 2f;
+        private readonly List<Vector3> _lootVisitedStaging = new List<Vector3>();
+        private float _lootBestDistance = float.PositiveInfinity;
+        private int _lootNonImprovingHops;
+        private bool _lootCycleReported;
         private int _floor;
         private DungeonLiftController.Lift _activeLift;
         private DateTime _liftStarted;
@@ -204,6 +209,7 @@ namespace RKmission
             _lootTransitStaging = false;
             _lootRecordedTransit = false;
             _lootRecordedRoute = null;
+            _lootVisitedStaging.Clear();
             _objectiveApproaches.Clear();
             _objectiveApproachTarget = null;
             ResetKillFinaleOwnership();
@@ -506,6 +512,7 @@ namespace RKmission
                 if (!_layout.IsInside(room.Instance, DynelManager.LocalPlayer.Position, 0.5f))
                     return;
                 _currentRoom = room.Instance;
+                _loot.ObserveMissionRoomTraversal();
                 _visitedRooms.Add(room.Instance);
                 if (!_clearedRooms.Contains(room.Instance)) _roomStates[room.Instance] = RoomClearanceState.Entered;
                 _destination = null;
@@ -639,6 +646,17 @@ namespace RKmission
             Room next = NextRoom(room);
             if (next == null)
             {
+                if (_loot.DeferredMissionLootWaitingForTraversal)
+                {
+                    Room contextRoom = RouteTo(room.Instance, id => id != room.Instance, false);
+                    if (contextRoom != null)
+                    {
+                        _say($"Ordinary loot is deferred in room {room.Instance}; traversing room {contextRoom.Instance} " +
+                            "before its independent retry.");
+                        BeginTransition(room.Instance, contextRoom.Instance);
+                        return;
+                    }
+                }
                 int floorRooms = Playfield.Rooms.Count(x => Math.Abs(x.Floor) == _floor);
                 int clearedFloorRooms = _clearedRooms.Count(id =>
                     _layout.Room(id) != null && Math.Abs(_layout.Room(id).Floor) == _floor);
@@ -1763,6 +1781,12 @@ namespace RKmission
                 _lootTransitStaging = false;
                 _lootRecordedTransit = false;
                 _lootRecordedRoute = null;
+                _lootVisitedStaging.Clear();
+                _lootBestDistance = next != null
+                    ? Vector3.Distance(DynelManager.LocalPlayer.Position, next.Position)
+                    : float.PositiveInfinity;
+                _lootNonImprovingHops = 0;
+                _lootCycleReported = false;
                 _lootBestVerticalGap = next != null
                     ? Math.Abs(next.Position.Y - DynelManager.LocalPlayer.Position.Y)
                     : float.PositiveInfinity;
@@ -1839,7 +1863,7 @@ namespace RKmission
                 }
                 if (now - _lootWaitStarted > TimeSpan.FromSeconds(75))
                 {
-                    SkipLoot(next, room.Instance, $"no reachable approach within 75 seconds; still {distance:0.0}m away");
+                    ResolveLootApproachFailure(next, room.Instance, $"approach search exhausted after 75 seconds; still {distance:0.0}m away");
                     return true;
                 }
                 if (_lootRecordedTransit)
@@ -1849,7 +1873,7 @@ namespace RKmission
                     {
                         _lootRecordedTransit = false;
                         _say($"Loot {next.Identity} recorded topology '{_lootRecordedRoute}' could not continue; route remains unfinished.");
-                        SkipLoot(next, room.Instance, "recorded same-room topology playback failed");
+                        ResolveLootApproachFailure(next, room.Instance, "recorded same-room topology playback failed");
                         return true;
                     }
                     if (completed)
@@ -1880,10 +1904,28 @@ namespace RKmission
                 {
                     MovementArbiter.Current.Halt(_requestedOwner);
                     _destination = null;
-                    _lootLastProgress = now;
                     _lootLastPosition = position;
-                    _lootBestVerticalGap = Math.Min(_lootBestVerticalGap,
-                        Math.Abs(next.Position.Y - position.Y));
+                    float verticalGap = Math.Abs(next.Position.Y - position.Y);
+                    bool meaningfulProgress = distance <= _lootBestDistance - 1f ||
+                        verticalGap <= _lootBestVerticalGap - 0.75f;
+                    _lootVisitedStaging.Add(position);
+                    if (meaningfulProgress)
+                    {
+                        _lootBestDistance = Math.Min(_lootBestDistance, distance);
+                        _lootBestVerticalGap = Math.Min(_lootBestVerticalGap, verticalGap);
+                        _lootNonImprovingHops = 0;
+                        _lootLastProgress = now;
+                    }
+                    else
+                    {
+                        _lootNonImprovingHops++;
+                        if (!_lootCycleReported)
+                        {
+                            _lootCycleReported = true;
+                            _say($"Loot {next.Identity} staging cycle/non-improving hop detected in room {room.Instance}; " +
+                                $"excluding {_lootVisitedStaging.Count} recent staging point(s) and trying another candidate.");
+                        }
+                    }
                     _say($"Loot {next.Identity} transit staging reached; rebuilding direct final approaches from new position {position}.");
                     BuildLootApproaches(room, next.Position);
                 }
@@ -1916,7 +1958,10 @@ namespace RKmission
                 }
                 if (!_destination.HasValue)
                 {
-                    SkipLoot(next, room.Instance, $"no navigable chest-side point; still {distance:0.0}m away");
+                    string reason = _lootNonImprovingHops > 0
+                        ? $"staging cycle/non-improving candidates exhausted; still {distance:0.0}m away"
+                        : $"no navigable chest-side point; still {distance:0.0}m away";
+                    ResolveLootApproachFailure(next, room.Instance, reason);
                     return true;
                 }
                 return true;
@@ -1945,7 +1990,7 @@ namespace RKmission
                     _say($"Loot {next.Identity} is nearby but did not open; probing chest-side route {_lootApproachIndex + 1}/{_lootApproachPoints.Count}.");
                 }
                 else
-                    SkipLoot(next, room.Instance, "Manager.Loot did not open the container from any reachable side");
+                    ResolveLootApproachFailure(next, room.Instance, "Manager.Loot did not open the container from any reachable side");
             }
             return true;
         }
@@ -1969,7 +2014,9 @@ namespace RKmission
             }
             List<DungeonTransitPlanner.Route> transit = DungeonTransitPlanner.Candidates(_layout,
                 room.Instance, player, target, new[] { 3f, 5f, 8f, 12f }, 0.4f)
-                .Where(route => Vector3.Distance(player, route.Destination) >= 1.5f).ToList();
+                .Where(route => Vector3.Distance(player, route.Destination) >= 1.5f)
+                .Where(route => !_lootVisitedStaging.Any(visited =>
+                    Vector3.Distance(visited, route.Destination) <= LootStagingRevisitTolerance)).ToList();
             float verticalGap = Math.Abs(target.Y - player.Y);
             int insufficient = 0;
             if (verticalGap > 3f)
@@ -2016,7 +2063,7 @@ namespace RKmission
                 loot.Position + Vector3.Up * 0.5f);
         }
 
-        private void SkipLoot(Dynel loot, int roomId, string reason)
+        private void ResolveLootApproachFailure(Dynel loot, int roomId, string reason)
         {
             if (_loot.IsMissionCriticalLoot(loot.Identity))
             {
@@ -2024,8 +2071,13 @@ namespace RKmission
                 _say($"Mission-critical loot {loot.Identity} in room {roomId} could not be reached: {reason}. Mission recovery required.");
                 return;
             }
-            _loot.SkipUnreachableMissionLoot(loot.Identity);
-            _say($"Skipping unreachable loot {loot.Identity} in room {roomId}: {reason}. Exploration continues.");
+            bool deferred = _loot.DeferMissionLoot(loot.Identity, out int attempt, out int maxAttempts);
+            if (deferred)
+                _say($"Deferring loot {loot.Identity} in room {roomId}, attempt {attempt}/{maxAttempts}: {reason}; " +
+                    "will retry after room traversal. Exploration continues.");
+            else
+                _say($"Skipping unreachable loot {loot.Identity} in room {roomId} after attempt {attempt}/{maxAttempts}: " +
+                    $"{reason}. Independent retry policy exhausted; exploration continues.");
             _waitingForLoot = Identity.None;
             _lootApproachPoints.Clear();
             _lootProbeNextSide = false;
@@ -2431,6 +2483,7 @@ namespace RKmission
             MovementArbiter.Current.Release(MovementOwner.DoorTransition);
             _requestedOwner = MovementOwner.DungeonRoom;
             _currentRoom = edge.Target;
+            _loot.ObserveMissionRoomTraversal();
             _visitedRooms.Add(edge.Target);
             if (!_roomStates.ContainsKey(edge.Target)) _roomStates[edge.Target] = RoomClearanceState.Entered;
             string key = EdgeKey(edge.Source, edge.Target);
