@@ -1,0 +1,19 @@
+<?xml version="1.0" standalone="yes"?>
+<Root>
+  <View view_layout="vertical" min_size="Point(320,250)" layout_borders="Rect(8,8,8,8)">
+    <TextView value="Neko Mission-Key Entry" font="BOLD"/>
+    <View view_layout="horizontal" layout_borders="Rect(0,6,0,6)">
+      <Button name="NekoWarp" label="Key Warp" min_size="Point(80,22)"/>
+      <Button name="NekoHelp" label="Help / Settings" min_size="Point(105,22)" layout_borders="Rect(4,0,0,0)"/>
+      <Button name="NekoToggle" label="Toggle Key" min_size="Point(80,22)" layout_borders="Rect(4,0,0,0)"/>
+      <HLayoutSpacer/>
+      <TextView name="NekoEnabled" value="ON" font="BOLD"/>
+    </View>
+    <BorderView layout_borders="Rect(0,3,0,3)"><View view_layout="vertical" layout_borders="Rect(6,6,6,6)">
+      <TextView name="NekoMission" value="Selected mission: none" feature_flags="TVF_MULTILINE"/>
+      <TextView name="NekoKeys" value="Detected keys: none" feature_flags="TVF_MULTILINE" layout_borders="Rect(0,4,0,4)"/>
+      <TextView name="NekoDiagnostics" value="State: idle" min_size="Point(292,75)" feature_flags="TVF_MULTILINE"/>
+    </View></BorderView>
+    <TextView value="Associations are shown only when bounded by live mission evidence. Exact dungeon verification always remains required." feature_flags="TVF_MULTILINE" min_size="Point(292,45)"/>
+  </View>
+</Root>

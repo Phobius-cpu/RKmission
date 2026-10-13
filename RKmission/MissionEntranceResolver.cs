@@ -30,6 +30,14 @@ namespace RKmission
         private int _scanPlayfieldId;
         private int _index;
         private bool _sent, _accepted;
+        public bool Enabled { get; set; } = true;
+        public string Status { get; private set; } = "idle";
+        public int CandidateCount => _attempts.Count;
+        public int AttemptNumber => _attempts.Count == 0 ? 0 : Math.Min(_index + 1, _attempts.Count);
+        public string SelectedMission => _mission == null ? "none" : _mission.Identity.ToString();
+        public string KeySummary => _attempts.Count == 0 ? "none" : string.Join(", ", _attempts
+            .Select(x => x.KeyName ?? "unreadable mission key").Distinct().Take(8));
+        public bool AcceptedOrZoning => _accepted || Game.IsZoning;
         private DateTime _sentAt, _lastScanAt, _lastNoCandidateLogAt;
         private string _lastNoCandidateReason;
         public int ActiveEntranceIdentity => _index < _attempts.Count ? _attempts[_index].Entrance : 0;
@@ -84,6 +92,7 @@ namespace RKmission
 
         public void Select(Mission mission)
         {
+            if (!Enabled) { Reset(); Status = "disabled"; return; }
             bool sameMission = _mission != null && mission != null && _mission.Identity == mission.Identity;
             bool samePlayfield = _scanPlayfieldId == Playfield.ModelIdentity.Instance;
             if (sameMission && samePlayfield &&
@@ -191,11 +200,15 @@ namespace RKmission
                 }
             }
             if (_attempts.Count > 0)
+            {
+                Status = "candidate-ready";
                 _say($"Selected mission has {_attempts.Count} Neko ACG key/entrance candidate pairs across " +
                     $"{_attempts.Select(x => x.KeyDynelInstance).Distinct().Count()} mission key(s), " +
                     $"mode={(live.Count > 0 ? "nearby entrance" : "single-key static")}; trying key warp before normal travel.");
+            }
             else
             {
+                Status = "fallback";
                 string reason = _entrances.Count == 0
                     ? "ACGEntrances.json was not loaded or has no entries"
                     : missionKeys == 0
@@ -222,21 +235,24 @@ namespace RKmission
 
         public EntranceResult Tick()
         {
+            if (!Enabled) { Status = "disabled"; return EntranceResult.Fallback; }
             if (_mission == null) return EntranceResult.Failed;
             if (Playfield.IsDungeon)
             {
                 if (!VerifyCurrentDungeon(_mission, out _)) return EntranceResult.Failed;
                 if ((_sent || _accepted) && _index < _attempts.Count) CacheSuccess(_attempts[_index]);
+                Status = "verified";
                 return EntranceResult.Verified;
             }
             MissionLocation location = _mission.Location;
             if (location == null || DynelManager.LocalPlayer == null)
                 return EntranceResult.Fallback;
-            if (_attempts.Count == 0) return EntranceResult.Fallback;
+            if (_attempts.Count == 0) { Status = "fallback"; return EntranceResult.Fallback; }
             if (_accepted)
             {
                 if (DateTime.UtcNow - _sentAt < TimeSpan.FromSeconds(20)) return EntranceResult.Waiting;
                 _say("ACG key was accepted, but exact dungeon zoning did not follow.");
+                Status = "failed";
                 return EntranceResult.Failed;
             }
             if (_sent && DateTime.UtcNow - _sentAt < TimeSpan.FromSeconds(2))
@@ -258,6 +274,7 @@ namespace RKmission
             Item.UseItemOnItem(attempt.Key.Slot,
                 new Identity(IdentityType.ACGEntrance, attempt.Entrance));
             _sent = true;
+            Status = "attempting";
             _sentAt = DateTime.UtcNow;
             return EntranceResult.Waiting;
         }
@@ -293,6 +310,7 @@ namespace RKmission
             else if (feedback.MessageId == KeyAccepted)
             {
                 _accepted = true;
+                Status = "accepted";
                 _say("ACG key accepted; waiting for exact mission-dungeon verification.");
             }
         }
@@ -302,7 +320,10 @@ namespace RKmission
             _index++;
             _sent = false;
             if (_index == _attempts.Count)
+            {
+                Status = "fallback";
                 _say("Neko ACG key warp candidates were exhausted; using normal travel.");
+            }
         }
         private static bool TryMissionKeyLabel(string itemName, out string label)
         {
@@ -343,6 +364,7 @@ namespace RKmission
             _attempts.Clear();
             _index = 0;
             _sent = _accepted = false;
+            Status = Enabled ? "idle" : "disabled";
         }
 
         public void Dispose() => Network.N3MessageReceived -= OnN3Message;

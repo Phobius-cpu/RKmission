@@ -25,6 +25,11 @@ namespace RKmission
             public int Playfield { get; set; }
             public List<float[]> Points { get; set; } = new List<float[]>();
             public DateTime RecordedAtUtc { get; set; }
+            // Optional v2 metadata. Missing fields in existing files deserialize
+            // to conservative Foot/Bidirectional behavior below.
+            public string MovementMode { get; set; }
+            public string AltitudeProfile { get; set; }
+            public string Directionality { get; set; }
             [JsonIgnore] public bool Bundled { get; set; }
         }
         private sealed class DungeonSubpath
@@ -67,7 +72,7 @@ namespace RKmission
             $"{_routes.Count} saved route(s)";
         public IReadOnlyList<string> RouteSummaries => _routes
             .OrderBy(x => x.Playfield).ThenBy(x => x.Name)
-            .Select(x => $"{x.Name}  |  PF {x.Playfield}  |  {x.Points.Count} pts  |  {x.RecordedAtUtc:u}")
+            .Select(x => $"{x.Name}  |  PF {x.Playfield}  |  {RouteMode(x)}  |  {RouteDirection(x)}  |  {x.Points.Count} pts  |  {x.RecordedAtUtc:u}")
             .ToList();
 
         public NavigationRouteRecorder(string pluginDir, Action<string> say)
@@ -80,13 +85,21 @@ namespace RKmission
         }
 
         public void Start(string name)
+            => Start(name, "Auto", "Bidirectional");
+
+        public void Start(string name, string movementMode, string directionality)
         {
             if (DynelManager.LocalPlayer == null || Game.IsZoning) { _say("Nav recording requires a stable playfield."); return; }
             if (string.IsNullOrWhiteSpace(name)) name = $"route-{Playfield.ModelIdentity.Instance}-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
             StopPlayback();
-            _recording = new Route { Name = name.Trim(), Playfield = Playfield.ModelIdentity.Instance, RecordedAtUtc = DateTime.UtcNow };
+            string mode = string.Equals(movementMode, "Vehicle", StringComparison.OrdinalIgnoreCase) ? "Vehicle" :
+                string.Equals(movementMode, "Foot", StringComparison.OrdinalIgnoreCase) ? "Foot" : "Auto";
+            string direction = string.Equals(directionality, "Forward", StringComparison.OrdinalIgnoreCase) ? "Forward" : "Bidirectional";
+            _recording = new Route { Name = name.Trim(), Playfield = Playfield.ModelIdentity.Instance,
+                RecordedAtUtc = DateTime.UtcNow, MovementMode = mode, Directionality = direction,
+                AltitudeProfile = mode == "Vehicle" ? "Recorded" : "Ground" };
             AddPoint(DynelManager.LocalPlayer.Position, true);
-            _say($"Nav recorder started '{_recording.Name}' in playfield {_recording.Playfield}; walk the safe route, then /rkm nav stop.");
+            _say($"Nav recorder started '{_recording.Name}' in playfield {_recording.Playfield}; mode={mode}, altitude={_recording.AltitudeProfile}, direction={direction}. Follow the safe route, then /rkm nav stop.");
         }
 
         public void Stop()
@@ -368,6 +381,7 @@ namespace RKmission
                 Route best = null; bool reverse = false; float bestCost = float.MaxValue;
                 foreach (Route route in _routes.Where(x =>
                     x.Playfield == Playfield.ModelIdentity.Instance && x.Points.Count >= 2 &&
+                    RouteModeMatches(x, player.MovementState == MovementState.Fly) &&
                     (string.IsNullOrWhiteSpace(routeName) ||
                      string.Equals(x.Name, routeName, StringComparison.OrdinalIgnoreCase))))
                 {
@@ -375,13 +389,16 @@ namespace RKmission
                     float forward = Vector3.Distance(player.Position, first) + Vector3.Distance(target, last);
                     float backward = Vector3.Distance(player.Position, last) + Vector3.Distance(target, first);
                     bool isFGridCandidate = Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid;
+                    bool vehicleCandidate = !isFGridCandidate && RouteMode(route) == "Vehicle";
                     if ((isFGridCandidate
                             ? CanReacquireFGridRoute(route.Points.Select(V).ToList(), player.Position, target)
+                            : vehicleCandidate ? CanReacquireRoute(route.Points.Select(V).ToList(), player.Position, target, endpointTolerance)
                             : Vector3.Distance(player.Position, first) <= endpointTolerance) &&
                         Vector3.Distance(target, last) <= endpointTolerance && forward < bestCost)
                     { best = route; reverse = false; bestCost = forward; }
-                    if ((isFGridCandidate
+                    if (RouteDirection(route) != "Forward" && (isFGridCandidate
                             ? CanReacquireFGridRoute(route.Points.Select(V).Reverse().ToList(), player.Position, target)
+                            : vehicleCandidate ? CanReacquireRoute(route.Points.Select(V).Reverse().ToList(), player.Position, target, endpointTolerance)
                             : Vector3.Distance(player.Position, last) <= endpointTolerance) &&
                         Vector3.Distance(target, first) <= endpointTolerance && backward < bestCost)
                     { best = route; reverse = true; bestCost = backward; }
@@ -390,12 +407,13 @@ namespace RKmission
                 List<Vector3> candidate = best.Points.Select(V).ToList();
                 if (reverse) candidate.Reverse();
                 bool fixerGrid = Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid;
-                if (fixerGrid)
+                bool vehicleRoute = RouteMode(best) == "Vehicle";
+                if (fixerGrid || vehicleRoute)
                 {
                     candidate = ReacquireForwardFGridPath(candidate, player.Position);
                     // A manually recorded walkway is useful only when both
                     // connectors and every saved leg remain on its floor.
-                    if (!SupportedRecordedFGridRoute(candidate, player.Position, target))
+                    if (fixerGrid && !SupportedRecordedFGridRoute(candidate, player.Position, target))
                     {
                         _say($"Recorded FGrid route '{best.Name}' rejected: endpoint or walkway connector is unsupported.");
                         return false;
@@ -406,7 +424,7 @@ namespace RKmission
                 {
                     candidate = SimplifySupportedFGridPath(candidate, player.Position.Y);
                 }
-                else if (IsTerminalToGridRoute(best.Name))
+                else if (vehicleRoute || IsTerminalToGridRoute(best.Name))
                     candidate = SimplifyRecordedPath(candidate);
                 if (fixerGrid && !SupportedRecordedFGridRoute(candidate, player.Position, target))
                 {
@@ -419,6 +437,9 @@ namespace RKmission
                 _say(fixerGrid
                     ? $"Using recorded FGrid route '{best.Name}' toward ({target.X:0.0},{target.Y:0.0},{target.Z:0.0}); " +
                       $"{recordedPointCount} samples reduced to {_playPoints.Count - 1} walkway-supported leg(s)."
+                    : vehicleRoute
+                    ? $"Using Vehicle nav profile '{best.Name}' with safe forward reacquisition toward ({target.X:0.0},{target.Y:0.0},{target.Z:0.0}); " +
+                      $"{recordedPointCount} recorded samples reduced to {_playPoints.Count - 1} smooth leg(s); grounded precision remains at the endpoint."
                     : IsTerminalToGridRoute(best.Name)
                     ? $"Using recorded nav route '{best.Name}' toward ({target.X:0.0},{target.Y:0.0},{target.Z:0.0}); " +
                       $"{recordedPointCount} recorded samples reduced to {_playPoints.Count - 1} corridor-verified leg(s)."
@@ -669,6 +690,15 @@ namespace RKmission
             return SupportedRecordedFGridRoute(resumed, start, target);
         }
 
+        private static bool CanReacquireRoute(List<Vector3> points, Vector3 start,
+            Vector3 target, float endpointTolerance)
+        {
+            List<Vector3> resumed = ReacquireForwardFGridPath(points, start);
+            return resumed != null && resumed.Count >= 2 &&
+                LocalRoutePlanner.HorizontalDistance(start, resumed[0]) <= Math.Max(12f, endpointTolerance * 2f) &&
+                Vector3.Distance(target, resumed[resumed.Count - 1]) <= endpointTolerance;
+        }
+
         // Resume at the closest point on the oriented recording, then retain only
         // later samples. This prevents local recovery from pulling back across the
         // ring-to-radial alignment turn or toward the route's original start.
@@ -894,6 +924,14 @@ namespace RKmission
                     p.Any(c => float.IsNaN(c) || float.IsInfinity(c)))))
                 throw new InvalidDataException("invalid route record");
             return file;
+        }
+
+        private static string RouteMode(Route route) => string.IsNullOrWhiteSpace(route?.MovementMode) ? "Foot" : route.MovementMode;
+        private static string RouteDirection(Route route) => string.IsNullOrWhiteSpace(route?.Directionality) ? "Bidirectional" : route.Directionality;
+        private static bool RouteModeMatches(Route route, bool flying)
+        {
+            string mode = RouteMode(route);
+            return mode == "Auto" || (flying ? mode == "Vehicle" : mode == "Foot");
         }
 
         private void Save()

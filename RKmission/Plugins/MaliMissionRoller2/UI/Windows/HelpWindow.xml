@@ -12,7 +12,7 @@
 				<BorderView layout_borders="Rect(5,5,5,5)">
 					<View view_layout="vertical">
 						<TextView value="Purpose" font="BOLD" layout_borders="Rect(0,8,0,3)"/>
-						<TextView name="Purpose" min_size="Point(538,120)" max_size="Point(538,120)" layout_borders="Rect(6,0,6,0)" feature_flags="TVF_MULTILINE"/>
+						<TextView name="Purpose" min_size="Point(538,155)" max_size="Point(538,155)" layout_borders="Rect(6,0,6,0)" feature_flags="TVF_MULTILINE"/>
 					</View>
 				</BorderView>
 
@@ -24,6 +24,12 @@
 						<View view_layout="horizontal" layout_borders="Rect(6,0,6,0)">
 							<TextView name="MissionCommands" min_size="Point(209,100)" max_size="Point(209,100)" v_alignment="TOP" feature_flags="TVF_MULTILINE"/>
 							<TextView name="MissionDescriptions" min_size="Point(325,100)" max_size="Point(325,100)" v_alignment="TOP" feature_flags="TVF_MULTILINE"/>
+						</View>
+
+						<TextView value="NEKO KEY ENTRY" font="BOLD" layout_borders="Rect(0,4,0,1)"/>
+						<View view_layout="horizontal" layout_borders="Rect(6,0,6,0)">
+							<TextView name="NekoCommands" min_size="Point(209,48)" max_size="Point(209,48)" v_alignment="TOP" feature_flags="TVF_MULTILINE"/>
+							<TextView name="NekoDescriptions" min_size="Point(325,48)" max_size="Point(325,48)" v_alignment="TOP" feature_flags="TVF_MULTILINE"/>
 						</View>
 
 						<TextView value="ROLLER / DESTINATIONS" font="BOLD" layout_borders="Rect(0,4,0,1)"/>

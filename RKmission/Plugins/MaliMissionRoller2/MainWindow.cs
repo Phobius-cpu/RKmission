@@ -23,18 +23,21 @@ namespace MaliMissionRoller2
         private View? _rollerContent;
         private View? _managerLootContent;
         private View? _dungeonMapContent;
+        private View? _nekoContent;
         private View? _settingsContent;
         private View? _hostRoot;
         private Button? _rollerTab;
         private Button? _managerLootTab;
         private Button? _dungeonMapTab;
-        private enum HostedTab { Roller, ManagerLoot, DungeonMap, Settings }
+        private Button? _nekoTab;
+        private enum HostedTab { Roller, ManagerLoot, DungeonMap, Neko, Settings }
         private HostedTab _activeTab = HostedTab.Roller;
         public bool IsManagerLootTabActive => _activeTab == HostedTab.ManagerLoot;
         public bool IsDungeonMapTabActive => _activeTab == HostedTab.DungeonMap;
         public event Action? WindowReady;
         public Action? EnsureManagerLootView { get; set; }
         public Action? EnsureDungeonMapView { get; set; }
+        public Action? EnsureNekoView { get; set; }
         private bool _isRolling;
         private bool _rkAutoMode;
         // RKMission drives the original request/response UI. A zero zone uses
@@ -108,12 +111,14 @@ namespace MaliMissionRoller2
                 Window.FindView("RollerTab", out _rollerTab);
                 Window.FindView("ManagerLootTab", out _managerLootTab);
                 Window.FindView("DungeonMapTab", out _dungeonMapTab);
+                Window.FindView("NekoTab", out _nekoTab);
                 _managerLootContent = null;
                 _dungeonMapContent = null;
                 _activeTab = HostedTab.Roller;
                 if (_rollerTab != null) _rollerTab.Clicked += (_, _) => ShowRollerTab();
                 if (_managerLootTab != null) _managerLootTab.Clicked += (_, _) => ShowManagerLootTab();
                 if (_dungeonMapTab != null) _dungeonMapTab.Clicked += (_, _) => ShowDungeonMapTab();
+                if (_nekoTab != null) _nekoTab.Clicked += (_, _) => ShowNekoTab();
 
                 if (Window.FindView("HeaderRoot", out View headerRoot))
                 {
@@ -173,6 +178,27 @@ namespace MaliMissionRoller2
             if (_activeTab == HostedTab.DungeonMap)
                 _tabContent.AddChild(_dungeonMapContent, false);
             FitActiveTab();
+        }
+
+        public void AttachNekoView(View view)
+        {
+            if (_tabContent == null || view == null) return;
+            if (_activeTab == HostedTab.Neko && _nekoContent != null) _tabContent.RemoveChild(_nekoContent);
+            _nekoContent = view;
+            if (_activeTab == HostedTab.Neko) _tabContent.AddChild(_nekoContent, false);
+            FitActiveTab();
+        }
+
+        public void ShowNekoTab()
+        {
+            if (_nekoContent == null) EnsureNekoView?.Invoke();
+            if (_tabContent == null || _nekoContent == null || _activeTab == HostedTab.Neko) return;
+            RemoveActiveContent();
+            _tabContent.AddChild(_nekoContent, false);
+            _activeTab = HostedTab.Neko;
+            InSettings = false;
+            if (HeaderView?.Settings != null) HeaderView.Settings.Tag = false;
+            FitActiveTab(); UpdateTabAppearance();
         }
 
         public void ShowRollerTab()
@@ -239,6 +265,8 @@ namespace MaliMissionRoller2
                 _tabContent.RemoveChild(_managerLootContent);
             else if (_activeTab == HostedTab.DungeonMap && _dungeonMapContent != null)
                 _tabContent.RemoveChild(_dungeonMapContent);
+            else if (_activeTab == HostedTab.Neko && _nekoContent != null)
+                _tabContent.RemoveChild(_nekoContent);
             else if (_activeTab == HostedTab.Settings && _settingsContent != null)
                 _tabContent.RemoveChild(_settingsContent);
         }
@@ -254,6 +282,7 @@ namespace MaliMissionRoller2
             _rollerTab?.SetAlpha(_activeTab == HostedTab.Roller || _activeTab == HostedTab.Settings ? 1f : 0.65f);
             _managerLootTab?.SetAlpha(_activeTab == HostedTab.ManagerLoot ? 1f : 0.65f);
             _dungeonMapTab?.SetAlpha(_activeTab == HostedTab.DungeonMap ? 1f : 0.65f);
+            _nekoTab?.SetAlpha(_activeTab == HostedTab.Neko ? 1f : 0.65f);
         }
 
         private void HelpClick(object sender, ButtonBase e)

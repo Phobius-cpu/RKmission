@@ -22,6 +22,7 @@ namespace MaliMissionRoller2
                     "It combines mission rolling, travel, navigation, combat,\n" +
                     "looting, and mission completion into one coordinated system,\n" +
                     "with the goal of reliable long-term autonomous operation.";
+                purpose.Text += "\n\nIMPORTANT: Autonomous death recovery requires the character to be saved/reclaim on Rubi-Ka. Outside Rubi-Ka, RKMission stops for manual recovery.";
             }
 
             SetText("MissionCommands",
@@ -68,6 +69,9 @@ namespace MaliMissionRoller2
                 "Start recording a safe route\n" +
                 "Save the active recording\n" +
                 "Print saved routes");
+
+            SetText("NekoCommands", "/rkm neko\n/rkm neko warp\n/rkm neko toggle");
+            SetText("NekoDescriptions", "Open Neko tab\nRun the shared key-warp engine\nEnable/disable key use");
 
             SetText("ToolCommands",
                 "/rkm loot\n" +

@@ -36,12 +36,14 @@ namespace RKmission
         private FGridServiceProvider _fgrid;
         private RubiKaTravelPlanner _longTravel;
         private MissionEntranceResolver _entranceResolver;
+        private NekoPanel _nekoPanel;
         private NavigationRouteRecorder _navRoutes;
         private NavigationRecorderWindow _navWindow;
         private PostZoneFlightSafety _postZoneSafety;
+        private VehicleLifecycle _vehicle;
         private MissionCheckpoint _checkpoint;
         private AcceptedMission _selected;
-        private bool _autoCycle, _autoRolling, _hasRollTerminal, _recoveringDeath;
+        private bool _autoCycle, _autoRolling, _hasRollTerminal, _recoveringDeath, _deathReturnToRollTerminal;
         private bool _capacityLogisticsBlocked, _capacityLogisticsDeferredWhileAccepted;
         private bool _clearAcceptedBeforeRolling;
         private bool _autoLogisticsPending, _autoLogisticsRunning, _autoLogisticsFinalPending;
@@ -121,9 +123,16 @@ namespace RKmission
             _navWindow = new NavigationRecorderWindow(pluginDir, _navRoutes, Say);
             _dungeon = new MissionDungeon(Say, _loot, _readiness, _inventory, _navRoutes);
             _postZoneSafety = new PostZoneFlightSafety(_movement, Say);
+            _vehicle = new VehicleLifecycle(_movement, Say);
             _fgrid = new FGridServiceProvider(pluginDir, Say, _movement, _navRoutes);
             _longTravel = new RubiKaTravelPlanner(pluginDir, _warp, _fgrid, _movement, _navRoutes, Say);
             _entranceResolver = new MissionEntranceResolver(pluginDir, Say);
+            MaliMissionRoller2.Main.Window.EnsureNekoView = () =>
+            {
+                if (_nekoPanel == null)
+                    _nekoPanel = new NekoPanel(pluginDir, _entranceResolver, ManualNekoWarp, ShowHelp);
+                MaliMissionRoller2.Main.Window.AttachNekoView(_nekoPanel.Root);
+            };
             _checkpoint = MissionCheckpoint.Load(pluginDir, Say);
             CarriedItems.Initialize();
             if (_checkpoint.OriginTerminals == null)
@@ -180,6 +189,7 @@ namespace RKmission
             _roller.RollerWindowClosed -= OnRollerWindowClosed;
             _postZoneSafety?.Dispose();
             _navWindow?.Dispose();
+            _nekoPanel?.Dispose();
             _navRoutes?.Dispose();
             _logisticsProbe?.Dispose();
             _automaticLogistics?.Dispose();
@@ -363,8 +373,12 @@ namespace RKmission
                     }
                     if (args.Length > 1 && args[1].Equals("record", StringComparison.OrdinalIgnoreCase))
                     {
-                        string name = args.Length > 2 ? string.Join("-", args.Skip(2)) : null;
-                        _navRoutes.Start(name); break;
+                        string navMode = args.Length > 2 && (args[2].Equals("foot", StringComparison.OrdinalIgnoreCase) ||
+                            args[2].Equals("vehicle", StringComparison.OrdinalIgnoreCase) ||
+                            args[2].Equals("auto", StringComparison.OrdinalIgnoreCase)) ? args[2] : "Auto";
+                        int nameIndex = navMode == "Auto" && (args.Length <= 2 || !args[2].Equals("auto", StringComparison.OrdinalIgnoreCase)) ? 2 : 3;
+                        string name = args.Length > nameIndex ? string.Join("-", args.Skip(nameIndex)) : null;
+                        _navRoutes.Start(name, navMode, "Bidirectional"); break;
                     }
                     if (args.Length > 1 && args[1].Equals("stop", StringComparison.OrdinalIgnoreCase))
                     { _navRoutes.Stop(); break; }
@@ -372,7 +386,7 @@ namespace RKmission
                     { _navRoutes.List(); break; }
                     if (args.Length > 1 && args[1].Equals("window", StringComparison.OrdinalIgnoreCase))
                     { _navWindow.Show(); break; }
-                    Say("Usage: /rkm nav [window] | record [name] | stop | list. Record FGrid walkways from endpoint to endpoint; playback is automatic when endpoints match.");
+                    Say("Usage: /rkm nav [window] | record [foot|vehicle|auto] [name] | stop | list. Existing files remain Foot/Bidirectional; vehicle profiles preserve recorded altitude and support forward reacquisition.");
                     break;
                 case "fgrid":
                     if (args.Length > 1 && args[1].Equals("nav", StringComparison.OrdinalIgnoreCase))
@@ -527,13 +541,44 @@ namespace RKmission
                     else Say("Usage: /rkm logistics routes | cycle [1-20] | travel <site> <bank|shop> | bank <test|store [1-20]|stop> | shop <preview|stage <item id>|test|sell [1-20]|stop> | return | stop | status | probe start [site] [bank|shop] | probe stop.");
                     break;
                 case "map": _map.ToggleWindow(); break;
+                case "neko":
+                    if (args.Length > 1 && args[1].Equals("toggle", StringComparison.OrdinalIgnoreCase))
+                    { _entranceResolver.Enabled = !_entranceResolver.Enabled; _entranceResolver.Reset(); Say($"Neko key use {(_entranceResolver.Enabled ? "enabled" : "disabled")}."); }
+                    else if (args.Length > 1 && args[1].Equals("warp", StringComparison.OrdinalIgnoreCase)) ManualNekoWarp();
+                    else
+                    {
+                        if (MaliMissionRoller2.Main.Window?.Window?.IsValid != true) _roller.ShowRoller();
+                        MaliMissionRoller2.Main.Window?.ShowNekoTab();
+                    }
+                    break;
                 case "settings":
                     if (MaliMissionRoller2.Main.Window?.Window?.IsValid != true)
                         _roller.ShowRoller();
                     MaliMissionRoller2.Main.Window?.ShowSettingsTab();
                     break;
-                default: Say("Commands: start, auto, local, stop, status, missions, zone <id|all>, rolls <count>, limit <count|off>, travel auto|ground|flying, fgrid [scan|nav], nav [window]|record [name]|stop|list, logistics routes|cycle [1-20]|travel <site> <bank|shop>|return|stop|status|probe, complete [mission id], loot, map, settings."); break;
+                default: Say("Commands: start, auto, local, stop, status, missions, zone <id|all>, rolls <count>, limit <count|off>, travel auto|ground|flying, neko [warp|toggle], fgrid [scan|nav], nav [window]|record [name]|stop|list, logistics routes|cycle [1-20]|travel <site> <bank|shop>|return|stop|status|probe, complete [mission id], loot, map, settings."); break;
             }
+        }
+
+        private void ShowHelp()
+        {
+            var help = new MaliMissionRoller2.HelpWindow();
+            help.StartupWindow.Show(true);
+        }
+
+        private void ManualNekoWarp()
+        {
+            if (!_entranceResolver.Enabled) { Say("Neko key use is disabled."); return; }
+            if (Game.IsZoning || Playfield.IsDungeon || _selected == null ||
+                _selected.PlayfieldId != Playfield.ModelIdentity.Instance)
+            { Say("Key Warp requires a selected mission after its destination playfield is verified."); return; }
+            Mission live = Mission.List?.FirstOrDefault(x => x.Identity == _selected.Id);
+            if (live == null) { Say("The selected mission is not currently available from AO#."); return; }
+            _travel.Reset("manual Neko key-warp handoff");
+            _movement.StopAll();
+            _entranceResolver.Select(live);
+            EntranceResult result = _entranceResolver.Tick();
+            Say($"Manual Neko key-warp engine: {result}; {_entranceResolver.Status}, candidates={_entranceResolver.CandidateCount}.");
         }
 
         private void Start()
@@ -545,6 +590,7 @@ namespace RKmission
             _logisticsNavigator?.Stop(true);
             _running = true;
             _recoveringDeath = false;
+            _deathReturnToRollTerminal = false;
             _dungeonStarted = false;
             _clearanceReported = false;
             _selected = null;
@@ -573,6 +619,7 @@ namespace RKmission
             _capacityLogisticsBlocked = _capacityLogisticsDeferredWhileAccepted = false;
             _nextSelection = DateTime.MinValue;
             _travel.Reset();
+            _vehicle?.ResetJourney();
             _longTravel.Reset();
             _entranceResolver.Reset();
             Say(_autoCycle ? "Armed for automatic rolling, travel and mission chaining." :
@@ -591,6 +638,7 @@ namespace RKmission
             _running = false;
             _dungeonStarted = false;
             _travel?.Reset();
+            _vehicle?.ResetJourney();
             _longTravel?.Reset();
             _entranceResolver?.Reset();
             _navRoutes?.StopPlayback();
@@ -607,6 +655,7 @@ namespace RKmission
             _autoLogisticsReason = null;
             _capacityLogisticsBlocked = _capacityLogisticsDeferredWhileAccepted = false;
             _recoveringDeath = false;
+            _deathReturnToRollTerminal = false;
             _exitZoningStarted = false;
             _handInExitVerified = false;
             _handInLocateStarted = DateTime.MinValue;
@@ -752,6 +801,7 @@ namespace RKmission
                     if (recovery == DeathRecoveryResult.Failed)
                     { Stop(); Say("Reclaim/readiness recovery timed out or could not complete."); return; }
                     _recoveringDeath = false;
+                    _deathReturnToRollTerminal = true;
                     _verifiedRun = false;
                     _exitZoningStarted = false;
                     _completedMissionWarpTarget = 0;
@@ -759,7 +809,16 @@ namespace RKmission
                     _selected = _selected != null && _selected.Present ? _selected : null;
                     _entranceResolver.Reset();
                     _nextSelection = DateTime.MinValue;
-                    Say("Reclaim complete; replanning from the current playfield.");
+                    Say($"Death recovery readiness complete; returning by Scotty/travel graph to the exact saved roller terminal in PF {_rollTerminalPlayfield} before mission retry.");
+                }
+                if (_deathReturnToRollTerminal)
+                {
+                    if (!_hasRollTerminal)
+                    { Stop(); Say("Death recovery stopped: no exact saved roller terminal exists for this automatic cycle."); return; }
+                    if (!ReturnToRollTerminal()) return;
+                    _deathReturnToRollTerminal = false;
+                    _nextSelection = DateTime.MinValue;
+                    Say($"Death recovery reacquired exact saved roller terminal in PF {_rollTerminalPlayfield}; resuming the normal automatic mission selection and travel path.");
                 }
                 if (_autoCycle && _autoRolling && !ObserveAutoAcceptance()) return;
                 // AO# classifies Fixer Grid as a dungeon, but it is a travel
@@ -1021,6 +1080,16 @@ namespace RKmission
                     { _travel.Reset(); _movement.Halt(MovementOwner.MissionEntrance); return; }
                     if (entrance == EntranceResult.Failed)
                     { Stop(); Say("Mission-key entrance was accepted, but exact dungeon entry was not verified."); return; }
+                }
+                if (_autoCycle && !_travel.MatchesAnchor(_selected) &&
+                    DynelManager.LocalPlayer != null)
+                {
+                    float localDistance = LocalRoutePlanner.HorizontalDistance(
+                        DynelManager.LocalPlayer.Position, _selected.Entrance);
+                    VehicleTransitionResult vehicle = _vehicle.RequireFlight(localDistance >= 120f);
+                    if (vehicle == VehicleTransitionResult.Waiting) return;
+                    Say($"Local mission route mode choice: distance={localDistance:0.0}m, vehicle={_vehicle.Status}; " +
+                        $"selected={(DynelManager.LocalPlayer.MovementState == MovementState.Fly ? "Fly" : "Foot")}.");
                 }
                 if (_autoCycle && !_travel.MatchesAnchor(_selected) &&
                     _travel.SelectNearest(new[] { _selected }) == null)
@@ -1736,6 +1805,8 @@ namespace RKmission
                 if (result == TravelResult.InProgress) return false;
             }
             if (_longTravel.IsActive) _longTravel.Reset();
+            if (!_vehicle.RestoreOriginal())
+            { Wait($"Vehicle lifecycle: {_vehicle.Status}; waiting for live ground verification before the precise saved-terminal connector."); return false; }
             SimpleChar player = DynelManager.LocalPlayer;
             Dynel terminal = DynelManager.AllDynels.FirstOrDefault(x =>
                 x.Identity.Type == IdentityType.MissionTerminal &&
