@@ -23,6 +23,7 @@ namespace RKmission
         private int _selectedMissionId;
         private string _selectedMissionName;
         private int _selectedPlayfield;
+        private int _trackedMissionCount, _shownMissionCount;
         private DateTime _nextRefresh;
         public View Root { get; }
 
@@ -58,14 +59,19 @@ namespace RKmission
                 ? "Selected mission: none"
                 : $"Selected mission: {_selectedMissionName} [{_selectedMissionId}] - PF {_selectedPlayfield}";
             if (_keys != null) _keys.Text = "Detected keys: " + _resolver.KeySummary;
-            if (_diagnostics != null) _diagnostics.Text = $"State: {_resolver.Status}\nCandidates: {_resolver.CandidateCount}\nCurrent attempt: {_resolver.AttemptNumber}";
+            if (_diagnostics != null) _diagnostics.Text =
+                $"Missions: AO live {Mission.List?.Count ?? 0}, tracked {_trackedMissionCount}, shown {_shownMissionCount}/15\n" +
+                $"State: {_resolver.Status}\nCandidates: {_resolver.CandidateCount}\nCurrent attempt: {_resolver.AttemptNumber}";
         }
 
         private void RefreshMissions()
         {
             if (_missionRows.Any(x => x == null) || _missions == null) return;
-            List<AcceptedMission> missions = _missions().Where(x => x.Present && x.IsRubiKaDestination && !x.Completed)
+            List<AcceptedMission> tracked = _missions().Where(x => x.Present && !x.Completed).ToList();
+            _trackedMissionCount = tracked.Count;
+            List<AcceptedMission> missions = tracked
                 .OrderBy(x => x.Id.Instance).Take(15).ToList();
+            _shownMissionCount = missions.Count;
             string signature = string.Join("|", missions.Select(x => $"{x.Id.Instance}:{x.Name}:{x.PlayfieldId}:{x.Kind}"));
             if (signature == _missionSignature) return;
             for (int index = 0; index < _missionEntries.Count; index++)
@@ -81,7 +87,7 @@ namespace RKmission
                 icon?.SetBitmap(MissionIcon(mission.Kind).ToString());
                 string name = string.IsNullOrWhiteSpace(mission.Name) ? $"Mission {mission.Id.Instance}" : mission.Name;
                 if (name.Length > 16) name = name.Substring(0, 13) + "...";
-                if (label != null) label.Text = $"{name}\nPF {mission.PlayfieldId}";
+                if (label != null) label.Text = $"{name}\n{(mission.PlayfieldId > 0 ? "PF " + mission.PlayfieldId : "resolving")}";
                 if (select != null)
                 {
                     select.Tag = mission.Id.Instance;
