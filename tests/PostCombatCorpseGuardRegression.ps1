@@ -12,7 +12,8 @@ foreach ($required in @(
     'PostCombatCorpseSettlementWait = TimeSpan.FromSeconds(90)',
     'PostCombatCorpseSkipVisibilityGrace = TimeSpan.FromSeconds(5)',
     '_loot.RegisterOutstandingMissionLoot(corpse.Identity, guard.RoomId)',
-    '_loot.IsMissionLootSuccessfullyProcessed(guard.Corpse)',
+    '_loot.IsMissionLootSuccessfullyProcessed(',
+    'guard.Corpse, guard.RoomId, guard.CorpseOccurrence)',
     '_loot.TryGetMissionLootSkipReason(guard.Corpse, out _)',
     '_loot.RetryVisibleOutstandingMissionLoot(skipped.Corpse, skipped.RoomId, reason)',
     'PostCombatCorpseGuardActive(liveRoom.Instance)',
@@ -59,8 +60,9 @@ Write-Output 'PASS materialization and settlement waits are bounded, tolerate tr
 $manager = Get-Content -LiteralPath (Join-Path $root 'RKmission/Plugins/ManagerLoot/ManagerLoot.cs') -Raw
 foreach ($required in @(
     'private readonly HashSet<MissionIdentity> _openedMissionLoot',
+    'private readonly Dictionary<MissionIdentity, long> _missionLootOccurrences',
     '_openedMissionLoot.Add(container.Identity)',
-    'public bool IsMissionLootSuccessfullyProcessed(MissionIdentity identity)',
+    'public bool IsMissionLootSuccessfullyProcessed(MissionIdentity identity, int roomId, long occurrence)',
     '_openedMissionLoot.Contains(identity) && _finishedMissionLoot.Contains(identity)',
     'state == MissionSourceState.Completed',
     'public bool TryGetMissionLootSkipReason',

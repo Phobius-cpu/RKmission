@@ -85,6 +85,13 @@ namespace ManagerLoot
         private readonly HashSet<MissionIdentity> _seenMissionLoot = new HashSet<MissionIdentity>();
         private readonly HashSet<MissionIdentity> _openedMissionLoot = new HashSet<MissionIdentity>();
         private readonly HashSet<MissionIdentity> _finishedMissionLoot = new HashSet<MissionIdentity>();
+        private readonly Dictionary<MissionIdentity, long> _missionLootOccurrences =
+            new Dictionary<MissionIdentity, long>();
+        private readonly Dictionary<MissionIdentity, long> _openedMissionLootOccurrences =
+            new Dictionary<MissionIdentity, long>();
+        private readonly Dictionary<MissionIdentity, long> _finishedMissionLootOccurrences =
+            new Dictionary<MissionIdentity, long>();
+        private long _nextMissionLootOccurrence;
         private enum MissionSourceState
         {
             Discovered, PendingApproach, DeferredApproach, Opening, Lockpicking, Looting, Completed,
@@ -166,6 +173,7 @@ namespace ManagerLoot
         private sealed class SourceAcquisition
         {
             public MissionIdentity Source;
+            public long Occurrence;
             public double OpenedAt;
             public readonly List<ListedItemTransfer> Items = new List<ListedItemTransfer>();
             public int Current;
@@ -188,6 +196,7 @@ namespace ManagerLoot
         }
         private readonly Dictionary<MissionIdentity, int> _missionLootRooms = new Dictionary<MissionIdentity, int>();
         private MissionIdentity _pendingMissionLoot = MissionIdentity.None;
+        private long _pendingMissionLootOccurrence;
         // RKMission limits the original loot state machine to the room being cleared.
         public int MissionRoomId { get; private set; } = -1;
         public Func<Dynel, int, bool> MissionRoomContains { get; set; }
@@ -228,6 +237,7 @@ namespace ManagerLoot
         {
             MissionRoomId = -1;
             _pendingMissionLoot = MissionIdentity.None; // Explicitly release ownership on stop/exit.
+            _pendingMissionLootOccurrence = 0;
             if (restoreUserState && _enabledForMission && _settings != null && _settings["Enable"].AsBool())
                 Helper_Enable();
             if (restoreUserState) _enabledForMission = false;
@@ -243,6 +253,10 @@ namespace ManagerLoot
             _seenMissionLoot.Clear();
             _openedMissionLoot.Clear();
             _finishedMissionLoot.Clear();
+            _missionLootOccurrences.Clear();
+            _openedMissionLootOccurrences.Clear();
+            _finishedMissionLootOccurrences.Clear();
+            _nextMissionLootOccurrence = 0;
             _missionSources.Clear();
             _missionSkipReasons.Clear();
             _deferredApproaches.Clear();
@@ -253,6 +267,7 @@ namespace ManagerLoot
             _missionLockpicks.Clear();
             _missionLootRooms.Clear();
             _pendingMissionLoot = MissionIdentity.None;
+            _pendingMissionLootOccurrence = 0;
             openedContainers.Clear();
             MissionObjectiveContainer = MissionIdentity.None;
             CurrentCorpse = null;
@@ -402,19 +417,33 @@ namespace ManagerLoot
                 !_unreachableMissionLoot.Contains(x.Identity) &&
                 (include == null || include(x)));
 
-        public void RegisterOutstandingMissionLoot(MissionIdentity identity, int roomId)
+        public long RegisterOutstandingMissionLoot(MissionIdentity identity, int roomId)
         {
-            if (identity == MissionIdentity.None || MissionRoomId < 0) return;
-            TrackMissionLoot(identity, roomId);
+            if (identity == MissionIdentity.None || MissionRoomId < 0) return 0;
+            bool completedOccurrence = _missionLootRooms.TryGetValue(identity, out int previousRoom) &&
+                previousRoom == roomId && _missionSources.TryGetValue(identity, out MissionSourceState state) &&
+                state == MissionSourceState.Completed;
+            TrackMissionLoot(identity, roomId, completedOccurrence);
+            return _missionLootOccurrences[identity];
         }
 
         // A post-combat corpse may release room ownership only with both exact
         // ContainerOpened and exact processing-finished evidence.  Generic
         // "settled" includes policy skips and is deliberately not success.
-        public bool IsMissionLootSuccessfullyProcessed(MissionIdentity identity) =>
+        public bool IsMissionLootSuccessfullyProcessed(MissionIdentity identity, int roomId, long occurrence) =>
+            occurrence != 0 &&
+            _missionLootRooms.TryGetValue(identity, out int observedRoom) && observedRoom == roomId &&
+            _missionLootOccurrences.TryGetValue(identity, out long currentOccurrence) && currentOccurrence == occurrence &&
             _openedMissionLoot.Contains(identity) && _finishedMissionLoot.Contains(identity) &&
+            _openedMissionLootOccurrences.TryGetValue(identity, out long openedOccurrence) && openedOccurrence == occurrence &&
+            _finishedMissionLootOccurrences.TryGetValue(identity, out long finishedOccurrence) && finishedOccurrence == occurrence &&
             _missionSources.TryGetValue(identity, out MissionSourceState state) &&
             state == MissionSourceState.Completed;
+
+        public bool IsMissionLootSuccessfullyProcessed(MissionIdentity identity) =>
+            _missionLootRooms.TryGetValue(identity, out int roomId) &&
+            _missionLootOccurrences.TryGetValue(identity, out long occurrence) &&
+            IsMissionLootSuccessfullyProcessed(identity, roomId, occurrence);
 
         public bool TryGetMissionLootSkipReason(MissionIdentity identity, out string reason)
         {
@@ -438,6 +467,7 @@ namespace ManagerLoot
                 IsMissionLootSuccessfullyProcessed(identity)) return;
             _unreachableMissionLoot.Remove(identity);
             _finishedMissionLoot.Remove(identity);
+            _finishedMissionLootOccurrences.Remove(identity);
             _deferredApproaches.Remove(identity);
             _missionSkipReasons.Remove(identity);
             openedContainers.Remove(identity.Instance);
@@ -457,7 +487,11 @@ namespace ManagerLoot
                 CurrentCorpse = null;
                 CurrentProcess = ProcessState.Open_Corpse;
             }
-            if (_pendingMissionLoot == identity && CorpseContainer == null) _pendingMissionLoot = MissionIdentity.None;
+            if (_pendingMissionLoot == identity && CorpseContainer == null)
+            {
+                _pendingMissionLoot = MissionIdentity.None;
+                _pendingMissionLootOccurrence = 0;
+            }
         }
 
         public bool DeferMissionLoot(MissionIdentity identity, string failureReason,
@@ -486,7 +520,11 @@ namespace ManagerLoot
                 CurrentCorpse = null;
                 CurrentProcess = ProcessState.Open_Corpse;
             }
-            if (_pendingMissionLoot == identity && CorpseContainer == null) _pendingMissionLoot = MissionIdentity.None;
+            if (_pendingMissionLoot == identity && CorpseContainer == null)
+            {
+                _pendingMissionLoot = MissionIdentity.None;
+                _pendingMissionLootOccurrence = 0;
+            }
             return true;
         }
 
@@ -581,10 +619,18 @@ namespace ManagerLoot
                     return;
                 }
                 _unreachableMissionLoot.Remove(CorpseContainer.Identity);
+                long occurrence = _sourceAcquisition?.Occurrence ?? 0;
+                if (occurrence == 0 || !_openedMissionLootOccurrences.TryGetValue(CorpseContainer.Identity, out long openedOccurrence) ||
+                    openedOccurrence != occurrence) return;
                 if (_finishedMissionLoot.Add(CorpseContainer.Identity))
                     Chat.WriteLine($"RKMission: Loot processing finished {CorpseContainer.Identity}.");
+                _finishedMissionLootOccurrences[CorpseContainer.Identity] = occurrence;
                 SetMissionSource(CorpseContainer.Identity, MissionSourceState.Completed);
-                if (_pendingMissionLoot == CorpseContainer.Identity) _pendingMissionLoot = MissionIdentity.None;
+                if (_pendingMissionLoot == CorpseContainer.Identity)
+                {
+                    _pendingMissionLoot = MissionIdentity.None;
+                    _pendingMissionLootOccurrence = 0;
+                }
             }
         }
 
@@ -648,7 +694,12 @@ namespace ManagerLoot
 
         private void BeginSourceAcquisition(Container container)
         {
-            _sourceAcquisition = new SourceAcquisition { Source = container.Identity, OpenedAt = Time.AONormalTime };
+            _sourceAcquisition = new SourceAcquisition
+            {
+                Source = container.Identity,
+                Occurrence = _pendingMissionLootOccurrence,
+                OpenedAt = Time.AONormalTime
+            };
             var oneEachNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var ruleSelections = new Dictionary<Rule, int>();
             foreach (Item item in container.Items ?? Enumerable.Empty<Item>())
@@ -918,8 +969,38 @@ namespace ManagerLoot
             return false;
         }
 
-        private void TrackMissionLoot(MissionIdentity identity, int roomId)
+        private void TrackMissionLoot(MissionIdentity identity, int roomId, bool newObservedOccurrence = false)
         {
+            if (_missionLootRooms.TryGetValue(identity, out int previousRoom) &&
+                (previousRoom != roomId || newObservedOccurrence))
+            {
+                _missionLootOccurrences[identity] = ++_nextMissionLootOccurrence;
+                Chat.WriteLine($"RKMission: New loot occurrence {identity}: room {previousRoom} -> {roomId}, generation {_missionLootOccurrences[identity]}; stale open/finish evidence invalidated.");
+                _openedMissionLoot.Remove(identity);
+                _finishedMissionLoot.Remove(identity);
+                _openedMissionLootOccurrences.Remove(identity);
+                _finishedMissionLootOccurrences.Remove(identity);
+                _unreachableMissionLoot.Remove(identity);
+                _missionSkipReasons.Remove(identity);
+                _deferredApproaches.Remove(identity);
+                _missionLockpicks.Remove(identity);
+                openedContainers.Remove(identity.Instance);
+                _missionSources.Remove(identity);
+                if (_pendingMissionLoot == identity)
+                {
+                    _pendingMissionLoot = MissionIdentity.None;
+                    _pendingMissionLootOccurrence = 0;
+                }
+                if (_sourceAcquisition?.Source == identity || CorpseContainer?.Identity == identity)
+                {
+                    _sourceAcquisition = null;
+                    CorpseContainer = null;
+                    CurrentCorpse = null;
+                    CurrentProcess = ProcessState.Open_Corpse;
+                }
+            }
+            else if (!_missionLootOccurrences.ContainsKey(identity))
+                _missionLootOccurrences[identity] = ++_nextMissionLootOccurrence;
             _seenMissionLoot.Add(identity);
             _missionLootRooms[identity] = roomId;
             if (!_missionSources.ContainsKey(identity)) SetMissionSource(identity, MissionSourceState.Discovered);
@@ -930,6 +1011,7 @@ namespace ManagerLoot
             if (MissionRoomId < 0) return;
             _pendingMissionLoot = dynel.Identity;
             TrackMissionLoot(dynel.Identity, MissionRoomId);
+            _pendingMissionLootOccurrence = _missionLootOccurrences[dynel.Identity];
             SetMissionSource(dynel.Identity, MissionSourceState.Opening);
         }
 
@@ -1187,6 +1269,7 @@ namespace ManagerLoot
                 message.IndexOf("too far away", StringComparison.OrdinalIgnoreCase) < 0) return;
             MissionIdentity identity = _pendingMissionLoot;
             _pendingMissionLoot = MissionIdentity.None;
+            _pendingMissionLootOccurrence = 0;
             CurrentCorpse = null;
             CurrentProcess = ProcessState.Open_Corpse;
             SetMissionSource(identity, MissionSourceState.PendingApproach);
@@ -1211,9 +1294,11 @@ namespace ManagerLoot
 
             if (MissionRoomId >= 0)
             {
-                // A late response still belongs to this exact pending identity,
-                // even after timeout or the world corpse disappearing.
-                if (_pendingMissionLoot != container.Identity) return;
+                if (_pendingMissionLoot != container.Identity || _pendingMissionLootOccurrence == 0 ||
+                    !_missionLootOccurrences.TryGetValue(container.Identity, out long currentOccurrence) ||
+                    currentOccurrence != _pendingMissionLootOccurrence ||
+                    !_missionLootRooms.TryGetValue(container.Identity, out int occurrenceRoom) ||
+                    occurrenceRoom != MissionRoomId) return;
             }
             else if (CurrentProcess != ProcessState.Opening) return;
 
@@ -1231,7 +1316,11 @@ namespace ManagerLoot
                 openedContainers[container.Identity.Instance] = Time.AONormalTime;
 
             CorpseContainer = container;
-            if (MissionRoomId >= 0) _openedMissionLoot.Add(container.Identity);
+            if (MissionRoomId >= 0)
+            {
+                _openedMissionLoot.Add(container.Identity);
+                _openedMissionLootOccurrences[container.Identity] = _pendingMissionLootOccurrence;
+            }
             _observedContainerCount = container.Items?.Count ?? 0;
             CurrentCorpse = DynelManager.GetDynel(container.Identity);
             SetMissionSource(container.Identity, MissionSourceState.Looting);
@@ -1419,6 +1508,7 @@ namespace ManagerLoot
                             else
                                 current.Outcome = LockpickOutcome.TemporaryFailure;
                             _pendingMissionLoot = MissionIdentity.None;
+                            _pendingMissionLootOccurrence = 0;
                             CurrentCorpse = null;
                             CurrentProcess = ProcessState.Open_Corpse;
                         }
@@ -1460,7 +1550,11 @@ namespace ManagerLoot
                                 _finishedMissionLoot.Add(skipped);
                                 SetMissionSource(skipped, MissionSourceState.SkippedNoCapacity);
                                 _missionSkipReasons[skipped] = "no safe main-inventory slot after exact ContainerOpened";
-                                if (_pendingMissionLoot == skipped) _pendingMissionLoot = MissionIdentity.None;
+                                if (_pendingMissionLoot == skipped)
+                                {
+                                    _pendingMissionLoot = MissionIdentity.None;
+                                    _pendingMissionLootOccurrence = 0;
+                                }
                                 Chat.WriteLine($"RKMission: Optional loot {skipped} deferred because the main inventory has no safe free slot.");
                                 CurrentCorpse = null;
                                 CorpseContainer = null;
@@ -1561,7 +1655,12 @@ namespace ManagerLoot
                         if (_sourceAcquisition?.SkippedNoCapacity == true)
                         {
                             _finishedMissionLoot.Add(_sourceAcquisition.Source);
-                            if (_pendingMissionLoot == _sourceAcquisition.Source) _pendingMissionLoot = MissionIdentity.None;
+                            _finishedMissionLootOccurrences[_sourceAcquisition.Source] = _sourceAcquisition.Occurrence;
+                            if (_pendingMissionLoot == _sourceAcquisition.Source)
+                            {
+                                _pendingMissionLoot = MissionIdentity.None;
+                                _pendingMissionLootOccurrence = 0;
+                            }
                         }
                         else
                             FinishMissionContainer();

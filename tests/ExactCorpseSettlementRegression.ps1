@@ -10,10 +10,12 @@ function Assert([bool]$condition, [string]$message) {
 }
 
 Assert ($manager.Contains('_openedMissionLoot.Contains(identity) && _finishedMissionLoot.Contains(identity)') -and
+    $manager.Contains('openedOccurrence == occurrence') -and
+    $manager.Contains('finishedOccurrence == occurrence') -and
     $manager.Contains('state == MissionSourceState.Completed')) `
-    'Success no longer requires exact open and finished evidence for the same identity.'
-Assert ($manager.Contains('if (_pendingMissionLoot != container.Identity) return;') -and
-    $manager.Contains('_openedMissionLoot.Add(container.Identity)')) `
+    'Success no longer requires exact open and finished evidence for the same occurrence.'
+Assert ($manager.Contains('_pendingMissionLoot != container.Identity || _pendingMissionLootOccurrence == 0') -and
+    $manager.Contains('_openedMissionLootOccurrences[container.Identity] = _pendingMissionLootOccurrence')) `
     'ContainerOpened evidence is not bound to the exact pending corpse.'
 Write-Output 'PASS two corpses opened out of order cannot lend success evidence to each other'
 

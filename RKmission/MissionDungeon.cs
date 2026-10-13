@@ -105,6 +105,7 @@ namespace RKmission
             public Identity Enemy;
             public Identity Corpse;
             public int RoomId;
+            public long CorpseOccurrence;
             public Vector3 DeathPosition;
             public DateTime Started, AcquiredAt, LastDiagnostic, SkipInvisibleAt;
             public readonly HashSet<Identity> ExistingCorpses = new HashSet<Identity>();
@@ -976,7 +977,7 @@ namespace RKmission
                     guard.Corpse = corpse.Identity;
                     guard.AcquiredAt = now;
                     guard.LastDiagnostic = now;
-                    _loot.RegisterOutstandingMissionLoot(corpse.Identity, guard.RoomId);
+                    guard.CorpseOccurrence = _loot.RegisterOutstandingMissionLoot(corpse.Identity, guard.RoomId);
                 }
             }
 
@@ -1019,7 +1020,8 @@ namespace RKmission
         {
             if (_postCombatCorpseGuards.Count == 0) return false;
             foreach (PostCombatCorpseGuard settled in _postCombatCorpseGuards.Where(guard =>
-                guard.Corpse != Identity.None && _loot.IsMissionLootSuccessfullyProcessed(guard.Corpse)).ToList())
+                guard.Corpse != Identity.None && _loot.IsMissionLootSuccessfullyProcessed(
+                    guard.Corpse, guard.RoomId, guard.CorpseOccurrence)).ToList())
             {
                 _say($"Post-combat corpse guard completed {settled.Corpse} in room {settled.RoomId}; exact ContainerOpened and processing-finished evidence confirmed, outstanding corpse ownership released.");
                 _postCombatCorpseGuards.Remove(settled);
