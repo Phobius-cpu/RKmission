@@ -1,7 +1,0 @@
-<?xml version="1.0" standalone="yes"?>
-<Root>
-  <Button name="MissionSelect" view_layout="vertical" min_size="Point(58,60)" max_size="Point(58,60)" layout_borders="Rect(1,1,1,1)">
-    <BitmapView name="MissionIcon" min_size="Point(32,32)" max_size="Point(32,32)" h_alignment="CENTER" color="0x00D5C64A"/>
-    <TextView name="MissionLabel" min_size="Point(54,26)" max_size="Point(54,26)" h_alignment="CENTER" feature_flags="TVF_MULTILINE"/>
-  </Button>
-</Root>

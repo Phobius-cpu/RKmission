@@ -14,11 +14,11 @@ namespace RKmission
         private readonly Action _warp;
         private readonly Func<IEnumerable<AcceptedMission>> _missions;
         private readonly Action<int> _selectMission;
-        private readonly string _entryPath;
         private Button _toggle;
         private TextView _mission, _keys, _diagnostics;
-        private readonly View[] _missionRows = new View[3];
-        private readonly List<View> _missionEntries = new List<View>();
+        private readonly Button[] _missionButtons = new Button[15];
+        private readonly BitmapView[] _missionIcons = new BitmapView[15];
+        private readonly TextView[] _missionLabels = new TextView[15];
         private string _missionSignature;
         private int _selectedMissionId;
         private string _selectedMissionName;
@@ -31,14 +31,19 @@ namespace RKmission
             Func<IEnumerable<AcceptedMission>> missions, Action<int> selectMission)
         {
             _resolver = resolver; _warp = warp; _missions = missions; _selectMission = selectMission;
-            _entryPath = System.IO.Path.Combine(pluginDir, "Plugins", "MaliMissionRoller2", "UI", "Views", "NekoMissionEntry.xml");
             Root = View.CreateFromXml(System.IO.Path.Combine(pluginDir,
                 "Plugins", "MaliMissionRoller2", "UI", "Views", "NekoView.xml"));
             Root.FindChild("NekoMission", out _mission);
             Root.FindChild("NekoKeys", out _keys);
             Root.FindChild("NekoDiagnostics", out _diagnostics);
-            for (int row = 0; row < _missionRows.Length; row++)
-                Root.FindChild("NekoMissionRow" + (row + 1), out _missionRows[row]);
+            for (int index = 0; index < _missionButtons.Length; index++)
+            {
+                int slot = index + 1;
+                Root.FindChild("NekoMission" + slot, out _missionButtons[index]);
+                Root.FindChild("NekoMissionIcon" + slot, out _missionIcons[index]);
+                Root.FindChild("NekoMissionLabel" + slot, out _missionLabels[index]);
+                if (_missionButtons[index] != null) _missionButtons[index].Clicked = SelectMission;
+            }
             if (Root.FindChild("NekoWarp", out Button warpButton)) warpButton.Clicked = (_, _) => _warp();
             if (Root.FindChild("NekoToggle", out _toggle)) _toggle.Clicked = (_, _) =>
             { _resolver.ToggleEnabled(); Refresh(); };
@@ -66,51 +71,48 @@ namespace RKmission
 
         private void RefreshMissions()
         {
-            if (_missionRows.Any(x => x == null) || _missions == null) return;
+            if (_missionButtons.Any(x => x == null) || _missions == null) return;
             List<AcceptedMission> tracked = _missions().Where(x => x.Present && !x.Completed).ToList();
             _trackedMissionCount = tracked.Count;
             List<AcceptedMission> missions = tracked
                 .OrderBy(x => x.Id.Instance).Take(15).ToList();
             _shownMissionCount = missions.Count;
             string signature = string.Join("|", missions.Select(x => $"{x.Id.Instance}:{x.Name}:{x.PlayfieldId}:{x.Kind}"));
-            if (signature == _missionSignature) return;
-            for (int index = 0; index < _missionEntries.Count; index++)
-                _missionRows[index / 5].RemoveChild(_missionEntries[index]);
-            _missionEntries.Clear();
-            for (int index = 0; index < missions.Count; index++)
+            if (signature == _missionSignature && missions.Any(x => x.Id.Instance == _selectedMissionId)) return;
+            for (int index = 0; index < _missionButtons.Length; index++)
             {
-                AcceptedMission mission = missions[index];
-                View entry = View.CreateFromXml(_entryPath);
-                entry.FindChild("MissionIcon", out BitmapView icon);
-                entry.FindChild("MissionLabel", out TextView label);
-                entry.FindChild("MissionSelect", out Button select);
-                icon?.SetBitmap(MissionIcon(mission.Kind).ToString());
-                string name = string.IsNullOrWhiteSpace(mission.Name) ? $"Mission {mission.Id.Instance}" : mission.Name;
-                if (name.Length > 16) name = name.Substring(0, 13) + "...";
-                if (label != null) label.Text = $"{name}\n{(mission.PlayfieldId > 0 ? "PF " + mission.PlayfieldId : "resolving")}";
-                if (select != null)
+                if (index >= missions.Count)
                 {
-                    select.Tag = mission.Id.Instance;
-                    select.SetAlpha(mission.Id.Instance == _selectedMissionId ? 1f : 0.72f);
-                    select.Clicked = (_, e) =>
-                    {
-                        if (!(e.Tag is int id)) return;
-                        AcceptedMission chosen = missions.FirstOrDefault(x => x.Id.Instance == id);
-                        if (chosen == null) return;
-                        _selectedMissionId = chosen.Id.Instance;
-                        _selectedMissionName = chosen.Name;
-                        _selectedPlayfield = chosen.PlayfieldId;
-                        _selectMission(id);
-                        _missionSignature = null;
-                        Refresh();
-                    };
+                    _missionButtons[index].Tag = null;
+                    _missionButtons[index].SetAlpha(0f);
+                    _missionIcons[index]?.SetAlpha(0f);
+                    _missionLabels[index]?.SetAlpha(0f);
+                    continue;
                 }
-                _missionRows[index / 5].AddChild(entry, false);
-                _missionEntries.Add(entry);
+                AcceptedMission mission = missions[index];
+                _missionIcons[index]?.SetBitmap(MissionIcon(mission.Kind).ToString());
+                _missionIcons[index]?.SetAlpha(1f);
+                string name = string.IsNullOrWhiteSpace(mission.Name) ? $"Mission {mission.Id.Instance}" : mission.Name;
+                if (name.Length > 8) name = name.Substring(0, 6) + "..";
+                _missionLabels[index].Text = $"{name}\n{(mission.PlayfieldId > 0 ? "PF " + mission.PlayfieldId : "wait")}";
+                _missionLabels[index].SetAlpha(1f);
+                _missionButtons[index].Tag = mission.Id.Instance;
+                _missionButtons[index].SetAlpha(mission.Id.Instance == _selectedMissionId ? 1f : 0.72f);
             }
             _missionSignature = signature;
-            foreach (View row in _missionRows) row.FitToContents();
-            Root.FitToContents();
+        }
+
+        private void SelectMission(object sender, ButtonBase button)
+        {
+            if (!(button.Tag is int id)) return;
+            AcceptedMission chosen = _missions().FirstOrDefault(x => x.Id.Instance == id && x.Present && !x.Completed);
+            if (chosen == null) return;
+            _selectedMissionId = chosen.Id.Instance;
+            _selectedMissionName = chosen.Name;
+            _selectedPlayfield = chosen.PlayfieldId;
+            _selectMission(id);
+            _missionSignature = null;
+            Refresh();
         }
 
         private static int MissionIcon(RkMissionKind kind)
@@ -129,9 +131,6 @@ namespace RKmission
         public void Dispose()
         {
             Game.OnUpdate -= OnUpdate;
-            for (int index = 0; index < _missionEntries.Count; index++)
-                _missionRows[index / 5]?.RemoveChild(_missionEntries[index]);
-            _missionEntries.Clear();
         }
     }
 }
