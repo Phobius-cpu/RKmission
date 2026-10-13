@@ -42,4 +42,5 @@ Assert (-not $loot.Contains('item?.Use(); // Open') -and -not $loot.Contains('it
 Assert ($loot.Contains('MaxManagedBagLoadAttempts = 3') -and
     $loot.Contains('ManagedBagFamily.IsProtected(bag.Name)') -and
     $loot.Contains('!string.IsNullOrWhiteSpace(rule.BagName)') -and
-    ([regex]::Matches($loot, 'bagItem\.Use\(\);').Count -eq 1)) 'managed Loot and Junk snapshots remain a separate bounded loader'
+    ([regex]::Matches($loot, 'bagItem\.Use\(\);').Count -eq 2) -and
+    $loot.Contains("Opening Keep destination '{selected.KeepBagName}' before placement")) 'managed Loot and Junk snapshots plus source-settled Keep placement use separate bounded opens'

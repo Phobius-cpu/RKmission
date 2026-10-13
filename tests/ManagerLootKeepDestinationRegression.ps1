@@ -67,7 +67,7 @@ foreach ($required in @(
     if (-not $source.Contains($required)) { throw "Verified Keep placement regressed: $required" }
 }
 if ($record.Contains("Keep placement requested for '{selected.Name}' in '{bag.Name}'.") -or
-    $record.IndexOf('_sourceAcquisition.Current++') -lt $record.IndexOf('ProcessKeepPlacement(selected)')) {
+    $record.Contains('ProcessKeepPlacement(selected)')) {
     throw 'Keep placement can still be declared or settled immediately after the move request.'
 }
 Write-Output 'PASS Keep placement is serialized and requires source removal plus bag-count arrival, including None identities'

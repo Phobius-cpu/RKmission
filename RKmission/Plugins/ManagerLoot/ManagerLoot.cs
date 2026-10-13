@@ -155,6 +155,8 @@ namespace ManagerLoot
         private readonly Dictionary<MissionIdentity, ManagedBagSnapshot> _managedBagSnapshots =
             new Dictionary<MissionIdentity, ManagedBagSnapshot>();
         private MissionIdentity _waitingForManagedBag = MissionIdentity.None;
+        private MissionIdentity _keepPlacementBag = MissionIdentity.None;
+        private bool _keepPlacementBagOpened;
         private sealed class ListedItemTransfer
         {
             public MissionIdentity Identity;
@@ -163,11 +165,12 @@ namespace ManagerLoot
             public MissionIdentity KeepBag;
             public int Id, LowId, HighId, QualityLevel, InventoryCountBefore, Attempts;
             public int KeepBagCountBefore, KeepPlacementAttempts;
+            public int KeepBagOpenAttempts;
             public string Name;
             public string KeepBagName;
             public Rule Rule;
             public bool Objective, Verified, NonActionable, AcquisitionRecorded, KeepPlacementPending;
-            public double SentAt, KeepPlacementSentAt;
+            public double SentAt, KeepPlacementSentAt, KeepBagOpenSentAt;
             public readonly HashSet<MissionIdentity> ExistingInventorySlots = new HashSet<MissionIdentity>();
         }
         private sealed class SourceAcquisition
@@ -238,6 +241,8 @@ namespace ManagerLoot
             MissionRoomId = -1;
             _pendingMissionLoot = MissionIdentity.None; // Explicitly release ownership on stop/exit.
             _pendingMissionLootOccurrence = 0;
+            _keepPlacementBag = MissionIdentity.None;
+            _keepPlacementBagOpened = false;
             if (restoreUserState && _enabledForMission && _settings != null && _settings["Enable"].AsBool())
                 Helper_Enable();
             if (restoreUserState) _enabledForMission = false;
@@ -268,6 +273,8 @@ namespace ManagerLoot
             _missionLootRooms.Clear();
             _pendingMissionLoot = MissionIdentity.None;
             _pendingMissionLootOccurrence = 0;
+            _keepPlacementBag = MissionIdentity.None;
+            _keepPlacementBagOpened = false;
             openedContainers.Clear();
             MissionObjectiveContainer = MissionIdentity.None;
             CurrentCorpse = null;
@@ -760,6 +767,38 @@ namespace ManagerLoot
         {
             Container bag = Inventory.Backpacks.FirstOrDefault(candidate => candidate.Identity == selected.KeepBag);
             Item acquired = AcquiredMainInventoryItem(selected);
+            if (!_keepPlacementBagOpened || _keepPlacementBag != selected.KeepBag)
+            {
+                if (acquired == null || bag == null)
+                {
+                    selected.KeepPlacementPending = false;
+                    Chat.WriteLine($"RKMission: Keep placement deferred for '{selected.Name}'; destination '{selected.KeepBagName}' or the retained main-inventory item disappeared.");
+                    return true;
+                }
+                if (Item.HasPendingUse || Time.AONormalTime < selected.KeepBagOpenSentAt + ManagedBagResponseSeconds)
+                    return true;
+                if (selected.KeepBagOpenAttempts >= MaxManagedBagLoadAttempts)
+                {
+                    selected.KeepPlacementPending = false;
+                    Chat.WriteLine($"RKMission: Keep placement deferred for '{selected.Name}'; destination '{selected.KeepBagName}' did not provide ContainerOpened evidence after {selected.KeepBagOpenAttempts} bounded attempt(s), and the item remains safely owned in main inventory.");
+                    return true;
+                }
+                Item bagItem = Inventory.Items.FirstOrDefault(item => item != null &&
+                    item.UniqueIdentity == selected.KeepBag);
+                if (bagItem == null)
+                {
+                    selected.KeepPlacementPending = false;
+                    Chat.WriteLine($"RKMission: Keep placement deferred for '{selected.Name}'; destination '{selected.KeepBagName}' is not available in inventory, and the item remains safely owned in main inventory.");
+                    return true;
+                }
+                _keepPlacementBag = selected.KeepBag;
+                _keepPlacementBagOpened = false;
+                selected.KeepBagOpenAttempts++;
+                selected.KeepBagOpenSentAt = Time.AONormalTime;
+                bagItem.Use();
+                Chat.WriteLine($"RKMission: Opening Keep destination '{selected.KeepBagName}' before placement (attempt {selected.KeepBagOpenAttempts}/{MaxManagedBagLoadAttempts}).");
+                return true;
+            }
             bool leftMain = acquired == null;
             bool arrived = bag != null && (MatchingBagCount(bag, selected) > selected.KeepBagCountBefore ||
                 HasUsableIdentity(selected.Identity) && bag.Items.Any(item => item.UniqueIdentity == selected.Identity));
@@ -779,7 +818,6 @@ namespace ManagerLoot
                 }
                 Chat.WriteLine($"RKMission: Keep placement confirmed for '{selected.Name}' in '{selected.KeepBagName}' after source-slot removal and destination arrival.");
                 selected.KeepPlacementPending = false;
-                _sourceAcquisition.Current++;
                 MissionLootProgress++;
                 return true;
             }
@@ -792,7 +830,6 @@ namespace ManagerLoot
                 {
                     Chat.WriteLine($"RKMission: Keep placement deferred after {selected.KeepPlacementAttempts} bounded attempt(s) for '{selected.Name}'; destination '{selected.KeepBagName}' was not confirmed and the item remains safely owned in main inventory.");
                     selected.KeepPlacementPending = false;
-                    _sourceAcquisition.Current++;
                     MissionLootProgress++;
                     return true;
                 }
@@ -863,11 +900,6 @@ namespace ManagerLoot
                 }
                 Chat.WriteLine($"RKMission: Verified listed-item transfer '{selected.Name}', id={selected.Id}, QL={selected.QualityLevel} from {_sourceAcquisition.Source}.");
             }
-            if (selected.KeepPlacementPending)
-            {
-                ProcessKeepPlacement(selected);
-                return;
-            }
             _sourceAcquisition.Current++;
         }
 
@@ -877,11 +909,6 @@ namespace ManagerLoot
             if (_sourceAcquisition.Current < _sourceAcquisition.Items.Count)
             {
                 ListedItemTransfer selected = _sourceAcquisition.Items[_sourceAcquisition.Current];
-                if (selected.KeepPlacementPending)
-                {
-                    ProcessKeepPlacement(selected);
-                    return true;
-                }
                 bool leftSource = !SourceStillContains(selected);
                 bool appearedInInventory = MatchingInventoryCount(selected) > selected.InventoryCountBefore ||
                     HasUsableIdentity(selected.Identity) && Inventory.Items.Any(item => item.UniqueIdentity == selected.Identity);
@@ -1036,6 +1063,7 @@ namespace ManagerLoot
         public bool IsProcessingMissionLoot => _pendingMissionLoot != MissionIdentity.None || CorpseContainer != null ||
             CurrentProcess == ProcessState.Opening || CurrentProcess == ProcessState.PickingLock ||
             CurrentProcess == ProcessState.Move_To_Inventory || CurrentProcess == ProcessState.Move_To_BackPack ||
+            CurrentProcess == ProcessState.Move_To_KeepBag ||
             CurrentProcess == ProcessState.Close_Corpse;
         public MissionIdentity ProcessingMissionLootIdentity => _pendingMissionLoot != MissionIdentity.None
             ? _pendingMissionLoot : CorpseContainer?.Identity ?? MissionIdentity.None;
@@ -1280,10 +1308,14 @@ namespace ManagerLoot
         {
             if (!_settings["Enable"].AsBool()) return;
 
-            if (container != null && _managedBagSnapshots.TryGetValue(container.Identity,
-                out ManagedBagSnapshot managedSnapshot))
+            if (container != null && (_managedBagSnapshots.TryGetValue(container.Identity,
+                out ManagedBagSnapshot managedSnapshot) || _keepPlacementBag == container.Identity))
             {
+                if (managedSnapshot == null)
+                    _managedBagSnapshots[container.Identity] = managedSnapshot = new ManagedBagSnapshot();
                 managedSnapshot.Confirmed = true;
+                if (_keepPlacementBag == container.Identity)
+                    _keepPlacementBagOpened = true;
                 if (_waitingForManagedBag == container.Identity)
                     _waitingForManagedBag = MissionIdentity.None;
                 return;
@@ -1642,6 +1674,25 @@ namespace ManagerLoot
                             CurrentProcess = ProcessState.Move_To_Inventory;
 
                         break;
+                    case ProcessState.Move_To_KeepBag:
+                        if (Spell.HasPendingCast || Item.HasPendingUse || PerkAction.List.Any(perk => perk.IsExecuting)) return;
+                        ListedItemTransfer pendingPlacement = _sourceAcquisition?.Items
+                            .FirstOrDefault(item => item.KeepPlacementPending);
+                        if (pendingPlacement == null)
+                        {
+                            _sourceAcquisition = null;
+                            _keepPlacementBag = MissionIdentity.None;
+                            _keepPlacementBagOpened = false;
+                            CurrentProcess = ProcessState.Open_Corpse;
+                            break;
+                        }
+                        if (_keepPlacementBag != pendingPlacement.KeepBag)
+                        {
+                            _keepPlacementBag = pendingPlacement.KeepBag;
+                            _keepPlacementBagOpened = false;
+                        }
+                        ProcessKeepPlacement(pendingPlacement);
+                        break;
                     case ProcessState.Close_Corpse:
                         if (Item.HasPendingUse) return;
                         if (MissionRoomId >= 0 && _sourceAcquisition != null &&
@@ -1668,8 +1719,9 @@ namespace ManagerLoot
                         Dynel closingCorpse = CurrentCorpse;
                         CurrentCorpse = null;
                         CorpseContainer = null;
-                        _sourceAcquisition = null;
-                        CurrentProcess = ProcessState.Open_Corpse;
+                        bool placeKeeps = _sourceAcquisition?.Items.Any(item => item.KeepPlacementPending) == true;
+                        if (!placeKeeps) _sourceAcquisition = null;
+                        CurrentProcess = placeKeeps ? ProcessState.Move_To_KeepBag : ProcessState.Open_Corpse;
                         if (closingCorpse != null && closingCorpse.Position.DistanceFrom(DynelManager.LocalPlayer.Position) < 6)
                             closingCorpse.Use();
                         break;
@@ -2428,7 +2480,7 @@ namespace ManagerLoot
             Network.N3MessageSent -= N3MessageSent;
         }
 
-        private enum ProcessState { Load_Backpacks, Open_Corpse, Opening, Move_To_Inventory, Move_To_BackPack, Close_Corpse, Closing, PickingLock, Waiting }
+        private enum ProcessState { Load_Backpacks, Open_Corpse, Opening, Move_To_Inventory, Move_To_BackPack, Move_To_KeepBag, Close_Corpse, Closing, PickingLock, Waiting }
 
         private void ErrorCatch(Exception ex)
         {
