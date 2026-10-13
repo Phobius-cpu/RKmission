@@ -125,6 +125,25 @@ namespace ManagerLoot
             state == MissionSourceState.SkippedInsufficientSkill || state == MissionSourceState.SkippedNoLockpick ||
             state == MissionSourceState.SkippedRepeatedFailure || state == MissionSourceState.SkippedNoCapacity;
         private readonly HashSet<MissionIdentity> _objectiveLootItems = new HashSet<MissionIdentity>();
+        private const int MaxBackgroundBagMoveAttempts = 3;
+        private const double BackgroundBagMoveConfirmationSeconds = 1.5;
+        private sealed class BackgroundBagMove
+        {
+            public MissionIdentity SourceSlot;
+            public MissionIdentity BagIdentity;
+            public string ItemName;
+            public string BagName;
+            public int Id;
+            public int LowId;
+            public int HighId;
+            public int QualityLevel;
+            public int DestinationCountBefore;
+            public int Attempts;
+            public double SentAt;
+        }
+        private BackgroundBagMove _backgroundBagMove;
+        private readonly HashSet<MissionIdentity> _deferredBackgroundBagSlots =
+            new HashSet<MissionIdentity>();
         private sealed class MissionItemReservation
         {
             public MissionIdentity Owner;
@@ -654,6 +673,16 @@ namespace ManagerLoot
             item.QualityLevel == selected.QualityLevel &&
             string.Equals(item.Name, selected.Name, StringComparison.Ordinal);
 
+        private static bool SameItemDetails(Item left, Item right) => left != null && right != null &&
+            left.Id == right.Id && left.LowId == right.LowId && left.HighId == right.HighId &&
+            left.QualityLevel == right.QualityLevel &&
+            string.Equals(left.Name, right.Name, StringComparison.Ordinal);
+
+        private static bool BackgroundBagItemMatches(Item item, BackgroundBagMove move) => item != null &&
+            item.Id == move.Id && item.LowId == move.LowId && item.HighId == move.HighId &&
+            item.QualityLevel == move.QualityLevel &&
+            string.Equals(item.Name, move.ItemName, StringComparison.Ordinal);
+
         private static bool HasUsableIdentity(MissionIdentity identity) =>
             identity != MissionIdentity.None && identity.Type != IdentityType.None && identity.Instance != 0;
 
@@ -1070,7 +1099,7 @@ namespace ManagerLoot
 
         public bool IsProcessingMissionLoot => _pendingMissionLoot != MissionIdentity.None || CorpseContainer != null ||
             CurrentProcess == ProcessState.Opening || CurrentProcess == ProcessState.PickingLock ||
-            CurrentProcess == ProcessState.Move_To_Inventory || CurrentProcess == ProcessState.Move_To_BackPack ||
+            CurrentProcess == ProcessState.Move_To_Inventory ||
             CurrentProcess == ProcessState.Move_To_KeepBag ||
             CurrentProcess == ProcessState.Close_Corpse;
         public MissionIdentity ProcessingMissionLootIdentity => _pendingMissionLoot != MissionIdentity.None
@@ -1213,6 +1242,8 @@ namespace ManagerLoot
             openedContainers.Clear();
             _managedBagSnapshots.Clear();
             _waitingForManagedBag = MissionIdentity.None;
+            _backgroundBagMove = null;
+            _deferredBackgroundBagSlots.Clear();
             CurrentProcess = ProcessState.Load_Backpacks;
         }
 
@@ -1326,6 +1357,7 @@ namespace ManagerLoot
                     _keepPlacementBagOpened = true;
                 if (_waitingForManagedBag == container.Identity)
                     _waitingForManagedBag = MissionIdentity.None;
+                _deferredBackgroundBagSlots.Clear();
                 return;
             }
 
@@ -1449,7 +1481,8 @@ namespace ManagerLoot
                     case ProcessState.Open_Corpse:
                         if (CorpseContainer != null) { CurrentProcess = ProcessState.Move_To_Inventory; return; }
 
-                        if (Inventory.Items.Where(i => i.Slot.Type == IdentityType.Inventory && i.UniqueIdentity.Type != IdentityType.Container && !ProtectedMissionItem(i)).Select(i => new { Item = i, Rule = GetRuleForItem(i) }).Any(x => x.Rule != null && x.Rule.BagName != "" &&
+                        if (Inventory.Items.Where(i => i.Slot.Type == IdentityType.Inventory && i.UniqueIdentity.Type != IdentityType.Container && !ProtectedMissionItem(i) &&
+                            !_deferredBackgroundBagSlots.Contains(i.Slot)).Select(i => new { Item = i, Rule = GetRuleForItem(i) }).Any(x => x.Rule != null && x.Rule.BagName != "" &&
                             Inventory.Backpacks.Any(b => ManagedBagFamily.Matches(b.Name, x.Rule.BagName) && b.Items.Count < 21)))
                         { CurrentProcess = ProcessState.Move_To_BackPack; return; }
 
@@ -1638,7 +1671,59 @@ namespace ManagerLoot
                     case ProcessState.Move_To_BackPack:
                         if (Spell.HasPendingCast || Item.HasPendingUse || PerkAction.List.Any(perk => perk.IsExecuting)) return;
 
-                        var invItemWithBag = Inventory.Items.Where(i => i.Slot.Type == IdentityType.Inventory && i.UniqueIdentity.Type != IdentityType.Container && !ProtectedMissionItem(i)).Select(i => new { Item = i, Rule = GetRuleForItem(i) }).FirstOrDefault(x => x.Rule != null && x.Rule.BagName != "");
+                        // Mission-source acquisition must verify the item in main inventory
+                        // before any optional rule-based background sorting can touch it.
+                        if (MissionRoomId >= 0 && _sourceAcquisition != null)
+                        {
+                            _backgroundBagMove = null;
+                            CurrentProcess = ProcessState.Move_To_Inventory;
+                            break;
+                        }
+
+                        if (_backgroundBagMove != null)
+                        {
+                            Container pendingBag = Inventory.Backpacks.FirstOrDefault(b => b.Identity == _backgroundBagMove.BagIdentity);
+                            bool sourceRemoved = !Inventory.Items.Any(i =>
+                                i.Slot == _backgroundBagMove.SourceSlot && BackgroundBagItemMatches(i, _backgroundBagMove));
+                            int destinationCount = pendingBag?.Items.Count(i => BackgroundBagItemMatches(i, _backgroundBagMove)) ?? 0;
+                            if (sourceRemoved && destinationCount > _backgroundBagMove.DestinationCountBefore)
+                            {
+                                Chat.WriteLine($"RKMission: Background bag move verified '{_backgroundBagMove.ItemName}', id={_backgroundBagMove.Id}, QL={_backgroundBagMove.QualityLevel}, source={_backgroundBagMove.SourceSlot}, destination='{_backgroundBagMove.BagName}' {_backgroundBagMove.BagIdentity} after {_backgroundBagMove.Attempts} attempt(s).");
+                                _backgroundBagMove = null;
+                                CurrentProcess = ProcessState.Open_Corpse;
+                                break;
+                            }
+                            if (Time.AONormalTime < _backgroundBagMove.SentAt + BackgroundBagMoveConfirmationSeconds)
+                                return;
+                            if (_backgroundBagMove.Attempts >= MaxBackgroundBagMoveAttempts || pendingBag == null)
+                            {
+                                Chat.WriteLine($"RKMission: Background bag move deferred '{_backgroundBagMove.ItemName}', id={_backgroundBagMove.Id}, QL={_backgroundBagMove.QualityLevel}, source={_backgroundBagMove.SourceSlot}, destination='{_backgroundBagMove.BagName}' {_backgroundBagMove.BagIdentity}; source removal/destination arrival was not verified after {_backgroundBagMove.Attempts} bounded attempt(s). Sorting will reacquire after a zone or bag refresh.");
+                                _deferredBackgroundBagSlots.Add(_backgroundBagMove.SourceSlot);
+                                _backgroundBagMove = null;
+                                CurrentProcess = ProcessState.Open_Corpse;
+                                break;
+                            }
+                            Item retryItem = Inventory.Items.FirstOrDefault(i =>
+                                i.Slot == _backgroundBagMove.SourceSlot && BackgroundBagItemMatches(i, _backgroundBagMove));
+                            if (retryItem == null || pendingBag.Items.Count >= 21)
+                            {
+                                Chat.WriteLine($"RKMission: Background bag move deferred '{_backgroundBagMove.ItemName}', source={_backgroundBagMove.SourceSlot}, destination='{_backgroundBagMove.BagName}' {_backgroundBagMove.BagIdentity}; source or destination changed before verification. Sorting will reacquire after a zone or bag refresh.");
+                                _deferredBackgroundBagSlots.Add(_backgroundBagMove.SourceSlot);
+                                _backgroundBagMove = null;
+                                CurrentProcess = ProcessState.Open_Corpse;
+                                break;
+                            }
+                            _backgroundBagMove.Attempts++;
+                            _backgroundBagMove.SentAt = Time.AONormalTime;
+                            retryItem.MoveToContainer(pendingBag);
+                            return;
+                        }
+
+                        var invItemWithBag = Inventory.Items.Where(i => i.Slot.Type == IdentityType.Inventory &&
+                            i.UniqueIdentity.Type != IdentityType.Container && !ProtectedMissionItem(i) &&
+                            !_deferredBackgroundBagSlots.Contains(i.Slot))
+                            .Select(i => new { Item = i, Rule = GetRuleForItem(i) })
+                            .FirstOrDefault(x => x.Rule != null && x.Rule.BagName != "");
 
                         var invItemNoBag = Rules.FirstOrDefault(r => string.IsNullOrEmpty(r.BagName) && Inventory.Items.Count(i => i.Slot.Type == IdentityType.Inventory && i.UniqueIdentity.Type != IdentityType.Container && GetRuleForItem(i) == r) >= Convert.ToInt32(r.Quantity));
 
@@ -1654,6 +1739,21 @@ namespace ManagerLoot
 
                                 if (bag != null)
                                 {
+                                    _backgroundBagMove = new BackgroundBagMove
+                                    {
+                                        SourceSlot = invItemWithBag.Item.Slot,
+                                        BagIdentity = bag.Identity,
+                                        ItemName = invItemWithBag.Item.Name,
+                                        BagName = bag.Name,
+                                        Id = invItemWithBag.Item.Id,
+                                        LowId = invItemWithBag.Item.LowId,
+                                        HighId = invItemWithBag.Item.HighId,
+                                        QualityLevel = invItemWithBag.Item.QualityLevel,
+                                        DestinationCountBefore = bag.Items.Count(i =>
+                                            SameItemDetails(i, invItemWithBag.Item)),
+                                        Attempts = 1,
+                                        SentAt = Time.AONormalTime
+                                    };
                                     invItemWithBag.Item.MoveToContainer(bag);
                                 }
                                 else
