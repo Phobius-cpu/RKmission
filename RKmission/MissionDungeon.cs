@@ -29,6 +29,8 @@ namespace RKmission
         private const float LootUseRange = 3f;
         private const int MaxCombatTopologyAttempts = 3;
         private const float CombatTopologyVerticalSeparation = 1.5f;
+        private const int MaxStaircaseRecoveryAttempts = 2;
+        private const float StaircaseAirborneLift = 0.15f;
         private const int ReverseEdgeCooldownSeconds = 1;
         private readonly HashSet<int> _clearedRooms = new HashSet<int>();
         private readonly HashSet<int> _combatCheckedRooms = new HashSet<int>();
@@ -59,6 +61,12 @@ namespace RKmission
         private Vector3? _combatRetreat;
         private int _combatStalls;
         private readonly Dictionary<int, CombatRecovery> _combatRecoveries = new Dictionary<int, CombatRecovery>();
+        private enum StaircaseRecoveryPhase { Idle, WaitingForAirborne, ForwardAirborne, Settling }
+        private StaircaseRecoveryPhase _staircaseRecoveryPhase;
+        private Identity _staircaseRecoveryEnemy = Identity.None;
+        private Vector3 _staircaseRecoveryOrigin, _staircaseRecoveryDirection, _staircaseRecoveryLastPosition;
+        private DateTime _staircaseRecoveryPhaseStarted, _staircaseRecoveryLastMotion;
+        private int _staircaseRecoveryAttempts;
         private sealed class CombatRecovery
         {
             public Identity Enemy;
@@ -235,6 +243,7 @@ namespace RKmission
             ResetPostCombatCorpseTracking();
             ResetCombatApproach();
             _combatRecoveries.Clear();
+            ResetStaircaseRecoveryAttempts();
             _combatTopologyHandoff = null;
             CombatRecoveryWaiting = false;
             _scanTarget = Identity.None;
@@ -346,6 +355,7 @@ namespace RKmission
             _activeLift = null;
             _layout = null;
             _combatRecoveries.Clear();
+            ResetStaircaseRecoveryAttempts();
             _combatTopologyHandoff = null;
             ResetPostCombatCorpseTracking();
             _navRoutes?.StopPlayback();
@@ -376,6 +386,8 @@ namespace RKmission
                 recovery.Active && recovery.WaypointIndex < recovery.Waypoints.Count &&
                 MovementArbiter.Current.Owner == MovementOwner.CombatPosition)
             {
+                Vector3 recoveryTarget = recovery.Waypoints[recovery.WaypointIndex];
+                if (TryBeginStaircaseRecovery(recovery, recoveryTarget)) return;
                 FailCombatRecoveryRoute(recovery, "movement displacement");
                 return;
             }
@@ -473,6 +485,184 @@ namespace RKmission
             InvalidatePath();
         }
 
+        public void CancelMovementRecovery()
+        {
+            CancelStaircaseRecovery();
+            _staircaseRecoveryAttempts = 0;
+            _staircaseRecoveryEnemy = Identity.None;
+        }
+
+        private bool TryBeginStaircaseRecovery(CombatRecovery recovery, Vector3 target)
+        {
+            var player = DynelManager.LocalPlayer;
+            if (_staircaseRecoveryPhase != StaircaseRecoveryPhase.Idle || player == null ||
+                !player.IsAlive || Game.IsZoning ||
+                MovementArbiter.Current.Owner != MovementOwner.CombatPosition)
+                return false;
+            float targetLift = target.Y - player.Position.Y;
+            if (targetLift < CombatTopologyVerticalSeparation) return false;
+            if (_staircaseRecoveryEnemy != recovery.Enemy)
+            {
+                _staircaseRecoveryEnemy = recovery.Enemy;
+                _staircaseRecoveryAttempts = 0;
+            }
+            if (_staircaseRecoveryAttempts >= MaxStaircaseRecoveryAttempts) return false;
+            Vector3 direction = target - player.Position;
+            direction.Y = 0;
+            if (direction.Magnitude < 0.25f)
+            {
+                direction = recovery.EnemyPosition - player.Position;
+                direction.Y = 0;
+            }
+            if (direction.Magnitude < 0.25f) return false;
+            direction = direction.Normalize();
+
+            _destination = null;
+            MovementArbiter.Current.Halt(MovementOwner.CombatPosition);
+            MovementArbiter.Current.SetMovement(MovementOwner.CombatPosition, MovementAction.FullStop);
+            if (MovementArbiter.Current.Owner != MovementOwner.CombatPosition) return false;
+            player.Rotation = Quaternion.LookRotation(direction, Vector3.Up);
+            _staircaseRecoveryOrigin = _staircaseRecoveryLastPosition = player.Position;
+            _staircaseRecoveryDirection = direction;
+            _staircaseRecoveryPhaseStarted = _staircaseRecoveryLastMotion = DateTime.UtcNow;
+            _staircaseRecoveryAttempts++;
+            _staircaseRecoveryPhase = StaircaseRecoveryPhase.WaitingForAirborne;
+            // The confirmed AO sequence requires a stationary jump. Do not
+            // send ForwardStart until observed Y lift proves we are airborne.
+            MovementArbiter.Current.SetMovement(MovementOwner.CombatPosition, MovementAction.JumpStart);
+            _say($"Combat staircase recovery {_staircaseRecoveryAttempts}/{MaxStaircaseRecoveryAttempts}: " +
+                $"stationary jump started toward {target}; forward input is gated on observed airborne lift.");
+            return true;
+        }
+
+        private bool TickStaircaseRecovery()
+        {
+            if (_staircaseRecoveryPhase == StaircaseRecoveryPhase.Idle) return false;
+            var player = DynelManager.LocalPlayer;
+            if (player == null || !player.IsAlive || Game.IsZoning)
+            {
+                CancelStaircaseRecovery();
+                return false;
+            }
+            if (MovementArbiter.Current.Owner != MovementOwner.CombatPosition)
+            {
+                // Release only the raw inputs this state machine can hold. Do
+                // not reclaim movement from the new owner.
+                SMovementController.SetMovement(MovementAction.JumpStop);
+                SMovementController.SetMovement(MovementAction.ForwardStop);
+                _staircaseRecoveryPhase = StaircaseRecoveryPhase.Idle;
+                _say("Combat staircase recovery cancelled after movement ownership changed.");
+                return false;
+            }
+
+            DateTime now = DateTime.UtcNow;
+            Vector3 position = player.Position;
+            if (Vector3.Distance(position, _staircaseRecoveryLastPosition) > 0.05f)
+            {
+                _staircaseRecoveryLastPosition = position;
+                _staircaseRecoveryLastMotion = now;
+            }
+            float verticalLift = position.Y - _staircaseRecoveryOrigin.Y;
+            Vector3 horizontal = position - _staircaseRecoveryOrigin;
+            horizontal.Y = 0;
+            float forwardProgress = Vector3.Dot(horizontal, _staircaseRecoveryDirection);
+
+            if (_staircaseRecoveryPhase == StaircaseRecoveryPhase.WaitingForAirborne)
+            {
+                if (verticalLift >= StaircaseAirborneLift)
+                {
+                    MovementArbiter.Current.SetMovement(MovementOwner.CombatPosition, MovementAction.JumpStop);
+                    MovementArbiter.Current.SetMovement(MovementOwner.CombatPosition, MovementAction.ForwardStart);
+                    MovementArbiter.Current.SetMovement(MovementOwner.CombatPosition, MovementAction.Update);
+                    _staircaseRecoveryPhase = StaircaseRecoveryPhase.ForwardAirborne;
+                    _staircaseRecoveryPhaseStarted = now;
+                    _say($"Combat staircase recovery observed {verticalLift:0.00}m vertical lift; applying bounded forward input while airborne.");
+                }
+                else if (now - _staircaseRecoveryPhaseStarted > TimeSpan.FromMilliseconds(1250))
+                    FinishStaircaseRecovery(false, "no airborne lift observed");
+                return true;
+            }
+
+            if (_staircaseRecoveryPhase == StaircaseRecoveryPhase.ForwardAirborne)
+            {
+                if (forwardProgress >= 1.25f ||
+                    now - _staircaseRecoveryPhaseStarted > TimeSpan.FromMilliseconds(900))
+                {
+                    StopStaircaseInputs(true);
+                    _staircaseRecoveryPhase = StaircaseRecoveryPhase.Settling;
+                    _staircaseRecoveryPhaseStarted = now;
+                    _staircaseRecoveryLastMotion = now;
+                }
+                return true;
+            }
+
+            bool settled = now - _staircaseRecoveryLastMotion >= TimeSpan.FromMilliseconds(250);
+            bool settleExpired = now - _staircaseRecoveryPhaseStarted >= TimeSpan.FromSeconds(2);
+            if (settled || settleExpired)
+            {
+                bool progressed = verticalLift >= 0.45f && forwardProgress >= 0.35f;
+                FinishStaircaseRecovery(progressed, progressed
+                    ? $"settled with {verticalLift:0.00}m vertical/{forwardProgress:0.00}m forward progress"
+                    : $"settled without enough progress ({verticalLift:0.00}m vertical/{forwardProgress:0.00}m forward)");
+            }
+            return true;
+        }
+
+        private void FinishStaircaseRecovery(bool succeeded, string reason)
+        {
+            StopStaircaseInputs(true);
+            _staircaseRecoveryPhase = StaircaseRecoveryPhase.Idle;
+            _destination = null;
+            if (_currentRoom >= 0 &&
+                _combatRecoveries.TryGetValue(_currentRoom, out CombatRecovery recovery) &&
+                recovery.Active && recovery.Enemy == _staircaseRecoveryEnemy)
+            {
+                recovery.LastPosition = DynelManager.LocalPlayer.Position;
+                recovery.LastProgress = recovery.WaypointStarted = DateTime.UtcNow;
+                if (!succeeded && _staircaseRecoveryAttempts >= MaxStaircaseRecoveryAttempts)
+                {
+                    FailCombatRecoveryRoute(recovery,
+                        $"staircase recovery exhausted after {_staircaseRecoveryAttempts} attempts: {reason}");
+                    ResetStaircaseRecoveryAttempts();
+                    return;
+                }
+            }
+            _say($"Combat staircase recovery {(succeeded ? "completed" : "attempt failed")}: {reason}. " +
+                (succeeded ? "Rebuilding movement from the observed landing position."
+                    : $"Normal route control resumed; {_staircaseRecoveryAttempts}/{MaxStaircaseRecoveryAttempts} attempts used."));
+            if (succeeded) ResetStaircaseRecoveryAttempts();
+        }
+
+        private void StopStaircaseInputs(bool fullStop)
+        {
+            if (MovementArbiter.Current.Owner == MovementOwner.CombatPosition)
+            {
+                MovementArbiter.Current.SetMovement(MovementOwner.CombatPosition, MovementAction.JumpStop);
+                MovementArbiter.Current.SetMovement(MovementOwner.CombatPosition, MovementAction.ForwardStop);
+                if (fullStop)
+                    MovementArbiter.Current.SetMovement(MovementOwner.CombatPosition, MovementAction.FullStop);
+            }
+            else
+            {
+                SMovementController.SetMovement(MovementAction.JumpStop);
+                SMovementController.SetMovement(MovementAction.ForwardStop);
+            }
+        }
+
+        private void CancelStaircaseRecovery()
+        {
+            if (_staircaseRecoveryPhase != StaircaseRecoveryPhase.Idle)
+                StopStaircaseInputs(MovementArbiter.Current.Owner == MovementOwner.CombatPosition);
+            _staircaseRecoveryPhase = StaircaseRecoveryPhase.Idle;
+        }
+
+        private void ResetStaircaseRecoveryAttempts()
+        {
+            CancelStaircaseRecovery();
+            _staircaseRecoveryAttempts = 0;
+            _staircaseRecoveryEnemy = Identity.None;
+        }
+
         private void LoadFloor()
         {
             if (_meshes != null && _floor >= 0 && _floor < _meshes.Length)
@@ -483,6 +673,7 @@ namespace RKmission
         {
             if (!IsRunning || !Playfield.IsDungeon || DynelManager.LocalPlayer.Room == null)
                 return;
+            if (TickStaircaseRecovery()) return;
             _requestedOwner = MovementOwner.DungeonRoom;
             CombatRecoveryWaiting = false;
 

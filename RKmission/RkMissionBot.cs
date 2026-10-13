@@ -617,6 +617,7 @@ namespace RKmission
 
         private void ZoningStarted(object sender, EventArgs args)
         {
+            _dungeon?.CancelMovementRecovery();
             if (_dungeonStarted && _dungeon.IsExiting && _verifiedRun &&
                 Playfield.ModelIdentity == _activeDungeon)
                 _exitZoningStarted = true;

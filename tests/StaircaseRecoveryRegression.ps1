@@ -1,0 +1,63 @@
+$ErrorActionPreference = 'Stop'
+$root = Split-Path $PSScriptRoot -Parent
+$dungeon = Get-Content -LiteralPath (Join-Path $root 'RKmission/MissionDungeon.cs') -Raw
+$bot = Get-Content -LiteralPath (Join-Path $root 'RKmission/RkMissionBot.cs') -Raw
+
+$begin = $dungeon.IndexOf('private bool TryBeginStaircaseRecovery')
+$tick = $dungeon.IndexOf('private bool TickStaircaseRecovery', $begin)
+$beginBody = $dungeon.Substring($begin, $tick - $begin)
+$fullStop = $beginBody.IndexOf('MovementAction.FullStop')
+$jumpStart = $beginBody.IndexOf('MovementAction.JumpStart')
+if ($begin -lt 0 -or $fullStop -lt 0 -or $jumpStart -lt $fullStop -or
+    $beginBody.Contains('MovementAction.ForwardStart')) {
+    throw 'Staircase recovery no longer starts with a full stop and stationary jump.'
+}
+Write-Output 'PASS staircase recovery starts FullStop then JumpStart without ForwardStart'
+
+$finish = $dungeon.IndexOf('private void FinishStaircaseRecovery', $tick)
+$tickBody = $dungeon.Substring($tick, $finish - $tick)
+$airborneGate = $tickBody.IndexOf('verticalLift >= StaircaseAirborneLift')
+$jumpStop = $tickBody.IndexOf('MovementAction.JumpStop', $airborneGate)
+$forwardStart = $tickBody.IndexOf('MovementAction.ForwardStart', $airborneGate)
+if ($airborneGate -lt 0 -or $jumpStop -lt $airborneGate -or
+    $forwardStart -lt $jumpStop -or
+    -not $dungeon.Contains('StaircaseAirborneLift = 0.15f')) {
+    throw 'Forward input is no longer gated on observed airborne lift after releasing jump.'
+}
+Write-Output 'PASS observed vertical lift gates JumpStop then ForwardStart'
+
+if (-not $dungeon.Contains('TimeSpan.FromMilliseconds(1250)') -or
+    -not $dungeon.Contains('TimeSpan.FromMilliseconds(900)') -or
+    -not $dungeon.Contains('TimeSpan.FromSeconds(2)') -or
+    -not $dungeon.Contains('MaxStaircaseRecoveryAttempts = 2') -or
+    -not $dungeon.Contains('staircase recovery exhausted after')) {
+    throw 'Staircase phase deadlines or the two-attempt failure bound regressed.'
+}
+Write-Output 'PASS airborne, forward, settle, and attempt bounds remain finite'
+
+if (-not $dungeon.Contains('verticalLift >= 0.45f && forwardProgress >= 0.35f') -or
+    -not $dungeon.Contains('Rebuilding movement from the observed landing position.') -or
+    -not $dungeon.Contains('recovery.LastProgress = recovery.WaypointStarted = DateTime.UtcNow')) {
+    throw 'Successful staircase recovery no longer requires tangible vertical/horizontal progress and settle continuation.'
+}
+Write-Output 'PASS success requires tangible displacement before route continuation'
+
+$stopInputs = $dungeon.IndexOf('private void StopStaircaseInputs')
+$cancel = $dungeon.IndexOf('private void CancelStaircaseRecovery', $stopInputs)
+$cleanupBody = $dungeon.Substring($stopInputs, $cancel - $stopInputs)
+if (-not $cleanupBody.Contains('MovementAction.JumpStop') -or
+    -not $cleanupBody.Contains('MovementAction.ForwardStop') -or
+    -not $cleanupBody.Contains('MovementAction.FullStop') -or
+    -not $tickBody.Contains('MovementArbiter.Current.Owner != MovementOwner.CombatPosition') -or
+    -not $tickBody.Contains('!player.IsAlive || Game.IsZoning') -or
+    -not $bot.Contains('_dungeon?.CancelMovementRecovery();')) {
+    throw 'Held-input cleanup no longer covers stop, death, zoning, or ownership change.'
+}
+Write-Output 'PASS held inputs are released on stop, death, zoning, and ownership change'
+
+if (-not $beginBody.Contains('MovementArbiter.Current.Owner != MovementOwner.CombatPosition') -or
+    -not $beginBody.Contains('targetLift < CombatTopologyVerticalSeparation') -or
+    -not $dungeon.Contains('if (TickStaircaseRecovery()) return;')) {
+    throw 'Recovery escaped its upward CombatPosition-only ownership boundary.'
+}
+Write-Output 'PASS recovery remains scoped to upward CombatPosition stalls'
