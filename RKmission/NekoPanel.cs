@@ -97,11 +97,7 @@ namespace RKmission
                 _missionIcons[index]?.SetAlpha(1f);
                 string name = string.IsNullOrWhiteSpace(mission.Name) ? $"Mission {mission.Id.Instance}" : mission.Name;
                 if (name.Length > 42) name = name.Substring(0, 39) + "...";
-                string description = !string.IsNullOrWhiteSpace(mission.Objectives)
-                    ? mission.Objectives
-                    : (!string.IsNullOrWhiteSpace(mission.QuestShortInfo) ? mission.QuestShortInfo : mission.Kind.ToString());
-                if (description.Length > 52) description = description.Substring(0, 49) + "...";
-                _missionLabels[index].Text = $"{name}\nPF {mission.PlayfieldId} - {description}";
+                _missionLabels[index].Text = $"{name}\nPF {mission.PlayfieldId} - {PlayfieldName(mission.PlayfieldId)}";
                 _missionLabels[index].SetAlpha(1f);
                 _missionButtons[index].Tag = mission.Id.Instance;
                 _missionButtons[index].SetAlpha(mission.Id.Instance == _selectedMissionId ? 1f : 0.72f);
@@ -132,6 +128,19 @@ namespace RKmission
                 case RkMissionKind.FindItem: return 11337;
                 case RkMissionKind.Repair: return 11342;
                 default: return 11335;
+            }
+        }
+
+        private static string PlayfieldName(int playfieldId)
+        {
+            try
+            {
+                string name = MaliMissionRoller2.Extensions.GetZoneName(playfieldId);
+                return string.IsNullOrWhiteSpace(name) ? "Unknown playfield" : name;
+            }
+            catch
+            {
+                return "Unknown playfield";
             }
         }
 

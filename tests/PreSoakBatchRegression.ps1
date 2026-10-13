@@ -32,9 +32,10 @@ foreach ($required in @('NekoMissionList', 'NekoMissionScroll', 'view_layout="ho
 }
 if (-not $nekoXml.Contains('min_size="Point(17,17)" max_size="Point(17,17)"')) { throw 'Native 17x17 AO mission icons are being scaled and blurred.' }
 if (-not $panel.Contains('x.Present && x.IsRubiKaDestination && !x.Completed')) { throw 'Neko selection does not enforce resolved Rubi-Ka targetability.' }
-foreach ($required in @('IsRubiKaDestination', 'AO live', 'tracked', 'targetable', 'shown {_shownMissionCount}/15', 'Objectives', 'QuestShortInfo')) {
+foreach ($required in @('IsRubiKaDestination', 'AO live', 'tracked', 'targetable', 'shown {_shownMissionCount}/15', 'PlayfieldName(mission.PlayfieldId)', 'Extensions.GetZoneName(playfieldId)', 'Unknown playfield')) {
     if (-not $panel.Contains($required)) { throw "Neko population diagnostic missing: $required" }
 }
+if ($panel.Contains('mission.Objectives') -or $panel.Contains('mission.QuestShortInfo')) { throw 'Neko mission list still repeats mission-type/objective text instead of the playfield name.' }
 if (-not $neko.Contains('public void ToggleEnabled()') -or -not $neko.Contains('Enabled = !Enabled;') -or
     -not $neko.Contains('Reset();')) { throw 'Neko enabled display/state cannot be synchronized after toggling.' }
 Write-Output 'PASS shared Neko tab exposes key warp, colored Key state toggle, and live diagnostics without redundant help'
