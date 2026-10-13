@@ -37,13 +37,15 @@ foreach ($invariant in @('player is not outdoors', 'player is not alive', 'zonin
     'saved roller terminal identity/position is not live-verified')) {
     Assert ($readiness.Contains($invariant)) "READY_TO_ROLL invariant missing: $invariant"
 }
-$gate = $bot.IndexOf('if (!ReadyToRoll(out string unresolved))')
+$gate = $bot.IndexOf('if (!ReadyToRefill(out string unresolved))')
 $roll = $bot.IndexOf('StartZoneRolling(_autoZone)', $gate)
-Assert ($gate -ge 0 -and $roll -gt $gate) 'Automatic rolling can start before READY_TO_ROLL.'
+Assert ($gate -ge 0 -and $roll -gt $gate) 'Automatic rolling can start before batch-refill readiness.'
+Assert ($bot.Contains('if (!ReadyToRoll(out string finalInvariant))')) `
+    'Strict READY_TO_ROLL no longer guards final lifecycle disarm.'
 Assert ($bot.Contains('!string.IsNullOrEmpty(_rollLogisticsTerminalIdentity)') -and
     $bot.Contains('Vector3.Distance(x.Position, _rollTerminalPosition) <= 1f')) `
     'Saved roller terminal lacks exact live identity/position verification.'
-Write-Output 'PASS READY_TO_ROLL is authoritative and requires exact surveyed terminal evidence'
+Write-Output 'PASS batch refill and final READY_TO_ROLL use separate authoritative gates with exact terminal evidence'
 
 Assert ($bot.Contains('_checkpoint.HandInPending = true;') -and
     $bot.Contains('_checkpoint.RewardSettlementPending = true;') -and

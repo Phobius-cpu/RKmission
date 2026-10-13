@@ -60,8 +60,10 @@ namespace RKmission
         private int _rollingTerminalPlayfield;
         private Vector3 _rollingTerminalPosition;
         private DateTime _nextReturnMove, _returnStarted;
+        private Vector3 _lastReturnProgressPosition;
+        private int _returnNoProgressAttempts;
         private DateTime _logisticsOriginWaitStarted;
-        private const float RollTerminalApproachDistance = 2f;
+        private const float RollTerminalApproachDistance = 3f;
         private bool _running, _dungeonStarted, _clearanceReported, _verifiedRun, _travelInvalidated;
         private Identity _observedDungeon = Identity.None;
         private Identity _activeDungeon = Identity.None;
@@ -1557,9 +1559,9 @@ namespace RKmission
         private void StartAutoRolling()
         {
             if (!_running || !_autoCycle || _autoRolling || MaliMissionRoller2.Main.Window == null) return;
-            if (!ReadyToRoll(out string unresolved))
+            if (!ReadyToRefill(out string unresolved))
             {
-                RecordUnresolvedInvariant(unresolved);
+                Wait("Batch refill held: " + unresolved + ".");
                 return;
             }
             if (MaliMissionRoller2.Main.Window.Window?.IsValid != true)
@@ -1588,7 +1590,7 @@ namespace RKmission
             _rollingTerminalPosition = terminal.Position;
             _autoRollCount = 0;
             _autoRolling = true;
-            _returnStarted = DateTime.MinValue;
+            ResetRollTerminalReturn();
             if (!MaliMissionRoller2.Main.Window.StartZoneRolling(_autoZone))
             {
                 string reason = MaliMissionRoller2.Main.Window.LastAutoError ?? "The mission terminal did not start rolling.";
@@ -1599,6 +1601,16 @@ namespace RKmission
         }
 
         private bool ReadyToRoll(out string unresolved)
+        {
+            return CycleReadiness.IsReadyToRoll(BuildRollReadinessSnapshot(), out unresolved);
+        }
+
+        private bool ReadyToRefill(out string unresolved)
+        {
+            return CycleReadiness.IsReadyToRefill(BuildRollReadinessSnapshot(), out unresolved);
+        }
+
+        private CycleReadinessSnapshot BuildRollReadinessSnapshot()
         {
             SimpleChar player = DynelManager.LocalPlayer;
             bool exactTerminal = false;
@@ -1632,9 +1644,14 @@ namespace RKmission
                 InventoryReady = CarriedItems.BackpackSnapshotsReady,
                 NoPendingItemAction = !Item.HasPendingUse && !Spell.HasPendingCast,
                 NoOwnedMovement = _movement.Owner == MovementOwner.None,
-                ExactRollTerminalVerified = exactTerminal
+                ExactRollTerminalVerified = exactTerminal,
+                PriorAcceptanceSettled = MaliMissionRoller2.Main.Window != null &&
+                    MaliMissionRoller2.Main.Window.PendingAutoMissionId <= 0,
+                QuestDetailsSettled = _awaitingQuestDetails.Count == 0,
+                HasBatchCapacity = Inventory.NumFreeSlots >= 2,
+                UnderMissionLimit = _maxAutoMissions == 0 || _autoAcceptedCount < _maxAutoMissions
             };
-            return CycleReadiness.IsReadyToRoll(state, out unresolved);
+            return state;
         }
 
         private void RecordUnresolvedInvariant(string unresolved)
@@ -1719,17 +1736,53 @@ namespace RKmission
                 if (result == TravelResult.InProgress) return false;
             }
             if (_longTravel.IsActive) _longTravel.Reset();
-            if (_returnStarted == DateTime.MinValue) _returnStarted = DateTime.UtcNow;
+            SimpleChar player = DynelManager.LocalPlayer;
+            Dynel terminal = DynelManager.AllDynels.FirstOrDefault(x =>
+                x.Identity.Type == IdentityType.MissionTerminal &&
+                string.Equals(x.Identity.ToString(), _rollLogisticsTerminalIdentity,
+                    StringComparison.OrdinalIgnoreCase) &&
+                Vector3.Distance(x.Position, _rollTerminalPosition) <= 1f);
+            if (player == null || terminal == null)
+            { Stop(); Say("Return to roller stopped: the exact saved mission terminal is not visible at its recorded position."); return false; }
+            if (!_logisticsRoutes.TryFindTerminalApproach(_rollLogisticsSite, _rollTerminalPlayfield,
+                _rollLogisticsTerminalIdentity, terminal.Position, player.Position, out Vector3 approach))
+            { Stop(); Say("Return to roller stopped: no surveyed reachable interaction standoff matches the exact saved mission terminal."); return false; }
+            if (_returnStarted == DateTime.MinValue)
+            {
+                _returnStarted = DateTime.UtcNow;
+                _lastReturnProgressPosition = player.Position;
+                _returnNoProgressAttempts = 0;
+            }
             if (DateTime.UtcNow - _returnStarted > TimeSpan.FromMinutes(3))
-            { Stop(); Say("Return to the mission terminal timed out."); return false; }
-            if (Vector3.Distance(DynelManager.LocalPlayer.Position, _rollTerminalPosition) <= RollTerminalApproachDistance)
-            { _movement.Release(MovementOwner.OutdoorTravel); _returnStarted = DateTime.MinValue; return true; }
+            { Stop(); Say("Return to the mission terminal timed out before reaching its surveyed interaction standoff."); return false; }
+            if (Vector3.Distance(player.Position, terminal.Position) <= RollTerminalApproachDistance)
+            { _movement.Release(MovementOwner.OutdoorTravel); ResetRollTerminalReturn(); return true; }
             if (DateTime.UtcNow >= _nextReturnMove)
             {
-                _movement.SetDestination(MovementOwner.OutdoorTravel, _rollTerminalPosition);
+                float progress = Vector3.Distance(player.Position, _lastReturnProgressPosition);
+                if (progress >= 0.5f)
+                { _lastReturnProgressPosition = player.Position; _returnNoProgressAttempts = 0; }
+                else if (++_returnNoProgressAttempts >= 4)
+                {
+                    _movement.Release(MovementOwner.OutdoorTravel);
+                    Stop();
+                    Say($"Return to roller stopped after {_returnNoProgressAttempts} non-progress retries; " +
+                        $"player-to-standoff={Vector3.Distance(player.Position, approach):0.0}m, " +
+                        $"player-to-terminal={Vector3.Distance(player.Position, terminal.Position):0.0}m.");
+                    return false;
+                }
+                _movement.SetDestination(MovementOwner.OutdoorTravel, approach);
                 _nextReturnMove = DateTime.UtcNow.AddSeconds(3);
             }
             return false;
+        }
+
+        private void ResetRollTerminalReturn()
+        {
+            _returnStarted = DateTime.MinValue;
+            _nextReturnMove = DateTime.MinValue;
+            _lastReturnProgressPosition = Vector3.Zero;
+            _returnNoProgressAttempts = 0;
         }
 
         private string LogisticsOriginDiagnostic(string site)

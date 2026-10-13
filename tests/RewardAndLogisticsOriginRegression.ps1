@@ -62,10 +62,10 @@ Assert ($bot.Contains('TryBindSavedTerminalToSurveyedOrigin();') -and
     $bot.Contains('TimeSpan.FromSeconds(30)') -and
     $bot.Contains('waiting for its exact live terminal identity')) `
     'post-warp logistics waits boundedly for live surveyed-origin evidence'
-Assert ($bot.Contains('private const float RollTerminalApproachDistance = 2f;') -and
+Assert ($bot.Contains('private const float RollTerminalApproachDistance = 3f;') -and
     $bot.Contains('<= RollTerminalApproachDistance') -and
     -not $bot.Contains('_rollTerminalPosition) <= 6f')) `
-    'post-warp return closes to 2m of the saved mission terminal before logistics verification'
+    'post-warp return closes to the surveyed interaction range of the saved mission terminal before logistics verification'
 Assert ($bot.Contains('LogisticsOriginDiagnostic(_rollLogisticsSite)') -and
     $bot.Contains('player-to-saved-terminal=') -and
     $bot.Contains('player-to-surveyed-origin=') -and

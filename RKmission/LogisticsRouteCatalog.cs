@@ -59,6 +59,27 @@ namespace RKmission
             return matches.Length == 1 ? matches[0] : null;
         }
 
+        public bool TryFindTerminalApproach(string site, int playfield, string terminalIdentity,
+            Vector3 terminalPosition, Vector3 playerPosition, out Vector3 approach)
+        {
+            approach = Vector3.Zero;
+            if (string.IsNullOrWhiteSpace(site) || string.IsNullOrWhiteSpace(terminalIdentity)) return false;
+            Vector3[] candidates = _routes.Where(route => route.OriginPlayfield == playfield &&
+                    string.Equals(route.Site, site, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(route.OriginTerminalIdentity, terminalIdentity,
+                        StringComparison.OrdinalIgnoreCase))
+                .Select(route => V(route.OriginPosition))
+                // Recorded probe origins are reachable player positions. Keep
+                // only points inside AO terminal interaction range but outside
+                // the terminal centre/collision body.
+                .Where(point => Vector3.Distance(point, terminalPosition) >= 1.5f &&
+                    Vector3.Distance(point, terminalPosition) <= 3f)
+                .OrderBy(point => Vector3.Distance(point, playerPosition)).ToArray();
+            if (candidates.Length == 0) return false;
+            approach = candidates[0];
+            return true;
+        }
+
         public LogisticsRouteCatalog(string pluginDir, Action<string> say)
         {
             string path = Path.Combine(pluginDir, "Data", "LogisticsRoutes.json");

@@ -17,6 +17,9 @@ namespace RKmission
     {
         private const string DestinationBagOwner = "PostMissionSettlement";
         private const int MaximumDestinationSnapshotUses = 3;
+        // Exact AO template id for Yalmaha XL - 29478. Do not generalize this
+        // to vehicle stats/names: those also match implants and recompilers.
+        private const int YalmahaXl29478ItemId = 117322;
         private static readonly TimeSpan DestinationSnapshotResponse = TimeSpan.FromSeconds(2.5);
         private readonly HashSet<int> _consumerItemIds = new HashSet<int>();
         public int MinimumFreeSlots { get; set; } = 3;
@@ -86,6 +89,7 @@ namespace RKmission
         {
             if (item == null) return false;
             if (item.UniqueIdentity.Type == IdentityType.Container) return true;
+            if (item.Id == YalmahaXl29478ItemId) return true;
             if (ProtectedItemIds.Contains(item.Id)) return true;
             string name = item.Name?.Trim() ?? string.Empty;
             if (ProtectedNameFragments.Any(x => !string.IsNullOrWhiteSpace(x) &&
