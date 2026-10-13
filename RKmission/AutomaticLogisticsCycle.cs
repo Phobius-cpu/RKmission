@@ -12,6 +12,7 @@ namespace RKmission
     // evidence before the next phase starts; failures are never retried.
     internal sealed class AutomaticLogisticsCycle : IDisposable
     {
+        private const string BagOwner = "AutomaticLogistics";
         private const int MaximumSellBagRefreshUses = 3;
         private enum Phase
         {
@@ -395,6 +396,7 @@ namespace RKmission
                 }
                 _pendingSellBags.Add(bag.Identity);
                 _sellBagRefreshUses[bag.Identity] = 1;
+                ManagedBagOpenOwnership.RecordOpenUse(BagOwner, bag);
                 item.Use();
                 _lastSellBagRefreshUse = DateTime.UtcNow;
                 requested++;
@@ -431,6 +433,8 @@ namespace RKmission
             }
             int nextUse = _sellBagRefreshUses[retry] + 1;
             _sellBagRefreshUses[retry] = nextUse;
+            Container retryBag = Inventory.Backpacks.FirstOrDefault(x => x.Identity == retry);
+            ManagedBagOpenOwnership.RecordOpenUse(BagOwner, retryBag);
             item.Use();
             _lastSellBagRefreshUse = DateTime.UtcNow;
             _say($"Automatic logistics: managed bag {retry} still has no confirmed item snapshot; " +
@@ -450,6 +454,7 @@ namespace RKmission
 
         private void ClearSellBagLoading()
         {
+            ManagedBagOpenOwnership.ReleaseAll(BagOwner);
             _pendingSellBags.Clear();
             _sellBagRefreshUses.Clear();
             _lastSellBagRefreshUse = DateTime.MinValue;

@@ -15,6 +15,7 @@ namespace RKmission
     // continue through MissionObjective and retain their own free-slot checks.
     internal sealed class InventoryPolicy : IDisposable
     {
+        private const string DestinationBagOwner = "PostMissionSettlement";
         private const int MaximumDestinationSnapshotUses = 3;
         private static readonly TimeSpan DestinationSnapshotResponse = TimeSpan.FromSeconds(2.5);
         private readonly HashSet<int> _consumerItemIds = new HashSet<int>();
@@ -230,6 +231,7 @@ namespace RKmission
             if (_stagedRejects > 0)
                 say($"Verified {_stagedRejects} newly collected reject item(s) staged in RK Junk bag(s); no sale was performed.");
             bool enough = ClassifyAfterVerifiedExit(loot, say);
+            ManagedBagOpenOwnership.ReleaseAll(DestinationBagOwner);
             return enough ? InventorySettlement.Ready : InventorySettlement.NeedsSpace;
         }
 
@@ -270,6 +272,7 @@ namespace RKmission
                 blocked = true;
                 return false;
             }
+            ManagedBagOpenOwnership.RecordOpenUse(DestinationBagOwner, bag);
             bagItem.Use();
             _snapshotUses++;
             _snapshotUseSent = DateTime.UtcNow;
@@ -287,6 +290,8 @@ namespace RKmission
 
         private void ResetDestinationSnapshot()
         {
+            if (_snapshotBag != Identity.None)
+                ManagedBagOpenOwnership.Release(DestinationBagOwner, _snapshotBag);
             _snapshotBag = Identity.None;
             _snapshotUseSent = DateTime.MinValue;
             _snapshotUses = 0;
@@ -445,6 +450,7 @@ namespace RKmission
 
         public void Dispose()
         {
+            ManagedBagOpenOwnership.ReleaseAll(DestinationBagOwner);
             if (!_snapshotEventsAttached) return;
             Inventory.ContainerOpened -= OnContainerOpened;
             _snapshotEventsAttached = false;

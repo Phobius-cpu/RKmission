@@ -126,6 +126,8 @@ namespace RKmission
             CarriedItems.Initialize();
             if (_checkpoint.OriginTerminals == null)
                 _checkpoint.OriginTerminals = new List<MissionOriginBinding>();
+            if (_checkpoint.AcceptedMissionIds == null)
+                _checkpoint.AcceptedMissionIds = new List<int>();
             _missions.AttachCheckpoint(_checkpoint, Say);
             _maxAutoMissions = Math.Max(0, _checkpoint.AutoMissionLimit);
             _autoAcceptedCount = Math.Max(0, _checkpoint.AutoAcceptedCount);
@@ -690,6 +692,7 @@ namespace RKmission
             try
             {
                 CarriedItems.UpdateBackpackSnapshots();
+                ManagedBagOpenOwnership.Tick();
                 _missions.Refresh(); // Track acceptance/removal even while local automation is disarmed.
                 // AO can replace the offer anchor with a later authoritative
                 // mission entrance after the initial quest details appeared.
@@ -815,6 +818,9 @@ namespace RKmission
                     }
                     if (_selected.ReturnHandInPending)
                     {
+                        _checkpoint.HandInPending = true;
+                        _checkpoint.RewardSettlementPending = true;
+                        _checkpoint.LastVerifiedPhase = "DungeonExitVerified";
                         _handInExitVerified = true;
                         if (!TickReturnHandIn()) return;
                     }
@@ -824,6 +830,8 @@ namespace RKmission
                         return;
                     }
                     if (_checkpoint?.Execution != null) _checkpoint.Execution.Phase = "InventoryClassification";
+                    _checkpoint.RewardSettlementPending = true;
+                    _checkpoint.InventorySettlementPending = true;
                     InventorySettlement settlement = _inventory.TickAfterVerifiedExit(_loot, Say);
                     if (settlement == InventorySettlement.Moving) return;
                     if (settlement == InventorySettlement.Blocked)
@@ -832,6 +840,11 @@ namespace RKmission
                         Stop(); Say("Post-mission item staging stopped: " + reason); return;
                     }
                     bool capacityReady = settlement == InventorySettlement.Ready;
+                    _checkpoint.HandInPending = false;
+                    _checkpoint.RewardSettlementPending = false;
+                    _checkpoint.InventorySettlementPending = false;
+                    _checkpoint.LastVerifiedPhase = "RewardAndInventorySettled";
+                    Say($"Lifecycle: mission complete -> reward verified -> post-mission Keep/Junk settlement verified; free main slots={Inventory.NumFreeSlots}.");
                     bool logisticsQueued = false;
                     if (_autoCycle && _inventory.NeedsAutomaticLogistics(out string logisticsReason))
                     {
@@ -946,9 +959,18 @@ namespace RKmission
                                     _nextSelection = DateTime.MinValue;
                                     return;
                                 }
+                                if (!ReadyToRoll(out string finalInvariant))
+                                {
+                                    RecordUnresolvedInvariant(finalInvariant);
+                                    return;
+                                }
                                 int completed = _autoAcceptedCount;
+                                _checkpoint.LastVerifiedPhase = "READY_TO_ROLL";
+                                _checkpoint.StopInvariant = null;
+                                _checkpoint.Save(true, Say);
                                 Stop();
-                                Say($"Automatic cycle finished after {completed} accepted mission(s). Use /rkm auto to start a new cycle.");
+                                Say($"Lifecycle: terminal return verified -> logistics verified -> READY_TO_ROLL. " +
+                                    $"Finite automatic cycle finished after {completed} accepted mission(s) and disarmed cleanly.");
                                 return;
                             }
                             if (Inventory.NumFreeSlots < 2)
@@ -1049,6 +1071,12 @@ namespace RKmission
             _checkpoint.ObjectiveState = _dungeon?.Objective?.Evidence ?? _selected?.CompletionEvidence;
             _checkpoint.PendingHandInExitVerified = _handInExitVerified &&
                 _selected?.ReturnHandInPending == true;
+            _checkpoint.HandInPending = _selected?.ReturnHandInPending == true;
+            _checkpoint.LogisticsPending = _autoLogisticsPending || _autoLogisticsRunning ||
+                _automaticLogistics?.IsActive == true;
+            _checkpoint.AcceptedMissionIds = _missions.Records.Where(x => x.Present &&
+                    x.IsRubiKaDestination && !x.Completed)
+                .Select(x => x.Id.Instance).Distinct().OrderBy(x => x).ToList();
             if (_dungeon?.IsRunning == true) _checkpoint.Execution = _dungeon.Snapshot();
             _checkpoint.Save(false, Say);
         }
@@ -1083,6 +1111,7 @@ namespace RKmission
             _autoLogisticsPending = true;
             _autoLogisticsFinalPending |= finalPass;
             _autoLogisticsReason = reason;
+            if (_checkpoint != null) _checkpoint.LogisticsPending = true;
             _waitingReason = null;
             Say($"Automatic logistics queued: {reason}. Returning to the saved surveyed mission terminal before any bank or shop action.");
         }
@@ -1172,6 +1201,8 @@ namespace RKmission
                 return;
             }
             _inventory.MarkAutomaticLogisticsCompleted();
+            _checkpoint.LogisticsPending = false;
+            _checkpoint.LastVerifiedPhase = "LogisticsVerified";
             if (finalRun) _autoFinalLogisticsComplete = true;
             int progress = stored + sold;
             if (Inventory.NumFreeSlots < _inventory.MinimumFreeSlots)
@@ -1526,6 +1557,11 @@ namespace RKmission
         private void StartAutoRolling()
         {
             if (!_running || !_autoCycle || _autoRolling || MaliMissionRoller2.Main.Window == null) return;
+            if (!ReadyToRoll(out string unresolved))
+            {
+                RecordUnresolvedInvariant(unresolved);
+                return;
+            }
             if (MaliMissionRoller2.Main.Window.Window?.IsValid != true)
                 _roller.ShowRoller();
             if (MaliMissionRoller2.Main.Window.Window?.IsValid != true)
@@ -1560,6 +1596,56 @@ namespace RKmission
             }
             Say($"Mission roller is rolling for {(_autoZone == 0 ? $"{MaliMissionRoller2.Main.Window.EnabledAutoDestinationCount} enabled Rubi-Ka playfield(s)" : $"playfield {_autoZone}")}; " +
                 $"offer limit {_maxAutoRolls}, mission limit {(_maxAutoMissions == 0 ? "unlimited" : _maxAutoMissions.ToString())}.");
+        }
+
+        private bool ReadyToRoll(out string unresolved)
+        {
+            SimpleChar player = DynelManager.LocalPlayer;
+            bool exactTerminal = false;
+            if (player != null && _hasRollTerminal &&
+                !string.IsNullOrEmpty(_rollLogisticsSite) &&
+                !string.IsNullOrEmpty(_rollLogisticsTerminalIdentity) &&
+                Playfield.ModelIdentity.Instance == _rollTerminalPlayfield)
+            {
+                Dynel terminal = DynelManager.AllDynels.FirstOrDefault(x =>
+                    x.Identity.Type == IdentityType.MissionTerminal &&
+                    Vector3.Distance(x.Position, _rollTerminalPosition) <= 1f &&
+                    (string.IsNullOrEmpty(_rollLogisticsTerminalIdentity) ||
+                     string.Equals(x.Identity.ToString(), _rollLogisticsTerminalIdentity,
+                         StringComparison.OrdinalIgnoreCase)));
+                exactTerminal = terminal != null &&
+                    Vector3.Distance(player.Position, terminal.Position) <= RollTerminalApproachDistance;
+            }
+            var state = new CycleReadinessSnapshot
+            {
+                Outdoors = !Playfield.IsDungeon ||
+                    Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid,
+                Alive = player?.IsAlive == true,
+                NotZoning = !Game.IsZoning,
+                MissionListKnown = Mission.List != null,
+                NoAcceptedWork = !RunnableAcceptedMissions().Any() && _awaitingQuestDetails.Count == 0,
+                NoHandInPending = !_missions.Records.Any(x => x.Present && x.ReturnHandInPending),
+                NoRewardPending = !_checkpoint.RewardSettlementPending,
+                NoInventorySettlementPending = !_checkpoint.InventorySettlementPending,
+                NoLogisticsPending = !_autoLogisticsPending && !_autoLogisticsRunning &&
+                    !_autoLogisticsFinalPending && !_automaticLogistics.IsActive,
+                InventoryReady = CarriedItems.BackpackSnapshotsReady,
+                NoPendingItemAction = !Item.HasPendingUse && !Spell.HasPendingCast,
+                NoOwnedMovement = _movement.Owner == MovementOwner.None,
+                ExactRollTerminalVerified = exactTerminal
+            };
+            return CycleReadiness.IsReadyToRoll(state, out unresolved);
+        }
+
+        private void RecordUnresolvedInvariant(string unresolved)
+        {
+            string reason = "READY_TO_ROLL held: " + (unresolved ?? "unknown invariant");
+            if (_checkpoint != null)
+            {
+                _checkpoint.StopInvariant = unresolved;
+                _checkpoint.Save(true, Say);
+            }
+            Wait(reason + ".");
         }
 
         private void BindAcceptedMissionOrigin(int questId, int destination, Vector3 entrance)

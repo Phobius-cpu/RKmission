@@ -130,6 +130,15 @@ namespace RKmission
         public string ObjectiveState { get; set; }
         // Set only after observed zoning out of the exact completed dungeon.
         public bool PendingHandInExitVerified { get; set; }
+        // Durable cycle ledger. These are intent/evidence markers only; every
+        // action is reconciled against live AO state before it can be repeated.
+        public bool HandInPending { get; set; }
+        public bool RewardSettlementPending { get; set; }
+        public bool InventorySettlementPending { get; set; }
+        public bool LogisticsPending { get; set; }
+        public List<int> AcceptedMissionIds { get; set; } = new List<int>();
+        public string LastVerifiedPhase { get; set; } = "Idle";
+        public string StopInvariant { get; set; }
         public MissionExecutionRecord Execution { get; set; }
 
         private string _path;

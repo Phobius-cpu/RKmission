@@ -237,17 +237,31 @@ namespace ManagerLoot
         // original settings/process state and resume it after preparation.
         public bool MissionActionsPaused { get; set; }
         private bool _enabledForMission;
+        private bool _missionControlOwned;
+
+        public void BeginMissionControl()
+        {
+            if (_settings == null || _missionControlOwned) return;
+            _missionControlOwned = true;
+            _enabledForMission = !_settings["Enable"].AsBool();
+            if (_enabledForMission) Helper_Enable();
+        }
+
+        public void ReleaseMissionControl()
+        {
+            if (!_missionControlOwned) return;
+            if (_enabledForMission && _settings != null && _settings["Enable"].AsBool())
+                Helper_Enable();
+            _enabledForMission = false;
+            _missionControlOwned = false;
+        }
 
         public void BeginMissionRoom(int roomId)
         {
             if (_settings == null) return;
             MissionRoomId = roomId;
             _settings["Chests"] = true;
-            if (!_settings["Enable"].AsBool())
-            {
-                Helper_Enable();
-                _enabledForMission = true;
-            }
+            BeginMissionControl();
         }
 
         public void ObserveMissionRoomTraversal()
@@ -262,9 +276,7 @@ namespace ManagerLoot
             _pendingMissionLootOccurrence = 0;
             _keepPlacementBag = MissionIdentity.None;
             _keepPlacementBagOpened = false;
-            if (restoreUserState && _enabledForMission && _settings != null && _settings["Enable"].AsBool())
-                Helper_Enable();
-            if (restoreUserState) _enabledForMission = false;
+            if (restoreUserState) ReleaseMissionControl();
         }
 
         public void ResetMissionLootSkips()

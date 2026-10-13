@@ -290,6 +290,7 @@ namespace RKmission
             _record = record;
             _objective = new MissionObjective(record, _say);
             _loot.BeginMissionReservations(record.Id);
+            _loot.BeginMissionControl();
             _loot.ActiveMissionOwner = record.Id;
             _exiting = false;
             _entryRoom = DynelManager.LocalPlayer.Room.Instance;
@@ -365,7 +366,8 @@ namespace RKmission
             IsRunning = false;
             _readiness.Stop();
             _loot.MissionActionsPaused = false;
-            _loot.EndMissionRoom();
+            _loot.EndMissionRoom(restoreUserState: false);
+            _loot.ReleaseMissionControl();
             _loot.MissionRoomContains = null;
             _loot.MissionRoomDynels = null;
             _loot.MissionLootAllowed = null;

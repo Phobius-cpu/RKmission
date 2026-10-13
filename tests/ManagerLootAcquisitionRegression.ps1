@@ -82,7 +82,9 @@ if (-not $loot.Contains('DeferredApproachReady(x.Identity)') -or
 Write-Output 'PASS deferred unreachable-loot policy remains unchanged'
 
 if (-not $dungeon.Contains('_loot.EndMissionRoom(restoreUserState: false)') -or
-    -not $loot.Contains('if (restoreUserState) _enabledForMission = false')) {
+    -not $loot.Contains('public void BeginMissionControl()') -or
+    -not $loot.Contains('public void ReleaseMissionControl()') -or
+    -not $loot.Contains('if (restoreUserState) ReleaseMissionControl();')) {
     throw 'ManagerLoot is still restored/toggled during every room transition.'
 }
 Write-Output 'PASS ManagerLoot stays enabled across room transitions and restores user state at mission end'

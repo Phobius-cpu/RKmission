@@ -11,6 +11,7 @@ namespace RKmission
     {
         private const int MaxBackpackLoadAttempts = 3;
         private const double BackpackResponseSeconds = 2.5;
+        private const string BagOwner = "CarriedItemsHydration";
         private static readonly string[] UtilityBagNames = { "fannypack", "syncbag" };
         private static readonly string[] LockpickNames = { "Lock Pick", "Personal Lockpick", "Personal Lock Pick" };
         private static readonly Dictionary<Identity, BackpackSnapshot> BackpackSnapshots =
@@ -49,6 +50,7 @@ namespace RKmission
             Inventory.ContainerOpened -= ContainerOpened;
             BackpackSnapshots.Clear();
             _waitingFor = Identity.None;
+            ManagedBagOpenOwnership.ReleaseAll(BagOwner);
             _initialized = false;
         }
 
@@ -67,6 +69,7 @@ namespace RKmission
             if (!_initialized || Game.IsZoning) return;
             ReconcileBackpacks();
             ConfirmPopulatedSnapshots();
+            ManagedBagOpenOwnership.Tick();
 
             double now = Time.AONormalTime;
             if (_waitingFor != Identity.None)
@@ -104,6 +107,8 @@ namespace RKmission
                 return;
             }
 
+            Container bag = Inventory.Backpacks.FirstOrDefault(x => x.Identity == next.Key);
+            ManagedBagOpenOwnership.RecordOpenUse(BagOwner, bag);
             bagItem.Use();
             next.Value.Attempts++;
             next.Value.SentAt = now;
@@ -114,7 +119,10 @@ namespace RKmission
         {
             var carried = new HashSet<Identity>(UtilityBackpacks().Select(bag => bag.Identity));
             foreach (Identity removed in BackpackSnapshots.Keys.Where(id => !carried.Contains(id)).ToList())
+            {
+                ManagedBagOpenOwnership.Release(BagOwner, removed);
                 BackpackSnapshots.Remove(removed);
+            }
             foreach (Identity identity in carried)
                 if (!BackpackSnapshots.ContainsKey(identity))
                     BackpackSnapshots[identity] = new BackpackSnapshot();
@@ -128,6 +136,7 @@ namespace RKmission
                 Inventory.GetContainerItems(pair.Key).Any()))
             {
                 pair.Value.Confirmed = true;
+                ManagedBagOpenOwnership.Release(BagOwner, pair.Key);
                 if (_waitingFor == pair.Key) _waitingFor = Identity.None;
             }
         }
@@ -137,6 +146,7 @@ namespace RKmission
             if (container == null || !BackpackSnapshots.TryGetValue(container.Identity,
                 out BackpackSnapshot snapshot)) return;
             snapshot.Confirmed = true;
+            ManagedBagOpenOwnership.Release(BagOwner, container.Identity);
             if (_waitingFor == container.Identity) _waitingFor = Identity.None;
         }
 
