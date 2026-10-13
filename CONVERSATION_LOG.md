@@ -1834,3 +1834,46 @@ implementation begins only after an explicit request or approved batch.
 ## 2026-10-12 - Close final logistics approach to the saved terminal
 
 The user reported that the verified Scottyboi return reached Old Athen but stopped short of the saved mission terminal, then failed surveyed-origin verification after 30 seconds. They approved a 2 m approach. The automatic cycle now moves within 2 m of the saved terminal before checking the exact terminal identity and surveyed origin. Fail-closed verification and timeout remain, with focused distance/visibility diagnostics. The focused regression and Release build passed; the user will pull, compile, and validate in AO.
+
+## 2026-10-13 - PRE-SOAK batch and end-of-day closeout
+
+Batch 1 Autonomous Cycle Closure was implemented earlier today and is present
+on `main` as `2579cab`. The session retained its actual repository status and
+did not infer additional AO validation.
+
+Before long soak testing, the user defined a PRE-SOAK batch to close the most
+important integration seams: Vehicle Lifecycle, Neko Handoff, Neko UI,
+vehicle-aware city routing for OA/Borealis/ICC, and expanded Resurrection /
+Death Recovery. The implementation landed on `main` beginning with `53058ab`,
+so the batch is **AWAITING AO TEST**, not **VALIDATED**.
+
+The architectural decisions were: prefer Neko immediately after destination
+playfield arrival and use physical Run/Fly entrance travel as fallback; make
+vehicle use demand-driven and ownership-aware; preserve user-owned flight where
+possible; retain Foot city routes while adding vehicle transit plus precise
+grounded connectors around terminals, bank/shop, Grid, and FGrid; and avoid
+blind ICC ramp/elevation optimization. Global Scotty nearest-subdestination
+ranking remains a separate **DECIDED** Travel item. Staircase recovery and
+unreachable-combat continuation remain opportunity-based rather than blockers.
+
+Resurrection recovery remains one expanded subsystem. It requires a Rubi-Ka
+save/reclaim location and follows reclaim -> Nano Can with verified clearing,
+or a full sickness wait -> readiness -> Scotty to the saved OA/Borealis/ICC
+roller city -> exact saved terminal -> original accepted mission/cycle. Warp is
+forbidden while resurrection sickness or `TemporarySkillReduction` remains.
+Outside-RK reclaim stops safely for manual recovery. Help/Purpose must explain
+the prerequisite and Nano Can-or-wait behavior.
+
+The Control Board now contains the ordered 27-item PRE-SOAK AO plan covering
+startup/UI regression, Neko discovery/toggle/manual warp/handoff/fallback,
+vehicle ownership and flight safety, city routes and terminal precision,
+Rubi-Ka death recovery and both sickness paths, exact cycle resumption,
+outside-RK guarding, help text, and a 2–3 mission integrated run. Travel/Neko
+becomes soak-ready after tests 1–18 and 26–27 pass; resurrection also requires
+tests 19–24. Post-hydration/post-transfer bag auto-close remains in its existing
+Inventory/Logistics status pending AO evidence.
+
+The user requested the 2026-10-13 end-of-day closeout and GitHub persistence.
+Next action: pull/build the PRE-SOAK implementation from `main`, run the full
+checklist, and proceed to long soak only after the gates pass. No AO runtime
+validation was claimed during this documentation session.

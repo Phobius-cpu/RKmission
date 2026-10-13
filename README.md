@@ -4,6 +4,9 @@ AO# plugin for solo Rubi-Ka missions in Anarchy Online. It combines the original
 Mali Mission Roller 2.0, Mali Dungeon Map 2.0, and Manager.Loot interfaces with
 local mission travel, room exploration, combat, door handling and looting.
 
+Current workstream state and the PRE-SOAK AO gate are maintained in
+[`CONTROL_BOARD.md`](CONTROL_BOARD.md).
+
 The 2026-10-03 doorway follow-up removes the remaining lateral target-room
 waypoint and stops movement while safe entry is confirmed. Live in-game
 verification is still needed; see

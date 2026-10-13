@@ -1,6 +1,6 @@
 # RKMission Project Memory
 
-_Last updated: 2026-10-12_
+_Last updated: 2026-10-13_
 
 ## 2026-10-03 post-crossing lateral motion follow-up
 
@@ -2895,3 +2895,38 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 - AO validation showed the verified Scottyboi warp reaching Old Athen PF 540, but final logistics stopped after waiting 30 seconds for the saved exact terminal and surveyed `oa` origin. The return path considered itself complete within 6 m of the saved terminal, while the surveyed origin is offset from that saved position; the character could therefore stop outside the origin verifier's independent 6 m gate.
 - Automatic return now closes to within 2 m of the saved mission terminal before the existing exact-identity and surveyed-origin verification. The bounded fail-closed timeout remains. Waiting and failure diagnostics report player distance to the saved terminal, player distance to the surveyed origin, and whether the exact terminal is visible at the expected origin.
 - Focused regression and Release compilation pass locally. AO runtime validation remains with the user; no successful bank/shop cycle is claimed.
+
+## 2026-10-13 PRE-SOAK decisions and closeout
+
+- The PRE-SOAK batch is **AWAITING AO TEST** because its implementation is on
+  `main` beginning with `53058ab`; no AO runtime validation is inferred. Its
+  scope is Vehicle Lifecycle, Neko Handoff, Neko UI, OA/Borealis/ICC City
+  Vehicle Routing, and the Resurrection / Death Recovery expansion.
+- Neko is the preferred mission-entry path after the destination playfield has
+  settled. Physical Run/Fly entrance travel is the fallback.
+- Vehicle use is demand-driven and ownership-aware. Verify live vehicle state
+  before Fly movement and preserve user-owned flight where useful.
+- City routing uses movement-mode-aware profiles: retain established Foot
+  routes, add vehicle-aware transit in OA/Borealis/ICC, and use precise grounded
+  connectors near terminals, bank/shop, Grid, and FGrid. Do not blindly
+  optimize ICC ramp geometry; preserve safe elevation evidence.
+- Death recovery expands the existing resurrection topic rather than creating
+  a second subsystem. Autonomous recovery requires the character's save/reclaim
+  location to be on Rubi-Ka.
+- Recovery order is: reclaim -> use a Resurrection Sickness Removal Nano Can
+  when available and verify the sickness cleared, otherwise wait the complete
+  resurrection-sickness cycle -> verify readiness -> Scotty to the saved roller
+  city -> verify the exact saved terminal -> resume the accepted mission and
+  normal cycle. Never warp while resurrection sickness or
+  `TemporarySkillReduction` remains active.
+- A reclaim outside Rubi-Ka causes a safe stop for manual recovery; RKMission
+  must not improvise Garden or Shadowlands travel.
+- Help/Purpose must state the Rubi-Ka save/reclaim prerequisite and the Nano
+  Can-or-wait behavior clearly.
+- Keep global Scotty nearest-subdestination ranking across all playfields as a
+  separate **DECIDED** Travel item unless a later main commit implements it.
+  Keep post-hydration/post-transfer bag auto-close in Inventory/Logistics at
+  **AWAITING AO TEST** until live evidence proves it.
+- The canonical 27-item AO gate and end-of-day workstream state are recorded in
+  `CONTROL_BOARD.md`. The next action is to pull/build current `main`, execute
+  the PRE-SOAK checklist, and start long soak only after its gates pass.
