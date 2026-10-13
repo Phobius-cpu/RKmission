@@ -67,6 +67,11 @@ namespace RKmission
         private Vector3 _staircaseRecoveryOrigin, _staircaseRecoveryDirection, _staircaseRecoveryLastPosition;
         private DateTime _staircaseRecoveryPhaseStarted, _staircaseRecoveryLastMotion;
         private int _staircaseRecoveryAttempts;
+        private int _provenStaircaseRoom = -1;
+        private Vector3 _provenStaircaseOrigin, _provenStaircaseDirection;
+        private DateTime _provenStaircaseAt;
+        private static readonly TimeSpan ProvenStaircaseLifetime = TimeSpan.FromMinutes(5);
+        private const float ProvenStaircaseReuseRadius = 6f;
         private sealed class CombatRecovery
         {
             public Identity Enemy;
@@ -244,6 +249,7 @@ namespace RKmission
             ResetCombatApproach();
             _combatRecoveries.Clear();
             ResetStaircaseRecoveryAttempts();
+            ResetProvenStaircase();
             _combatTopologyHandoff = null;
             CombatRecoveryWaiting = false;
             _scanTarget = Identity.None;
@@ -356,6 +362,7 @@ namespace RKmission
             _layout = null;
             _combatRecoveries.Clear();
             ResetStaircaseRecoveryAttempts();
+            ResetProvenStaircase();
             _combatTopologyHandoff = null;
             ResetPostCombatCorpseTracking();
             _navRoutes?.StopPlayback();
@@ -498,24 +505,45 @@ namespace RKmission
             if (_staircaseRecoveryPhase != StaircaseRecoveryPhase.Idle || player == null ||
                 !player.IsAlive || Game.IsZoning ||
                 MovementArbiter.Current.Owner != MovementOwner.CombatPosition)
+            {
+                _say($"Combat staircase recovery rejected: phase={_staircaseRecoveryPhase}, " +
+                    $"player={(player == null ? "missing" : player.IsAlive ? "alive" : "dead")}, zoning={Game.IsZoning}, " +
+                    $"owner={MovementArbiter.Current.Owner}, attempts={_staircaseRecoveryAttempts}/{MaxStaircaseRecoveryAttempts}.");
                 return false;
+            }
             float enemyLift = recovery.EnemyPosition.Y - player.Position.Y;
             float routeLift = recovery.Waypoints.Skip(recovery.WaypointIndex)
                 .Select(point => point.Y - player.Position.Y)
                 .DefaultIfEmpty(target.Y - player.Position.Y)
                 .Max();
+            bool provenGeometry = TryGetProvenStaircaseDirection(recovery, player.Position,
+                out Vector3 provenDirection);
             // The first stair waypoint can be only a small step above us even
             // when the route and enemy establish a genuinely upward topology.
-            // Require both facts so flat-room stalls cannot trigger jumping.
+            // A recently successful climb at this exact room geometry is also
+            // positive topology evidence when a rebuilt route begins flat.
             if (enemyLift < CombatTopologyVerticalSeparation ||
-                routeLift < StaircaseAirborneLift) return false;
+                routeLift < StaircaseAirborneLift && !provenGeometry)
+            {
+                _say($"Combat staircase recovery rejected: enemy lift={enemyLift:0.00}m, " +
+                    $"route lift={routeLift:0.00}m, proven geometry={provenGeometry}, " +
+                    $"room={_currentRoom}, attempts={_staircaseRecoveryAttempts}/{MaxStaircaseRecoveryAttempts}.");
+                return false;
+            }
             if (_staircaseRecoveryEnemy != recovery.Enemy)
             {
                 _staircaseRecoveryEnemy = recovery.Enemy;
                 _staircaseRecoveryAttempts = 0;
             }
-            if (_staircaseRecoveryAttempts >= MaxStaircaseRecoveryAttempts) return false;
-            Vector3 direction = target - player.Position;
+            if (_staircaseRecoveryAttempts >= MaxStaircaseRecoveryAttempts)
+            {
+                _say($"Combat staircase recovery rejected: attempt limit " +
+                    $"{_staircaseRecoveryAttempts}/{MaxStaircaseRecoveryAttempts} exhausted for {recovery.Enemy}; " +
+                    $"enemy lift={enemyLift:0.00}m, route lift={routeLift:0.00}m, proven geometry={provenGeometry}.");
+                return false;
+            }
+            bool reuseProvenHeading = provenGeometry && routeLift < StaircaseAirborneLift;
+            Vector3 direction = reuseProvenHeading ? provenDirection : target - player.Position;
             direction.Y = 0;
             if (direction.Magnitude < 0.25f)
             {
@@ -539,8 +567,22 @@ namespace RKmission
             // send ForwardStart until observed Y lift proves we are airborne.
             MovementArbiter.Current.SetMovement(MovementOwner.CombatPosition, MovementAction.JumpStart);
             _say($"Combat staircase recovery {_staircaseRecoveryAttempts}/{MaxStaircaseRecoveryAttempts}: " +
-                $"stationary jump started toward {target}; forward input is gated on observed airborne lift.");
+                $"stationary jump started toward {target}; heading={(reuseProvenHeading ? "proven geometry" : "current route")}, " +
+                $"enemy lift={enemyLift:0.00}m, route lift={routeLift:0.00}m; forward input is gated on observed airborne lift.");
             return true;
+        }
+
+        private bool TryGetProvenStaircaseDirection(CombatRecovery recovery, Vector3 position,
+            out Vector3 direction)
+        {
+            direction = _provenStaircaseDirection;
+            if (_provenStaircaseRoom != _currentRoom ||
+                DateTime.UtcNow - _provenStaircaseAt > ProvenStaircaseLifetime ||
+                recovery.EnemyPosition.Y - position.Y < CombatTopologyVerticalSeparation)
+                return false;
+            Vector3 offset = position - _provenStaircaseOrigin;
+            offset.Y = 0;
+            return offset.Magnitude <= ProvenStaircaseReuseRadius && direction.Magnitude >= 0.9f;
         }
 
         private bool TickStaircaseRecovery()
@@ -631,14 +673,22 @@ namespace RKmission
                 {
                     FailCombatRecoveryRoute(recovery,
                         $"staircase recovery exhausted after {_staircaseRecoveryAttempts} attempts: {reason}");
-                    ResetStaircaseRecoveryAttempts();
                     return;
                 }
             }
             _say($"Combat staircase recovery {(succeeded ? "completed" : "attempt failed")}: {reason}. " +
                 (succeeded ? "Rebuilding movement from the observed landing position."
                     : $"Normal route control resumed; {_staircaseRecoveryAttempts}/{MaxStaircaseRecoveryAttempts} attempts used."));
-            if (succeeded) ResetStaircaseRecoveryAttempts();
+            if (succeeded)
+            {
+                _provenStaircaseRoom = _currentRoom;
+                _provenStaircaseOrigin = _staircaseRecoveryOrigin;
+                _provenStaircaseDirection = _staircaseRecoveryDirection;
+                _provenStaircaseAt = DateTime.UtcNow;
+                _say($"Combat staircase recovery recorded proven geometry in room {_currentRoom} " +
+                    $"at {_provenStaircaseOrigin} heading {_provenStaircaseDirection}; reusable within {ProvenStaircaseReuseRadius:0.0}m.");
+                ResetStaircaseRecoveryAttempts();
+            }
         }
 
         private void StopStaircaseInputs(bool fullStop)
@@ -669,6 +719,14 @@ namespace RKmission
             CancelStaircaseRecovery();
             _staircaseRecoveryAttempts = 0;
             _staircaseRecoveryEnemy = Identity.None;
+        }
+
+        private void ResetProvenStaircase()
+        {
+            _provenStaircaseRoom = -1;
+            _provenStaircaseOrigin = Vector3.Zero;
+            _provenStaircaseDirection = Vector3.Zero;
+            _provenStaircaseAt = DateTime.MinValue;
         }
 
         private void LoadFloor()
@@ -1745,6 +1803,19 @@ namespace RKmission
                     _destination = null;
                     if (LootInRoom(room)) return true;
                     if (HoldForPostCombatCorpse(room)) return true;
+                }
+                if (_staircaseRecoveryAttempts < MaxStaircaseRecoveryAttempts &&
+                    TryGetProvenStaircaseDirection(recovery, position, out Vector3 retryDirection))
+                {
+                    _requestedOwner = MovementOwner.CombatPosition;
+                    MovementArbiter.Current.Halt(MovementOwner.CombatPosition);
+                    Vector3 retryTarget = position + retryDirection * 2f;
+                    retryTarget.Y = position.Y + 0.5f;
+                    if (TryBeginStaircaseRecovery(recovery, retryTarget)) return true;
+                    CombatRecoveryWaiting = true;
+                    _say($"Combat staircase recovery retained room {room.Instance}: proven upward geometry still has " +
+                        $"{MaxStaircaseRecoveryAttempts - _staircaseRecoveryAttempts} bounded attempt(s); room departure suppressed.");
+                    return true;
                 }
                 Room next = NextRoom(room);
                 if (next != null)

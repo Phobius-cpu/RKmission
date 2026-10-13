@@ -90,3 +90,46 @@ if (($firstWaypointY - $playerY) -ge 1.5 -or
     throw 'The confirmed room-7 elevations no longer exercise low-first-step upward-route eligibility.'
 }
 Write-Output 'PASS player Y=8.645, first waypoint Y=9.115, enemy Y=17.10876 satisfies upward-route eligibility'
+
+foreach ($required in @(
+    'TryGetProvenStaircaseDirection(recovery, player.Position,',
+    'routeLift < StaircaseAirborneLift && !provenGeometry',
+    'reuseProvenHeading ? provenDirection : target - player.Position',
+    'heading={(reuseProvenHeading ? "proven geometry" : "current route")}',
+    'Combat staircase recovery recorded proven geometry',
+    'ProvenStaircaseReuseRadius = 6f',
+    'ProvenStaircaseLifetime = TimeSpan.FromMinutes(5)',
+    'ResetProvenStaircase();')) {
+    if (-not $dungeon.Contains($required)) {
+        throw "Proven staircase geometry reuse regressed: $required"
+    }
+}
+Write-Output 'PASS a successful climb provides bounded same-room heading evidence for flat rebuilt routes'
+
+foreach ($required in @(
+    'Combat staircase recovery rejected: phase=',
+    'Combat staircase recovery rejected: enemy lift=',
+    'Combat staircase recovery rejected: attempt limit',
+    'enemy lift={enemyLift:0.00}m, route lift={routeLift:0.00}m')) {
+    if (-not $dungeon.Contains($required)) {
+        throw "Staircase eligibility diagnostics regressed: $required"
+    }
+}
+Write-Output 'PASS phase, ownership, elevation, proof, and attempt rejection diagnostics are explicit'
+
+$departure = $combatBody.IndexOf('Room next = NextRoom(room);', $stall)
+$provenRetry = $combatBody.IndexOf('TryGetProvenStaircaseDirection(recovery, position, out Vector3 retryDirection)', $stall)
+$suppressed = $combatBody.IndexOf('room departure suppressed.', $provenRetry)
+if ($provenRetry -lt 0 -or $suppressed -lt $provenRetry -or $departure -lt $suppressed -or
+    -not $combatBody.Contains('_staircaseRecoveryAttempts < MaxStaircaseRecoveryAttempts')) {
+    throw 'Room deferral can again bypass an available proven-geometry staircase retry.'
+}
+Write-Output 'PASS room departure is suppressed while a proven safe staircase retry remains'
+
+$exhaustion = $dungeon.IndexOf('staircase recovery exhausted after')
+$exhaustionEnd = $dungeon.IndexOf('_say($"Combat staircase recovery', $exhaustion)
+$exhaustionBody = $dungeon.Substring($exhaustion, $exhaustionEnd - $exhaustion)
+if ($exhaustionBody.Contains('ResetStaircaseRecoveryAttempts()')) {
+    throw 'Exhaustion resets its own counter and can exceed the strict two-attempt bound.'
+}
+Write-Output 'PASS exhausted staircase recovery cannot reset itself into additional attempts'
