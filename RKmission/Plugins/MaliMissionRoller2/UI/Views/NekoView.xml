@@ -1,39 +1,38 @@
 <?xml version="1.0" standalone="yes"?>
 <Root>
-  <View view_layout="vertical" min_size="Point(320,250)" layout_borders="Rect(8,8,8,8)">
+  <View view_layout="vertical" min_size="Point(420,330)" layout_borders="Rect(8,8,8,8)">
     <TextView value="Neko Mission-Key Entry" font="BOLD"/>
     <View view_layout="horizontal" layout_borders="Rect(0,6,0,6)">
       <Button name="NekoWarp" label="Key Warp" min_size="Point(80,22)"/>
       <Button name="NekoToggle" label="Key: ON" min_size="Point(90,22)" layout_borders="Rect(4,0,0,0)"/>
       <HLayoutSpacer/>
     </View>
-    <TextView value="Select accepted mission" font="BOLD"/>
-    <View name="NekoMissionRow1" view_layout="horizontal" min_size="Point(300,64)" layout_borders="Rect(0,3,0,0)">
-      <Button name="NekoMission1" view_layout="vertical" min_size="Point(58,60)" max_size="Point(58,60)"><BitmapView name="NekoMissionIcon1" min_size="Point(32,32)" max_size="Point(32,32)" h_alignment="CENTER"/><TextView name="NekoMissionLabel1" min_size="Point(54,26)" max_size="Point(54,26)" h_alignment="CENTER" feature_flags="TVF_MULTILINE"/></Button>
-      <Button name="NekoMission2" view_layout="vertical" min_size="Point(58,60)" max_size="Point(58,60)"><BitmapView name="NekoMissionIcon2" min_size="Point(32,32)" max_size="Point(32,32)" h_alignment="CENTER"/><TextView name="NekoMissionLabel2" min_size="Point(54,26)" max_size="Point(54,26)" h_alignment="CENTER" feature_flags="TVF_MULTILINE"/></Button>
-      <Button name="NekoMission3" view_layout="vertical" min_size="Point(58,60)" max_size="Point(58,60)"><BitmapView name="NekoMissionIcon3" min_size="Point(32,32)" max_size="Point(32,32)" h_alignment="CENTER"/><TextView name="NekoMissionLabel3" min_size="Point(54,26)" max_size="Point(54,26)" h_alignment="CENTER" feature_flags="TVF_MULTILINE"/></Button>
-      <Button name="NekoMission4" view_layout="vertical" min_size="Point(58,60)" max_size="Point(58,60)"><BitmapView name="NekoMissionIcon4" min_size="Point(32,32)" max_size="Point(32,32)" h_alignment="CENTER"/><TextView name="NekoMissionLabel4" min_size="Point(54,26)" max_size="Point(54,26)" h_alignment="CENTER" feature_flags="TVF_MULTILINE"/></Button>
-      <Button name="NekoMission5" view_layout="vertical" min_size="Point(58,60)" max_size="Point(58,60)"><BitmapView name="NekoMissionIcon5" min_size="Point(32,32)" max_size="Point(32,32)" h_alignment="CENTER"/><TextView name="NekoMissionLabel5" min_size="Point(54,26)" max_size="Point(54,26)" h_alignment="CENTER" feature_flags="TVF_MULTILINE"/></Button>
-    </View>
-    <View name="NekoMissionRow2" view_layout="horizontal" min_size="Point(300,64)">
-      <Button name="NekoMission6" view_layout="vertical" min_size="Point(58,60)" max_size="Point(58,60)"><BitmapView name="NekoMissionIcon6" min_size="Point(32,32)" max_size="Point(32,32)" h_alignment="CENTER"/><TextView name="NekoMissionLabel6" min_size="Point(54,26)" max_size="Point(54,26)" h_alignment="CENTER" feature_flags="TVF_MULTILINE"/></Button>
-      <Button name="NekoMission7" view_layout="vertical" min_size="Point(58,60)" max_size="Point(58,60)"><BitmapView name="NekoMissionIcon7" min_size="Point(32,32)" max_size="Point(32,32)" h_alignment="CENTER"/><TextView name="NekoMissionLabel7" min_size="Point(54,26)" max_size="Point(54,26)" h_alignment="CENTER" feature_flags="TVF_MULTILINE"/></Button>
-      <Button name="NekoMission8" view_layout="vertical" min_size="Point(58,60)" max_size="Point(58,60)"><BitmapView name="NekoMissionIcon8" min_size="Point(32,32)" max_size="Point(32,32)" h_alignment="CENTER"/><TextView name="NekoMissionLabel8" min_size="Point(54,26)" max_size="Point(54,26)" h_alignment="CENTER" feature_flags="TVF_MULTILINE"/></Button>
-      <Button name="NekoMission9" view_layout="vertical" min_size="Point(58,60)" max_size="Point(58,60)"><BitmapView name="NekoMissionIcon9" min_size="Point(32,32)" max_size="Point(32,32)" h_alignment="CENTER"/><TextView name="NekoMissionLabel9" min_size="Point(54,26)" max_size="Point(54,26)" h_alignment="CENTER" feature_flags="TVF_MULTILINE"/></Button>
-      <Button name="NekoMission10" view_layout="vertical" min_size="Point(58,60)" max_size="Point(58,60)"><BitmapView name="NekoMissionIcon10" min_size="Point(32,32)" max_size="Point(32,32)" h_alignment="CENTER"/><TextView name="NekoMissionLabel10" min_size="Point(54,26)" max_size="Point(54,26)" h_alignment="CENTER" feature_flags="TVF_MULTILINE"/></Button>
-    </View>
-    <View name="NekoMissionRow3" view_layout="horizontal" min_size="Point(300,64)" layout_borders="Rect(0,0,0,5)">
-      <Button name="NekoMission11" view_layout="vertical" min_size="Point(58,60)" max_size="Point(58,60)"><BitmapView name="NekoMissionIcon11" min_size="Point(32,32)" max_size="Point(32,32)" h_alignment="CENTER"/><TextView name="NekoMissionLabel11" min_size="Point(54,26)" max_size="Point(54,26)" h_alignment="CENTER" feature_flags="TVF_MULTILINE"/></Button>
-      <Button name="NekoMission12" view_layout="vertical" min_size="Point(58,60)" max_size="Point(58,60)"><BitmapView name="NekoMissionIcon12" min_size="Point(32,32)" max_size="Point(32,32)" h_alignment="CENTER"/><TextView name="NekoMissionLabel12" min_size="Point(54,26)" max_size="Point(54,26)" h_alignment="CENTER" feature_flags="TVF_MULTILINE"/></Button>
-      <Button name="NekoMission13" view_layout="vertical" min_size="Point(58,60)" max_size="Point(58,60)"><BitmapView name="NekoMissionIcon13" min_size="Point(32,32)" max_size="Point(32,32)" h_alignment="CENTER"/><TextView name="NekoMissionLabel13" min_size="Point(54,26)" max_size="Point(54,26)" h_alignment="CENTER" feature_flags="TVF_MULTILINE"/></Button>
-      <Button name="NekoMission14" view_layout="vertical" min_size="Point(58,60)" max_size="Point(58,60)"><BitmapView name="NekoMissionIcon14" min_size="Point(32,32)" max_size="Point(32,32)" h_alignment="CENTER"/><TextView name="NekoMissionLabel14" min_size="Point(54,26)" max_size="Point(54,26)" h_alignment="CENTER" feature_flags="TVF_MULTILINE"/></Button>
-      <Button name="NekoMission15" view_layout="vertical" min_size="Point(58,60)" max_size="Point(58,60)"><BitmapView name="NekoMissionIcon15" min_size="Point(32,32)" max_size="Point(32,32)" h_alignment="CENTER"/><TextView name="NekoMissionLabel15" min_size="Point(54,26)" max_size="Point(54,26)" h_alignment="CENTER" feature_flags="TVF_MULTILINE"/></Button>
-    </View>
+    <TextView value="Select Neko-targetable mission" font="BOLD"/>
+    <ScrollView name="NekoMissionList" min_size="Point(400,190)" max_size="Point(400,190)" v_scrollbar_mode="auto" scroll_client="NekoMissionScroll">
+      <ScrollViewChild name="NekoMissionScroll" view_layout="vertical" min_size="Point(382,15)">
+        <Button name="NekoMission1" view_layout="horizontal" min_size="Point(382,44)"><BitmapView name="NekoMissionIcon1" min_size="Point(36,36)" max_size="Point(36,36)"/><TextView name="NekoMissionLabel1" min_size="Point(330,38)" feature_flags="TVF_MULTILINE" layout_borders="Rect(8,0,0,0)"/></Button>
+        <Button name="NekoMission2" view_layout="horizontal" min_size="Point(382,44)"><BitmapView name="NekoMissionIcon2" min_size="Point(36,36)" max_size="Point(36,36)"/><TextView name="NekoMissionLabel2" min_size="Point(330,38)" feature_flags="TVF_MULTILINE" layout_borders="Rect(8,0,0,0)"/></Button>
+        <Button name="NekoMission3" view_layout="horizontal" min_size="Point(382,44)"><BitmapView name="NekoMissionIcon3" min_size="Point(36,36)" max_size="Point(36,36)"/><TextView name="NekoMissionLabel3" min_size="Point(330,38)" feature_flags="TVF_MULTILINE" layout_borders="Rect(8,0,0,0)"/></Button>
+        <Button name="NekoMission4" view_layout="horizontal" min_size="Point(382,44)"><BitmapView name="NekoMissionIcon4" min_size="Point(36,36)" max_size="Point(36,36)"/><TextView name="NekoMissionLabel4" min_size="Point(330,38)" feature_flags="TVF_MULTILINE" layout_borders="Rect(8,0,0,0)"/></Button>
+        <Button name="NekoMission5" view_layout="horizontal" min_size="Point(382,44)"><BitmapView name="NekoMissionIcon5" min_size="Point(36,36)" max_size="Point(36,36)"/><TextView name="NekoMissionLabel5" min_size="Point(330,38)" feature_flags="TVF_MULTILINE" layout_borders="Rect(8,0,0,0)"/></Button>
+        <Button name="NekoMission6" view_layout="horizontal" min_size="Point(382,44)"><BitmapView name="NekoMissionIcon6" min_size="Point(36,36)" max_size="Point(36,36)"/><TextView name="NekoMissionLabel6" min_size="Point(330,38)" feature_flags="TVF_MULTILINE" layout_borders="Rect(8,0,0,0)"/></Button>
+        <Button name="NekoMission7" view_layout="horizontal" min_size="Point(382,44)"><BitmapView name="NekoMissionIcon7" min_size="Point(36,36)" max_size="Point(36,36)"/><TextView name="NekoMissionLabel7" min_size="Point(330,38)" feature_flags="TVF_MULTILINE" layout_borders="Rect(8,0,0,0)"/></Button>
+        <Button name="NekoMission8" view_layout="horizontal" min_size="Point(382,44)"><BitmapView name="NekoMissionIcon8" min_size="Point(36,36)" max_size="Point(36,36)"/><TextView name="NekoMissionLabel8" min_size="Point(330,38)" feature_flags="TVF_MULTILINE" layout_borders="Rect(8,0,0,0)"/></Button>
+        <Button name="NekoMission9" view_layout="horizontal" min_size="Point(382,44)"><BitmapView name="NekoMissionIcon9" min_size="Point(36,36)" max_size="Point(36,36)"/><TextView name="NekoMissionLabel9" min_size="Point(330,38)" feature_flags="TVF_MULTILINE" layout_borders="Rect(8,0,0,0)"/></Button>
+        <Button name="NekoMission10" view_layout="horizontal" min_size="Point(382,44)"><BitmapView name="NekoMissionIcon10" min_size="Point(36,36)" max_size="Point(36,36)"/><TextView name="NekoMissionLabel10" min_size="Point(330,38)" feature_flags="TVF_MULTILINE" layout_borders="Rect(8,0,0,0)"/></Button>
+        <Button name="NekoMission11" view_layout="horizontal" min_size="Point(382,44)"><BitmapView name="NekoMissionIcon11" min_size="Point(36,36)" max_size="Point(36,36)"/><TextView name="NekoMissionLabel11" min_size="Point(330,38)" feature_flags="TVF_MULTILINE" layout_borders="Rect(8,0,0,0)"/></Button>
+        <Button name="NekoMission12" view_layout="horizontal" min_size="Point(382,44)"><BitmapView name="NekoMissionIcon12" min_size="Point(36,36)" max_size="Point(36,36)"/><TextView name="NekoMissionLabel12" min_size="Point(330,38)" feature_flags="TVF_MULTILINE" layout_borders="Rect(8,0,0,0)"/></Button>
+        <Button name="NekoMission13" view_layout="horizontal" min_size="Point(382,44)"><BitmapView name="NekoMissionIcon13" min_size="Point(36,36)" max_size="Point(36,36)"/><TextView name="NekoMissionLabel13" min_size="Point(330,38)" feature_flags="TVF_MULTILINE" layout_borders="Rect(8,0,0,0)"/></Button>
+        <Button name="NekoMission14" view_layout="horizontal" min_size="Point(382,44)"><BitmapView name="NekoMissionIcon14" min_size="Point(36,36)" max_size="Point(36,36)"/><TextView name="NekoMissionLabel14" min_size="Point(330,38)" feature_flags="TVF_MULTILINE" layout_borders="Rect(8,0,0,0)"/></Button>
+        <Button name="NekoMission15" view_layout="horizontal" min_size="Point(382,44)"><BitmapView name="NekoMissionIcon15" min_size="Point(36,36)" max_size="Point(36,36)"/><TextView name="NekoMissionLabel15" min_size="Point(330,38)" feature_flags="TVF_MULTILINE" layout_borders="Rect(8,0,0,0)"/></Button>
+        <VLayoutSpacer/>
+      </ScrollViewChild>
+    </ScrollView>
     <BorderView layout_borders="Rect(0,3,0,3)"><View view_layout="vertical" layout_borders="Rect(6,6,6,6)">
       <TextView name="NekoMission" value="Selected mission: none" feature_flags="TVF_MULTILINE"/>
       <TextView name="NekoKeys" value="Detected keys: none" feature_flags="TVF_MULTILINE" layout_borders="Rect(0,4,0,4)"/>
-      <TextView name="NekoDiagnostics" value="State: idle" min_size="Point(292,75)" feature_flags="TVF_MULTILINE"/>
+      <TextView name="NekoDiagnostics" value="State: idle" min_size="Point(392,75)" feature_flags="TVF_MULTILINE"/>
     </View></BorderView>
-    <TextView value="Associations are shown only when bounded by live mission evidence. Exact dungeon verification always remains required." feature_flags="TVF_MULTILINE" min_size="Point(292,45)"/>
+    <TextView value="Only resolved Rubi-Ka mission-door targets are listed. Exact dungeon verification always remains required." feature_flags="TVF_MULTILINE" min_size="Point(392,32)"/>
   </View>
 </Root>

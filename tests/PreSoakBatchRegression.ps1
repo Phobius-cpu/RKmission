@@ -27,11 +27,11 @@ if ($nekoXml.Contains('NekoHelp') -or $nekoXml.Contains('Help / Settings')) { th
 $panel = Read 'RKmission/NekoPanel.cs'
 if (-not $panel.Contains('Key: <font color=''#00FF00''>ON</font>') -or
     -not $panel.Contains('Key: <font color=''#FF4040''>OFF</font>')) { throw 'Key toggle does not show colored Key: ON/OFF state.' }
-foreach ($required in @('NekoMissionRow1', 'NekoMissionRow2', 'NekoMissionRow3', 'NekoMission15', 'NekoMissionIcon15', 'NekoMissionLabel15', 'Take(15)', '_missionButtons', 'SetBitmap', 'SelectNekoMission', '_selected = selected', '_entranceResolver.Select(live)')) {
+foreach ($required in @('NekoMissionList', 'NekoMissionScroll', 'view_layout="horizontal"', 'NekoMission15', 'NekoMissionIcon15', 'NekoMissionLabel15', 'Take(15)', '_missionButtons', 'SetBitmap', 'SelectNekoMission', '_selected = selected', '_entranceResolver.Select(live)')) {
     if (-not ($panel + $nekoXml + $bot).Contains($required)) { throw "Selectable Neko mission UI missing: $required" }
 }
-if ($panel.Contains('x.Present && x.IsRubiKaDestination && !x.Completed')) { throw 'Visual mission selector still hides live missions until Rubi-Ka destination resolution.' }
-foreach ($required in @('AO live', 'tracked', 'shown {_shownMissionCount}/15', '"wait"')) {
+if (-not $panel.Contains('x.Present && x.IsRubiKaDestination && !x.Completed')) { throw 'Neko selection does not enforce resolved Rubi-Ka targetability.' }
+foreach ($required in @('IsRubiKaDestination', 'AO live', 'tracked', 'targetable', 'shown {_shownMissionCount}/15', 'Objectives', 'QuestShortInfo')) {
     if (-not $panel.Contains($required)) { throw "Neko population diagnostic missing: $required" }
 }
 if (-not $neko.Contains('public void ToggleEnabled()') -or -not $neko.Contains('Enabled = !Enabled;') -or

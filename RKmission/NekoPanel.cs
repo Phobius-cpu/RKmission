@@ -23,7 +23,7 @@ namespace RKmission
         private int _selectedMissionId;
         private string _selectedMissionName;
         private int _selectedPlayfield;
-        private int _trackedMissionCount, _shownMissionCount;
+        private int _trackedMissionCount, _targetableMissionCount, _shownMissionCount;
         private DateTime _nextRefresh;
         public View Root { get; }
 
@@ -65,7 +65,7 @@ namespace RKmission
                 : $"Selected mission: {_selectedMissionName} [{_selectedMissionId}] - PF {_selectedPlayfield}";
             if (_keys != null) _keys.Text = "Detected keys: " + _resolver.KeySummary;
             if (_diagnostics != null) _diagnostics.Text =
-                $"Missions: AO live {Mission.List?.Count ?? 0}, tracked {_trackedMissionCount}, shown {_shownMissionCount}/15\n" +
+                $"Missions: AO live {Mission.List?.Count ?? 0}, tracked {_trackedMissionCount}, targetable {_targetableMissionCount}, shown {_shownMissionCount}/15\n" +
                 $"State: {_resolver.Status}\nCandidates: {_resolver.CandidateCount}\nCurrent attempt: {_resolver.AttemptNumber}";
         }
 
@@ -74,7 +74,10 @@ namespace RKmission
             if (_missionButtons.Any(x => x == null) || _missions == null) return;
             List<AcceptedMission> tracked = _missions().Where(x => x.Present && !x.Completed).ToList();
             _trackedMissionCount = tracked.Count;
-            List<AcceptedMission> missions = tracked
+            List<AcceptedMission> targetable = tracked
+                .Where(x => x.IsRubiKaDestination).ToList();
+            _targetableMissionCount = targetable.Count;
+            List<AcceptedMission> missions = targetable
                 .OrderBy(x => x.Id.Instance).Take(15).ToList();
             _shownMissionCount = missions.Count;
             string signature = string.Join("|", missions.Select(x => $"{x.Id.Instance}:{x.Name}:{x.PlayfieldId}:{x.Kind}"));
@@ -93,8 +96,12 @@ namespace RKmission
                 _missionIcons[index]?.SetBitmap(MissionIcon(mission.Kind).ToString());
                 _missionIcons[index]?.SetAlpha(1f);
                 string name = string.IsNullOrWhiteSpace(mission.Name) ? $"Mission {mission.Id.Instance}" : mission.Name;
-                if (name.Length > 8) name = name.Substring(0, 6) + "..";
-                _missionLabels[index].Text = $"{name}\n{(mission.PlayfieldId > 0 ? "PF " + mission.PlayfieldId : "wait")}";
+                if (name.Length > 42) name = name.Substring(0, 39) + "...";
+                string description = !string.IsNullOrWhiteSpace(mission.Objectives)
+                    ? mission.Objectives
+                    : (!string.IsNullOrWhiteSpace(mission.QuestShortInfo) ? mission.QuestShortInfo : mission.Kind.ToString());
+                if (description.Length > 52) description = description.Substring(0, 49) + "...";
+                _missionLabels[index].Text = $"{name}\nPF {mission.PlayfieldId} - {description}";
                 _missionLabels[index].SetAlpha(1f);
                 _missionButtons[index].Tag = mission.Id.Instance;
                 _missionButtons[index].SetAlpha(mission.Id.Instance == _selectedMissionId ? 1f : 0.72f);
@@ -105,7 +112,7 @@ namespace RKmission
         private void SelectMission(object sender, ButtonBase button)
         {
             if (!(button.Tag is int id)) return;
-            AcceptedMission chosen = _missions().FirstOrDefault(x => x.Id.Instance == id && x.Present && !x.Completed);
+            AcceptedMission chosen = _missions().FirstOrDefault(x => x.Id.Instance == id && x.Present && x.IsRubiKaDestination && !x.Completed);
             if (chosen == null) return;
             _selectedMissionId = chosen.Id.Instance;
             _selectedMissionName = chosen.Name;
