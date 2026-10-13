@@ -4,10 +4,8 @@
     <TextView value="Neko Mission-Key Entry" font="BOLD"/>
     <View view_layout="horizontal" layout_borders="Rect(0,6,0,6)">
       <Button name="NekoWarp" label="Key Warp" min_size="Point(80,22)"/>
-      <Button name="NekoHelp" label="Help / Settings" min_size="Point(105,22)" layout_borders="Rect(4,0,0,0)"/>
-      <Button name="NekoToggle" label="Toggle Key" min_size="Point(80,22)" layout_borders="Rect(4,0,0,0)"/>
+      <Button name="NekoToggle" label="Key: ON" min_size="Point(90,22)" layout_borders="Rect(4,0,0,0)"/>
       <HLayoutSpacer/>
-      <TextView name="NekoEnabled" value="ON" font="BOLD"/>
     </View>
     <BorderView layout_borders="Rect(0,3,0,3)"><View view_layout="vertical" layout_borders="Rect(6,6,6,6)">
       <TextView name="NekoMission" value="Selected mission: none" feature_flags="TVF_MULTILINE"/>

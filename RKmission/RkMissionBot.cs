@@ -130,7 +130,7 @@ namespace RKmission
             MaliMissionRoller2.Main.Window.EnsureNekoView = () =>
             {
                 if (_nekoPanel == null)
-                    _nekoPanel = new NekoPanel(pluginDir, _entranceResolver, ManualNekoWarp, ShowHelp);
+                    _nekoPanel = new NekoPanel(pluginDir, _entranceResolver, ManualNekoWarp);
                 MaliMissionRoller2.Main.Window.AttachNekoView(_nekoPanel.Root);
             };
             _checkpoint = MissionCheckpoint.Load(pluginDir, Say);
@@ -558,12 +558,6 @@ namespace RKmission
                     break;
                 default: Say("Commands: start, auto, local, stop, status, missions, zone <id|all>, rolls <count>, limit <count|off>, travel auto|ground|flying, neko [warp|toggle], fgrid [scan|nav], nav [window]|record [name]|stop|list, logistics routes|cycle [1-20]|travel <site> <bank|shop>|return|stop|status|probe, complete [mission id], loot, map, settings."); break;
             }
-        }
-
-        private void ShowHelp()
-        {
-            var help = new MaliMissionRoller2.HelpWindow();
-            help.StartupWindow.Show(true);
         }
 
         private void ManualNekoWarp()

@@ -20,11 +20,14 @@ foreach ($required in @('_travel.Reset(); _movement.Halt(MovementOwner.MissionEn
 }
 Write-Output 'PASS destination-local Neko runs before physical travel and stale local movement is cancelled'
 
-foreach ($required in @('HostedTab.Neko', 'ShowNekoTab', 'AttachNekoView', 'NekoWarp', 'NekoHelp', 'NekoToggle', 'NekoDiagnostics')) {
+foreach ($required in @('HostedTab.Neko', 'ShowNekoTab', 'AttachNekoView', 'NekoWarp', 'NekoToggle', 'NekoDiagnostics')) {
     if (-not ($hostUi + $nekoXml).Contains($required)) { throw "Neko UI wiring missing: $required" }
 }
-if (-not $nekoXml.Contains('label="Toggle Key"')) { throw 'Toggle Key control missing.' }
-Write-Output 'PASS shared Neko tab exposes warp/help/toggle and live diagnostics'
+if ($nekoXml.Contains('NekoHelp') -or $nekoXml.Contains('Help / Settings')) { throw 'Redundant Neko Help / Settings control remains.' }
+$panel = Read 'RKmission/NekoPanel.cs'
+if (-not $panel.Contains('Key: <font color=''#00FF00''>ON</font>') -or
+    -not $panel.Contains('Key: <font color=''#FF4040''>OFF</font>')) { throw 'Key toggle does not show colored Key: ON/OFF state.' }
+Write-Output 'PASS shared Neko tab exposes key warp, colored Key state toggle, and live diagnostics without redundant help'
 
 foreach ($required in @('IsRubiKaPlayfield(_reclaimPlayfield)', 'Resurrection Sickness Removal', 'TemporarySkillReduction', 'Phase = "Readiness"')) {
     if (-not $death.Contains($required)) { throw "Death recovery gate missing: $required" }
