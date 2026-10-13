@@ -32,6 +32,7 @@ namespace RKmission
         private const int MaxStaircaseRecoveryAttempts = 2;
         private const float StaircaseAirborneLift = 0.15f;
         private const int ReverseEdgeCooldownSeconds = 1;
+        private static readonly TimeSpan DeferredLootRouteWaitLimit = TimeSpan.FromSeconds(95);
         private readonly HashSet<int> _clearedRooms = new HashSet<int>();
         private readonly HashSet<int> _combatCheckedRooms = new HashSet<int>();
         private readonly HashSet<int> _visitedRooms = new HashSet<int>();
@@ -46,6 +47,7 @@ namespace RKmission
         private DungeonLayout _layout;
         private Identity _scanTarget = Identity.None;
         private DateTime _scanStarted, _scanProgress;
+        private DateTime _deferredLootRouteWaitStarted;
         private readonly List<Vector3> _scanWaypoints = new List<Vector3>();
         private int _scanWaypointIndex;
         private float _scanWaypointBestDistance;
@@ -263,6 +265,7 @@ namespace RKmission
             _enemyOwners.Clear();
             _edgeFailures.Clear();
             _reverseCooldown.Clear();
+            _deferredLootRouteWaitStarted = DateTime.MinValue;
             _combat.Reset();
             ResetPostCombatCorpseTracking();
             ResetCombatApproach();
@@ -382,6 +385,7 @@ namespace RKmission
             _activeLift = null;
             _layout = null;
             _combatRecoveries.Clear();
+            _deferredLootRouteWaitStarted = DateTime.MinValue;
             ResetStaircaseRecoveryAttempts();
             ResetProvenStaircase();
             _combatTopologyHandoff = null;
@@ -990,10 +994,28 @@ namespace RKmission
                     id => _loot.HasReadyDeferredMissionLootInRoom(id), false);
                 if (deferredLootHop != null)
                 {
+                    _deferredLootRouteWaitStarted = DateTime.MinValue;
                     _say($"Traversal requirement satisfied; routing through room {deferredLootHop.Instance} toward ready deferred loot retry.");
                     BeginTransition(room.Instance, deferredLootHop.Instance);
                     return;
                 }
+                if (_loot.HasReadyDeferredMissionLoot && WaitingForRoute)
+                {
+                    MovementArbiter.Current.Halt(_requestedOwner);
+                    if (_deferredLootRouteWaitStarted == DateTime.MinValue)
+                    {
+                        _deferredLootRouteWaitStarted = DateTime.UtcNow;
+                        _say("Deferred ordinary loot is ready for its bounded retry; waiting for the temporary room-route cooldown to expire without releasing ManagerLoot control.");
+                    }
+                    if (DateTime.UtcNow - _deferredLootRouteWaitStarted <= DeferredLootRouteWaitLimit)
+                        return;
+                    string blockers = _loot.MissionLootBlockers;
+                    Stop();
+                    _say($"Deferred ordinary-loot return route remained unavailable for {DeferredLootRouteWaitLimit.TotalSeconds:0} seconds; " +
+                        $"mission stopped without completing or exiting. {blockers}.");
+                    return;
+                }
+                _deferredLootRouteWaitStarted = DateTime.MinValue;
                 int floorRooms = Playfield.Rooms.Count(x => Math.Abs(x.Floor) == _floor);
                 int clearedFloorRooms = _clearedRooms.Count(id =>
                     _layout.Room(id) != null && Math.Abs(_layout.Room(id).Floor) == _floor);
