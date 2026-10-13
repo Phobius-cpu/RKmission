@@ -11,20 +11,20 @@ foreach ($required in @(
     'HoldForPostCombatCorpse(room)',
     'PostCombatCorpseSettlementWait = TimeSpan.FromSeconds(90)',
     'PostCombatCorpseSkipVisibilityGrace = TimeSpan.FromSeconds(5)',
-    '_loot.RegisterOutstandingMissionLoot(corpse.Identity, guard.RoomId)',
+    'long occurrence = _loot.RegisterOutstandingMissionLoot(corpse.Identity, verifiedRoom)',
     '_loot.IsMissionLootSuccessfullyProcessed(',
     'guard.Corpse, guard.RoomId, guard.CorpseOccurrence)',
     '_loot.TryGetMissionLootSkipReason(guard.Corpse, out _)',
     '_loot.RetryVisibleOutstandingMissionLoot(skipped.Corpse, skipped.RoomId, reason)',
     'PostCombatCorpseGuardActive(liveRoom.Instance)',
-    '!guard.ExistingCorpses.Contains(x.Identity)',
-    'x.Identity.Instance == guard.Enemy.Instance',
-    'Vector3.Distance(x.Position, guard.DeathPosition) <= 6f')) {
+    '!guard.ExistingCorpses.Contains(x.Corpse.Identity)',
+    'x.Corpse.Identity.Instance == guard.Enemy.Instance',
+    'Vector3.Distance(x.Corpse.Position, guard.DeathPosition) <= 6f')) {
     if (-not $dungeon.Contains($required)) {
         throw "Post-combat corpse materialization guard regressed: $required"
     }
 }
-Write-Output 'PASS RKMission-controlled kills create a bounded same-room corpse materialization guard'
+Write-Output 'PASS RKMission-controlled kills create a bounded verified-room corpse materialization guard'
 
 $observe = $dungeon.IndexOf('ObservePostCombatCorpseGuard();')
 $readiness = $dungeon.IndexOf('if (_transition == null && HoldForReadiness()) return;')
@@ -61,12 +61,12 @@ Write-Output 'PASS normal combat deferral without corpses remains unchanged'
 if (-not $dungeon.Contains('_engagementExistingCorpses.Clear()') -or
     -not $dungeon.Contains('armed.ExistingCorpses.UnionWith(_engagementExistingCorpses)') -or
     -not $dungeon.Contains('_postCombatCorpseGuards.Add(armed)') -or
-    -not $dungeon.Contains('!_postCombatCorpseGuards.Any(other => other.Corpse == x.Identity)') -or
+    -not $dungeon.Contains('!_postCombatCorpseGuards.Any(other => other != guard && other.Corpse == x.Corpse.Identity)') -or
     -not $dungeon.Contains('registered as outstanding ManagerLoot work') -or
     -not $dungeon.Contains('Post-combat corpse guard completed')) {
-    throw 'Corpse matching no longer excludes pre-existing/settled sources or remains room-scoped.'
+    throw 'Corpse matching no longer excludes pre-existing/settled sources or preserves verified ownership.'
 }
-Write-Output 'PASS pre-existing corpses are excluded and matched identity remains owned through ManagerLoot settlement'
+Write-Output 'PASS pre-existing corpses are excluded and verified matched identity remains owned through ManagerLoot settlement'
 
 if (-not $dungeon.Contains('Post-combat corpse guard timed out') -or
     -not $dungeon.Contains('_roomQuietAt = DateTime.MinValue') -or

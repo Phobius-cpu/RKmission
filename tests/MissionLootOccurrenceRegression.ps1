@@ -37,7 +37,8 @@ Assert ($manager.Contains('Occurrence = _pendingMissionLootOccurrence') -and
 Write-Output 'PASS completion evidence stays with its source occurrence'
 
 Assert ($dungeon.Contains('public long CorpseOccurrence;') -and
-    $dungeon.Contains('guard.CorpseOccurrence = _loot.RegisterOutstandingMissionLoot') -and
+    $dungeon.Contains('long occurrence = _loot.RegisterOutstandingMissionLoot') -and
+    $dungeon.Contains('guard.CorpseOccurrence = occurrence') -and
     $dungeon.Contains('guard.Corpse, guard.RoomId, guard.CorpseOccurrence)')) `
     'Post-combat guards can still release from another occurrence of the same identity.'
 Write-Output 'PASS guard release requires current-occurrence completion'

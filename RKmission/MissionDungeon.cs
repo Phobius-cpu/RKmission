@@ -131,6 +131,25 @@ namespace RKmission
         private static readonly TimeSpan PostCombatCorpseMaterializationWait = TimeSpan.FromSeconds(5);
         private static readonly TimeSpan PostCombatCorpseSkipVisibilityGrace = TimeSpan.FromSeconds(5);
         private static readonly TimeSpan PostCombatCorpseSettlementWait = TimeSpan.FromSeconds(90);
+
+        private int VerifiedDynelRoom(Dynel dynel, int fallbackRoom = -1)
+        {
+            if (dynel == null || _layout == null) return fallbackRoom;
+            Room direct = dynel.Room;
+            if (direct != null && _layout.ContainsDynel(direct.Instance, dynel))
+                return direct.Instance;
+            Room contained = Playfield.Rooms.FirstOrDefault(candidate =>
+                _layout.ContainsDynel(candidate.Instance, dynel));
+            return contained?.Instance ?? fallbackRoom;
+        }
+
+        private void RememberExistingCorpses(int roomId)
+        {
+            if (roomId < 0) return;
+            foreach (Dynel corpse in _layout.VisibleRoomDynels(roomId).Where(x =>
+                x.Identity.Type == IdentityType.Corpse && _layout.ContainsDynel(roomId, x)))
+                _engagementExistingCorpses.Add(corpse.Identity);
+        }
         private DateTime _observedRoomAt;
         private int _observedRoom = -1;
         private DateTime _lootWaitStarted;
@@ -1214,12 +1233,11 @@ namespace RKmission
             if (_engagedEnemy != enemy.Identity)
             {
                 _engagementExistingCorpses.Clear();
-                foreach (Dynel corpse in _layout.VisibleRoomDynels(room.Instance).Where(x =>
-                    x.Identity.Type == IdentityType.Corpse && _layout.ContainsDynel(room.Instance, x)))
-                    _engagementExistingCorpses.Add(corpse.Identity);
             }
+            int verifiedRoom = VerifiedDynelRoom(enemy, room.Instance);
+            RememberExistingCorpses(verifiedRoom);
             _engagedEnemy = enemy.Identity;
-            _engagedEnemyRoom = room.Instance;
+            _engagedEnemyRoom = verifiedRoom;
             _engagedEnemyPosition = enemy.Position;
         }
 
@@ -1228,21 +1246,34 @@ namespace RKmission
             DateTime now = DateTime.UtcNow;
             foreach (PostCombatCorpseGuard guard in _postCombatCorpseGuards.Where(x => x.Corpse == Identity.None).ToList())
             {
-                Dynel corpse = _layout.VisibleRoomDynels(guard.RoomId).FirstOrDefault(x =>
-                    x.Identity.Type == IdentityType.Corpse &&
-                    _layout.ContainsDynel(guard.RoomId, x) &&
-                    !_postCombatCorpseGuards.Any(other => other.Corpse == x.Identity) &&
-                    !guard.ExistingCorpses.Contains(x.Identity) &&
-                    (x.Identity.Instance == guard.Enemy.Instance ||
-                     Vector3.Distance(x.Position, guard.DeathPosition) <= 6f));
+                var candidates = Playfield.Rooms.SelectMany(candidateRoom =>
+                    _layout.VisibleRoomDynels(candidateRoom.Instance).Where(x =>
+                        x.Identity.Type == IdentityType.Corpse &&
+                        _layout.ContainsDynel(candidateRoom.Instance, x))
+                    .Select(x => new { Corpse = x, RoomId = candidateRoom.Instance }))
+                    .Where(x =>
+                        !_postCombatCorpseGuards.Any(other => other != guard && other.Corpse == x.Corpse.Identity) &&
+                        !guard.ExistingCorpses.Contains(x.Corpse.Identity))
+                    .ToList();
+                var exact = candidates.Where(x =>
+                    x.Corpse.Identity.Instance == guard.Enemy.Instance).ToList();
+                var nearby = candidates.Where(x => x.RoomId == guard.RoomId &&
+                    Vector3.Distance(x.Corpse.Position, guard.DeathPosition) <= 6f).ToList();
+                var match = exact.Count == 1 ? exact[0] :
+                    exact.Count == 0 && nearby.Count == 1 ? nearby[0] : null;
+                Dynel corpse = match?.Corpse;
                 if (corpse != null)
                 {
-                    _say($"Post-combat corpse guard matched {corpse.Identity} in room {guard.RoomId} " +
-                        $"after {(now - guard.Started).TotalSeconds:0.0}s; registered as outstanding ManagerLoot work.");
+                    int verifiedRoom = VerifiedDynelRoom(corpse, match.RoomId);
+                    long occurrence = _loot.RegisterOutstandingMissionLoot(corpse.Identity, verifiedRoom);
+                    if (occurrence == 0) continue; // Door crossings temporarily release ManagerLoot room ownership.
+                    _say($"Post-combat corpse guard matched {corpse.Identity} in verified room {verifiedRoom} " +
+                        $"after {(now - guard.Started).TotalSeconds:0.0}s; engagement room was {guard.RoomId}; registered as outstanding ManagerLoot work.");
+                    guard.RoomId = verifiedRoom;
                     guard.Corpse = corpse.Identity;
                     guard.AcquiredAt = now;
                     guard.LastDiagnostic = now;
-                    guard.CorpseOccurrence = _loot.RegisterOutstandingMissionLoot(corpse.Identity, guard.RoomId);
+                    guard.CorpseOccurrence = occurrence;
                 }
             }
 
@@ -1253,6 +1284,13 @@ namespace RKmission
                 SimpleChar enemy = new SimpleChar(observed);
                 if (enemy.IsValid && enemy.IsAlive)
                 {
+                    int verifiedRoom = VerifiedDynelRoom(enemy, _engagedEnemyRoom);
+                    if (verifiedRoom != _engagedEnemyRoom)
+                    {
+                        RememberExistingCorpses(verifiedRoom);
+                        _say($"Combat target {_engagedEnemy} crossed from room {_engagedEnemyRoom} to verified room {verifiedRoom}; corpse ownership will follow its observed location.");
+                        _engagedEnemyRoom = verifiedRoom;
+                    }
                     _engagedEnemyPosition = enemy.Position;
                     return;
                 }
@@ -1292,12 +1330,24 @@ namespace RKmission
                 _postCombatCorpseGuards.Remove(settled);
             }
             if (_postCombatCorpseGuards.Count == 0) return false;
-            PostCombatCorpseGuard wrongRoom = _postCombatCorpseGuards.FirstOrDefault(guard =>
-                room == null || room.Instance != guard.RoomId);
+            bool localOutstanding = room != null &&
+                _postCombatCorpseGuards.Any(guard => guard.RoomId == room.Instance);
+            PostCombatCorpseGuard wrongRoom = localOutstanding ? null :
+                _postCombatCorpseGuards.FirstOrDefault(guard =>
+                    room == null || room.Instance != guard.RoomId);
             if (wrongRoom != null)
             {
+                MovementArbiter.Current.Halt(_requestedOwner);
+                _destination = null;
+                if (room != null && wrongRoom.RoomId >= 0 && RouteToRoom(wrongRoom.RoomId))
+                {
+                    _say($"Post-combat corpse recovery routing from room {room.Instance} toward verified outstanding room {wrongRoom.RoomId} for " +
+                        $"{(wrongRoom.Corpse == Identity.None ? wrongRoom.Enemy : wrongRoom.Corpse)}.");
+                    return true;
+                }
+                if (WaitingForRoute) return true;
                 Stop();
-                _say($"Post-combat corpse guard safe-stop: outstanding {(wrongRoom.Corpse == Identity.None ? wrongRoom.Enemy : wrongRoom.Corpse)} belongs to room {wrongRoom.RoomId}, but current room is {room?.Instance.ToString() ?? "unknown"}.");
+                _say($"Post-combat corpse guard terminal safe-stop: no mapped route from room {room?.Instance.ToString() ?? "unknown"} to verified outstanding room {wrongRoom.RoomId} for {(wrongRoom.Corpse == Identity.None ? wrongRoom.Enemy : wrongRoom.Corpse)}.");
                 return true;
             }
             DateTime now = DateTime.UtcNow;
@@ -2875,6 +2925,19 @@ namespace RKmission
         private void BeginTransition(int source, int target)
         {
             _requestedOwner = MovementOwner.DoorTransition;
+            PostCombatCorpseGuard localGuard = _postCombatCorpseGuards.FirstOrDefault(guard =>
+                guard.RoomId == source && (guard.Corpse == Identity.None ||
+                    !_loot.IsMissionLootSuccessfullyProcessed(
+                        guard.Corpse, guard.RoomId, guard.CorpseOccurrence)));
+            if (localGuard != null)
+            {
+                MovementArbiter.Current.Halt(_requestedOwner);
+                _destination = null;
+                _roomQuietAt = DateTime.MinValue;
+                _say($"Transition {source}->{target} held: post-combat corpse ownership for " +
+                    $"{(localGuard.Corpse == Identity.None ? localGuard.Enemy : localGuard.Corpse)} must settle in verified room {source} first.");
+                return;
+            }
             DungeonLayout.Connection edge = _layout.Edge(source, target);
             if (edge == null) return;
             Door door = _layout.DoorAt(edge);
