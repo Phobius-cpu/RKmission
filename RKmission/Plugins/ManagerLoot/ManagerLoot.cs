@@ -298,6 +298,14 @@ namespace ManagerLoot
             !IsMissionCriticalLoot(x.Key) &&
             x.Value.Attempts < MaxOrdinaryApproachAttempts &&
             _missionRoomTraversals < x.Value.RetryAfterTraversal);
+        public bool HasReadyDeferredMissionLootInRoom(int roomId) => _deferredApproaches.Any(x =>
+            !IsMissionCriticalLoot(x.Key) &&
+            x.Value.Attempts < MaxOrdinaryApproachAttempts &&
+            _missionRoomTraversals >= x.Value.RetryAfterTraversal &&
+            _missionLootRooms.TryGetValue(x.Key, out int sourceRoom) && sourceRoom == roomId &&
+            _missionSources.TryGetValue(x.Key, out MissionSourceState state) &&
+            state == MissionSourceState.DeferredApproach &&
+            !_finishedMissionLoot.Contains(x.Key) && !_unreachableMissionLoot.Contains(x.Key));
         public bool HasPendingMissionCorpse(int roomId) => !IgnoreOrdinaryMissionLoot &&
             (MissionRoomDynels?.Invoke(roomId) ?? DynelManager.AllDynels).Any(x =>
                 x.Identity.Type == IdentityType.Corpse && IsInMissionRoom(x, roomId) &&

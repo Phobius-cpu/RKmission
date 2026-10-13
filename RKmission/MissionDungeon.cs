@@ -708,6 +708,14 @@ namespace RKmission
                         return;
                     }
                 }
+                Room deferredLootHop = RouteTo(room.Instance,
+                    id => _loot.HasReadyDeferredMissionLootInRoom(id), false);
+                if (deferredLootHop != null)
+                {
+                    _say($"Traversal requirement satisfied; routing through room {deferredLootHop.Instance} toward ready deferred loot retry.");
+                    BeginTransition(room.Instance, deferredLootHop.Instance);
+                    return;
+                }
                 int floorRooms = Playfield.Rooms.Count(x => Math.Abs(x.Floor) == _floor);
                 int clearedFloorRooms = _clearedRooms.Count(id =>
                     _layout.Room(id) != null && Math.Abs(_layout.Room(id).Floor) == _floor);

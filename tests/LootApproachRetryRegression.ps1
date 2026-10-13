@@ -39,6 +39,16 @@ if (-not $loot.Contains('DeferredApproach') -or
 }
 Write-Output 'PASS first ordinary exhaustion is deferred and becomes retryable after traversal'
 
+if (-not $loot.Contains('public bool HasReadyDeferredMissionLootInRoom(int roomId)') -or
+    -not $loot.Contains('_missionRoomTraversals >= x.Value.RetryAfterTraversal') -or
+    -not $loot.Contains('state == MissionSourceState.DeferredApproach') -or
+    -not $dungeon.Contains('id => _loot.HasReadyDeferredMissionLootInRoom(id)') -or
+    -not $dungeon.Contains('toward ready deferred loot retry') -or
+    $dungeon.IndexOf('toward ready deferred loot retry') -gt $dungeon.IndexOf('Ordinary loot remains unfinished')) {
+    throw 'Traversal-ready deferred loot is not routed back before the final unfinished-loot stop.'
+}
+Write-Output 'PASS completed context traversal routes back to the deferred source before final gating'
+
 if (-not $loot.Contains('MaxOrdinaryApproachAttempts = 2') -or
     -not $loot.Contains('attempt = ++deferred.Attempts') -or
     -not $loot.Contains('if (attempt >= MaxOrdinaryApproachAttempts)') -or
