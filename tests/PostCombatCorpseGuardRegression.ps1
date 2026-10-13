@@ -10,8 +10,11 @@ foreach ($required in @(
     'ObservePostCombatCorpseGuard()',
     'HoldForPostCombatCorpse(room)',
     'PostCombatCorpseSettlementWait = TimeSpan.FromSeconds(90)',
+    'PostCombatCorpseSkipVisibilityGrace = TimeSpan.FromSeconds(5)',
     '_loot.RegisterOutstandingMissionLoot(corpse.Identity, guard.RoomId)',
-    '_loot.IsMissionLootSettled(guard.Corpse)',
+    '_loot.IsMissionLootSuccessfullyProcessed(guard.Corpse)',
+    '_loot.TryGetMissionLootSkipReason(guard.Corpse, out _)',
+    '_loot.RetryVisibleOutstandingMissionLoot(skipped.Corpse, skipped.RoomId, reason)',
     'PostCombatCorpseGuardActive(liveRoom.Instance)',
     '!guard.ExistingCorpses.Contains(x.Identity)',
     'x.Identity.Instance == guard.Enemy.Instance',
@@ -38,7 +41,7 @@ if (-not $dungeon.Contains('_engagementExistingCorpses.Clear()') -or
     -not $dungeon.Contains('_postCombatCorpseGuards.Add(armed)') -or
     -not $dungeon.Contains('!_postCombatCorpseGuards.Any(other => other.Corpse == x.Identity)') -or
     -not $dungeon.Contains('registered as outstanding ManagerLoot work') -or
-    -not $dungeon.Contains('Post-combat corpse guard settled')) {
+    -not $dungeon.Contains('Post-combat corpse guard completed')) {
     throw 'Corpse matching no longer excludes pre-existing/settled sources or remains room-scoped.'
 }
 Write-Output 'PASS pre-existing corpses are excluded and matched identity remains owned through ManagerLoot settlement'
@@ -46,8 +49,29 @@ Write-Output 'PASS pre-existing corpses are excluded and matched identity remain
 if (-not $dungeon.Contains('Post-combat corpse guard timed out') -or
     -not $dungeon.Contains('_roomQuietAt = DateTime.MinValue') -or
     -not $dungeon.Contains('Post-combat corpse guard rescanning room') -or
+    -not $dungeon.Contains('allowing {PostCombatCorpseSkipVisibilityGrace.TotalSeconds:0}s for a transient visibility recovery') -or
     -not $dungeon.Contains('Post-combat corpse guard safe-stop') -or
     -not $dungeon.Contains('visible={DynelManager.GetDynel(guard.Corpse) != null}')) {
     throw 'Corpse wait is not bounded or lacks useful diagnostics.'
 }
 Write-Output 'PASS materialization and settlement waits are bounded, tolerate transient absence, and safe-stop diagnostically'
+
+$manager = Get-Content -LiteralPath (Join-Path $root 'RKmission/Plugins/ManagerLoot/ManagerLoot.cs') -Raw
+foreach ($required in @(
+    'private readonly HashSet<MissionIdentity> _openedMissionLoot',
+    '_openedMissionLoot.Add(container.Identity)',
+    'public bool IsMissionLootSuccessfullyProcessed(MissionIdentity identity)',
+    '_openedMissionLoot.Contains(identity) && _finishedMissionLoot.Contains(identity)',
+    'state == MissionSourceState.Completed',
+    'public bool TryGetMissionLootSkipReason',
+    'public void RetryVisibleOutstandingMissionLoot',
+    '_deferredApproaches.Remove(identity)',
+    'exact ContainerOpened plus processing-finished evidence is still absent')) {
+    if (-not $manager.Contains($required)) {
+        throw "Exact corpse processing evidence regressed: $required"
+    }
+}
+if ($dungeon.Contains('IsMissionLootSettled(guard.Corpse)')) {
+    throw 'Corpse guard again conflates generic skip settlement with successful exact processing.'
+}
+Write-Output 'PASS guarded corpse success requires exact open/finish evidence and visible skipped corpses are retried'

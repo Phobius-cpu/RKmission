@@ -83,6 +83,7 @@ namespace ManagerLoot
         private readonly Dictionary<int, double> openedContainers = new Dictionary<int, double>();
         private readonly HashSet<MissionIdentity> _unreachableMissionLoot = new HashSet<MissionIdentity>();
         private readonly HashSet<MissionIdentity> _seenMissionLoot = new HashSet<MissionIdentity>();
+        private readonly HashSet<MissionIdentity> _openedMissionLoot = new HashSet<MissionIdentity>();
         private readonly HashSet<MissionIdentity> _finishedMissionLoot = new HashSet<MissionIdentity>();
         private enum MissionSourceState
         {
@@ -92,6 +93,8 @@ namespace ManagerLoot
         }
         private readonly Dictionary<MissionIdentity, MissionSourceState> _missionSources =
             new Dictionary<MissionIdentity, MissionSourceState>();
+        private readonly Dictionary<MissionIdentity, string> _missionSkipReasons =
+            new Dictionary<MissionIdentity, string>();
         private const int MaxOrdinaryApproachAttempts = 2;
         private sealed class DeferredApproach
         {
@@ -238,8 +241,10 @@ namespace ManagerLoot
             _selectedItems.RemoveWhere(identity => !HasUsableIdentity(identity));
             _unreachableMissionLoot.Clear();
             _seenMissionLoot.Clear();
+            _openedMissionLoot.Clear();
             _finishedMissionLoot.Clear();
             _missionSources.Clear();
+            _missionSkipReasons.Clear();
             _deferredApproaches.Clear();
             _missionRoomTraversals = 0;
             MissionLootProgress = 0;
@@ -403,8 +408,44 @@ namespace ManagerLoot
             TrackMissionLoot(identity, roomId);
         }
 
-        public bool IsMissionLootSettled(MissionIdentity identity) =>
-            _missionSources.TryGetValue(identity, out MissionSourceState state) && Settled(state);
+        // A post-combat corpse may release room ownership only with both exact
+        // ContainerOpened and exact processing-finished evidence.  Generic
+        // "settled" includes policy skips and is deliberately not success.
+        public bool IsMissionLootSuccessfullyProcessed(MissionIdentity identity) =>
+            _openedMissionLoot.Contains(identity) && _finishedMissionLoot.Contains(identity) &&
+            _missionSources.TryGetValue(identity, out MissionSourceState state) &&
+            state == MissionSourceState.Completed;
+
+        public bool TryGetMissionLootSkipReason(MissionIdentity identity, out string reason)
+        {
+            reason = null;
+            if (!_missionSources.TryGetValue(identity, out MissionSourceState state) || !Settled(state) ||
+                state == MissionSourceState.Completed) return false;
+            if (_missionSkipReasons.TryGetValue(identity, out reason) && !string.IsNullOrWhiteSpace(reason))
+                return true;
+            reason = state == MissionSourceState.SkippedUnreachable ? "approach retries exhausted" :
+                state == MissionSourceState.SkippedInsufficientSkill ? "insufficient lockpick skill" :
+                state == MissionSourceState.SkippedNoLockpick ? "no lockpick available" :
+                state == MissionSourceState.SkippedRepeatedFailure ? "repeated lockpick failure" :
+                state == MissionSourceState.SkippedNoCapacity ? "no safe main-inventory slot" :
+                state.ToString();
+            return true;
+        }
+
+        public void RetryVisibleOutstandingMissionLoot(MissionIdentity identity, int roomId, string priorReason)
+        {
+            if (identity == MissionIdentity.None || MissionRoomId < 0 ||
+                IsMissionLootSuccessfullyProcessed(identity)) return;
+            _unreachableMissionLoot.Remove(identity);
+            _finishedMissionLoot.Remove(identity);
+            _deferredApproaches.Remove(identity);
+            _missionSkipReasons.Remove(identity);
+            openedContainers.Remove(identity.Instance);
+            TrackMissionLoot(identity, roomId);
+            SetMissionSource(identity, MissionSourceState.Discovered);
+            Chat.WriteLine($"RKMission: Reopened visible outstanding loot {identity} in room {roomId}; " +
+                $"prior skip was '{priorReason}', but exact ContainerOpened plus processing-finished evidence is still absent.");
+        }
 
         public void SkipUnreachableMissionLoot(MissionIdentity identity)
         {
@@ -419,7 +460,8 @@ namespace ManagerLoot
             if (_pendingMissionLoot == identity && CorpseContainer == null) _pendingMissionLoot = MissionIdentity.None;
         }
 
-        public bool DeferMissionLoot(MissionIdentity identity, out int attempt, out int maxAttempts)
+        public bool DeferMissionLoot(MissionIdentity identity, string failureReason,
+            out int attempt, out int maxAttempts)
         {
             maxAttempts = MaxOrdinaryApproachAttempts;
             if (IsMissionCriticalLoot(identity))
@@ -434,6 +476,7 @@ namespace ManagerLoot
             if (attempt >= MaxOrdinaryApproachAttempts)
             {
                 SkipUnreachableMissionLoot(identity);
+                _missionSkipReasons[identity] = $"approach retries exhausted: {failureReason}";
                 return false;
             }
             deferred.RetryAfterTraversal = _missionRoomTraversals + 1;
@@ -482,6 +525,7 @@ namespace ManagerLoot
             SetMissionSource(identity, reason == LockpickOutcome.InsufficientSkill ?
                 MissionSourceState.SkippedInsufficientSkill : reason == LockpickOutcome.NoLockPick ?
                 MissionSourceState.SkippedNoLockpick : MissionSourceState.SkippedRepeatedFailure);
+            _missionSkipReasons[identity] = $"lockpick failure: {reason} after {attempt.Attempts} attempt(s)";
             // A known unpickable ordinary chest is settled for room and final clearance.
             _finishedMissionLoot.Add(identity);
             Chat.WriteLine($"RKMission: Skipping locked loot {identity}: {reason} after {attempt.Attempts} attempt(s).");
@@ -531,6 +575,11 @@ namespace ManagerLoot
         {
             if (MissionRoomId >= 0 && CorpseContainer != null)
             {
+                if (!_openedMissionLoot.Contains(CorpseContainer.Identity))
+                {
+                    Chat.WriteLine($"RKMission: Refusing completion for {CorpseContainer.Identity}: exact ContainerOpened evidence is absent.");
+                    return;
+                }
                 _unreachableMissionLoot.Remove(CorpseContainer.Identity);
                 if (_finishedMissionLoot.Add(CorpseContainer.Identity))
                     Chat.WriteLine($"RKMission: Loot processing finished {CorpseContainer.Identity}.");
@@ -804,6 +853,7 @@ namespace ManagerLoot
                     }
                     _sourceAcquisition.SkippedNoCapacity = true;
                     SetMissionSource(_sourceAcquisition.Source, MissionSourceState.SkippedNoCapacity);
+                    _missionSkipReasons[_sourceAcquisition.Source] = "no safe main-inventory slot after exact ContainerOpened";
                     foreach (ListedItemTransfer remaining in _sourceAcquisition.Items.Skip(_sourceAcquisition.Current))
                         remaining.NonActionable = true;
                     _sourceAcquisition.Current = _sourceAcquisition.Items.Count;
@@ -1181,6 +1231,7 @@ namespace ManagerLoot
                 openedContainers[container.Identity.Instance] = Time.AONormalTime;
 
             CorpseContainer = container;
+            if (MissionRoomId >= 0) _openedMissionLoot.Add(container.Identity);
             _observedContainerCount = container.Items?.Count ?? 0;
             CurrentCorpse = DynelManager.GetDynel(container.Identity);
             SetMissionSource(container.Identity, MissionSourceState.Looting);
@@ -1408,6 +1459,7 @@ namespace ManagerLoot
                                 MissionIdentity skipped = CorpseContainer.Identity;
                                 _finishedMissionLoot.Add(skipped);
                                 SetMissionSource(skipped, MissionSourceState.SkippedNoCapacity);
+                                _missionSkipReasons[skipped] = "no safe main-inventory slot after exact ContainerOpened";
                                 if (_pendingMissionLoot == skipped) _pendingMissionLoot = MissionIdentity.None;
                                 Chat.WriteLine($"RKMission: Optional loot {skipped} deferred because the main inventory has no safe free slot.");
                                 CurrentCorpse = null;

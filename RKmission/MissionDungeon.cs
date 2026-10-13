@@ -106,7 +106,7 @@ namespace RKmission
             public Identity Corpse;
             public int RoomId;
             public Vector3 DeathPosition;
-            public DateTime Started, AcquiredAt, LastDiagnostic;
+            public DateTime Started, AcquiredAt, LastDiagnostic, SkipInvisibleAt;
             public readonly HashSet<Identity> ExistingCorpses = new HashSet<Identity>();
         }
         private readonly List<PostCombatCorpseGuard> _postCombatCorpseGuards = new List<PostCombatCorpseGuard>();
@@ -115,6 +115,7 @@ namespace RKmission
         private Vector3 _engagedEnemyPosition;
         private readonly HashSet<Identity> _engagementExistingCorpses = new HashSet<Identity>();
         private static readonly TimeSpan PostCombatCorpseMaterializationWait = TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan PostCombatCorpseSkipVisibilityGrace = TimeSpan.FromSeconds(5);
         private static readonly TimeSpan PostCombatCorpseSettlementWait = TimeSpan.FromSeconds(90);
         private DateTime _observedRoomAt;
         private int _observedRoom = -1;
@@ -1018,9 +1019,9 @@ namespace RKmission
         {
             if (_postCombatCorpseGuards.Count == 0) return false;
             foreach (PostCombatCorpseGuard settled in _postCombatCorpseGuards.Where(guard =>
-                guard.Corpse != Identity.None && _loot.IsMissionLootSettled(guard.Corpse)).ToList())
+                guard.Corpse != Identity.None && _loot.IsMissionLootSuccessfullyProcessed(guard.Corpse)).ToList())
             {
-                _say($"Post-combat corpse guard settled {settled.Corpse} in room {settled.RoomId}; outstanding corpse ownership released.");
+                _say($"Post-combat corpse guard completed {settled.Corpse} in room {settled.RoomId}; exact ContainerOpened and processing-finished evidence confirmed, outstanding corpse ownership released.");
                 _postCombatCorpseGuards.Remove(settled);
             }
             if (_postCombatCorpseGuards.Count == 0) return false;
@@ -1033,6 +1034,31 @@ namespace RKmission
                 return true;
             }
             DateTime now = DateTime.UtcNow;
+            foreach (PostCombatCorpseGuard skipped in _postCombatCorpseGuards.Where(guard =>
+                guard.Corpse != Identity.None && _loot.TryGetMissionLootSkipReason(guard.Corpse, out _)).ToList())
+            {
+                _loot.TryGetMissionLootSkipReason(skipped.Corpse, out string reason);
+                Dynel visible = DynelManager.GetDynel(skipped.Corpse);
+                if (visible != null && _layout.ContainsDynel(skipped.RoomId, visible))
+                {
+                    skipped.SkipInvisibleAt = DateTime.MinValue;
+                    _say($"Post-combat corpse guard rejected skip for visible {skipped.Corpse} in room {skipped.RoomId}: {reason}; exact processing evidence is absent, retrying this corpse.");
+                    _loot.RetryVisibleOutstandingMissionLoot(skipped.Corpse, skipped.RoomId, reason);
+                    skipped.LastDiagnostic = now;
+                }
+                else if (skipped.SkipInvisibleAt == DateTime.MinValue)
+                {
+                    skipped.SkipInvisibleAt = now;
+                    skipped.LastDiagnostic = now;
+                    _say($"Post-combat corpse guard retaining skipped {skipped.Corpse} in room {skipped.RoomId}: {reason}; " +
+                        $"currently not visible, allowing {PostCombatCorpseSkipVisibilityGrace.TotalSeconds:0}s for a transient visibility recovery.");
+                }
+                else if (now - skipped.SkipInvisibleAt >= PostCombatCorpseSkipVisibilityGrace)
+                {
+                    _say($"Post-combat corpse guard accepted explicit skip for {skipped.Corpse} in room {skipped.RoomId}: {reason}; corpse is no longer visible in its room.");
+                    _postCombatCorpseGuards.Remove(skipped);
+                }
+            }
             foreach (PostCombatCorpseGuard expired in _postCombatCorpseGuards.Where(guard =>
                 guard.Corpse == Identity.None && now - guard.Started >= PostCombatCorpseMaterializationWait).ToList())
             {
@@ -2440,7 +2466,7 @@ namespace RKmission
                 _say($"Mission-critical loot {loot.Identity} in room {roomId} could not be reached: {reason}. Mission recovery required.");
                 return;
             }
-            bool deferred = _loot.DeferMissionLoot(loot.Identity, out int attempt, out int maxAttempts);
+            bool deferred = _loot.DeferMissionLoot(loot.Identity, reason, out int attempt, out int maxAttempts);
             if (deferred)
                 _say($"Deferring loot {loot.Identity} in room {roomId}, attempt {attempt}/{maxAttempts}: {reason}; " +
                     "will retry after room traversal. Exploration continues.");
