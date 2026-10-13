@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using AOSharp.Common.GameData;
 using AOSharp.Core;
@@ -13,7 +14,8 @@ namespace RKmission
     // completion and inventory/cash proof; uncertain actions are never retried.
     internal sealed class ShopSaleTest : IDisposable
     {
-        private enum Phase { Idle, Opening, Selecting, StageMoveSent, AddSent, AcceptSent, BetweenSales, StagingOnlySent }
+        private const string BagOwner = "ShopSale";
+        private enum Phase { Idle, Selecting, StageMoveSent, WaitingToOpen, Opening, AddSent, AcceptSent, ClosingBetweenSales, ClosingFinal, StagingOnlySent }
 
         private readonly LogisticsRouteNavigator _route;
         private readonly ManagerLoot.ManagerLoot _loot;
@@ -23,8 +25,10 @@ namespace RKmission
         private Identity _actor = Identity.None, _sourceBag = Identity.None, _itemSlot = Identity.None;
         private DateTime _phaseStarted, _nextTick;
         private bool _shopSeen, _openSeen, _addEcho, _completeSeen, _declined;
-        private string _itemName;
-        private int _itemId, _itemQl, _mainBefore, _bagBefore, _cashBefore;
+        private string _itemName, _sourceBagName;
+        private int _itemId, _itemQl, _itemLowId, _itemHighId, _mainBefore, _bagBefore, _cashBefore;
+        private bool _sourceBagOpenBefore;
+        private readonly HashSet<Identity> _mainSlotsBefore = new HashSet<Identity>();
         private int _requested = 1, _completed;
         private bool _automaticRun;
 
@@ -185,8 +189,8 @@ namespace RKmission
                 _say("Shop sale held: no unique exact surveyed shop actor is visible at the target; no item was moved.");
                 return false;
             }
-            if (Trade.TradeTarget.HasValue && Trade.TradeTarget.Value != actor.Identity)
-            { LastFailure = "another trade target is active"; Result = VerifiedOperationResult.Failed; _say("Shop sale held: another trade target is active; close it before using the surveyed shop."); return false; }
+            if (Trade.TradeTarget.HasValue)
+            { LastFailure = "a trade target is already active"; Result = VerifiedOperationResult.Failed; _say("Shop sale held: close the active trade before RKMission stages an RK Junk item."); return false; }
             _actor = actor.Identity;
             _requested = count;
             _automaticRun = automaticRun;
@@ -196,16 +200,11 @@ namespace RKmission
             _itemId = _itemQl = 0;
             _shopSeen = _openSeen = _addEcho = _completeSeen = _declined = false;
             Result = VerifiedOperationResult.Running;
-            _phase = Phase.Opening;
+            _phase = Phase.Selecting;
             _phaseStarted = DateTime.UtcNow;
             _nextTick = DateTime.MinValue;
-            try
-            {
-                actor.Use();
-                _say($"Opening exact surveyed shop actor {_actor} for up to {_requested} verified sale(s); " +
-                    "waiting for shop update and trade open.");
-            }
-            catch (Exception ex) { Fail("could not use shop actor: " + ex.Message); return false; }
+            _say($"Exact surveyed shop actor {_actor} verified for up to {_requested} sale(s); " +
+                "staging one eligible RK Junk Reject before opening any trade.");
             return true;
         }
 
@@ -214,13 +213,14 @@ namespace RKmission
             if (!IsActive) return;
             Phase old = _phase;
             _phase = Phase.Idle;
+            ManagedBagOpenOwnership.ReleaseAll(BagOwner);
             Result = VerifiedOperationResult.Failed;
             LastFailure = old == Phase.AddSent || old == Phase.AcceptSent
                 ? "sale stopped with an item possibly in the trade window"
                 : "sale stopped before completion";
             _say(old == Phase.AddSent || old == Phase.AcceptSent
                 ? $"Shop sale stopped after {_completed} verified sale(s), with an item possibly in the trade window. Inspect the shop and inventory before retrying."
-                : old == Phase.StageMoveSent || old == Phase.StagingOnlySent
+                : old == Phase.StageMoveSent || old == Phase.WaitingToOpen || old == Phase.StagingOnlySent
                     ? $"Shop sale stopped after {_completed} verified sale(s); a bag move may have been sent. Inspect RK Junk and main inventory."
                     : $"Shop sale stopped after {_completed} verified sale(s); no further item was submitted.");
         }
@@ -241,7 +241,8 @@ namespace RKmission
             else if (trade.Action == TradeAction.Complete && _phase == Phase.AcceptSent &&
                 trade.Param1 == (int)_actor.Type && trade.Param2 == _actor.Instance)
                 _completeSeen = true;
-            else if (trade.Action == TradeAction.Decline) _declined = true;
+            else if (trade.Action == TradeAction.Decline &&
+                _phase != Phase.ClosingBetweenSales && _phase != Phase.ClosingFinal) _declined = true;
         }
 
         private void OnUpdate(object sender, float elapsed)
@@ -272,53 +273,16 @@ namespace RKmission
                 else if (TimedOut(8)) Fail($"main-to-RK Junk move not verified (main={main}, bag={stored})");
                 return;
             }
-            if (_route.FindVerifiedShopActor(_actor.ToString()) == null)
+            Dynel exactActor = _route.FindVerifiedShopActor(_actor.ToString());
+            if (exactActor == null)
             { Fail("exact surveyed shop actor, position, or playfield was lost"); return; }
             if (_declined) { Fail("shop trade was declined"); return; }
-            if (_phase == Phase.Opening)
-            {
-                if (_shopSeen && _openSeen)
-                {
-                    _phase = Phase.Selecting;
-                    _phaseStarted = DateTime.UtcNow;
-                    _say("Exact shop trade opened and inventory update received; selecting one unprotected Reject from RK Junk.");
-                }
-                else if (TimedOut(10)) Fail($"shop did not finish opening (trade={_openSeen}, inventory={_shopSeen})");
-                return;
-            }
-            if (_phase == Phase.BetweenSales)
-            {
-                if (!TimedOut(1)) return;
-                if (Item.HasPendingUse || Spell.HasPendingCast)
-                { if (TimedOut(10)) Fail("another item use or spell remained pending between sales"); return; }
-                if (Trade.TradeTarget.HasValue && Trade.TradeTarget.Value != _actor)
-                { Fail("active trade target changed between verified sales"); return; }
-                if (Trade.TradeTarget.HasValue && Trade.TradeTarget.Value == _actor)
-                {
-                    _phase = Phase.Selecting;
-                    _phaseStarted = DateTime.UtcNow;
-                    _say($"Verified {_completed}/{_requested} sale(s); shop trade remains open. " +
-                        "Selecting the next RK Junk Reject item.");
-                }
-                else
-                {
-                    Dynel actor = _route.FindVerifiedShopActor(_actor.ToString());
-                    _shopSeen = _openSeen = false;
-                    _phase = Phase.Opening;
-                    _phaseStarted = DateTime.UtcNow;
-                    actor.Use();
-                    _say($"Verified {_completed}/{_requested} sale(s); reopening exact shop actor {_actor} " +
-                        "for the next item.");
-                }
-                return;
-            }
-            if (_phase != Phase.AcceptSent &&
-                (!Trade.TradeTarget.HasValue || Trade.TradeTarget.Value != _actor))
-            { Fail($"active trade target changed from exact shop actor {_actor}"); return; }
             if (_phase == Phase.Selecting)
             {
-                if (Item.HasPendingUse || Spell.HasPendingCast)
-                { if (TimedOut(10)) Fail("another item use or spell remained pending"); return; }
+                if (Trade.TradeTarget.HasValue)
+                { Fail("a trade target became active before RK Junk staging"); return; }
+                if (Item.HasPendingUse)
+                { if (TimedOut(10)) Fail("another item use remained pending before RK Junk staging"); return; }
                 Item[] main = MainItems();
                 if (Inventory.NumFreeSlots < 1)
                 { Fail("no free main-inventory slot to stage a Reject from RK Junk"); return; }
@@ -329,7 +293,7 @@ namespace RKmission
                         ManagerLoot.ManagedBagFamily.Sell))
                     .SelectMany(bag => Inventory.GetContainerItems(bag.Identity)
                         .Where(x => x != null)
-                        .Select(x => new { Bag = bag.Identity, Item = x })).ToArray();
+                        .Select(x => new { Bag = bag, Item = x })).ToArray();
                 var staged = sellItems
                     .Where(x => _policy.CanAutoSell(x.Item, _loot, true, false, out _))
                     .Where(x => main.All(y => !SameItem(x.Item, y)))
@@ -337,44 +301,103 @@ namespace RKmission
                     .FirstOrDefault();
                 if (staged == null)
                 {
-                    if (_completed > 0)
-                    {
-                        _phase = Phase.Idle;
-                        Result = VerifiedOperationResult.Succeeded;
-                        LastFailure = null;
-                        _say($"Shop selling finished after {_completed} verified sale(s); " +
-                            "no further unprotected, unambiguous Reject item was found in RK Junk.");
-                    }
+                    if (_completed > 0) SucceedNoMoreCandidates();
                     else Fail("no unprotected, unambiguous ManagerLoot Reject item in an RK Junk bag");
                     return;
                 }
                 Remember(staged.Item);
-                _sourceBag = staged.Bag;
+                _sourceBag = staged.Bag.Identity;
+                _sourceBagName = staged.Bag.Name;
+                _sourceBagOpenBefore = staged.Bag.IsOpen;
                 _mainBefore = main.Count(Matches);
                 _bagBefore = Inventory.GetContainerItems(_sourceBag).Count(Matches);
                 if (_bagBefore != 1)
-                { Fail("selected RK Junk item is duplicated in its bag"); return; }
+                { Fail("selected RK Junk item is duplicated in its source bag"); return; }
+                _mainSlotsBefore.Clear();
+                foreach (Item existing in main) _mainSlotsBefore.Add(existing.Slot);
+                ManagedBagOpenOwnership.Acquire(BagOwner, staged.Bag);
                 _phase = Phase.StageMoveSent;
                 _phaseStarted = DateTime.UtcNow;
                 staged.Item.MoveToInventory();
-                _say($"Moving one Reject '{_itemName}' from RK Junk into main inventory before the shop trade.");
+                _say($"RK Junk pre-trade staging sent once: {Fingerprint()}, sourceBag='{_sourceBagName}' " +
+                    $"({_sourceBag}, open={staged.Bag.IsOpen}), sourceSlot={_itemSlot}; no shop trade is open.");
                 return;
             }
             if (_phase == Phase.StageMoveSent)
             {
                 Item[] main = MainItems();
+                int mainCount = main.Count(Matches);
                 int bagCount = Inventory.GetContainerItems(_sourceBag).Count(Matches);
-                if (main.Count(Matches) == _mainBefore + 1 && bagCount == _bagBefore - 1 &&
-                    !Item.HasPendingUse && !Spell.HasPendingCast)
+                Item destination = main.SingleOrDefault(Matches);
+                if (mainCount == _mainBefore + 1 && bagCount == _bagBefore - 1 && destination != null &&
+                    !_mainSlotsBefore.Contains(destination.Slot))
                 {
-                    Item item = main.SingleOrDefault(Matches);
-                    if (item == null) { Fail("staged Reject item could not be identified in main inventory"); return; }
-                    _say($"RK Junk staging verified for '{_itemName}'; adding it to the shop trade.");
-                    BeginAdd(item);
+                    ManagedBagOpenOwnership.Release(BagOwner, _sourceBag);
+                    _itemSlot = destination.Slot;
+                    _phase = Phase.WaitingToOpen;
+                    _phaseStarted = DateTime.UtcNow;
+                    _say($"RK Junk pre-trade staging verified: {Fingerprint()} left sourceBag='{_sourceBagName}' " +
+                        $"({_sourceBag}) and arrived in main slot {_itemSlot}. Waiting for a safe window to open the exact shop actor.");
                 }
-                else if (TimedOut(8)) Fail("RK Junk to main-inventory move was not verified");
+                else if (TimedOut(8)) Fail("RK Junk to main-inventory pre-trade move was not verified; " + StagingDiagnostics(main, bagCount));
                 return;
             }
+            if (_phase == Phase.WaitingToOpen)
+            {
+                // Location proof is intentionally independent of background casts. Only
+                // opening the trade waits for the client action window to settle.
+                if (Item.HasPendingUse || Spell.HasPendingCast)
+                { if (TimedOut(10)) Fail("safe window to open the shop did not arrive after verified staging; " + StagingDiagnostics(MainItems(), Inventory.GetContainerItems(_sourceBag).Count(Matches))); return; }
+                if (Trade.TradeTarget.HasValue)
+                { Fail("a trade target became active after staging and before RKMission opened the shop"); return; }
+                _shopSeen = _openSeen = _declined = false;
+                _phase = Phase.Opening;
+                _phaseStarted = DateTime.UtcNow;
+                exactActor.Use();
+                _say($"Opening exact surveyed shop actor {_actor} only after verified pre-trade staging of {Fingerprint()}.");
+                return;
+            }
+            if (_phase == Phase.Opening)
+            {
+                if (_shopSeen && _openSeen)
+                {
+                    Item item = MainItems().SingleOrDefault(Matches);
+                    if (item == null || item.Slot != _itemSlot)
+                    { Fail("staged Reject item was not found in its verified main-inventory slot after shop open"); return; }
+                    _say("Exact shop trade opened and inventory update arrived; adding only the Reject proven to originate in RK Junk.");
+                    BeginAdd(item);
+                }
+                else if (TimedOut(10)) Fail($"shop did not finish opening (trade={_openSeen}, inventory={_shopSeen})");
+                return;
+            }
+            if (_phase == Phase.ClosingBetweenSales)
+            {
+                if (!Trade.TradeTarget.HasValue)
+                {
+                    _phase = Phase.Selecting;
+                    _phaseStarted = DateTime.UtcNow;
+                    _say($"Verified {_completed}/{_requested} sale(s); trade closure verified. " +
+                        "The next RK Junk item will be staged with no trade open.");
+                }
+                else if (TimedOut(8)) Fail("shop trade did not close before the next isolated staging operation");
+                return;
+            }
+            if (_phase == Phase.ClosingFinal)
+            {
+                if (!Trade.TradeTarget.HasValue)
+                {
+                    _phase = Phase.Idle;
+                    Result = VerifiedOperationResult.Succeeded;
+                    LastFailure = null;
+                    _say($"Shop selling complete: {_completed} item(s) sold, verified, and the trade closed.");
+                    if (_automaticRun) _say("Automatic shop return will start next.");
+                }
+                else if (TimedOut(8)) Fail("shop trade did not close after the final verified sale");
+                return;
+            }
+            if (_phase != Phase.AcceptSent &&
+                (!Trade.TradeTarget.HasValue || Trade.TradeTarget.Value != _actor))
+            { Fail($"active trade target changed from exact shop actor {_actor}"); return; }
             int currentMain = MainItems().Count(Matches);
             if (_phase == Phase.AddSent)
             {
@@ -391,23 +414,24 @@ namespace RKmission
             if (_phase == Phase.AcceptSent)
             {
                 int cash = DynelManager.LocalPlayer.GetStat(Stat.Cash);
-                if (_completeSeen && currentMain == _mainBefore - 1 && cash >= _cashBefore)
+                if (_completeSeen && currentMain == _mainBefore - 1 && cash > _cashBefore)
                 {
                     _completed++;
                     _say($"Shop sale verified for '{_itemName}': trade complete, item left main inventory, " +
                         $"cash {_cashBefore} -> {cash}; {_completed}/{_requested} sale(s) verified.");
                     if (_completed >= _requested)
                     {
-                        _phase = Phase.Idle;
-                        Result = VerifiedOperationResult.Succeeded;
-                        LastFailure = null;
-                        _say($"Shop selling complete: {_completed} item(s) sold and verified.");
-                        if (_automaticRun) _say("Automatic shop return will start next.");
+                        _phase = Phase.ClosingFinal;
+                        _phaseStarted = DateTime.UtcNow;
+                        if (Trade.TradeTarget.HasValue) Trade.Decline();
+                        _say("Final sale verified; closing the shop trade before reporting transaction success.");
                     }
                     else
                     {
-                        _phase = Phase.BetweenSales;
+                        _phase = Phase.ClosingBetweenSales;
                         _phaseStarted = DateTime.UtcNow;
+                        if (Trade.TradeTarget.HasValue) Trade.Decline();
+                        _say("Closing the verified shop trade before staging the next RK Junk item.");
                     }
                 }
                 else if (TimedOut(10))
@@ -434,7 +458,31 @@ namespace RKmission
         }
 
         private void Remember(Item item)
-        { _itemId = item.Id; _itemQl = item.QualityLevel; _itemName = item.Name; }
+        {
+            _itemId = item.Id; _itemQl = item.QualityLevel; _itemName = item.Name;
+            _itemLowId = item.LowId; _itemHighId = item.HighId; _itemSlot = item.Slot;
+        }
+        private string Fingerprint() => $"'{_itemName}', id={_itemId}, QL={_itemQl}, low/high={_itemLowId}/{_itemHighId}";
+        private string StagingDiagnostics(Item[] main, int bagCount)
+        {
+            Container bag = Inventory.Backpacks.FirstOrDefault(x => x.Identity == _sourceBag);
+            Item destination = main.FirstOrDefault(Matches);
+            string target = Trade.TradeTarget.HasValue ? Trade.TradeTarget.Value.ToString() : "none";
+            return $"sourceBag='{_sourceBagName}' ({_sourceBag}), sourceOpenBefore={_sourceBagOpenBefore}, " +
+                $"sourceOpenNow={(bag == null ? "missing" : bag.IsOpen.ToString())}, snapshotItems={(bag == null ? -1 : Inventory.GetContainerItems(_sourceBag).Count)}, " +
+                $"item={Fingerprint()}, sourceSlot={_itemSlot}, mainSlot={(destination == null ? "absent" : destination.Slot.ToString())}, " +
+                $"counts source {_bagBefore}->{bagCount}, main {_mainBefore}->{main.Count(Matches)}, " +
+                $"pendingUse={Item.HasPendingUse}, pendingCast={Spell.HasPendingCast}, movement={DynelManager.LocalPlayer?.MovementState.ToString() ?? "unavailable"}, " +
+                $"activeTrade={target}, shopActor={_actor}, elapsed={(DateTime.UtcNow - _phaseStarted).TotalSeconds:F1}s";
+        }
+        private void SucceedNoMoreCandidates()
+        {
+            _phase = Phase.Idle;
+            Result = VerifiedOperationResult.Succeeded;
+            LastFailure = null;
+            ManagedBagOpenOwnership.ReleaseAll(BagOwner);
+            _say($"Shop selling finished after {_completed} verified sale(s); no further unprotected, unambiguous Reject item was found in RK Junk.");
+        }
         private bool TimedOut(int seconds) => DateTime.UtcNow - _phaseStarted >= TimeSpan.FromSeconds(seconds);
         private bool Matches(Item item) => item != null && item.Id == _itemId &&
             item.QualityLevel == _itemQl && string.Equals(item.Name, _itemName, StringComparison.Ordinal);
@@ -447,6 +495,7 @@ namespace RKmission
         {
             Phase old = _phase;
             _phase = Phase.Idle;
+            ManagedBagOpenOwnership.ReleaseAll(BagOwner);
             Result = VerifiedOperationResult.Failed;
             LastFailure = reason;
             _say($"Shop selling stopped after {_completed} verified sale(s): " + reason + ". " +
