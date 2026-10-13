@@ -585,13 +585,15 @@ namespace RKmission
             _selected = selected;
             _travel.Reset("Neko UI mission selection changed");
             _entranceResolver.Reset();
+            bool mapPublished = PublishMissionDestination(selected);
             if (selected.PlayfieldId == Playfield.ModelIdentity.Instance)
             {
                 Mission live = Mission.List?.FirstOrDefault(x => x.Identity == selected.Id);
                 if (live != null) _entranceResolver.Select(live);
             }
             Say($"Neko selected mission {selected.Id.Instance}: {selected.Name}; destination PF {selected.PlayfieldId}, " +
-                $"location=({LocalRoutePlanner.Coordinates(selected.Entrance)}). Use Key Warp to run its bounded key candidates.");
+                $"location=({LocalRoutePlanner.Coordinates(selected.Entrance)}), map/minimap upload={(mapPublished ? "sent" : "deferred")}. " +
+                "Use Key Warp to run its bounded key candidates.");
         }
 
         private void Start()
