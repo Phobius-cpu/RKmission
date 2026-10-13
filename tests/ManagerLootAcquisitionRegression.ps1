@@ -25,10 +25,12 @@ Write-Output 'PASS rule-matched selection is snapshotted when either source type
 if (-not $loot.Contains('SourceSlot = item.Slot') -or
     -not $loot.Contains('LowId = item.LowId') -or
     -not $loot.Contains('HighId = item.HighId') -or
-    -not $loot.Contains('InventoryCountBefore = MatchingInventoryCount(transfer)')) {
+    -not $loot.Contains('InventoryCountBefore = MatchingInventoryCount(transfer)') -or
+    -not $loot.Contains('transfer.ExistingInventorySlots.Add(existing.Slot)') -or
+    -not $loot.Contains('!selected.ExistingInventorySlots.Contains(item.Slot)')) {
     throw 'Selected items lack compound source/inventory evidence for None identities.'
 }
-Write-Output 'PASS exact identity plus slot/id/QL/name and baseline count support transfer observation'
+Write-Output 'PASS exact identity plus new slot/id/QL/name and baseline count support unambiguous None-identity transfer observation'
 
 if (-not $loot.Contains('bool leftSource = !SourceStillContains(selected)') -or
     -not $loot.Contains('bool appearedInInventory = MatchingInventoryCount(selected) > selected.InventoryCountBefore') -or

@@ -49,11 +49,27 @@ if (-not $record.Contains('FirstOrDefault(candidate => candidate.Items.Count < 2
 if ($record.Contains('Create') -or $record.Contains('new Container')) {
     throw 'Keep placement unexpectedly assumes automatic bag creation.'
 }
-if ($record.IndexOf('UpdateRule(selected.Rule)') -gt $record.IndexOf('selected.Verified = true') -and
-    $record.IndexOf('ResolveKeepDestination(selected.Rule)') -gt $record.IndexOf('UpdateRule(selected.Rule)')) {
-    Write-Output 'PASS destination movement follows verified acquisition and rule consumption'
+if ($record.IndexOf('selected.KeepBagName = ResolveKeepDestination(selected.Rule)') -gt $record.IndexOf('selected.Verified = true') -and
+    $record.IndexOf('UpdateRule(selected.Rule)') -gt $record.IndexOf('selected.KeepBagName = ResolveKeepDestination(selected.Rule)')) {
+    Write-Output 'PASS destination is captured after verified acquisition and before rule consumption'
 } else {
     throw 'Destination resolution no longer follows verified acquisition and rule consumption.'
 }
+foreach ($required in @(
+    'private bool ProcessKeepPlacement(ListedItemTransfer selected)',
+    'Item.HasPendingUse',
+    'MatchingBagCount(bag, selected) > selected.KeepBagCountBefore',
+    'bool leftMain = acquired == null',
+    'MaxKeepPlacementAttempts = 2',
+    'awaiting verified destination arrival',
+    'destination arrival could be confirmed',
+    'item remains safely owned in main inventory')) {
+    if (-not $source.Contains($required)) { throw "Verified Keep placement regressed: $required" }
+}
+if ($record.Contains("Keep placement requested for '{selected.Name}' in '{bag.Name}'.") -or
+    $record.IndexOf('_sourceAcquisition.Current++') -lt $record.IndexOf('ProcessKeepPlacement(selected)')) {
+    throw 'Keep placement can still be declared or settled immediately after the move request.'
+}
+Write-Output 'PASS Keep placement is serialized and requires source removal plus bag-count arrival, including None identities'
 Write-Output 'PASS objectives stay in main and missing/full bags preserve Keep ownership without bag creation'
 Write-Output 'PASS post-exit KeepBagName shares the blank-to-RK-Loot destination policy'

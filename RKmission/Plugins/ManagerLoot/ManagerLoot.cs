@@ -132,6 +132,8 @@ namespace ManagerLoot
         private const double LootWindowDwellSeconds = 2.0;
         private const double ListedMoveConfirmationSeconds = 2.0;
         private const int MaxListedMoveAttempts = 2;
+        private const int MaxKeepPlacementAttempts = 2;
+        private const double KeepPlacementConfirmationSeconds = 2.0;
         private const int MaxManagedBagLoadAttempts = 3;
         private const double ManagedBagResponseSeconds = 2.5;
         private sealed class ManagedBagSnapshot
@@ -147,11 +149,16 @@ namespace ManagerLoot
         {
             public MissionIdentity Identity;
             public MissionIdentity SourceSlot;
+            public MissionIdentity AcquiredSlot;
+            public MissionIdentity KeepBag;
             public int Id, LowId, HighId, QualityLevel, InventoryCountBefore, Attempts;
+            public int KeepBagCountBefore, KeepPlacementAttempts;
             public string Name;
+            public string KeepBagName;
             public Rule Rule;
-            public bool Objective, Verified, NonActionable;
-            public double SentAt;
+            public bool Objective, Verified, NonActionable, AcquisitionRecorded, KeepPlacementPending;
+            public double SentAt, KeepPlacementSentAt;
+            public readonly HashSet<MissionIdentity> ExistingInventorySlots = new HashSet<MissionIdentity>();
         }
         private sealed class SourceAcquisition
         {
@@ -390,6 +397,15 @@ namespace ManagerLoot
                 !_unreachableMissionLoot.Contains(x.Identity) &&
                 (include == null || include(x)));
 
+        public void RegisterOutstandingMissionLoot(MissionIdentity identity, int roomId)
+        {
+            if (identity == MissionIdentity.None || MissionRoomId < 0) return;
+            TrackMissionLoot(identity, roomId);
+        }
+
+        public bool IsMissionLootSettled(MissionIdentity identity) =>
+            _missionSources.TryGetValue(identity, out MissionSourceState state) && Settled(state);
+
         public void SkipUnreachableMissionLoot(MissionIdentity identity)
         {
             SetMissionSource(identity, IsMissionCriticalLoot(identity) ?
@@ -577,7 +593,9 @@ namespace ManagerLoot
 
         private Item AcquiredInventoryItem(ListedItemTransfer selected) => Inventory.Items.LastOrDefault(item =>
             item.Slot.Type == IdentityType.Inventory && item.UniqueIdentity.Type != IdentityType.Container &&
-            (HasUsableIdentity(selected.Identity) && item.UniqueIdentity == selected.Identity || SameItemDetails(item, selected)));
+            (HasUsableIdentity(selected.Identity)
+                ? item.UniqueIdentity == selected.Identity
+                : !selected.ExistingInventorySlots.Contains(item.Slot) && SameItemDetails(item, selected)));
 
         private void BeginSourceAcquisition(Container container)
         {
@@ -618,6 +636,9 @@ namespace ManagerLoot
                     Objective = objective
                 };
                 transfer.InventoryCountBefore = MatchingInventoryCount(transfer);
+                foreach (Item existing in Inventory.Items.Where(candidate =>
+                    candidate.Slot.Type == IdentityType.Inventory && SameItemDetails(candidate, transfer)))
+                    transfer.ExistingInventorySlots.Add(existing.Slot);
                 _sourceAcquisition.Items.Add(transfer);
             }
             Chat.WriteLine($"RKMission: ManagerLoot selected {_sourceAcquisition.Items.Count}/{container.Items?.Count ?? 0} item(s) from {container.Identity}.");
@@ -626,38 +647,127 @@ namespace ManagerLoot
         private bool SourceStillContains(ListedItemTransfer selected) => CorpseContainer?.Items != null &&
             CorpseContainer.Items.Any(item => SameSelectedItem(item, selected));
 
+        private Item AcquiredMainInventoryItem(ListedItemTransfer selected) => Inventory.Items.LastOrDefault(item =>
+            item.Slot.Type == IdentityType.Inventory && item.UniqueIdentity.Type != IdentityType.Container &&
+            (selected.AcquiredSlot != MissionIdentity.None
+                ? item.Slot == selected.AcquiredSlot && SameItemDetails(item, selected)
+                : HasUsableIdentity(selected.Identity) && item.UniqueIdentity == selected.Identity));
+
+        private int MatchingBagCount(Container bag, ListedItemTransfer selected) =>
+            (bag?.Items ?? Enumerable.Empty<Item>()).Count(item => SameItemDetails(item, selected));
+
+        private bool ProcessKeepPlacement(ListedItemTransfer selected)
+        {
+            Container bag = Inventory.Backpacks.FirstOrDefault(candidate => candidate.Identity == selected.KeepBag);
+            Item acquired = AcquiredMainInventoryItem(selected);
+            bool leftMain = acquired == null;
+            bool arrived = bag != null && (MatchingBagCount(bag, selected) > selected.KeepBagCountBefore ||
+                HasUsableIdentity(selected.Identity) && bag.Items.Any(item => item.UniqueIdentity == selected.Identity));
+            if (leftMain && arrived)
+            {
+                Item destination = bag.Items.LastOrDefault(item =>
+                    HasUsableIdentity(selected.Identity) ? item.UniqueIdentity == selected.Identity : SameItemDetails(item, selected));
+                if (destination != null && !HasUsableIdentity(destination.UniqueIdentity))
+                {
+                    _verifiedNormalizedKeeps.RemoveAll(existing => existing.SourceSlot == destination.Slot);
+                    _verifiedNormalizedKeeps.Add(new ListedItemTransfer
+                    {
+                        Identity = destination.UniqueIdentity, SourceSlot = destination.Slot,
+                        Id = destination.Id, LowId = destination.LowId, HighId = destination.HighId,
+                        QualityLevel = destination.QualityLevel, Name = destination.Name, Verified = true
+                    });
+                }
+                Chat.WriteLine($"RKMission: Keep placement confirmed for '{selected.Name}' in '{selected.KeepBagName}' after source-slot removal and destination arrival.");
+                selected.KeepPlacementPending = false;
+                _sourceAcquisition.Current++;
+                MissionLootProgress++;
+                return true;
+            }
+
+            if (Item.HasPendingUse || Time.AONormalTime < selected.KeepPlacementSentAt + KeepPlacementConfirmationSeconds)
+                return true;
+            if (selected.KeepPlacementAttempts >= MaxKeepPlacementAttempts)
+            {
+                if (acquired != null)
+                {
+                    Chat.WriteLine($"RKMission: Keep placement deferred after {selected.KeepPlacementAttempts} bounded attempt(s) for '{selected.Name}'; destination '{selected.KeepBagName}' was not confirmed and the item remains safely owned in main inventory.");
+                    selected.KeepPlacementPending = false;
+                    _sourceAcquisition.Current++;
+                    MissionLootProgress++;
+                    return true;
+                }
+                SetMissionSource(_sourceAcquisition.Source, MissionSourceState.CriticalBlocked);
+                if (!selected.NonActionable)
+                    Chat.WriteLine($"RKMission: Keep placement failed for '{selected.Name}': neither main-inventory retention nor destination arrival could be confirmed after {selected.KeepPlacementAttempts} attempt(s); source settlement is held for safe recovery.");
+                selected.NonActionable = true;
+                return true;
+            }
+            if (acquired == null || bag == null)
+            {
+                SetMissionSource(_sourceAcquisition.Source, MissionSourceState.CriticalBlocked);
+                if (!selected.NonActionable)
+                    Chat.WriteLine($"RKMission: Keep placement cannot continue for '{selected.Name}'; the acquired item or destination bag disappeared, so source settlement is held.");
+                selected.NonActionable = true;
+                return true;
+            }
+            selected.KeepBagCountBefore = MatchingBagCount(bag, selected);
+            selected.KeepPlacementAttempts++;
+            selected.KeepPlacementSentAt = Time.AONormalTime;
+            acquired.MoveToContainer(bag);
+            Chat.WriteLine($"RKMission: Keep placement requested for '{selected.Name}' in '{selected.KeepBagName}' (attempt {selected.KeepPlacementAttempts}/{MaxKeepPlacementAttempts}); awaiting verified destination arrival.");
+            return true;
+        }
+
         private void RecordVerifiedTransfer(ListedItemTransfer selected)
         {
-            selected.Verified = true;
-            MissionLootProgress++;
-            Item acquired = AcquiredInventoryItem(selected);
-            if (acquired != null)
+            if (!selected.AcquisitionRecorded)
             {
-                RememberSelectedIdentity(acquired.UniqueIdentity);
-                if (!HasUsableIdentity(acquired.UniqueIdentity) &&
-                    !_verifiedSelectedDetails.Any(existing => SameItemDetails(acquired, existing)))
-                    _verifiedSelectedDetails.Add(selected);
-                if (selected.Objective && HasUsableIdentity(acquired.UniqueIdentity))
-                    _objectiveLootItems.Add(acquired.UniqueIdentity);
-                if (!selected.Objective && selected.Rule != null)
+                selected.Verified = true;
+                selected.AcquisitionRecorded = true;
+                MissionLootProgress++;
+                Item acquired = AcquiredInventoryItem(selected);
+                if (acquired == null)
                 {
-                    UpdateRule(selected.Rule);
-                    string requested = ResolveKeepDestination(selected.Rule);
-                    var bag = Inventory.Backpacks
-                        .Where(candidate => ManagedBagFamily.Matches(candidate.Name, requested))
-                        .OrderBy(candidate => ManagedBagFamily.Order(candidate.Name, requested))
-                        .ThenBy(candidate => candidate.Name, StringComparer.OrdinalIgnoreCase)
-                        .FirstOrDefault(candidate => candidate.Items.Count < 21);
-                    if (bag != null)
-                    {
-                        acquired.MoveToContainer(bag);
-                        Chat.WriteLine($"RKMission: Keep placement requested for '{selected.Name}' in '{bag.Name}'.");
-                    }
-                    else
-                        Chat.WriteLine($"RKMission: Keep destination '{requested}' unavailable or full; leaving '{selected.Name}' safely in main inventory as Keep.");
+                    SetMissionSource(_sourceAcquisition.Source, MissionSourceState.CriticalBlocked);
+                    selected.NonActionable = true;
+                    Chat.WriteLine($"RKMission: Listed-item acquisition evidence for '{selected.Name}' could not be bound to one inventory slot; source settlement is held to avoid a duplicate or misidentified Keep transfer.");
+                    return;
                 }
+                else
+                {
+                    selected.AcquiredSlot = acquired.Slot;
+                    RememberSelectedIdentity(acquired.UniqueIdentity);
+                    if (!HasUsableIdentity(acquired.UniqueIdentity) &&
+                        !_verifiedSelectedDetails.Any(existing => SameItemDetails(acquired, existing)))
+                        _verifiedSelectedDetails.Add(selected);
+                    if (selected.Objective && HasUsableIdentity(acquired.UniqueIdentity))
+                        _objectiveLootItems.Add(acquired.UniqueIdentity);
+                    if (!selected.Objective && selected.Rule != null)
+                    {
+                        selected.KeepBagName = ResolveKeepDestination(selected.Rule);
+                        UpdateRule(selected.Rule);
+                        Container bag = Inventory.Backpacks
+                            .Where(candidate => ManagedBagFamily.Matches(candidate.Name, selected.KeepBagName))
+                            .OrderBy(candidate => ManagedBagFamily.Order(candidate.Name, selected.KeepBagName))
+                            .ThenBy(candidate => candidate.Name, StringComparer.OrdinalIgnoreCase)
+                            .FirstOrDefault(candidate => candidate.Items.Count < 21);
+                        if (bag != null)
+                        {
+                            selected.KeepBag = bag.Identity;
+                            selected.KeepPlacementPending = true;
+                            selected.KeepPlacementSentAt = 0;
+                        }
+                        else
+                            Chat.WriteLine($"RKMission: Keep destination '{selected.KeepBagName}' unavailable or full; leaving '{selected.Name}' safely in main inventory as Keep.");
+                    }
+                }
+                Chat.WriteLine($"RKMission: Verified listed-item transfer '{selected.Name}', id={selected.Id}, QL={selected.QualityLevel} from {_sourceAcquisition.Source}.");
             }
-            Chat.WriteLine($"RKMission: Verified listed-item transfer '{selected.Name}', id={selected.Id}, QL={selected.QualityLevel} from {_sourceAcquisition.Source}.");
+            if (selected.KeepPlacementPending)
+            {
+                ProcessKeepPlacement(selected);
+                return;
+            }
             _sourceAcquisition.Current++;
         }
 
@@ -667,6 +777,11 @@ namespace ManagerLoot
             if (_sourceAcquisition.Current < _sourceAcquisition.Items.Count)
             {
                 ListedItemTransfer selected = _sourceAcquisition.Items[_sourceAcquisition.Current];
+                if (selected.KeepPlacementPending)
+                {
+                    ProcessKeepPlacement(selected);
+                    return true;
+                }
                 bool leftSource = !SourceStillContains(selected);
                 bool appearedInInventory = MatchingInventoryCount(selected) > selected.InventoryCountBefore ||
                     HasUsableIdentity(selected.Identity) && Inventory.Items.Any(item => item.UniqueIdentity == selected.Identity);
