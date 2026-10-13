@@ -129,7 +129,7 @@ namespace ManagerLoot
         private readonly List<MissionItemReservation> _missionItemReservations =
             new List<MissionItemReservation>();
         private readonly HashSet<MissionIdentity> _selectedItems = new HashSet<MissionIdentity>();
-        private const double LootWindowDwellSeconds = 1.5;
+        private const double LootWindowDwellSeconds = 2.0;
         private const double ListedMoveConfirmationSeconds = 2.0;
         private const int MaxListedMoveAttempts = 2;
         private const int MaxManagedBagLoadAttempts = 3;

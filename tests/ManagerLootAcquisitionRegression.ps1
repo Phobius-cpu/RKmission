@@ -55,10 +55,10 @@ if (-not $loot.Contains('oneEachNames.Add(item.Name)') -or
 }
 Write-Output 'PASS Quantity and OneEach are reserved per snapshot and consumed only after verification'
 
-if (-not $loot.Contains('LootWindowDwellSeconds = 1.5') -or
+if (-not $loot.Contains('LootWindowDwellSeconds = 2.0') -or
     -not $loot.Contains('OpenedAt = Time.AONormalTime') -or
     -not $loot.Contains('Time.AONormalTime < _sourceAcquisition.OpenedAt + LootWindowDwellSeconds')) {
-    throw 'The per-source 1.5 second ContainerOpened dwell regressed.'
+    throw 'The per-source 2.0 second ContainerOpened dwell regressed.'
 }
 if ($loot.Contains('selected.SentAt + LootWindowDwellSeconds')) {
     throw 'Visual dwell is incorrectly applied per item instead of per opened source.'
