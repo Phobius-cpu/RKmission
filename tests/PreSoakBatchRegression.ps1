@@ -6,6 +6,7 @@ $bot = Read 'RKmission/RkMissionBot.cs'
 $neko = Read 'RKmission/MissionEntranceResolver.cs'
 $hostUi = Read 'RKmission/Plugins/MaliMissionRoller2/MainWindow.cs'
 $nekoXml = Read 'RKmission/Plugins/MaliMissionRoller2/UI/Views/NekoView.xml'
+$nekoEntryXml = Read 'RKmission/Plugins/MaliMissionRoller2/UI/Views/NekoMissionEntry.xml'
 $death = Read 'RKmission/DeathRecoveryController.cs'
 $routes = Read 'RKmission/NavigationRouteRecorder.cs'
 $help = Read 'RKmission/Plugins/MaliMissionRoller2/Views/HelpWindow.cs'
@@ -27,6 +28,11 @@ if ($nekoXml.Contains('NekoHelp') -or $nekoXml.Contains('Help / Settings')) { th
 $panel = Read 'RKmission/NekoPanel.cs'
 if (-not $panel.Contains('Key: <font color=''#00FF00''>ON</font>') -or
     -not $panel.Contains('Key: <font color=''#FF4040''>OFF</font>')) { throw 'Key toggle does not show colored Key: ON/OFF state.' }
+foreach ($required in @('NekoMissionList', 'MissionSelect', 'MissionIcon', 'SetBitmap', 'SelectNekoMission', '_selected = selected', '_entranceResolver.Select(live)')) {
+    if (-not ($panel + $nekoXml + $nekoEntryXml + $bot).Contains($required)) { throw "Selectable Neko mission UI missing: $required" }
+}
+if (-not $neko.Contains('public void ToggleEnabled()') -or -not $neko.Contains('Enabled = !Enabled;') -or
+    -not $neko.Contains('Reset();')) { throw 'Neko enabled display/state cannot be synchronized after toggling.' }
 Write-Output 'PASS shared Neko tab exposes key warp, colored Key state toggle, and live diagnostics without redundant help'
 
 foreach ($required in @('IsRubiKaPlayfield(_reclaimPlayfield)', 'Resurrection Sickness Removal', 'TemporarySkillReduction', 'Phase = "Readiness"')) {

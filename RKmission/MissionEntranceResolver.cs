@@ -30,7 +30,7 @@ namespace RKmission
         private int _scanPlayfieldId;
         private int _index;
         private bool _sent, _accepted;
-        public bool Enabled { get; set; } = true;
+        public bool Enabled { get; private set; } = true;
         public string Status { get; private set; } = "idle";
         public int CandidateCount => _attempts.Count;
         public int AttemptNumber => _attempts.Count == 0 ? 0 : Math.Min(_index + 1, _attempts.Count);
@@ -88,6 +88,12 @@ namespace RKmission
                 _say("ACG entrance cache could not be read: " + ex.Message);
             }
             Network.N3MessageReceived += OnN3Message;
+        }
+
+        public void ToggleEnabled()
+        {
+            Enabled = !Enabled;
+            Reset();
         }
 
         public void Select(Mission mission)

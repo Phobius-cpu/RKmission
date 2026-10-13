@@ -130,7 +130,8 @@ namespace RKmission
             MaliMissionRoller2.Main.Window.EnsureNekoView = () =>
             {
                 if (_nekoPanel == null)
-                    _nekoPanel = new NekoPanel(pluginDir, _entranceResolver, ManualNekoWarp);
+                    _nekoPanel = new NekoPanel(pluginDir, _entranceResolver, ManualNekoWarp,
+                        () => { _missions.Refresh(true); return _missions.Records; }, SelectNekoMission);
                 MaliMissionRoller2.Main.Window.AttachNekoView(_nekoPanel.Root);
             };
             _checkpoint = MissionCheckpoint.Load(pluginDir, Say);
@@ -543,7 +544,7 @@ namespace RKmission
                 case "map": _map.ToggleWindow(); break;
                 case "neko":
                     if (args.Length > 1 && args[1].Equals("toggle", StringComparison.OrdinalIgnoreCase))
-                    { _entranceResolver.Enabled = !_entranceResolver.Enabled; _entranceResolver.Reset(); Say($"Neko key use {(_entranceResolver.Enabled ? "enabled" : "disabled")}."); }
+                    { _entranceResolver.ToggleEnabled(); Say($"Neko key use {(_entranceResolver.Enabled ? "enabled" : "disabled")}."); }
                     else if (args.Length > 1 && args[1].Equals("warp", StringComparison.OrdinalIgnoreCase)) ManualNekoWarp();
                     else
                     {
@@ -573,6 +574,24 @@ namespace RKmission
             _entranceResolver.Select(live);
             EntranceResult result = _entranceResolver.Tick();
             Say($"Manual Neko key-warp engine: {result}; {_entranceResolver.Status}, candidates={_entranceResolver.CandidateCount}.");
+        }
+
+        private void SelectNekoMission(int missionId)
+        {
+            _missions.Refresh(true);
+            AcceptedMission selected = _missions.Records.FirstOrDefault(x => x.Id.Instance == missionId &&
+                x.Present && x.IsRubiKaDestination && !x.Completed);
+            if (selected == null) { Say($"Neko mission {missionId} is no longer an eligible accepted Rubi-Ka mission."); return; }
+            _selected = selected;
+            _travel.Reset("Neko UI mission selection changed");
+            _entranceResolver.Reset();
+            if (selected.PlayfieldId == Playfield.ModelIdentity.Instance)
+            {
+                Mission live = Mission.List?.FirstOrDefault(x => x.Identity == selected.Id);
+                if (live != null) _entranceResolver.Select(live);
+            }
+            Say($"Neko selected mission {selected.Id.Instance}: {selected.Name}; destination PF {selected.PlayfieldId}, " +
+                $"location=({LocalRoutePlanner.Coordinates(selected.Entrance)}). Use Key Warp to run its bounded key candidates.");
         }
 
         private void Start()
