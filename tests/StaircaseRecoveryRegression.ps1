@@ -56,8 +56,37 @@ if (-not $cleanupBody.Contains('MovementAction.JumpStop') -or
 Write-Output 'PASS held inputs are released on stop, death, zoning, and ownership change'
 
 if (-not $beginBody.Contains('MovementArbiter.Current.Owner != MovementOwner.CombatPosition') -or
-    -not $beginBody.Contains('targetLift < CombatTopologyVerticalSeparation') -or
+    -not $beginBody.Contains('enemyLift < CombatTopologyVerticalSeparation') -or
+    -not $beginBody.Contains('routeLift < StaircaseAirborneLift') -or
+    -not $beginBody.Contains('recovery.Waypoints.Skip(recovery.WaypointIndex)') -or
     -not $dungeon.Contains('if (TickStaircaseRecovery()) return;')) {
     throw 'Recovery escaped its upward CombatPosition-only ownership boundary.'
 }
 Write-Output 'PASS recovery remains scoped to upward CombatPosition stalls'
+
+$combatTick = $dungeon.IndexOf('private bool TickCombatRecovery')
+$combatFail = $dungeon.IndexOf('private void FailCombatRecoveryRoute', $combatTick)
+$combatBody = $dungeon.Substring($combatTick, $combatFail - $combatTick)
+$stall = $combatBody.IndexOf('now - recovery.LastProgress > TimeSpan.FromSeconds(7)')
+$directRecovery = $combatBody.IndexOf('TryBeginStaircaseRecovery(recovery, point)', $stall)
+$recordedFallback = $combatBody.IndexOf('TryStartRecordedCombatTopology(room, enemy, recovery, position)', $stall)
+$failureFallback = $combatBody.IndexOf('FailCombatRecoveryRoute(recovery, "no movement progress")', $stall)
+if ($stall -lt 0 -or $directRecovery -lt $stall -or
+    $recordedFallback -lt $directRecovery -or $failureFallback -lt $recordedFallback) {
+    throw 'Generated same-room transit stalls no longer try staircase recovery before topology/failure fallbacks.'
+}
+Write-Output 'PASS genuine seven-second transit stalls directly invoke staircase recovery before failure'
+
+if (-not $beginBody.Contains('float enemyLift = recovery.EnemyPosition.Y - player.Position.Y') -or
+    -not $beginBody.Contains('float routeLift = recovery.Waypoints.Skip(recovery.WaypointIndex)')) {
+    throw 'Staircase eligibility no longer recognizes a low first step on an upward enemy route.'
+}
+$playerY = 8.645
+$firstWaypointY = 9.115
+$enemyY = 17.10876
+if (($firstWaypointY - $playerY) -ge 1.5 -or
+    ($firstWaypointY - $playerY) -lt 0.15 -or
+    ($enemyY - $playerY) -lt 1.5) {
+    throw 'The confirmed room-7 elevations no longer exercise low-first-step upward-route eligibility.'
+}
+Write-Output 'PASS player Y=8.645, first waypoint Y=9.115, enemy Y=17.10876 satisfies upward-route eligibility'

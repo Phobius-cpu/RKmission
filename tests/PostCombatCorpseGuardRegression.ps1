@@ -37,6 +37,27 @@ if ($observe -lt 0 -or $readiness -lt 0 -or $observe -gt $readiness -or
 }
 Write-Output 'PASS corpse rescan is observed before readiness and blocks clearance/routing after combat work'
 
+$recovery = $dungeon.IndexOf('private bool TickCombatRecovery')
+$recoveryEnd = $dungeon.IndexOf('private void PreserveCombatTopologyHandoff', $recovery)
+$recoveryBody = $dungeon.Substring($recovery, $recoveryEnd - $recovery)
+$notThreatened = $recoveryBody.IndexOf('if (!playerThreatened)')
+$guardBeforeDeparture = $recoveryBody.IndexOf('if (PostCombatCorpseGuardActive(room.Instance))', $notThreatened)
+$lootBeforeDeparture = $recoveryBody.IndexOf('if (LootInRoom(room)) return true;', $guardBeforeDeparture)
+$holdBeforeDeparture = $recoveryBody.IndexOf('if (HoldForPostCombatCorpse(room)) return true;', $guardBeforeDeparture)
+$normalDeparture = $recoveryBody.IndexOf('Room next = NextRoom(room);', $notThreatened)
+if ($notThreatened -lt 0 -or $guardBeforeDeparture -lt $notThreatened -or
+    $lootBeforeDeparture -lt $guardBeforeDeparture -or $holdBeforeDeparture -lt $lootBeforeDeparture -or
+    $normalDeparture -lt $holdBeforeDeparture) {
+    throw 'Combat recovery can again depart before guarded same-room corpse processing settles.'
+}
+Write-Output 'PASS safe combat deferral yields to same-room ManagerLoot and corpse guard before transition'
+
+if (-not $recoveryBody.Contains('if (PostCombatCorpseGuardActive(room.Instance))') -or
+    $recoveryBody.Contains('if (!PostCombatCorpseGuardActive(room.Instance))')) {
+    throw 'Normal combat deferral without a corpse guard no longer retains its existing transition path.'
+}
+Write-Output 'PASS normal combat deferral without corpses remains unchanged'
+
 if (-not $dungeon.Contains('_engagementExistingCorpses.Clear()') -or
     -not $dungeon.Contains('armed.ExistingCorpses.UnionWith(_engagementExistingCorpses)') -or
     -not $dungeon.Contains('_postCombatCorpseGuards.Add(armed)') -or

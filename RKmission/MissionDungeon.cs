@@ -499,8 +499,16 @@ namespace RKmission
                 !player.IsAlive || Game.IsZoning ||
                 MovementArbiter.Current.Owner != MovementOwner.CombatPosition)
                 return false;
-            float targetLift = target.Y - player.Position.Y;
-            if (targetLift < CombatTopologyVerticalSeparation) return false;
+            float enemyLift = recovery.EnemyPosition.Y - player.Position.Y;
+            float routeLift = recovery.Waypoints.Skip(recovery.WaypointIndex)
+                .Select(point => point.Y - player.Position.Y)
+                .DefaultIfEmpty(target.Y - player.Position.Y)
+                .Max();
+            // The first stair waypoint can be only a small step above us even
+            // when the route and enemy establish a genuinely upward topology.
+            // Require both facts so flat-room stalls cannot trigger jumping.
+            if (enemyLift < CombatTopologyVerticalSeparation ||
+                routeLift < StaircaseAirborneLift) return false;
             if (_staircaseRecoveryEnemy != recovery.Enemy)
             {
                 _staircaseRecoveryEnemy = recovery.Enemy;
@@ -1702,6 +1710,11 @@ namespace RKmission
                 if (now - recovery.LastProgress > TimeSpan.FromSeconds(7) ||
                     now - recovery.WaypointStarted > TimeSpan.FromSeconds(15))
                 {
+                    // This is the real generated same-room transit stall. Run
+                    // the bounded stationary-jump state machine here instead
+                    // of waiting for the unrelated global stuck watchdog.
+                    if (TryBeginStaircaseRecovery(recovery, point))
+                        return true;
                     if (TryStartRecordedCombatTopology(room, enemy, recovery, position))
                         _say($"Combat generated same-room route stalled; switching to recorded topology '{recovery.RecordedRoute}' under retry={recovery.Failures}/{MaxCombatTopologyAttempts}.");
                     else
@@ -1722,6 +1735,17 @@ namespace RKmission
                 enemy.IsAttacking && enemy.FightingTarget?.Identity == DynelManager.LocalPlayer.Identity;
             if (!playerThreatened)
             {
+                // Combat recovery owns this earlier Tick slot, but it must not
+                // cross a door while a corpse created in this room is still
+                // owned by the exact-evidence guard. Give ManagerLoot a safe
+                // same-room tick, then hold (or release only after settlement).
+                if (PostCombatCorpseGuardActive(room.Instance))
+                {
+                    MovementArbiter.Current.Halt(MovementOwner.CombatPosition);
+                    _destination = null;
+                    if (LootInRoom(room)) return true;
+                    if (HoldForPostCombatCorpse(room)) return true;
+                }
                 Room next = NextRoom(room);
                 if (next != null)
                 {
