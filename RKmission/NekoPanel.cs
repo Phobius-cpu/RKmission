@@ -17,7 +17,7 @@ namespace RKmission
         private readonly string _entryPath;
         private Button _toggle;
         private TextView _mission, _keys, _diagnostics;
-        private View _missionList;
+        private readonly View[] _missionRows = new View[3];
         private readonly List<View> _missionEntries = new List<View>();
         private string _missionSignature;
         private int _selectedMissionId;
@@ -36,7 +36,8 @@ namespace RKmission
             Root.FindChild("NekoMission", out _mission);
             Root.FindChild("NekoKeys", out _keys);
             Root.FindChild("NekoDiagnostics", out _diagnostics);
-            Root.FindChild("NekoMissionList", out _missionList);
+            for (int row = 0; row < _missionRows.Length; row++)
+                Root.FindChild("NekoMissionRow" + (row + 1), out _missionRows[row]);
             if (Root.FindChild("NekoWarp", out Button warpButton)) warpButton.Clicked = (_, _) => _warp();
             if (Root.FindChild("NekoToggle", out _toggle)) _toggle.Clicked = (_, _) =>
             { _resolver.ToggleEnabled(); Refresh(); };
@@ -62,15 +63,17 @@ namespace RKmission
 
         private void RefreshMissions()
         {
-            if (_missionList == null || _missions == null) return;
+            if (_missionRows.Any(x => x == null) || _missions == null) return;
             List<AcceptedMission> missions = _missions().Where(x => x.Present && x.IsRubiKaDestination && !x.Completed)
-                .OrderBy(x => x.Id.Instance).Take(3).ToList();
+                .OrderBy(x => x.Id.Instance).Take(15).ToList();
             string signature = string.Join("|", missions.Select(x => $"{x.Id.Instance}:{x.Name}:{x.PlayfieldId}:{x.Kind}"));
             if (signature == _missionSignature) return;
-            foreach (View entry in _missionEntries) _missionList.RemoveChild(entry);
+            for (int index = 0; index < _missionEntries.Count; index++)
+                _missionRows[index / 5].RemoveChild(_missionEntries[index]);
             _missionEntries.Clear();
-            foreach (AcceptedMission mission in missions)
+            for (int index = 0; index < missions.Count; index++)
             {
+                AcceptedMission mission = missions[index];
                 View entry = View.CreateFromXml(_entryPath);
                 entry.FindChild("MissionIcon", out BitmapView icon);
                 entry.FindChild("MissionLabel", out TextView label);
@@ -96,11 +99,12 @@ namespace RKmission
                         Refresh();
                     };
                 }
-                _missionList.AddChild(entry, false);
+                _missionRows[index / 5].AddChild(entry, false);
                 _missionEntries.Add(entry);
             }
             _missionSignature = signature;
-            _missionList.FitToContents(); Root.FitToContents();
+            foreach (View row in _missionRows) row.FitToContents();
+            Root.FitToContents();
         }
 
         private static int MissionIcon(RkMissionKind kind)
@@ -119,7 +123,8 @@ namespace RKmission
         public void Dispose()
         {
             Game.OnUpdate -= OnUpdate;
-            if (_missionList != null) foreach (View entry in _missionEntries) _missionList.RemoveChild(entry);
+            for (int index = 0; index < _missionEntries.Count; index++)
+                _missionRows[index / 5]?.RemoveChild(_missionEntries[index]);
             _missionEntries.Clear();
         }
     }

@@ -8,8 +8,9 @@
       <HLayoutSpacer/>
     </View>
     <TextView value="Select accepted mission" font="BOLD"/>
-    <View name="NekoMissionList" view_layout="horizontal" min_size="Point(300,76)" layout_borders="Rect(0,3,0,5)">
-    </View>
+    <View name="NekoMissionRow1" view_layout="horizontal" min_size="Point(300,64)" layout_borders="Rect(0,3,0,0)"/>
+    <View name="NekoMissionRow2" view_layout="horizontal" min_size="Point(300,64)"/>
+    <View name="NekoMissionRow3" view_layout="horizontal" min_size="Point(300,64)" layout_borders="Rect(0,0,0,5)"/>
     <BorderView layout_borders="Rect(0,3,0,3)"><View view_layout="vertical" layout_borders="Rect(6,6,6,6)">
       <TextView name="NekoMission" value="Selected mission: none" feature_flags="TVF_MULTILINE"/>
       <TextView name="NekoKeys" value="Detected keys: none" feature_flags="TVF_MULTILINE" layout_borders="Rect(0,4,0,4)"/>
