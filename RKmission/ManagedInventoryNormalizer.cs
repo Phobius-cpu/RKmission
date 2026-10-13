@@ -18,6 +18,7 @@ namespace RKmission
         private Identity _source = Identity.None, _destination = Identity.None;
         private DateTime _sent;
         private bool _toMain, _pending, _preserveOwnership, _existingMainReservationsCollected;
+        private bool _drainManagedKeeps;
         private int _itemId, _itemLowId, _itemHighId, _itemQl, _sourceBefore, _destinationBefore, _maximumBankStages;
         private string _itemName, _sourceLabel, _destinationLabel;
         private Item _sourceItem;
@@ -31,7 +32,7 @@ namespace RKmission
         public bool HasPendingTransfer => _pending;
         public BankKeepReservationLedger BankReservations { get; } = new BankKeepReservationLedger();
 
-        public void Start(int maximumBankStages)
+        public void Start(int maximumBankStages, bool drainManagedKeeps = false)
         {
             IsActive = true; Failed = false; Failure = null; Rescued = StagedForBank = 0;
             BankReservations.Clear();
@@ -39,6 +40,7 @@ namespace RKmission
             _deferredTransferEntry = null;
             _existingMainReservationsCollected = false;
             _maximumBankStages = Math.Max(1, maximumBankStages);
+            _drainManagedKeeps = drainManagedKeeps;
         }
 
         public ManagedInventoryNormalizer(ManagerLoot.ManagerLoot loot, InventoryPolicy policy,
@@ -97,18 +99,27 @@ namespace RKmission
                 if (!_existingMainReservationsCollected)
                 {
                     if (!RestoreDeferredMainKeeps()) return;
-                    if (!PlaceExistingMainKeep()) return;
+                    if (!_drainManagedKeeps && !PlaceExistingMainKeep()) return;
                     if (!ReserveExistingMainKeeps()) return;
                     _existingMainReservationsCollected = true;
                 }
                 if (StagedForBank >= _maximumBankStages) { IsActive = false; return; }
                 var baggedFallback = Inventory.Backpacks
-                    .Where(bag => !ManagerLoot.ManagedBagFamily.IsKeep(bag.Name))
+                    .Where(bag => _drainManagedKeeps || !ManagerLoot.ManagedBagFamily.IsKeep(bag.Name))
                     .SelectMany(bag => Inventory.GetContainerItems(bag.Identity)
                         .Where(item => item != null).Select(item => new { Bag = bag, Item = item }))
-                    .FirstOrDefault(entry => _policy.IsBankEligible(entry.Item, _loot));
+                    .FirstOrDefault(entry => IsSafeBankEligible(entry.Item));
                 if (baggedFallback == null) { IsActive = false; return; }
-                if (Inventory.NumFreeSlots < 1) { Fail($"bank-eligible Keep in '{baggedFallback.Bag.Name}' cannot be staged because main inventory is full"); return; }
+                if (Inventory.NumFreeSlots < 1)
+                {
+                    if (BankReservations.Count > 0)
+                    {
+                        _say($"Inventory normalization: main inventory reached capacity after {BankReservations.Count} verified bank stage(s); closing this bounded round before staging more Keeps.");
+                        IsActive = false;
+                    }
+                    else Fail($"bank-eligible Keep in '{baggedFallback.Bag.Name}' cannot be staged because main inventory is full");
+                    return;
+                }
                 _sourceLabel = $"'{baggedFallback.Bag.Name}'";
                 Prepare(baggedFallback.Item, baggedFallback.Bag.Identity, Identity.None, true);
                 baggedFallback.Item.MoveToInventory();
@@ -123,7 +134,7 @@ namespace RKmission
                 .OrderBy(bag => ManagerLoot.ManagedBagFamily.Order(bag.Name, requested))
                 .ThenBy(bag => bag.Name, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
             _sourceLabel = $"RK Junk '{misplaced.Bag.Name}'";
-            if (destination != null)
+            if (destination != null && (!_drainManagedKeeps || !IsSafeBankEligible(misplaced.Item)))
             {
                 string destinationName = destination.Name;
                 Prepare(misplaced.Item, misplaced.Bag.Identity, destination.Identity, false, true, destinationName);
@@ -132,12 +143,14 @@ namespace RKmission
             }
             else
             {
+                if (_drainManagedKeeps && !IsSafeBankEligible(misplaced.Item))
+                { Fail($"protected or operational Keep '{misplaced.Item.Name}' remains in RK Junk and has no safe RK Loot destination; shop execution is blocked"); return; }
                 if (StagedForBank >= _maximumBankStages)
                 { Fail($"Keep remains in RK Junk because the bank-stage limit {_maximumBankStages} was reached and RK Loot has no capacity; shop execution is blocked"); return; }
                 if (Inventory.NumFreeSlots < 1) { Fail("Keep is stranded in RK Junk, no RK Loot capacity and no free main slot for bank fallback"); return; }
                 Prepare(misplaced.Item, misplaced.Bag.Identity, Identity.None, true);
                 misplaced.Item.MoveToInventory();
-                _say($"Inventory normalization: staging Keep '{misplaced.Item.Name}' from {misplaced.Bag.Name} to main; RK Loot is missing/full, so bank fallback is required.");
+                _say($"Inventory normalization: staging Keep '{misplaced.Item.Name}' from {misplaced.Bag.Name} to main for verified bank storage.");
             }
         }
 
@@ -248,7 +261,7 @@ namespace RKmission
                     ManagerLoot.ManagedBagFamily.Matches(bag.Name, entry.RequestedDestination) && bag.Items.Count < 21)
                     .OrderBy(bag => ManagerLoot.ManagedBagFamily.Order(bag.Name, entry.RequestedDestination))
                     .ThenBy(bag => bag.Name, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
-                if (destination != null)
+                if (destination != null && !_drainManagedKeeps)
                 {
                     Item item = matches.First();
                     Prepare(item, Identity.None, destination.Identity, false, false, destination.Name);
@@ -276,7 +289,9 @@ namespace RKmission
 
         private bool IsSafeBankEligible(Item item) => item != null &&
             !_policy.IsOperationalItem(item) && _loot.ProtectionReason(item) == null &&
-            _policy.IsBankEligible(item, _loot);
+            (_drainManagedKeeps
+                ? _loot.Classify(item) == ManagerLoot.ItemClassification.Keep
+                : _policy.IsBankEligible(item, _loot));
 
         public int MainBankEligibleCount()
         {
@@ -306,10 +321,13 @@ namespace RKmission
         private static Item[] MainItems() => Inventory.Items.Where(item => item != null &&
             item.Slot.Type == IdentityType.Inventory && item.UniqueIdentity.Type != IdentityType.Container).ToArray();
 
-        public int BaggedBankEligibleCount() => Inventory.Backpacks
-            .Where(bag => !ManagerLoot.ManagedBagFamily.IsKeep(bag.Name))
+        public int BaggedBankEligibleCount(bool includeManagedKeeps = false) => Inventory.Backpacks
+            .Where(bag => includeManagedKeeps || !ManagerLoot.ManagedBagFamily.IsKeep(bag.Name))
             .SelectMany(bag => Inventory.GetContainerItems(bag.Identity)).Count(item =>
-                item != null && _policy.IsBankEligible(item, _loot));
+                item != null && !_policy.IsOperationalItem(item) && _loot.ProtectionReason(item) == null &&
+                (includeManagedKeeps
+                    ? _loot.Classify(item) == ManagerLoot.ItemClassification.Keep
+                    : _policy.IsBankEligible(item, _loot)));
 
         public int MisplacedKeepCount() => Inventory.Backpacks
             .Where(bag => ManagerLoot.ManagedBagFamily.IsSell(bag.Name))

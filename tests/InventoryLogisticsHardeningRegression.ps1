@@ -42,8 +42,8 @@ Assert ($normalizer.Contains('private bool _toMain, _pending, _preserveOwnership
     $normalizer.Contains('sourceNow == _sourceBefore - 1') -and
     $normalizer.Contains('destinationNow == _destinationBefore + 1')) 'normalization verifies exact source and destination count deltas without using Identity.None as pending state'
 Assert ($normalizer.Contains('StagedForBank >= _maximumBankStages') -and
-    $cycle.Contains('_normalizer.Start(_maximumItems)')) 'bank staging respects the requested automatic-cycle item limit'
-Assert ($cycle.Contains('BaggedBankEligibleCount()')) 'final reconciliation detects bank-eligible Keep still inside bags'
+    $cycle.Contains('_normalizer.Start(_maximumItems, _missionCycleRun)')) 'bank staging respects the requested per-trip automatic-cycle item limit'
+Assert ($cycle.Contains('BaggedBankEligibleCount(_missionCycleRun)')) 'final reconciliation detects bank-eligible Keep still inside bags, including RK Loot for mission cycles'
 Assert ($loot.Contains('PreserveVerifiedKeepOwnership(Item source, Item destination)') -and
     $loot.Contains('item.Slot == selected.SourceSlot') -and
     $normalizer.Contains('_loot.PreserveVerifiedKeepOwnership(_sourceItem, destinationItem)')) 'verified normalization rebinds Keep by usable identity or exact destination slot/details'
@@ -56,6 +56,6 @@ Assert (([regex]::Matches($cycle, '_normalizer\.MisplacedKeepCount\(\)').Count -
     $cycle.Contains('shop phase held:') -and $cycle.Contains('shop phase held after snapshot refresh:')) 'shop is gated on zero misplaced Keep before and after travel'
 Assert ($cycle.Contains('_expectedRemainingRejects = rejectEligible - _plannedRejects') -and
     $cycle.Contains('extra Reject beyond requested batch={saleEligible} (expected)')) 'bounded sale reconciliation accepts Rejects beyond cycle N'
-Assert ($cycle.Contains('totalMainBankEligible - _plannedBankKeeps') -and
+Assert ($cycle.Contains('totalMainBankEligible - _bankRoundKeeps') -and
     $cycle.Contains('unprocessedPlannedBankKeeps = _normalizer.BankReservations.Count')) 'bounded bank reconciliation requires all planned reservations to be consumed'
 Assert ($route.Contains('DynelManager.LocalPlayer.MovementState == MovementState.Fly')) 'walking routes reject Fly state at start and return'

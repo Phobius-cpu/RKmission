@@ -14,6 +14,7 @@ namespace RKmission
     {
         private const string BagOwner = "AutomaticLogistics";
         private const int MaximumSellBagRefreshUses = 3;
+        private const int MaximumAutomaticBankRounds = 20;
         private enum Phase
         {
             Idle,
@@ -43,7 +44,7 @@ namespace RKmission
         private DateTime _inventoryLoadStarted;
         private DateTime _groundingStarted;
         private string _site;
-        private int _maximumItems, _stored, _sold, _plannedBankKeeps, _expectedRemainingBankKeeps;
+        private int _maximumItems, _stored, _sold, _plannedBankKeeps, _bankRoundKeeps, _bankRounds, _expectedRemainingBankKeeps;
         private int _plannedRejects, _expectedRemainingRejects;
         private bool _bankPlanned, _shopPlanned, _inventoryLoadRequested, _missionCycleRun;
         private bool _groundRequested;
@@ -103,7 +104,7 @@ namespace RKmission
                 return false;
             }
             _stored = _sold = 0;
-            _plannedBankKeeps = _expectedRemainingBankKeeps = 0;
+            _plannedBankKeeps = _bankRoundKeeps = _bankRounds = _expectedRemainingBankKeeps = 0;
             _plannedRejects = _expectedRemainingRejects = 0;
             _bankPlanned = _shopPlanned = false;
             _inventoryLoadRequested = false;
@@ -193,7 +194,7 @@ namespace RKmission
                         return;
                     }
                     if (DateTime.UtcNow - _inventoryLoadStarted < TimeSpan.FromMilliseconds(250)) return;
-                    _normalizer.Start(_maximumItems);
+                    _normalizer.Start(_maximumItems, _missionCycleRun);
                     _phase = Phase.NormalizeInventory;
                     return;
                 case Phase.NormalizeInventory:
@@ -203,15 +204,18 @@ namespace RKmission
                     int bankEligible = _normalizer.BankReservations.Count;
                     int totalMainBankEligible = _normalizer.MainBankEligibleCount();
                     int rejectEligible = _shop.CountEligibleRejectItems();
-                    _plannedBankKeeps = Math.Min(_maximumItems, bankEligible);
+                    _bankRoundKeeps = Math.Min(_maximumItems, bankEligible);
+                    _plannedBankKeeps += _bankRoundKeeps;
                     _expectedRemainingBankKeeps = Math.Max(0,
-                        totalMainBankEligible - _plannedBankKeeps);
+                        totalMainBankEligible - _bankRoundKeeps);
                     _plannedRejects = Math.Min(_maximumItems, rejectEligible);
                     _expectedRemainingRejects = rejectEligible - _plannedRejects;
-                    _bankPlanned = _plannedBankKeeps > 0;
+                    _bankPlanned = _bankRoundKeeps > 0;
                     _shopPlanned = _plannedRejects > 0;
-                    _say($"Automatic logistics plan at {_site}: bank Keep={_plannedBankKeeps}, shop Reject={_plannedRejects}, " +
-                        $"limit={_maximumItems} per destination; {_shop.SellInventorySummary()}.");
+                    _say($"Automatic logistics plan at {_site}: bank Keep this round={_bankRoundKeeps}, bank Keep total planned={_plannedBankKeeps}, shop Reject={_plannedRejects}, " +
+                        $"limit={_maximumItems} per destination trip; {_shop.SellInventorySummary()}.");
+                    if (_missionCycleRun && _bankPlanned && _bankRounds >= MaximumAutomaticBankRounds)
+                    { Fail($"bounded bank drain stopped after {MaximumAutomaticBankRounds} rounds with {_bankRoundKeeps} verified reservation(s) still requiring deposit; no further bank route was started"); return; }
                     if (_bankPlanned) _phase = Phase.StartBank;
                     else if (_shopPlanned) _phase = Phase.StartShop;
                     else BeginReconciliation();
@@ -225,11 +229,11 @@ namespace RKmission
                     if (RouteFailed("bank outward route")) return;
                     if (!_route.AtTarget) return;
                     if (!_bank.TryValidateReservations(_normalizer.BankReservations,
-                        _plannedBankKeeps, out string reservationError))
+                        _bankRoundKeeps, out string reservationError))
                     { Fail(reservationError + "; bank transaction was held"); return; }
-                    if (_plannedBankKeeps > 0)
+                    if (_bankRoundKeeps > 0)
                     {
-                        if (!_bank.StartReservedStore(_plannedBankKeeps, _normalizer.BankReservations))
+                        if (!_bank.StartReservedStore(_bankRoundKeeps, _normalizer.BankReservations))
                         { Fail("bank storage did not start: " + (_bank.LastFailure ?? "unknown reason")); return; }
                         _phase = Phase.Bank;
                     }
@@ -243,13 +247,29 @@ namespace RKmission
                     { Fail($"bank storage completed with {_normalizer.BankReservations.Count} unconsumed Keep reservation(s)"); return; }
                     _normalizer.ExpireDepositedDeferredKeeps();
                     _stored += _bank.CompletedCount;
+                    _bankRounds++;
                     BeginReturn(Phase.ReturnBank, "bank");
                     return;
                 case Phase.ReturnBank:
                     if (RouteFailed("bank return route")) return;
                     if (_route.IsActive) return;
                     if (_route.Result != VerifiedOperationResult.Succeeded) return;
-                    if (_shopPlanned) _phase = Phase.StartShop;
+                    if (_missionCycleRun)
+                    {
+                        if (_bankRounds >= MaximumAutomaticBankRounds)
+                        {
+                            _inventoryLoadRequested = false;
+                            _inventoryLoadStarted = DateTime.UtcNow;
+                            _phase = Phase.LoadingInventory;
+                            _say($"Automatic logistics: reached the bounded {MaximumAutomaticBankRounds}-round bank limit; refreshing managed bags once more before fail-safe reconciliation.");
+                            return;
+                        }
+                        _inventoryLoadRequested = false;
+                        _inventoryLoadStarted = DateTime.UtcNow;
+                        _phase = Phase.LoadingInventory;
+                        _say($"Automatic logistics: bank round {_bankRounds} returned to {_site}; refreshing all RK Loot/RK Junk snapshots before planning the next bounded round.");
+                    }
+                    else if (_shopPlanned) _phase = Phase.StartShop;
                     else BeginReconciliation();
                     return;
                 case Phase.StartShop:
@@ -339,11 +359,14 @@ namespace RKmission
                     { Fail("post-logistics reconciliation lost the exact surveyed origin"); return; }
                     if (Item.HasPendingUse || Spell.HasPendingCast) return;
                     int bankable = _normalizer.MainBankEligibleCount();
-                    int baggedBankable = _normalizer.BaggedBankEligibleCount();
+                    int baggedBankable = _normalizer.BaggedBankEligibleCount(_missionCycleRun);
                     int misplaced = _normalizer.MisplacedKeepCount();
                     int saleEligible = _shop.CountEligibleRejectItems();
                     int unprocessedPlannedBankKeeps = _normalizer.BankReservations.Count;
                     int unprocessedRequestedRejects = Math.Max(0, saleEligible - _expectedRemainingRejects);
+                    if (_missionCycleRun && _bankRounds >= MaximumAutomaticBankRounds &&
+                        (bankable > 0 || baggedBankable > 0))
+                    { Fail($"bounded bank drain stopped after {MaximumAutomaticBankRounds} rounds with eligible Keep remaining in main={bankable}, in managed bags={baggedBankable}; no further route or transfer was attempted"); return; }
                     if (_normalizer.HasPendingTransfer || baggedBankable > 0 || misplaced > 0 ||
                         _stored < _plannedBankKeeps || unprocessedPlannedBankKeeps > 0 ||
                         _sold < _plannedRejects || unprocessedRequestedRejects > 0)

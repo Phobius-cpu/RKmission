@@ -29,7 +29,7 @@ Assert ($normalizer.Contains('int observed = group.Count()') -and
     $normalizer.Contains('int missing = observed - reserved') -and
     $normalizer.Contains('partial indistinguishable fingerprint batch')) 'reservation multiplicity cannot exceed exact origin counts or split an ambiguous duplicate batch'
 Assert ($normalizer.Contains('foreach (Item item in group.Take(missing))')) 'two exact main copies can create multiplicity two when both fit the requested batch'
-Assert ($cycle.Contains('totalMainBankEligible - _plannedBankKeeps')) 'main Keeps beyond cycle N are tracked as an expected extra batch'
+Assert ($cycle.Contains('totalMainBankEligible - _bankRoundKeeps')) 'main Keeps beyond one bank trip are tracked as an expected extra batch'
 
 foreach ($detail in @('item.Id == Id', 'item.LowId == LowId', 'item.HighId == HighId',
     'item.QualityLevel == QualityLevel', 'string.Equals(item.Name, Name, StringComparison.Ordinal)')) {
@@ -41,7 +41,7 @@ Assert ($ledger.Contains('found.Length > expected') -and $ledger.Contains('reser
 Assert ($ledger.Contains('resolved.Length == _reservations.Count')) 'all reservations must resolve exactly'
 
 Assert ($bank.Contains('StartReservedStore') -and $bank.Contains('TryValidateReservations') -and
-    $cycle.Contains('StartReservedStore(_plannedBankKeeps, _normalizer.BankReservations)')) 'automatic bank uses the bounded reservation path'
+    $cycle.Contains('StartReservedStore(_bankRoundKeeps, _normalizer.BankReservations)')) 'automatic bank uses the bounded reservation path'
 Assert ($bank.Contains('_reservations.TrySelectNext(main') -and
     $bank.Contains('candidates = new[] { reserved };')) 'automatic selection cannot fall back to arbitrary ManagerLoot Keep items'
 Assert ($bank.Contains('_reservations.ConsumeVerified(_reservedItem)') -and

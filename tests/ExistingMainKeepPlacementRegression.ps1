@@ -10,7 +10,7 @@ function Assert($condition, $message) {
 }
 
 $restore = $normalizer.IndexOf('if (!RestoreDeferredMainKeeps()) return;')
-$place = $normalizer.IndexOf('if (!PlaceExistingMainKeep()) return;')
+$place = $normalizer.IndexOf('if (!_drainManagedKeeps && !PlaceExistingMainKeep()) return;')
 $reserve = $normalizer.IndexOf('if (!ReserveExistingMainKeeps()) return;')
 Assert ($restore -ge 0 -and $restore -lt $place -and $place -lt $reserve) 'deferred restore, existing-main placement, and bank fallback retain strict precedence'
 

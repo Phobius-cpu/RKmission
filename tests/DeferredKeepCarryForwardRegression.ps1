@@ -30,7 +30,7 @@ Assert ($normalizer.Contains('_policy.IsOperationalItem(item)') -and $normalizer
 Assert ($normalizer.Contains('current RK Loot destination takes precedence over bank fallback')) 'newly available Keep destination overrides deferred bank fallback'
 Assert ($cycle.Contains('ExpireDepositedDeferredKeeps()')) 'verified bank completion consumes absent deferred matches'
 Assert ($cycle.Contains('_deferredKeeps.Clear()')) 'plugin teardown clears session-only carry-forward'
-Assert ($cycle.Contains('bank Keep={_plannedBankKeeps}')) 'restored reservation contributes to the next cycle bank plan'
+Assert ($cycle.Contains('bank Keep total planned={_plannedBankKeeps}')) 'restored reservation contributes to the next cycle bank plan'
 
 Write-Output 'PASS expected multiplicity two restores only when exactly two current items match'
 Write-Output 'PASS deferred authority is session-local and never broadens generic Keep classification'
