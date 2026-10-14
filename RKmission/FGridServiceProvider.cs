@@ -181,6 +181,17 @@ namespace RKmission
                 x.PlayfieldId == Playfield.ModelIdentity.Instance);
         public bool IsActive => _state != State.Idle && _state != State.Done && _state != State.Failed;
         public bool CanRoute(int targetId) => _knownExits.ContainsKey(targetId) || _exitRoutes.ContainsKey(targetId);
+        public bool HasFootApproachRoute()
+        {
+            SimpleChar player = DynelManager.LocalPlayer;
+            if (player == null || player.MovementState == MovementState.Fly) return false;
+            SimpleItem terminal = FindGridTerminal();
+            if (terminal != null) return _routes.HasFootRouteTo(terminal.Position);
+            ServiceConfig service = _services.FirstOrDefault(x => x.PlayfieldId <= 0 ||
+                x.PlayfieldId == Playfield.ModelIdentity.Instance);
+            return service?.GridTerminalPosition is float[] configured && configured.Length == 3 &&
+                _routes.HasFootRouteTo(new Vector3(configured[0], configured[1], configured[2]));
+        }
         public bool TryGetBestArrival(int targetId, Vector3 anchor, out Vector3 arrival,
             out float distance, out int portalIdentity)
         {
@@ -1774,9 +1785,16 @@ namespace RKmission
                 }
                 if (Vector3.Distance(DynelManager.LocalPlayer.Position, _terminalPosition) > 3f)
                 {
-                    if (!_routes.TryNavigate(_terminalPosition, _movement, MovementOwner.FGridTravel) &&
-                        (_movement.Owner != MovementOwner.FGridTravel || !SMovementController.IsNavigating()))
-                        _movement.SetDestination(MovementOwner.FGridTravel, _terminalPosition);
+                    if (!_routes.TryNavigate(_terminalPosition, _movement, MovementOwner.FGridTravel))
+                    {
+                        if (!string.IsNullOrEmpty(_routes.LastPlaybackFailure))
+                        {
+                            Fail("Recorded Grid-terminal approach stopped safely: " + _routes.LastPlaybackFailure, false);
+                            return FGridServiceResult.Failed;
+                        }
+                        if (_movement.Owner != MovementOwner.FGridTravel || !SMovementController.IsNavigating())
+                            _movement.SetDestination(MovementOwner.FGridTravel, _terminalPosition);
+                    }
                     return FGridServiceResult.InProgress;
                 }
 

@@ -614,7 +614,7 @@ namespace RKmission
             _running = true;
             _recoveringDeath = false;
             _deathReturnToRollTerminal = false;
-            _missionBatchRemountPending = false;
+            _missionBatchRemountPending = _autoCycle && _autoAcceptedCount > 0;
             _dungeonStarted = false;
             _clearanceReported = false;
             _selected = null;
@@ -847,17 +847,6 @@ namespace RKmission
                     Say($"Death recovery reacquired exact saved roller terminal in PF {_rollTerminalPlayfield}; resuming the normal automatic mission selection and travel path.");
                 }
                 if (_autoCycle && _autoRolling && !ObserveAutoAcceptance()) return;
-                if (_autoCycle && _missionBatchRemountPending)
-                {
-                    VehicleTransitionResult remount = _vehicle.RequireFlightAfterMissionBatch();
-                    if (remount == VehicleTransitionResult.Unavailable)
-                    { Stop(); Say("Mission batch remount stopped: " + _vehicle.Status + "."); return; }
-                    if (remount != VehicleTransitionResult.Ready)
-                    { Wait("Mission batch remount required before mission selection/travel: " + _vehicle.Status + "."); return; }
-                    _missionBatchRemountPending = false;
-                    _vehicle.CompleteMissionBatchRemount();
-                    Say("Mission batch remount verified: equipped vehicle attachment and authoritative live Fly state confirmed; mission travel may begin.");
-                }
                 // AO# classifies Fixer Grid as a dungeon, but it is a travel
                 // playfield. Actual mission dungeons still need exact binding.
                 bool inFixerGrid = Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid;
@@ -1091,6 +1080,31 @@ namespace RKmission
                 }
                 if (_autoRolling)
                 { MaliMissionRoller2.Main.Window?.StopZoneRolling(); _autoRolling = false; }
+                if (_autoCycle && _missionBatchRemountPending)
+                {
+                    bool footDeparture = _selected != null &&
+                        _longTravel.PrefersFootDeparture(_selected.PlayfieldId, _selected.Entrance);
+                    if (footDeparture)
+                    {
+                        VehicleTransitionResult footReady = _vehicle.RequireFlightAfterMissionBatch(false);
+                        if (footReady != VehicleTransitionResult.Ready)
+                        { Wait("Mission batch Foot-route departure is held until grounded and detached: " + _vehicle.Status + "."); return; }
+                        _missionBatchRemountPending = false;
+                        _vehicle.CompleteMissionBatchRemount();
+                        Say("Mission batch departure verified on foot: the selected FGrid provider has an endpoint-compatible Foot recording; remount is deferred so the recorded terminal approach remains usable.");
+                    }
+                    else
+                    {
+                        VehicleTransitionResult remount = _vehicle.RequireFlightAfterMissionBatch();
+                        if (remount == VehicleTransitionResult.Unavailable)
+                        { Stop(); Say("Mission batch remount stopped: " + _vehicle.Status + "."); return; }
+                        if (remount != VehicleTransitionResult.Ready)
+                        { Wait("Mission batch remount required before mission selection/travel: " + _vehicle.Status + "."); return; }
+                        _missionBatchRemountPending = false;
+                        _vehicle.CompleteMissionBatchRemount();
+                        Say("Mission batch remount verified: equipped vehicle attachment and authoritative live Fly state confirmed; mission travel may begin.");
+                    }
+                }
                 if (!PreflightSelectedMission()) return;
                 if (_selected.PlayfieldId != Playfield.ModelIdentity.Instance || _longTravel.IsActive)
                 {
@@ -1638,7 +1652,7 @@ namespace RKmission
                         _awaitingQuestDetails.Add(acceptedId);
                     window.StopZoneRolling();
                     _autoRolling = false;
-                    if (Inventory.NumFreeSlots < 2 ||
+                    if (Inventory.NumFreeSlots < _inventory.MinimumFreeSlots ||
                         (_maxAutoMissions > 0 && _autoAcceptedCount >= _maxAutoMissions))
                         _missionBatchRemountPending = true;
                     Say($"Automatic acceptance confirmed: offer {pending}, quest {acceptedId}; " +
@@ -1662,7 +1676,7 @@ namespace RKmission
                     (observed.Count > 0 ? string.Join(", ", observed) : "none") + ".");
                 return false;
             }
-            if (Inventory.NumFreeSlots < 2 ||
+            if (Inventory.NumFreeSlots < _inventory.MinimumFreeSlots ||
                 (_maxAutoMissions > 0 && _autoAcceptedCount >= _maxAutoMissions))
             {
                 window.StopZoneRolling();

@@ -69,6 +69,17 @@ namespace RKmission
         }
         public string LastFailure { get; private set; }
 
+        public bool PrefersFootDeparture(int target, Vector3? missionAnchor)
+        {
+            if (!missionAnchor.HasValue || DynelManager.LocalPlayer == null ||
+                DynelManager.LocalPlayer.MovementState == MovementState.Fly) return false;
+            int savedTarget = _target;
+            _target = target;
+            Candidate preferred = BuildCandidates(missionAnchor.Value, false).FirstOrDefault();
+            _target = savedTarget;
+            return preferred?.Provider == Provider.FGrid && _fgrid.HasFootApproachRoute();
+        }
+
         public RubiKaTravelPlanner(string pluginDir, ScottyboiWarpProvider warp,
             FGridServiceProvider fgrid, MovementArbiter movement,
             NavigationRouteRecorder routes, Action<string> say)

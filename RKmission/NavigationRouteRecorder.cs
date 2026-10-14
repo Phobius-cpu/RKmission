@@ -65,8 +65,13 @@ namespace RKmission
         private bool _dungeonPlayback;
         private bool _cityReturnPlayback;
         private int _lastDungeonReportedIndex;
+        private int _issuedPlayIndex = -1, _playRecoveryAttempts;
+        private Vector3 _playLastPosition;
+        private float _playLastWaypointDistance = float.MaxValue;
+        private DateTime _playLastProgress, _nextPlayDiagnostic;
         private DateTime _nextSample;
         private bool _writable = true;
+        public string LastPlaybackFailure { get; private set; }
 
         public bool IsRecording => _recording != null;
         public bool IsPlaying => _playing != null;
@@ -138,6 +143,19 @@ namespace RKmission
 
         public bool TryNavigate(Vector3 target, MovementArbiter movement, MovementOwner owner, float endpointTolerance = 6f)
             => TryNavigate(null, target, movement, owner, endpointTolerance);
+
+        public bool HasFootRouteTo(Vector3 target, float endpointTolerance = 6f)
+        {
+            SimpleChar player = DynelManager.LocalPlayer;
+            if (player == null) return false;
+            return _routes.Any(route => route.Playfield == Playfield.ModelIdentity.Instance &&
+                route.Points.Count >= 2 && RouteMode(route) == "Foot" &&
+                (Vector3.Distance(player.Position, V(route.Points[0])) <= endpointTolerance &&
+                 Vector3.Distance(target, V(route.Points[route.Points.Count - 1])) <= endpointTolerance ||
+                 RouteDirection(route) != "Forward" &&
+                 Vector3.Distance(player.Position, V(route.Points[route.Points.Count - 1])) <= endpointTolerance &&
+                 Vector3.Distance(target, V(route.Points[0])) <= endpointTolerance));
+        }
 
         // The bundled city-return recordings are evidence for one narrow journey:
         // a verified Scotty landing to the saved roller terminal. Select only an
@@ -525,6 +543,7 @@ namespace RKmission
                 _playing = best;
                 _playPoints = candidate;
                 _playIndex = 0;
+                BeginPlaybackProgress(player.Position);
                 _say(fixerGrid
                     ? $"Using recorded FGrid route '{best.Name}' toward ({target.X:0.0},{target.Y:0.0},{target.Z:0.0}); " +
                       $"{recordedPointCount} samples reduced to {_playPoints.Count - 1} walkway-supported leg(s)."
@@ -537,14 +556,57 @@ namespace RKmission
                     : $"Using recorded nav route '{best.Name}' toward ({target.X:0.0},{target.Y:0.0},{target.Z:0.0}); no straight-line shortcut.");
             }
 
+            int previousIndex = _playIndex;
             while (_playIndex < _playPoints.Count - 1 && Vector3.Distance(player.Position, _playPoints[_playIndex]) <= 1.2f) _playIndex++;
+            if (_playIndex != previousIndex) _issuedPlayIndex = -1;
             Vector3 waypoint = _playPoints[Math.Min(_playIndex, _playPoints.Count - 1)];
             if (Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid &&
                 !LocalRoutePlanner.SupportedFGridSegment(player.Position, waypoint, player.Position.Y))
             { StopPlayback(); return false; }
             if (Vector3.Distance(player.Position, target) <= 1.2f) { StopPlayback(); return true; }
-            if (movement.Owner != owner || !SMovementController.IsNavigating())
+            float waypointDistance = Vector3.Distance(player.Position, waypoint);
+            if (Vector3.Distance(player.Position, _playLastPosition) >= 0.5f ||
+                _playLastWaypointDistance - waypointDistance >= 0.5f)
+            {
+                _playLastPosition = player.Position;
+                _playLastWaypointDistance = waypointDistance;
+                _playLastProgress = DateTime.UtcNow;
+                _playRecoveryAttempts = 0;
+            }
+            bool navigating = SMovementController.IsNavigating();
+            if (DateTime.UtcNow >= _nextPlayDiagnostic)
+            {
+                _nextPlayDiagnostic = DateTime.UtcNow.AddSeconds(5);
+                _say($"Recorded route progress: route='{_playing.Name}', mode={RouteMode(_playing)}, " +
+                    $"waypoint={_playIndex + 1}/{_playPoints.Count}, destination=({waypoint.X:0.0},{waypoint.Y:0.0},{waypoint.Z:0.0}), " +
+                    $"distance={waypointDistance:0.0}m, owner={movement.Owner}, navigating={navigating}, facing=controller-managed, " +
+                    $"stuck-recoveries={_playRecoveryAttempts}.");
+            }
+            if (DateTime.UtcNow - _playLastProgress > TimeSpan.FromSeconds(8))
+            {
+                _playRecoveryAttempts++;
+                movement.Halt(owner);
+                _issuedPlayIndex = -1;
+                _playLastPosition = player.Position;
+                _playLastWaypointDistance = waypointDistance;
+                _playLastProgress = DateTime.UtcNow;
+                _say($"Recorded route no-progress recovery {_playRecoveryAttempts}/3: route='{_playing.Name}', " +
+                    $"waypoint={_playIndex + 1}/{_playPoints.Count}, distance={waypointDistance:0.0}m; halted stale steering before resubmission.");
+                if (_playRecoveryAttempts >= 3)
+                {
+                    LastPlaybackFailure = $"Recorded route '{_playing.Name}' made no meaningful displacement after three bounded waypoint resets; " +
+                        $"mode={RouteMode(_playing)}, waypoint={_playIndex + 1}/{_playPoints.Count}, distance={waypointDistance:0.0}m, " +
+                        $"owner={movement.Owner}, navigating={navigating}.";
+                    _say(LastPlaybackFailure);
+                    StopPlayback(false);
+                    return false;
+                }
+            }
+            if (_issuedPlayIndex != _playIndex || movement.Owner != owner || !SMovementController.IsNavigating())
+            {
                 if (!movement.SetDestination(owner, waypoint)) { StopPlayback(); return false; }
+                _issuedPlayIndex = _playIndex;
+            }
             return true;
         }
 
@@ -764,10 +826,25 @@ namespace RKmission
             return true;
         }
 
-        public void StopPlayback()
+        public void StopPlayback() => StopPlayback(true);
+
+        private void StopPlayback(bool clearFailure)
         { _playing = null; _playPoints = null; _playIndex = 0; _dungeonPlayback = false;
             _cityReturnPlayback = false;
-            _lastDungeonReportedIndex = 0; }
+            _lastDungeonReportedIndex = 0; _issuedPlayIndex = -1; _playRecoveryAttempts = 0;
+            _playLastWaypointDistance = float.MaxValue; _playLastProgress = _nextPlayDiagnostic = DateTime.MinValue;
+            if (clearFailure) LastPlaybackFailure = null; }
+
+        private void BeginPlaybackProgress(Vector3 position)
+        {
+            LastPlaybackFailure = null;
+            _issuedPlayIndex = -1;
+            _playRecoveryAttempts = 0;
+            _playLastPosition = position;
+            _playLastWaypointDistance = float.MaxValue;
+            _playLastProgress = DateTime.UtcNow;
+            _nextPlayDiagnostic = DateTime.UtcNow;
+        }
 
         private static bool SupportedRecordedFGridRoute(List<Vector3> points, Vector3 start, Vector3 target) =>
             points.Count >= 2 && Vector3.Distance(points[points.Count - 1], target) <= 1.5f &&

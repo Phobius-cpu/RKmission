@@ -76,10 +76,26 @@ namespace RKmission
         }
 
         public VehicleTransitionResult RequireFlightAfterMissionBatch()
+            => RequireFlightAfterMissionBatch(true);
+
+        public VehicleTransitionResult RequireFlightAfterMissionBatch(bool requireFlight)
         {
             ObserveOriginal();
             SimpleChar player = DynelManager.LocalPlayer;
             if (player == null || Game.IsZoning) return VehicleTransitionResult.Waiting;
+            if (!requireFlight)
+            {
+                bool attachedForFootRoute = TerminalVehicleAttached(player);
+                if (!attachedForFootRoute && player.MovementState != MovementState.Fly &&
+                    !player.IsFalling && !Item.HasPendingUse && !Spell.HasPendingCast)
+                {
+                    Status = "batch-departure-foot-route-verified";
+                    return VehicleTransitionResult.Ready;
+                }
+                Status = $"batch-departure-foot-route-unready; state={player.MovementState}, " +
+                    $"attached={attachedForFootRoute}, falling={player.IsFalling}";
+                return VehicleTransitionResult.Blocked;
+            }
             if (!_batchRemountActive)
             {
                 _batchRemountActive = true;
