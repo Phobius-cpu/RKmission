@@ -1877,3 +1877,16 @@ The user requested the 2026-10-13 end-of-day closeout and GitHub persistence.
 Next action: pull/build the PRE-SOAK implementation from `main`, run the full
 checklist, and proceed to long soak only after the gates pass. No AO runtime
 validation was claimed during this documentation session.
+
+## 2026-10-14 - Borealis Scotty `bor` routing
+
+The user supplied live AO evidence that `/tell scty bor` queued `Borealis,
+Near Baffbotz, Implantbob, Reclaim`, with `Warpboi3` assigned in that run, and
+requested this as the exclusive Borealis Scotty destination because it is
+closest to the mission roller terminal. Implementation makes `bor` the sole
+eligible menu command for `PlayfieldId.BorealisCity` while preserving complete
+paged-menu parsing and the general nearest-subdestination behavior elsewhere.
+The assigned warper remains dynamic and identity-verified; `Warpboi3` is
+recorded only as observed evidence. Existing queue, offline, retry,
+cooldown/fallback, and landing-learning behavior remains unchanged. Travel is
+**AWAITING AO TEST** for the full Borealis warp and roller handoff.

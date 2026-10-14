@@ -2826,6 +2826,26 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
   SharpNav/recorded fallback, continued lift traversal, selected portal exit,
   and final destination settlement.
 
+## 2026-10-14 Borealis Scotty destination decision
+
+### Travel — AWAITING AO TEST
+
+- Live AO evidence confirmed `/tell scty bor` queues the destination
+  `Borealis, Near Baffbotz, Implantbob, Reclaim`. `Warpboi3` was the assigned
+  warper in that observed run.
+- For `PlayfieldId.BorealisCity`, RKMission now exclusively selects the `bor`
+  command from Scotty's complete paged menu. Other Borealis subdestinations are
+  still parseable but are not eligible for selection, even if their advertised
+  waypoint is closer to the current mission anchor.
+- `Warpboi3` is not hardcoded. RKMission continues to trust the warper named by
+  the identity-verified Scotty queue reply and applies the existing lookup,
+  buffered-invite, offline wait, timeout, cooldown/fallback, and learned
+  landing safeguards.
+- Focused regression covers exclusive `bor` selection while retaining general
+  multi-command parsing and nearest-subdestination ranking for other
+  playfields. AO still needs to verify a complete Borealis request, dynamic
+  invite acceptance, warp settlement, and onward travel to the roller terminal.
+
 ## 2026-10-12 shared utility bags and mission-reward routing checkpoint
 
 ### Inventory / Logistics — VALIDATED / AWAITING AO TEST

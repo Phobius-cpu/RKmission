@@ -1,6 +1,6 @@
 # RKMission Control Board
 
-_Session closed: 2026-10-13_
+_Updated: 2026-10-14_
 
 ## Current release gate
 
@@ -22,6 +22,10 @@ and begin a long soak only after its gates pass.
 
 ### Travel
 
+- **AWAITING AO TEST:** Borealis Scotty routing exclusively uses live-verified
+  `/tell scty bor` for `Borealis, Near Baffbotz, Implantbob, Reclaim`. The
+  assigned warper remains dynamic and identity-verified; `Warpboi3` is only the
+  observed assignment from the confirming run.
 - **AWAITING AO TEST:** PRE-SOAK Vehicle Lifecycle, Neko-first handoff, and
   vehicle-aware OA/Borealis/ICC routing.
 - **DECIDED:** global Scotty nearest-subdestination ranking across all

@@ -18,7 +18,7 @@ Write-Output 'PASS FGrid uses AO nano/team transitions while retaining bounded a
 
 foreach ($required in @(
     'ParseMenuCommands(reply.Text, alias)',
-    'SelectMenuCommand(_menuCommands, _missionAnchor)',
+    'SelectMenuCommand(_menuCommands, _missionAnchor, _targetId)',
     'TryWaypointFromUrl',
     'HorizontalDistance(command.Landing.Value, missionAnchor.Value)',
     '_menuPages.Count >= _menuPageCount')) {
@@ -71,8 +71,38 @@ $vectorType = $commonAssembly.GetType('AOSharp.Common.GameData.Vector3')
 $anchor = [Activator]::CreateInstance($vectorType, [object[]]@(910.0, 0.0, 910.0))
 $nullableVector = [Activator]::CreateInstance(
     ([Nullable``1].MakeGenericType($vectorType)), [object[]]@($anchor))
-$selected = $select.Invoke($null, @($commands, $nullableVector))
+$selected = $select.Invoke($null, @($commands, $nullableVector, 665))
 if ($selected.Text -ne 'bs') {
     throw "Expected /tell scty bs near City of Home, selected $($selected.Text)."
 }
 Write-Output 'PASS nearer City of Home /tell scty bs beats Atalas for a Broken Shores mission anchor'
+
+$borealisMenu = '<header2>Borealis<end><br>' +
+    'Whompa <a href="chatcmd:///tell scty borealis">Warp</a> ' +
+    '<a href="chatcmd:///waypoint 910 910 800">WP</a><br>' +
+    'Near Baffbotz, Implantbob, Reclaim <a href="chatcmd:///tell scty bor">Warp</a> ' +
+    '<a href="chatcmd:///waypoint 100 100 800">WP</a><br>' +
+    '<header2>Broken Shores<end>'
+$borealisCommands = $parse.Invoke($null, @($borealisMenu, 'borealis'))
+if ($borealisCommands.Count -ne 2) {
+    throw "Expected both Borealis menu choices to remain parsed, found $($borealisCommands.Count)."
+}
+$selectedBorealis = $select.Invoke($null, @($borealisCommands, $nullableVector, 800))
+if ($selectedBorealis.Text -ne 'bor' -or
+    $selectedBorealis.Destination -ne 'nearbaffbotzimplantbobreclaim') {
+    throw "Borealis must exclusively select /tell scty bor, selected $($selectedBorealis.Text)."
+}
+Write-Output 'PASS Borealis exclusively selects /tell scty bor while retaining complete paged-menu parsing'
+
+foreach ($required in @(
+    '_warperName = assignedWarper',
+    'Network.Send(new LookupMessage { Id = 0, Name = _warperName })',
+    'IsBlacklistedRoute(_targetId, assignedWarper)')) {
+    if (-not $scotty.Contains($required)) {
+        throw "Dynamic assigned-warper verification or existing route safeguard was lost: $required"
+    }
+}
+if ($scotty.Contains('string.Equals(assignedWarper, "Warpboi3"')) {
+    throw 'Warpboi3 must remain observed evidence, not a hardcoded Borealis invite requirement.'
+}
+Write-Output 'PASS Borealis retains dynamic identity-verified assigned-warper acceptance'

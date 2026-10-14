@@ -185,7 +185,7 @@ namespace RKmission
                  (_menuPageCount == 0 &&
                   DateTime.UtcNow - _lastMenuMatch > TimeSpan.FromMilliseconds(750))))
             {
-                WarpCommand selected = SelectMenuCommand(_menuCommands, _missionAnchor);
+                WarpCommand selected = SelectMenuCommand(_menuCommands, _missionAnchor, _targetId);
                 string estimate = selected.Landing.HasValue && _missionAnchor.HasValue
                     ? $"; verified menu landing {HorizontalDistance(selected.Landing.Value, _missionAnchor.Value):0} m from mission"
                     : "; no verified per-command landing estimate";
@@ -332,6 +332,7 @@ namespace RKmission
             {
                 foreach (WarpCommand command in ParseMenuCommands(reply.Text, alias))
                 {
+                    if (!IsAllowedMenuCommand(_targetId, command)) continue;
                     if (_menuCommands.Any(existing => SameCommand(existing, command))) continue;
                     _menuCommands.Add(command);
                     _lastMenuMatch = DateTime.UtcNow;
@@ -343,9 +344,20 @@ namespace RKmission
             string.Equals(first.Recipient, second.Recipient, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(first.Text, second.Text, StringComparison.OrdinalIgnoreCase);
 
+        private static bool IsAllowedMenuCommand(int targetId, WarpCommand command) =>
+            targetId != (int)PlayfieldId.BorealisCity ||
+            string.Equals(command.Text, "bor", StringComparison.OrdinalIgnoreCase);
+
         private static WarpCommand SelectMenuCommand(IEnumerable<WarpCommand> commands,
-            Vector3? missionAnchor)
+            Vector3? missionAnchor, int targetId)
         {
+            // Live AO evidence identifies `bor` as the Borealis landing near
+            // Baffbotz, Implantbob and Reclaim, closest to the mission roller.
+            // Keep parsing the complete paged menu, but never rank or request
+            // another Borealis subdestination.
+            if (targetId == (int)PlayfieldId.BorealisCity)
+                commands = commands.Where(command =>
+                    string.Equals(command.Text, "bor", StringComparison.OrdinalIgnoreCase));
             return commands.OrderBy(command => command.Landing.HasValue && missionAnchor.HasValue ? 0 : 1)
                 .ThenBy(command => command.Landing.HasValue && missionAnchor.HasValue
                     ? HorizontalDistance(command.Landing.Value, missionAnchor.Value) : float.MaxValue)
