@@ -22,6 +22,7 @@ namespace RKmission
         private Vector3 _terminalLandingStaging;
         private bool _batchRemountActive, _batchRemountRequested;
         private DateTime _batchRemountStarted;
+        private string _batchRemountEvidence = "command=none";
         public string Status { get; private set; } = "unobserved";
 
         public VehicleLifecycle(MovementArbiter movement, Action<string> say)
@@ -114,7 +115,8 @@ namespace RKmission
             if (DateTime.UtcNow - _batchRemountStarted > TimeSpan.FromSeconds(15))
             {
                 Status = $"batch-remount-timeout; state={player.MovementState}, attached={attached}, " +
-                    $"pendingUse={Item.HasPendingUse}, pendingCast={Spell.HasPendingCast}";
+                    $"pendingUse={Item.HasPendingUse}, pendingCast={Spell.HasPendingCast}, " +
+                    $"{_batchRemountEvidence}, equipped={EquippedVehicleSnapshot()}";
                 return VehicleTransitionResult.Unavailable;
             }
             if (!SafeToTransition(player))
@@ -127,14 +129,48 @@ namespace RKmission
                     x.Id == YalmahaXl29478ItemId && !x.IsEquipped);
                 if (vehicle == null)
                 { Status = "batch-remount-vehicle-unavailable"; return VehicleTransitionResult.Unavailable; }
-                vehicle.Use();
+                if (vehicle.Slot.Type != IdentityType.Inventory ||
+                    vehicle.UniqueIdentity.Type == IdentityType.Container)
+                {
+                    Status = $"batch-remount-invalid-source; source={vehicle.Slot}, " +
+                        $"identity={vehicle.UniqueIdentity}";
+                    return VehicleTransitionResult.Unavailable;
+                }
+                bool supportsHud1 = vehicle.EquipSlots != null &&
+                    vehicle.EquipSlots.Contains(EquipSlot.Weap_Hud1);
+                Item hud1Occupant = Inventory.Items.FirstOrDefault(x => x.IsEquipped &&
+                    x.Slot.Type == IdentityType.WeaponPage &&
+                    x.Slot.Instance == (int)EquipSlot.Weap_Hud1);
+                if (!supportsHud1 || hud1Occupant != null)
+                {
+                    Status = !supportsHud1
+                        ? $"batch-remount-hud1-not-supported; source={vehicle.Slot}, " +
+                          $"advertisedSlots={EquipSlotSnapshot(vehicle)}"
+                        : $"batch-remount-hud1-occupied; source={vehicle.Slot}, " +
+                          $"occupantId={hud1Occupant.Id}, occupantSlot={hud1Occupant.Slot}";
+                    return VehicleTransitionResult.Unavailable;
+                }
+                _batchRemountEvidence = $"source={vehicle.Slot}, identity={vehicle.UniqueIdentity}, " +
+                    $"target={EquipSlot.Weap_Hud1}, advertisedSlots={EquipSlotSnapshot(vehicle)}, " +
+                    "dispatch=void-no-synchronous-ack";
+                try { vehicle.Equip(EquipSlot.Weap_Hud1); }
+                catch (Exception ex)
+                {
+                    Status = $"batch-remount-equip-dispatch-failed; {_batchRemountEvidence}, " +
+                        $"exception={ex.GetType().Name}: {ex.Message}";
+                    return VehicleTransitionResult.Unavailable;
+                }
                 _batchRemountRequested = true;
                 _batchRemountStarted = DateTime.UtcNow;
-                Status = "batch-remount-requested-once";
-                _say("Mission batch complete: requested the known Yalmaha once; mission selection and travel remain held until equipped attachment and live Fly are verified.");
+                Status = $"batch-remount-equip-requested-once; {_batchRemountEvidence}";
+                _say("Mission batch complete: dispatched one verified AOSharp Equip to HUD1 for " +
+                    $"the known Yalmaha; {_batchRemountEvidence}; mission selection and travel " +
+                    "remain held until the equipped snapshot and live Fly are verified.");
             }
-            else Status = attached ? "batch-remount-awaiting-live-fly" :
-                "batch-remount-awaiting-attachment";
+            else Status = (attached ? "batch-remount-awaiting-live-fly" :
+                "batch-remount-awaiting-attachment") + $"; {_batchRemountEvidence}, " +
+                $"equipped={EquippedVehicleSnapshot()}, state={player.MovementState}, " +
+                $"pendingUse={Item.HasPendingUse}, pendingCast={Spell.HasPendingCast}";
             return VehicleTransitionResult.Waiting;
         }
 
@@ -142,6 +178,19 @@ namespace RKmission
         {
             _batchRemountActive = _batchRemountRequested = false;
             _batchRemountStarted = DateTime.MinValue;
+            _batchRemountEvidence = "command=none";
+        }
+
+        private static string EquipSlotSnapshot(Item item) => item?.EquipSlots == null
+            ? "none"
+            : string.Join(",", item.EquipSlots.Select(x => x.ToString()));
+
+        private static string EquippedVehicleSnapshot()
+        {
+            Item equipped = Inventory.Items.FirstOrDefault(x =>
+                x.Id == YalmahaXl29478ItemId && x.IsEquipped);
+            return equipped == null ? "none" :
+                $"id={equipped.Id}, slot={equipped.Slot}, identity={equipped.UniqueIdentity}";
         }
 
         // Terminal transactions are deliberately stricter than ordinary travel:

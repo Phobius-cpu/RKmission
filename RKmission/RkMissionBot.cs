@@ -1097,7 +1097,12 @@ namespace RKmission
                     {
                         VehicleTransitionResult remount = _vehicle.RequireFlightAfterMissionBatch();
                         if (remount == VehicleTransitionResult.Unavailable)
-                        { Stop(); Say("Mission batch remount stopped: " + _vehicle.Status + "."); return; }
+                        {
+                            string remountFailure = _vehicle.Status;
+                            Stop();
+                            Say("Mission batch remount stopped: " + remountFailure + ".");
+                            return;
+                        }
                         if (remount != VehicleTransitionResult.Ready)
                         { Wait("Mission batch remount required before mission selection/travel: " + _vehicle.Status + "."); return; }
                         _missionBatchRemountPending = false;

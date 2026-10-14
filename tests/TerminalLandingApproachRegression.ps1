@@ -37,7 +37,7 @@ Assert ($bot.Contains('string vehicleFailure = _vehicle.Status;') -and
     'terminal timeout diagnostics are captured before Stop resets vehicle lifecycle state'
 Assert ($vehicle.Contains('RequireFlightAfterMissionBatch') -and
     $vehicle.Contains('attached && player.MovementState == MovementState.Fly') -and
-    $vehicle.Contains('batch-remount-requested-once') -and
+    $vehicle.Contains('batch-remount-equip-requested-once') -and
     $bot.Contains('_missionBatchRemountPending = true;') -and
     $bot.Contains('Mission batch remount required before mission selection/travel') -and
     $bot.Contains('Mission batch remount verified: equipped vehicle attachment')) `
