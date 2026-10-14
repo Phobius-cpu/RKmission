@@ -64,6 +64,8 @@ namespace RKmission
         private DateTime _nextReturnMove, _returnStarted;
         private Vector3 _lastReturnProgressPosition;
         private int _returnNoProgressAttempts;
+        private bool _returnCityRouteEligible;
+        private Vector3 _returnScottyLanding;
         private DateTime _logisticsOriginWaitStarted;
         private const float RollTerminalApproachDistance = 3f;
         private bool _running, _dungeonStarted, _clearanceReported, _verifiedRun, _travelInvalidated;
@@ -1818,8 +1820,30 @@ namespace RKmission
                 if (result == TravelResult.Blocked)
                 { string reason = _longTravel.LastFailure; Stop(); Say("Return to roller stopped: " + reason); return false; }
                 if (result == TravelResult.InProgress) return false;
+                if (result == TravelResult.Arrived &&
+                    string.Equals(_longTravel.CurrentProvider, "Scottyboi",
+                        StringComparison.OrdinalIgnoreCase) &&
+                    DynelManager.LocalPlayer != null)
+                {
+                    _returnCityRouteEligible = true;
+                    _returnScottyLanding = DynelManager.LocalPlayer.Position;
+                }
             }
             if (_longTravel.IsActive) _longTravel.Reset();
+            if (_returnCityRouteEligible)
+            {
+                CityReturnRouteResult cityRoute = _navRoutes.TryNavigateCityReturn(
+                    _returnScottyLanding, _rollTerminalPosition, _movement,
+                    MovementOwner.OutdoorTravel);
+                if (cityRoute == CityReturnRouteResult.InProgress) return false;
+                _returnCityRouteEligible = false;
+                if (cityRoute == CityReturnRouteResult.NoMatch)
+                    Say($"No safe recorded Scotty-to-terminal route matched PF {_rollTerminalPlayfield} " +
+                        $"from observed landing {_returnScottyLanding}; using existing local terminal-return behavior.");
+                else
+                    Say("Recorded city return route reached its terminal-side endpoint; " +
+                        "continuing to grounded exact-terminal identity/position verification.");
+            }
             if (!_vehicle.RestoreOriginal())
             { Wait($"Vehicle lifecycle: {_vehicle.Status}; waiting for live ground verification before the precise saved-terminal connector."); return false; }
             SimpleChar player = DynelManager.LocalPlayer;
@@ -1842,7 +1866,14 @@ namespace RKmission
             if (DateTime.UtcNow - _returnStarted > TimeSpan.FromMinutes(3))
             { Stop(); Say("Return to the mission terminal timed out before reaching its surveyed interaction standoff."); return false; }
             if (Vector3.Distance(player.Position, terminal.Position) <= RollTerminalApproachDistance)
-            { _movement.Release(MovementOwner.OutdoorTravel); ResetRollTerminalReturn(); return true; }
+            {
+                _movement.Release(MovementOwner.OutdoorTravel);
+                Say($"Exact saved roller terminal verification passed: {terminal.Identity} in PF {_rollTerminalPlayfield}, " +
+                    $"position delta={Vector3.Distance(terminal.Position, _rollTerminalPosition):0.0}m, " +
+                    $"player range={Vector3.Distance(player.Position, terminal.Position):0.0}m.");
+                ResetRollTerminalReturn();
+                return true;
+            }
             if (DateTime.UtcNow >= _nextReturnMove)
             {
                 float progress = Vector3.Distance(player.Position, _lastReturnProgressPosition);
@@ -1869,6 +1900,8 @@ namespace RKmission
             _nextReturnMove = DateTime.MinValue;
             _lastReturnProgressPosition = Vector3.Zero;
             _returnNoProgressAttempts = 0;
+            _returnCityRouteEligible = false;
+            _returnScottyLanding = Vector3.Zero;
         }
 
         private string LogisticsOriginDiagnostic(string site)

@@ -9,6 +9,8 @@ using Newtonsoft.Json;
 
 namespace RKmission
 {
+    internal enum CityReturnRouteResult { NoMatch, InProgress, Arrived }
+
     // Records user-walked routes and replays matching ordered route sections.
     // This deliberately does not synthesize FGrid paths across unobserved gaps.
     internal sealed class NavigationRouteRecorder : IDisposable
@@ -61,6 +63,7 @@ namespace RKmission
         private List<Vector3> _playPoints;
         private int _playIndex;
         private bool _dungeonPlayback;
+        private bool _cityReturnPlayback;
         private int _lastDungeonReportedIndex;
         private DateTime _nextSample;
         private bool _writable = true;
@@ -135,6 +138,94 @@ namespace RKmission
 
         public bool TryNavigate(Vector3 target, MovementArbiter movement, MovementOwner owner, float endpointTolerance = 6f)
             => TryNavigate(null, target, movement, owner, endpointTolerance);
+
+        // The bundled city-return recordings are evidence for one narrow journey:
+        // a verified Scotty landing to the saved roller terminal. Select only an
+        // endpoint-compatible route in the observed city and attach to its recorded
+        // corridor. The caller still owns exact live terminal verification.
+        public CityReturnRouteResult TryNavigateCityReturn(Vector3 observedLanding,
+            Vector3 target, MovementArbiter movement, MovementOwner owner)
+        {
+            SimpleChar player = DynelManager.LocalPlayer;
+            if (player == null || IsRecording || Game.IsZoning)
+                return CityReturnRouteResult.NoMatch;
+
+            if (!_cityReturnPlayback || _playing == null || _playPoints == null ||
+                _playing.Playfield != Playfield.ModelIdentity.Instance ||
+                Vector3.Distance(_playPoints[_playPoints.Count - 1], target) > 6f)
+            {
+                StopPlayback();
+                Route best = null;
+                List<Vector3> bestPath = null;
+                float bestCost = float.MaxValue, bestCorridor = float.MaxValue;
+                int bestSegment = 0;
+                bool bestReverse = false;
+                foreach (Route route in _routes.Where(x =>
+                    IsCityReturnRoute(x) &&
+                    x.Playfield == Playfield.ModelIdentity.Instance &&
+                    x.Points.Count >= 2 &&
+                    RouteModeMatches(x, player.MovementState == MovementState.Fly)))
+                {
+                    List<Vector3> recorded = route.Points.Select(V).ToList();
+                    foreach (bool reverse in new[] { false, true })
+                    {
+                        if (reverse && RouteDirection(route) == "Forward") continue;
+                        List<Vector3> oriented = reverse
+                            ? recorded.AsEnumerable().Reverse().ToList() : recorded;
+                        float targetDistance = Vector3.Distance(target,
+                            oriented[oriented.Count - 1]);
+                        if (targetDistance > 6f ||
+                            !TryAttachCityCorridor(oriented, observedLanding,
+                                out _, out float landingCorridor, out _, out _ ) ||
+                            !TryAttachCityCorridor(oriented, player.Position,
+                                out List<Vector3> resumed, out float currentCorridor,
+                                out float currentVertical, out int segment)) continue;
+                        float cost = landingCorridor + currentCorridor + currentVertical +
+                            targetDistance;
+                        if (cost >= bestCost) continue;
+                        best = route;
+                        bestPath = resumed;
+                        bestCost = cost;
+                        bestCorridor = landingCorridor;
+                        bestSegment = segment;
+                        bestReverse = reverse;
+                    }
+                }
+                if (best == null) return CityReturnRouteResult.NoMatch;
+
+                int recordedPointCount = bestPath.Count;
+                // ICC's lift/statue recordings retain every supplied height sample.
+                // OA and Borealis use the existing corridor/elevation-bounded smoother.
+                if (best.Playfield != 655)
+                    bestPath = SimplifyRecordedPath(bestPath);
+                _playing = best;
+                _playPoints = bestPath;
+                _playIndex = 0;
+                _cityReturnPlayback = true;
+                float startDistance = Vector3.Distance(observedLanding,
+                    V(best.Points[bestReverse ? best.Points.Count - 1 : 0]));
+                _say($"Selected city return route '{best.Name}' in PF {best.Playfield}; " +
+                    $"landing-to-start={startDistance:0.0}m, landing-to-corridor={bestCorridor:0.0}m, " +
+                    $"forward-reacquired={(bestSegment > 1 ? "yes" : "no")}, mode={RouteMode(best)}, " +
+                    $"altitude={RouteAltitude(best)}, direction={RouteDirection(best)}; " +
+                    $"{recordedPointCount} retained recorded sample(s), {_playPoints.Count} playback point(s)." );
+            }
+
+            while (_playIndex < _playPoints.Count - 1 &&
+                Vector3.Distance(player.Position, _playPoints[_playIndex]) <= 1.2f)
+                _playIndex++;
+            Vector3 waypoint = _playPoints[_playIndex];
+            if (_playIndex == _playPoints.Count - 1 &&
+                Vector3.Distance(player.Position, waypoint) <= 1.5f)
+            {
+                StopPlayback();
+                return CityReturnRouteResult.Arrived;
+            }
+            if (movement.Owner != owner || !SMovementController.IsNavigating())
+                if (!movement.SetDestination(owner, waypoint))
+                { StopPlayback(); return CityReturnRouteResult.NoMatch; }
+            return CityReturnRouteResult.InProgress;
+        }
 
         // Returns a short direction back toward the recorded walkway skeleton.
         // FGrid recovery uses this without changing playback state, so a local
@@ -675,6 +766,7 @@ namespace RKmission
 
         public void StopPlayback()
         { _playing = null; _playPoints = null; _playIndex = 0; _dungeonPlayback = false;
+            _cityReturnPlayback = false;
             _lastDungeonReportedIndex = 0; }
 
         private static bool SupportedRecordedFGridRoute(List<Vector3> points, Vector3 start, Vector3 target) =>
@@ -697,6 +789,66 @@ namespace RKmission
             return resumed != null && resumed.Count >= 2 &&
                 LocalRoutePlanner.HorizontalDistance(start, resumed[0]) <= Math.Max(12f, endpointTolerance * 2f) &&
                 Vector3.Distance(target, resumed[resumed.Count - 1]) <= endpointTolerance;
+        }
+
+        private static bool IsCityReturnRoute(Route route)
+        {
+            if (route == null || string.IsNullOrWhiteSpace(route.Name)) return false;
+            switch (route.Name.Trim())
+            {
+                case "OA Sirocco to Terminal - Flying":
+                    return route.Playfield == 540;
+                case "OA Clan Agency to Terminal - Flying":
+                    return route.Playfield == 540;
+                case "ICC Lift to Terminal":
+                    return route.Playfield == 655;
+                case "ICC Statue to Terminal":
+                    return route.Playfield == 655;
+                case "Bor Baffbots to Terminal":
+                    return route.Playfield == 800;
+                default:
+                    return false;
+            }
+        }
+
+        // The horizontal bound matches existing vehicle-route reacquisition.
+        // A separate height bound prevents ICC's lift and statue recordings from
+        // being selected from the wrong level while retaining their vertical path.
+        private static bool TryAttachCityCorridor(List<Vector3> points, Vector3 position,
+            out List<Vector3> resumed, out float horizontalDistance,
+            out float verticalDistance, out int segment)
+        {
+            resumed = null;
+            horizontalDistance = verticalDistance = float.MaxValue;
+            segment = 0;
+            if (points == null || points.Count < 2) return false;
+            Vector3 bestProjection = points[0];
+            float bestScore = float.MaxValue;
+            for (int i = 1; i < points.Count; i++)
+            {
+                Vector3 leg = points[i] - points[i - 1];
+                Vector3 horizontal = leg; horizontal.Y = 0;
+                float squared = Vector3.Dot(horizontal, horizontal);
+                if (squared < 0.01f) continue;
+                float amount = Math.Max(0f, Math.Min(1f,
+                    ((position.X - points[i - 1].X) * horizontal.X +
+                     (position.Z - points[i - 1].Z) * horizontal.Z) / squared));
+                Vector3 projection = points[i - 1] + leg * amount;
+                float crossTrack = LocalRoutePlanner.HorizontalDistance(position, projection);
+                float vertical = Math.Abs(position.Y - projection.Y);
+                float score = crossTrack + vertical;
+                if (score >= bestScore) continue;
+                bestScore = score;
+                horizontalDistance = crossTrack;
+                verticalDistance = vertical;
+                bestProjection = projection;
+                segment = i;
+            }
+            if (segment == 0 || horizontalDistance > 12f || verticalDistance > 6f)
+                return false;
+            resumed = new List<Vector3> { bestProjection };
+            resumed.AddRange(points.Skip(segment));
+            return resumed.Count >= 2;
         }
 
         // Resume at the closest point on the oriented recording, then retain only
@@ -927,6 +1079,7 @@ namespace RKmission
         }
 
         private static string RouteMode(Route route) => string.IsNullOrWhiteSpace(route?.MovementMode) ? "Foot" : route.MovementMode;
+        private static string RouteAltitude(Route route) => string.IsNullOrWhiteSpace(route?.AltitudeProfile) ? "Ground" : route.AltitudeProfile;
         private static string RouteDirection(Route route) => string.IsNullOrWhiteSpace(route?.Directionality) ? "Bidirectional" : route.Directionality;
         private static bool RouteModeMatches(Route route, bool flying)
         {
