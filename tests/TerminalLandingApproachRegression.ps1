@@ -28,7 +28,8 @@ Assert ($vehicle.Contains('x.Id == YalmahaXl29478ItemId && x.IsEquipped') -and
     $vehicle.Contains('equippedVehicle.MoveToInventory();') -and
     $vehicle.Contains('automatic-inventory-slot=111') -and
     -not $vehicle.Contains('Enumerable.Range(64, 30)') -and
-    $vehicle.Contains('player.VehiclePointer != IntPtr.Zero') -and
+    $vehicle.Contains('Dynel.VehiclePointer is AOSharp''s persistent movement/position backing') -and
+    -not $vehicle.Contains('player.VehiclePointer != IntPtr.Zero') -and
     $vehicle.Contains('terminal-vehicle-detachment-pending')) `
     'terminal rolling requires explicit Yalmaha unequip and live vehicle attachment clearance'
 Assert ($bot.Contains('string vehicleFailure = _vehicle.Status;') -and

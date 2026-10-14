@@ -237,9 +237,11 @@ namespace RKmission
             _terminalLandingStaging = Vector3.Zero;
         }
 
+        // Dynel.VehiclePointer is AOSharp's persistent movement/position backing
+        // object even on foot; it is not evidence that a vehicle is attached.
+        // Equipment-page presence plus live Fly/non-Fly is authoritative here.
         private static bool TerminalVehicleAttached(SimpleChar player) =>
-            player.VehiclePointer != IntPtr.Zero || Inventory.Items.Any(x =>
-                x.Id == YalmahaXl29478ItemId && x.IsEquipped);
+            Inventory.Items.Any(x => x.Id == YalmahaXl29478ItemId && x.IsEquipped);
 
         private bool SafeToTransition(SimpleChar player) => !Game.IsZoning && !Playfield.IsDungeon &&
             !player.IsAttacking && !player.IsFalling &&
