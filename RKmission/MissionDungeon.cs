@@ -327,6 +327,13 @@ namespace RKmission
                 !_objective.HoldLoot(dynel) && !_readiness.InCombat &&
                 (!_objective.IsObjective(dynel.Identity) || _loot.MissionObjectiveContainer == dynel.Identity);
             _loot.MissionInteractionReady = LootInteractionReady;
+            _loot.MissionCombatFree = () => !_readiness.InCombat &&
+                !DynelManager.LocalPlayer.IsAttacking &&
+                !DynelManager.NPCs.Any(x => x.IsAttacking &&
+                    x.FightingTarget?.Identity == DynelManager.LocalPlayer.Identity);
+            _loot.MissionCombatBlockReleaseAllowed = () =>
+                !((_objective.HasKillTarget || _objective.HasFindPersonTarget) &&
+                  !_objective.RewardConfirmed);
             _loot.MissionItemProtected = item => _objective.ProtectsMissionItem(item.UniqueIdentity) ||
                 (_objective.ReturnItem != null &&
                  ManagerLoot.ManagerLoot.UsableMissionItemIdentity(_objective.ReturnItem.UniqueIdentity) &&
@@ -375,6 +382,8 @@ namespace RKmission
             _loot.MissionRoomDynels = null;
             _loot.MissionLootAllowed = null;
             _loot.MissionInteractionReady = null;
+            _loot.MissionCombatFree = null;
+            _loot.MissionCombatBlockReleaseAllowed = null;
             _loot.MissionLootReserved = null;
             _loot.MissionItemProtected = null;
             _loot.ActiveMissionOwner = Identity.None;
@@ -1046,10 +1055,13 @@ namespace RKmission
                 }
                 if (_loot.UnfinishedMissionLootCount > 0)
                 {
-                    string blockers = _loot.MissionLootBlockers;
-                    Stop();
-                    _say($"Ordinary loot remains unfinished; objective completion and automatic exit are held. {blockers}. Check loot logs, rules and free space.");
-                    return;
+                    if (_loot.UnfinishedMissionLootCount > _loot.CombatBlockedMissionLootCount)
+                    {
+                        string blockers = _loot.MissionLootBlockers;
+                        Stop();
+                        _say($"Ordinary loot remains unfinished; objective completion and automatic exit are held. {blockers}. Check loot logs, rules and free space.");
+                        return;
+                    }
                 }
                 if (!_objective.HasSteps)
                 {
@@ -2514,6 +2526,13 @@ namespace RKmission
             _requestedOwner = MovementOwner.LootApproach;
             // Manager.Loot owns the list, chest/lockpick handling and item moves.
             // RKMission approaches and can defer an unreachable object.
+            if (_loot.CriticalBlockedMissionLootCount > 0)
+            {
+                string blockers = _loot.MissionLootBlockers;
+                Stop();
+                _say("Mission-critical loot is blocked; objective completion and exit are held. " + blockers);
+                return true;
+            }
             Dynel next = _loot.NextMissionLoot(room.Instance);
             DateTime now = DateTime.UtcNow;
             Identity processingIdentity = _loot.ProcessingMissionLootIdentity;

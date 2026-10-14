@@ -94,7 +94,7 @@ namespace ManagerLoot
         private long _nextMissionLootOccurrence;
         private enum MissionSourceState
         {
-            Discovered, PendingApproach, DeferredApproach, Opening, Lockpicking, Looting, Completed,
+            Discovered, PendingApproach, DeferredApproach, CombatBlocked, Opening, Lockpicking, Looting, Completed,
             SkippedUnreachable, SkippedInsufficientSkill, SkippedNoLockpick,
             SkippedRepeatedFailure, SkippedNoCapacity, SkippedUnavailable, CriticalBlocked
         }
@@ -110,6 +110,19 @@ namespace ManagerLoot
         }
         private readonly Dictionary<MissionIdentity, DeferredApproach> _deferredApproaches =
             new Dictionary<MissionIdentity, DeferredApproach>();
+        private const int MaxOrdinaryCombatBlockedAttempts = 3;
+        private const double CombatFreeConfirmationSeconds = 5;
+        private const double CombatBlockedRetryCooldownSeconds = 8;
+        private sealed class CombatBlockedLoot
+        {
+            public int RoomId, Attempts;
+            public long Occurrence;
+            public double RejectedAt, CombatFreeSince;
+            public bool Released;
+            public string Feedback;
+        }
+        private readonly Dictionary<MissionIdentity, CombatBlockedLoot> _combatBlockedLoot =
+            new Dictionary<MissionIdentity, CombatBlockedLoot>();
         private int _missionRoomTraversals;
         public int MissionLootProgress { get; private set; }
         private int _observedContainerCount;
@@ -226,6 +239,11 @@ namespace ManagerLoot
         public Func<int, IEnumerable<Dynel>> MissionRoomDynels { get; set; }
         public Func<Dynel, bool> MissionLootAllowed { get; set; }
         public Func<Dynel, bool> MissionInteractionReady { get; set; }
+        // Dungeon readiness supplies the authoritative combat-free signal. The
+        // objective gate keeps remote reserved-target aggro from being mistaken
+        // for a safe transient lull before FindPerson/KillPerson acknowledgement.
+        public Func<bool> MissionCombatFree { get; set; }
+        public Func<bool> MissionCombatBlockReleaseAllowed { get; set; }
         // Independent of combat/phase permissions: an objective is final work,
         // even if it entered the discovery ledger before its metadata arrived.
         public Func<MissionIdentity, bool> MissionLootReserved { get; set; }
@@ -297,6 +315,7 @@ namespace ManagerLoot
             _missionSources.Clear();
             _missionSkipReasons.Clear();
             _deferredApproaches.Clear();
+            _combatBlockedLoot.Clear();
             _missionRoomTraversals = 0;
             MissionLootProgress = 0;
             _observedContainerCount = 0;
@@ -337,21 +356,26 @@ namespace ManagerLoot
             _missionLootRooms.TryGetValue(x.Key, out int sourceRoom) && sourceRoom == roomId &&
             _missionSources.TryGetValue(x.Key, out MissionSourceState state) &&
             state == MissionSourceState.DeferredApproach &&
-            !_finishedMissionLoot.Contains(x.Key) && !_unreachableMissionLoot.Contains(x.Key));
+            !_finishedMissionLoot.Contains(x.Key) && !_unreachableMissionLoot.Contains(x.Key)) ||
+            _combatBlockedLoot.Any(x => CurrentCombatBlock(x.Key, x.Value) &&
+                x.Value.RoomId == roomId && CombatBlockReady(x.Key));
+        public int CombatBlockedMissionLootCount => _combatBlockedLoot.Count(x =>
+            CurrentCombatBlock(x.Key, x.Value) && !IsMissionCriticalLoot(x.Key));
         public bool HasReadyDeferredMissionLoot => _deferredApproaches.Any(x =>
             !IsMissionCriticalLoot(x.Key) &&
             x.Value.Attempts < MaxOrdinaryApproachAttempts &&
             _missionRoomTraversals >= x.Value.RetryAfterTraversal &&
             _missionSources.TryGetValue(x.Key, out MissionSourceState state) &&
             state == MissionSourceState.DeferredApproach &&
-            !_finishedMissionLoot.Contains(x.Key) && !_unreachableMissionLoot.Contains(x.Key));
+            !_finishedMissionLoot.Contains(x.Key) && !_unreachableMissionLoot.Contains(x.Key)) ||
+            _combatBlockedLoot.Any(x => CurrentCombatBlock(x.Key, x.Value) && CombatBlockReady(x.Key));
         public bool HasPendingMissionCorpse(int roomId) => !IgnoreOrdinaryMissionLoot &&
             (MissionRoomDynels?.Invoke(roomId) ?? DynelManager.AllDynels).Any(x =>
                 x.Identity.Type == IdentityType.Corpse && IsInMissionRoom(x, roomId) &&
                 !_finishedMissionLoot.Contains(x.Identity) && !_unreachableMissionLoot.Contains(x.Identity) &&
                 (MissionLootAllowed?.Invoke(x) ?? true));
         public string MissionLootBlockers => $"ordinary skipped={SkippedMissionLootCount}, ordinary unfinished={UnfinishedMissionLootCount}, " +
-            $"reserved objective entries={ReservedPendingMissionLootCount}, process={CurrentProcess}, pending={_pendingMissionLoot}; " +
+            $"reserved objective entries={ReservedPendingMissionLootCount}, combat-blocked={CombatBlockedMissionLootCount}, process={CurrentProcess}, pending={_pendingMissionLoot}; " +
             string.Join("; ", _missionSources.Where(x => !Settled(x.Value)).Take(8).Select(x =>
                 $"{x.Key} state={x.Value} room={(_missionLootRooms.TryGetValue(x.Key, out int room) ? room.ToString() : "unknown")} " +
                 (DynelManager.GetDynel(x.Key) == null ? "not currently visible" : "still visible")));
@@ -551,6 +575,7 @@ namespace ManagerLoot
 
             _unreachableMissionLoot.Add(identity);
             _deferredApproaches.Remove(identity);
+            _combatBlockedLoot.Remove(identity);
             _missionSkipReasons[identity] = reason;
             SetMissionSource(identity, MissionSourceState.SkippedUnavailable);
             Chat.WriteLine($"RKMission: Optional loot {identity} in room {roomId}, generation {occurrence}, " +
@@ -626,9 +651,39 @@ namespace ManagerLoot
         }
 
         private bool DeferredApproachReady(MissionIdentity identity) =>
-            IsMissionCriticalLoot(identity) ||
-            !_deferredApproaches.TryGetValue(identity, out DeferredApproach deferred) ||
-            _missionRoomTraversals >= deferred.RetryAfterTraversal;
+            (IsMissionCriticalLoot(identity) ||
+             !_deferredApproaches.TryGetValue(identity, out DeferredApproach deferred) ||
+             _missionRoomTraversals >= deferred.RetryAfterTraversal) && CombatBlockReady(identity);
+
+        private bool CurrentCombatBlock(MissionIdentity identity, CombatBlockedLoot blocked) =>
+            blocked != null && _missionLootRooms.TryGetValue(identity, out int roomId) && roomId == blocked.RoomId &&
+            _missionLootOccurrences.TryGetValue(identity, out long occurrence) && occurrence == blocked.Occurrence &&
+            !_finishedMissionLoot.Contains(identity) && !_unreachableMissionLoot.Contains(identity);
+
+        private bool CombatBlockReady(MissionIdentity identity)
+        {
+            if (!_combatBlockedLoot.TryGetValue(identity, out CombatBlockedLoot blocked)) return true;
+            if (!CurrentCombatBlock(identity, blocked)) return true;
+            bool combatFree = MissionCombatFree?.Invoke() == true;
+            bool objectiveAllows = MissionCombatBlockReleaseAllowed?.Invoke() ?? true;
+            if (!combatFree || !objectiveAllows)
+            {
+                blocked.CombatFreeSince = 0;
+                blocked.Released = false;
+                return false;
+            }
+            if (blocked.Released) return true;
+            double now = Time.AONormalTime;
+            if (blocked.CombatFreeSince == 0) blocked.CombatFreeSince = now;
+            if (now < blocked.RejectedAt + CombatBlockedRetryCooldownSeconds ||
+                now < blocked.CombatFreeSince + CombatFreeConfirmationSeconds) return false;
+            blocked.Released = true;
+            SetMissionSource(identity, MissionSourceState.PendingApproach);
+            Chat.WriteLine($"RKMission: Combat-free loot retry released for {identity} occurrence {blocked.Occurrence} " +
+                $"in room {blocked.RoomId} after {CombatFreeConfirmationSeconds:0}s uninterrupted verification " +
+                $"(combat rejection attempt {blocked.Attempts}/{MaxOrdinaryCombatBlockedAttempts}).");
+            return true;
+        }
 
         private LockpickAttempt MissionLockpick(MissionIdentity identity)
         {
@@ -1110,6 +1165,7 @@ namespace ManagerLoot
                 _unreachableMissionLoot.Remove(identity);
                 _missionSkipReasons.Remove(identity);
                 _deferredApproaches.Remove(identity);
+                _combatBlockedLoot.Remove(identity);
                 _missionLockpicks.Remove(identity);
                 openedContainers.Remove(identity.Instance);
                 _missionSources.Remove(identity);
@@ -1150,6 +1206,7 @@ namespace ManagerLoot
             // item behind before objective metadata arrived. Retry once as final work.
             _unreachableMissionLoot.Remove(identity);
             _deferredApproaches.Remove(identity);
+            _combatBlockedLoot.Remove(identity);
             _finishedMissionLoot.Remove(identity);
             openedContainers.Remove(identity.Instance);
             _missionLockpicks.Remove(identity);
@@ -1395,8 +1452,58 @@ namespace ManagerLoot
         {
             ObserveLockpickFeedback(message);
             if (MissionRoomId < 0 || CurrentProcess != ProcessState.Opening ||
-                _pendingMissionLoot == MissionIdentity.None || string.IsNullOrWhiteSpace(message) ||
-                message.IndexOf("too far away", StringComparison.OrdinalIgnoreCase) < 0) return;
+                _pendingMissionLoot == MissionIdentity.None || string.IsNullOrWhiteSpace(message)) return;
+            string normalized = new string(message.Trim().ToLowerInvariant()
+                .Where(c => char.IsLetterOrDigit(c) || char.IsWhiteSpace(c)).ToArray());
+            bool combatRejected = normalized.Contains("cant open a chest while youre in a fight") ||
+                normalized.Contains("cannot open a chest while youre in a fight");
+            if (combatRejected)
+            {
+                MissionIdentity blockedIdentity = _pendingMissionLoot;
+                if (!_missionLootRooms.TryGetValue(blockedIdentity, out int roomId) ||
+                    !_missionLootOccurrences.TryGetValue(blockedIdentity, out long occurrence) ||
+                    occurrence == 0 || occurrence != _pendingMissionLootOccurrence) return;
+                if (!_combatBlockedLoot.TryGetValue(blockedIdentity, out CombatBlockedLoot blocked) ||
+                    !CurrentCombatBlock(blockedIdentity, blocked))
+                    _combatBlockedLoot[blockedIdentity] = blocked = new CombatBlockedLoot
+                    { RoomId = roomId, Occurrence = occurrence };
+                blocked.Attempts++;
+                blocked.RejectedAt = Time.AONormalTime;
+                blocked.CombatFreeSince = 0;
+                blocked.Released = false;
+                blocked.Feedback = message.Trim();
+                _pendingMissionLoot = MissionIdentity.None;
+                _pendingMissionLootOccurrence = 0;
+                CurrentCorpse = null;
+                CorpseContainer = null;
+                _sourceAcquisition = null;
+                CurrentProcess = ProcessState.Open_Corpse;
+                if (IsMissionCriticalLoot(blockedIdentity))
+                {
+                    SetMissionSource(blockedIdentity, MissionSourceState.CriticalBlocked);
+                    Chat.WriteLine($"RKMission: Mission-critical loot {blockedIdentity} occurrence {occurrence} in room {roomId} " +
+                        $"was combat-blocked by exact server feedback '{blocked.Feedback}'; opening ownership released and mission recovery is required.");
+                    return;
+                }
+                if (blocked.Attempts >= MaxOrdinaryCombatBlockedAttempts &&
+                    (MissionCombatBlockReleaseAllowed?.Invoke() ?? true))
+                {
+                    _combatBlockedLoot.Remove(blockedIdentity);
+                    _finishedMissionLoot.Add(blockedIdentity);
+                    _unreachableMissionLoot.Add(blockedIdentity);
+                    SetMissionSource(blockedIdentity, MissionSourceState.SkippedUnavailable);
+                    _missionSkipReasons[blockedIdentity] = $"combat-blocked by server after {blocked.Attempts} verified retry attempts; last feedback: {blocked.Feedback}";
+                    Chat.WriteLine($"RKMission: Explicitly skipping ordinary loot {blockedIdentity} occurrence {occurrence} in room {roomId} " +
+                        $"after {blocked.Attempts}/{MaxOrdinaryCombatBlockedAttempts} server combat rejections; it was not counted as successfully looted.");
+                    return;
+                }
+                SetMissionSource(blockedIdentity, MissionSourceState.CombatBlocked);
+                Chat.WriteLine($"RKMission: Loot {blockedIdentity} occurrence {occurrence} in room {roomId} is CombatBlocked " +
+                    $"by exact server feedback '{blocked.Feedback}' (attempt {blocked.Attempts}/{MaxOrdinaryCombatBlockedAttempts}); " +
+                    "opening ownership released without side probing or navigation-failure charge.");
+                return;
+            }
+            if (message.IndexOf("too far away", StringComparison.OrdinalIgnoreCase) < 0) return;
             MissionIdentity identity = _pendingMissionLoot;
             _pendingMissionLoot = MissionIdentity.None;
             _pendingMissionLootOccurrence = 0;
@@ -1455,6 +1562,7 @@ namespace ManagerLoot
             {
                 _openedMissionLoot.Add(container.Identity);
                 _openedMissionLootOccurrences[container.Identity] = _pendingMissionLootOccurrence;
+                _combatBlockedLoot.Remove(container.Identity);
             }
             _observedContainerCount = container.Items?.Count ?? 0;
             CurrentCorpse = DynelManager.GetDynel(container.Identity);
@@ -1557,6 +1665,7 @@ namespace ManagerLoot
                         var dynel = roomDynels.Where(c => !openedContainers.ContainsKey(c.Identity.Instance)
                         && (_pendingMissionLoot == MissionIdentity.None || c.Identity == _pendingMissionLoot)
                         && !_unreachableMissionLoot.Contains(c.Identity)
+                        && (MissionRoomId < 0 || DeferredApproachReady(c.Identity))
                         && (MissionRoomId < 0 || LockpickReady(c.Identity))
                         && (c.Identity.Type == IdentityType.Container || c.Identity.Type == IdentityType.Corpse)
                         && (MissionLootAllowed?.Invoke(c) ?? true)
