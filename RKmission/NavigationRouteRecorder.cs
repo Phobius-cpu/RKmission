@@ -53,6 +53,7 @@ namespace RKmission
             public string RouteName;
             public int Playfield;
             public List<Vector3> Points;
+            public List<Vector3> PhysicalPoints;
             public int ProgressIndex;
             public Vector3 TargetSide;
         }
@@ -61,7 +62,7 @@ namespace RKmission
         private readonly Action<string> _say;
         private readonly List<Route> _routes = new List<Route>();
         private Route _recording, _playing;
-        private List<Vector3> _playPoints;
+        private List<Vector3> _playPoints, _dungeonPhysicalPoints;
         private int _playIndex;
         private bool _dungeonPlayback;
         private bool _cityReturnPlayback;
@@ -663,7 +664,9 @@ namespace RKmission
             }
             StopPlayback();
             _playing = best.Route;
-            _playPoints = best.Points;
+            _dungeonPhysicalPoints = new List<Vector3>(best.Points);
+            _playPoints = SimplifyDungeonTopology(best.Points);
+            _say($"Recorded dungeon topology '{best.Route.Name}' reduced {best.Points.Count - 1} sampled legs to {_playPoints.Count - 1} physical corridor leg(s); turns and slope changes retained.");
             _playIndex = 0;
             _dungeonPlayback = true;
             _lastDungeonReportedIndex = 0;
@@ -774,6 +777,7 @@ namespace RKmission
                     RouteName = _playing.Name,
                     Playfield = Playfield.ModelIdentity.Instance,
                     Points = new List<Vector3>(_playPoints),
+                    PhysicalPoints = new List<Vector3>(_dungeonPhysicalPoints ?? _playPoints),
                     ProgressIndex = _playIndex,
                     TargetSide = waypoint
                 };
@@ -803,6 +807,7 @@ namespace RKmission
                 RouteName = _playing.Name,
                 Playfield = Playfield.ModelIdentity.Instance,
                 Points = new List<Vector3>(_playPoints),
+                PhysicalPoints = new List<Vector3>(_dungeonPhysicalPoints ?? _playPoints),
                 ProgressIndex = Math.Max(0, Math.Min(_playIndex, _playPoints.Count - 1)),
                 TargetSide = targetSide
             };
@@ -843,6 +848,7 @@ namespace RKmission
             _playing = new Route { Name = continuation.RouteName,
                 Playfield = continuation.Playfield };
             _playPoints = remaining;
+            _dungeonPhysicalPoints = new List<Vector3>(continuation.PhysicalPoints ?? continuation.Points);
             _playIndex = 0;
             _dungeonPlayback = true;
             _lastDungeonReportedIndex = 0;
@@ -851,6 +857,69 @@ namespace RKmission
                 $"{start + 1}/{continuation.Points.Count} ({remaining.Count} point(s)); " +
                 $"source attach={bestDistance:0.0}m, target attach=" +
                 $"{Vector3.Distance(target, remaining[remaining.Count - 1]):0.0}m.");
+            return true;
+        }
+
+        // Find the minimum number of legs inside the sampled ramp corridor.
+        // Every output vertex is an original physical point. Mandatory corners
+        // and slope joints cannot be bypassed, even when spatially close.
+        internal static List<Vector3> SimplifyDungeonTopology(List<Vector3> points)
+        {
+            if (points == null || points.Count < 3)
+                return points == null ? new List<Vector3>() : new List<Vector3>(points);
+            bool[] keep = new bool[points.Count];
+            keep[0] = keep[points.Count - 1] = true;
+            for (int i = 1; i < points.Count - 1; i++)
+            {
+                Vector3 incoming = points[i] - points[i - 1], outgoing = points[i + 1] - points[i];
+                float a = (float)Math.Sqrt(incoming.X * incoming.X + incoming.Z * incoming.Z);
+                float b = (float)Math.Sqrt(outgoing.X * outgoing.X + outgoing.Z * outgoing.Z);
+                if (a < 0.05f || b < 0.05f) { keep[i] = true; continue; }
+                float cosine = (incoming.X * outgoing.X + incoming.Z * outgoing.Z) / (a * b);
+                bool turn = a >= 0.35f && b >= 0.35f && cosine < 0.94f;
+                bool slopeJoint = (Math.Abs(incoming.Y) >= 0.15f || Math.Abs(outgoing.Y) >= 0.15f) &&
+                    Math.Abs(incoming.Y / a - outgoing.Y / b) >= 0.2f;
+                keep[i] = turn || slopeJoint;
+            }
+            int[] legs = Enumerable.Repeat(int.MaxValue, points.Count).ToArray();
+            int[] previous = Enumerable.Repeat(-1, points.Count).ToArray();
+            legs[0] = 0;
+            for (int end = 1; end < points.Count; end++)
+                for (int start = 0; start < end; start++)
+                {
+                    if (legs[start] == int.MaxValue || legs[start] + 1 >= legs[end]) continue;
+                    if (!DungeonRecordedLeg(points, keep, start, end)) continue;
+                    legs[end] = legs[start] + 1;
+                    previous[end] = start;
+                }
+            var result = new List<Vector3>();
+            for (int i = points.Count - 1; i >= 0; i = previous[i])
+            {
+                result.Add(points[i]);
+                if (i == 0) break;
+            }
+            result.Reverse();
+            return result;
+        }
+
+        private static bool DungeonRecordedLeg(List<Vector3> points, bool[] keep, int start, int end)
+        {
+            if (end == start + 1) return true;
+            Vector3 leg = points[end] - points[start];
+            float squared = leg.X * leg.X + leg.Z * leg.Z;
+            if (squared < 0.01f) return false;
+            float previousAmount = -0.001f;
+            for (int i = start + 1; i < end; i++)
+            {
+                if (keep[i]) return false;
+                Vector3 offset = points[i] - points[start];
+                float amount = (offset.X * leg.X + offset.Z * leg.Z) / squared;
+                if (amount < previousAmount || amount < 0f || amount > 1f) return false;
+                float dx = offset.X - leg.X * amount, dz = offset.Z - leg.Z * amount;
+                if (dx * dx + dz * dz > 0.2f * 0.2f ||
+                    Math.Abs(offset.Y - leg.Y * amount) > 0.15f) return false;
+                previousAmount = amount;
+            }
             return true;
         }
 
@@ -866,8 +935,17 @@ namespace RKmission
                 Vector3.Distance(from, upper) > DungeonSourceAttachDistance ||
                 Math.Abs(from.Y - upper.Y) > 0.75f ||
                 Math.Abs(doorApproach.Y - ground.Y) > 1.25f ||
-                !IsContinuousDungeonRecording(ascent.Points)) return null;
+                !IsContinuousDungeonRecording(ascent.PhysicalPoints ?? ascent.Points) ||
+                !IsRecordedSubsequence(ascent.PhysicalPoints ?? ascent.Points, ascent.Points)) return null;
             return ascent.Points.AsEnumerable().Reverse().ToList();
+        }
+
+        private static bool IsRecordedSubsequence(List<Vector3> physical, List<Vector3> retained)
+        {
+            int next = 0;
+            foreach (Vector3 point in physical)
+                if (next < retained.Count && Vector3.Distance(point, retained[next]) <= 0.001f) next++;
+            return next == retained.Count;
         }
 
         public bool TryPrepareRecordedReturn(DungeonTopologyContinuation ascent,
@@ -881,6 +959,7 @@ namespace RKmission
             _playing = new Route { Name = ascent.RouteName + " (return descent)",
                 Playfield = ascent.Playfield };
             _playPoints = points;
+            _dungeonPhysicalPoints = (ascent.PhysicalPoints ?? ascent.Points).AsEnumerable().Reverse().ToList();
             _playIndex = 0;
             _dungeonPlayback = true;
             _lastDungeonReportedIndex = 0;
@@ -892,7 +971,7 @@ namespace RKmission
         public void StopPlayback() => StopPlayback(true);
 
         private void StopPlayback(bool clearFailure)
-        { _playing = null; _playPoints = null; _playIndex = 0; _dungeonPlayback = false;
+        { _playing = null; _playPoints = null; _dungeonPhysicalPoints = null; _playIndex = 0; _dungeonPlayback = false;
             _cityReturnPlayback = false;
             _lastDungeonReportedIndex = 0; _issuedPlayIndex = -1; _playRecoveryAttempts = 0;
             _playLastWaypointDistance = float.MaxValue; _playLastProgress = _nextPlayDiagnostic = DateTime.MinValue;

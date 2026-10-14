@@ -6,6 +6,8 @@ function Require([bool]$ok, [string]$message) { if (-not $ok) { throw $message }
 $start = $recorder.IndexOf('        internal static List<Vector3> RecordedReturnPoints(')
 $end = $recorder.IndexOf('        public bool TryPrepareRecordedReturn(', $start)
 $method = $recorder.Substring($start, $end - $start).Replace('internal static', 'public static')
+$simplifyStart = $recorder.IndexOf('        internal static List<Vector3> SimplifyDungeonTopology(')
+$simplifier = $recorder.Substring($simplifyStart, $start - $simplifyStart).Replace('internal static', 'public static')
 $continuousStart = $recorder.IndexOf('        private static bool IsContinuousDungeonRecording(')
 $continuousEnd = $recorder.IndexOf('        public bool TryNavigatePreparedDungeonTopology(', $continuousStart)
 $continuous = $recorder.Substring($continuousStart, $continuousEnd - $continuousStart)
@@ -16,12 +18,13 @@ using System.Linq;
 public struct Vector3 {
     public float X,Y,Z;
     public Vector3(float x,float y,float z) { X=x; Y=y; Z=z; }
+    public static Vector3 operator -(Vector3 a,Vector3 b) => new Vector3(a.X-b.X,a.Y-b.Y,a.Z-b.Z);
     public static float Distance(Vector3 a,Vector3 b) => (float)Math.Sqrt((a.X-b.X)*(a.X-b.X)+(a.Y-b.Y)*(a.Y-b.Y)+(a.Z-b.Z)*(a.Z-b.Z));
 }
-public class DungeonTopologyContinuation { public int Playfield; public List<Vector3> Points; }
+public class DungeonTopologyContinuation { public int Playfield; public List<Vector3> Points,PhysicalPoints; }
 public static class RampReturn {
     const float DungeonMinimumVerticalSpan=1.5f,DungeonSourceAttachDistance=4f;
-'@ + $method + $continuous + '}')
+'@ + $simplifier + $method + $continuous + '}')
 $asset = Get-Content (Join-Path $root 'RKmission/Data/DungeonTopologyRoutes.json') -Raw | ConvertFrom-Json
 $ascent = [DungeonTopologyContinuation]::new()
 $ascent.Playfield = 14680242
@@ -67,3 +70,30 @@ $beginStart = $dungeon.IndexOf('private void BeginTransition(')
 $begin = $dungeon.Substring($beginStart, $dungeon.IndexOf('private void TickRecordedReturn(', $beginStart)-$beginStart)
 Require ($begin.IndexOf('if (_transition.Phase == TransitionPhase.RecordedReturn) return;') -lt $begin.IndexOf('Navigate(DoorwayWaypoint(')) 'Initial transition setup must not issue a direct door destination during return descent.'
 Write-Output 'PASS initial transition command also waits for recorded descent'
+
+$raw = [System.Collections.Generic.List[Vector3]]::new()
+foreach ($p in $asset.Routes[0].Points) { $raw.Add([Vector3]::new($p[0],$p[1],$p[2])) }
+$reduced = [RampReturn]::SimplifyDungeonTopology($raw)
+Require ($reduced.Count -eq 7) 'U-turn fixture must reduce 15 sampled legs to six corner/slope-preserving legs.'
+foreach ($index in @(0,7,9,10,11,13,15)) {
+    Require (@($reduced | Where-Object { [Vector3]::Distance($_,$raw[$index]) -eq 0 }).Count -eq 1) "Lost physical ramp joint $index"
+}
+$ascent.PhysicalPoints = $raw
+$ascent.Points = $reduced
+$return = [RampReturn]::RecordedReturnPoints($ascent,$raw[-1],$door,14680242)
+Require ($return.Count -eq $reduced.Count) 'Long reduced legs must validate against dense physical evidence.'
+for ($i=0; $i -lt $return.Count; $i++) {
+    Require ([Vector3]::Distance($return[$i],$reduced[$reduced.Count-1-$i]) -eq 0) 'Descent must reverse the exact reduced ascent without re-simplifying.'
+}
+$ascent.Points[1] = [Vector3]::new(999,5,999)
+Require ($null -eq [RampReturn]::RecordedReturnPoints($ascent,$raw[-1],$door,14680242)) 'Reduced path with invented vertex must fail physical-subsequence validation.'
+$straight = [System.Collections.Generic.List[Vector3]]::new()
+for ($i=0; $i -lt 21; $i++) { $straight.Add([Vector3]::new($i,5,0)) }
+Require ([RampReturn]::SimplifyDungeonTopology($straight).Count -eq 2) 'Straight corridor must use the minimum one leg.'
+foreach ($text in @('_playPoints = SimplifyDungeonTopology(best.Points);',
+    'PhysicalPoints = new List<Vector3>(_dungeonPhysicalPoints ?? _playPoints)',
+    'ascent.Points.AsEnumerable().Reverse().ToList()', 'if (keep[i]) return false;',
+    'dx * dx + dz * dz > 0.2f * 0.2f', 'Math.Abs(offset.Y - leg.Y * amount) > 0.15f')) {
+    Require ($recorder.Contains($text)) "Missing smoothing/reversal invariant: $text"
+}
+Write-Output 'PASS U-turn reduces 15 sampled legs to six physical legs with all turns/slope joints and exact reverse descent'
