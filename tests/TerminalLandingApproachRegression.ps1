@@ -21,9 +21,14 @@ Assert ($catalog.Contains('const float landingRadius = 5f') -and
     'landing staging is lateral, outside terminal collision body, and terminal-height-relative'
 Assert ($vehicle.Contains('RequireFootForTerminal') -and
     $vehicle.Contains('flight ownership is intentionally irrelevant') -and
-    $vehicle.Contains('_terminalLeaveFlyRequested') -and
-    $vehicle.Contains('if (!_terminalLeaveFlyRequested)')) `
+    $vehicle.Contains('_terminalDismountRequested') -and
+    $vehicle.Contains('if (!_terminalDismountRequested)')) `
     'user-owned and RKMission-owned flight share a terminal-only one-shot safe exit path'
+Assert ($vehicle.Contains('x.Id == YalmahaXl29478ItemId && x.IsEquipped') -and
+    $vehicle.Contains('equippedVehicle.MoveToInventory(freeSlot);') -and
+    $vehicle.Contains('player.VehiclePointer != IntPtr.Zero') -and
+    $vehicle.Contains('terminal-vehicle-detachment-pending')) `
+    'terminal rolling requires explicit Yalmaha unequip and live vehicle attachment clearance'
 Assert ($vehicle.Contains('player.IsFalling || Item.HasPendingUse || Spell.HasPendingCast') -and
     $vehicle.Contains('TimeSpan.FromMilliseconds(750)') -and
     $vehicle.Contains('TimeSpan.FromSeconds(45)')) `

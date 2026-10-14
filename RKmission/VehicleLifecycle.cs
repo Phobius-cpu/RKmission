@@ -17,7 +17,7 @@ namespace RKmission
         private readonly Action<string> _say;
         private bool _observedOriginal, _originalFlying, _activationRequested, _ownsFlight;
         private DateTime _requestedAt;
-        private bool _terminalLandingActive, _terminalLeaveFlyRequested;
+        private bool _terminalLandingActive, _terminalDismountRequested;
         private DateTime _terminalLandingStarted, _terminalGroundObservedAt;
         private Vector3 _terminalLandingStaging;
         public string Status { get; private set; } = "unobserved";
@@ -83,7 +83,7 @@ namespace RKmission
             if (!_terminalLandingActive || Vector3.Distance(_terminalLandingStaging, landingStaging) > 0.5f)
             {
                 _terminalLandingActive = true;
-                _terminalLeaveFlyRequested = false;
+                _terminalDismountRequested = false;
                 _terminalGroundObservedAt = DateTime.MinValue;
                 _terminalLandingStarted = DateTime.UtcNow;
                 _terminalLandingStaging = landingStaging;
@@ -113,21 +113,60 @@ namespace RKmission
                 _movement.Halt(MovementOwner.OutdoorTravel);
                 if (Item.HasPendingUse || Spell.HasPendingCast)
                 { Status = "terminal-dismount-waits-for-pending-action"; return VehicleTransitionResult.Waiting; }
-                if (!_terminalLeaveFlyRequested)
+                if (!_terminalDismountRequested)
                 {
-                    _movement.SetMovement(MovementOwner.OutdoorTravel, MovementAction.LeaveFly);
-                    _terminalLeaveFlyRequested = true;
-                    Status = "terminal-dismount-requested-once";
-                    _say("Terminal foot requirement: safe landing staging verified; sent one LeaveFly and waiting for authoritative live foot state.");
+                    Item equippedVehicle = Inventory.Items.FirstOrDefault(x =>
+                        x.Id == YalmahaXl29478ItemId && x.IsEquipped);
+                    if (equippedVehicle != null)
+                    {
+                        int freeSlot = Enumerable.Range(64, 30).FirstOrDefault(slot =>
+                            !Inventory.Items.Any(x => x.Slot.Type == IdentityType.Inventory &&
+                                x.Slot.Instance == slot));
+                        if (freeSlot == 0)
+                        { Status = "terminal-dismount-no-free-inventory-slot"; return VehicleTransitionResult.Unavailable; }
+                        equippedVehicle.MoveToInventory(freeSlot);
+                        Status = $"terminal-vehicle-unequip-requested-once; inventory-slot={freeSlot}";
+                        _say("Terminal foot requirement: safe landing staging verified; requested one explicit equipped-Yalmaha move to main inventory and waiting for live detachment proof.");
+                    }
+                    else
+                    {
+                        _movement.SetMovement(MovementOwner.OutdoorTravel, MovementAction.LeaveFly);
+                        Status = "terminal-leave-fly-requested-once";
+                        _say("Terminal foot requirement: safe landing staging verified; no equipped known Yalmaha was exposed, so sent one LeaveFly and waiting for live detachment proof.");
+                    }
+                    _terminalDismountRequested = true;
                 }
-                else Status = "terminal-dismount-awaiting-live-state";
+                else Status = TerminalVehicleAttached(player) ?
+                    "terminal-dismount-awaiting-live-detachment" : "terminal-dismount-awaiting-live-foot-state";
                 return VehicleTransitionResult.Waiting;
             }
             _movement.Release(MovementOwner.OutdoorTravel);
-            if (player.IsFalling || Item.HasPendingUse || Spell.HasPendingCast)
+            if (TerminalVehicleAttached(player) && !_terminalDismountRequested)
+            {
+                if (Item.HasPendingUse || Spell.HasPendingCast)
+                { Status = "terminal-attached-vehicle-waits-for-pending-action"; return VehicleTransitionResult.Waiting; }
+                Item equippedVehicle = Inventory.Items.FirstOrDefault(x =>
+                    x.Id == YalmahaXl29478ItemId && x.IsEquipped);
+                int freeSlot = Enumerable.Range(64, 30).FirstOrDefault(slot =>
+                    !Inventory.Items.Any(x => x.Slot.Type == IdentityType.Inventory &&
+                        x.Slot.Instance == slot));
+                if (equippedVehicle == null || freeSlot == 0)
+                {
+                    Status = equippedVehicle == null ? "terminal-attached-vehicle-not-resolvable" :
+                        "terminal-dismount-no-free-inventory-slot";
+                    return VehicleTransitionResult.Unavailable;
+                }
+                equippedVehicle.MoveToInventory(freeSlot);
+                _terminalDismountRequested = true;
+                Status = $"terminal-vehicle-unequip-requested-once; inventory-slot={freeSlot}";
+                _say("Terminal foot requirement: AO reports non-Fly while a vehicle remains attached; requested one explicit equipped-Yalmaha move to main inventory and waiting for live detachment proof.");
+                return VehicleTransitionResult.Waiting;
+            }
+            if (TerminalVehicleAttached(player) || player.IsFalling || Item.HasPendingUse || Spell.HasPendingCast)
             {
                 _terminalGroundObservedAt = DateTime.MinValue;
-                Status = player.IsFalling ? "terminal-ground-settling" : "terminal-pending-action-settling";
+                Status = TerminalVehicleAttached(player) ? "terminal-vehicle-detachment-pending" :
+                    player.IsFalling ? "terminal-ground-settling" : "terminal-pending-action-settling";
                 return VehicleTransitionResult.Waiting;
             }
             if (_terminalGroundObservedAt == DateTime.MinValue)
@@ -144,10 +183,14 @@ namespace RKmission
 
         public void ResetTerminalRequirement()
         {
-            _terminalLandingActive = _terminalLeaveFlyRequested = false;
+            _terminalLandingActive = _terminalDismountRequested = false;
             _terminalLandingStarted = _terminalGroundObservedAt = DateTime.MinValue;
             _terminalLandingStaging = Vector3.Zero;
         }
+
+        private static bool TerminalVehicleAttached(SimpleChar player) =>
+            player.VehiclePointer != IntPtr.Zero || Inventory.Items.Any(x =>
+                x.Id == YalmahaXl29478ItemId && x.IsEquipped);
 
         private bool SafeToTransition(SimpleChar player) => !Game.IsZoning && !Playfield.IsDungeon &&
             !player.IsAttacking && !player.IsFalling &&
