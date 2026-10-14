@@ -44,6 +44,7 @@ namespace RKmission
         private bool _serverCompletion;
         private string _roleResolutionFailure;
         public bool Finale { get; private set; }
+        public bool PersonEncounterActive { get; private set; }
         public bool FinalActionsAllowed { get; set; }
         public bool RewardConfirmed { get; private set; }
         public string Evidence { get; private set; }
@@ -150,11 +151,32 @@ namespace RKmission
             (IsNonLootObjective(dynel.Identity) || !(Finale && FinalActionsAllowed) ||
                 dynel.Identity.Type == IdentityType.SimpleChar);
 
+        // Room order is a preference; reaching the exact person releases its
+        // objective action without waiting for whole-dungeon clearance.
+        public bool TryActivatePersonEncounter(Room room, DungeonLayout layout)
+        {
+            if (PersonEncounterActive || RewardConfirmed || room == null || layout == null) return false;
+            Step person = _steps.FirstOrDefault(x => !x.Done &&
+                (x.Action is FindPersonAction || x.Action is KillPersonAction) &&
+                (_rooms.TryGetValue(x.Target, out int mapped) && mapped == room.Instance ||
+                 DynelManager.GetDynel(x.Target) is Dynel live && layout.ContainsDynel(room.Instance, live)));
+            if (person == null) return false;
+            if (!PreflightFinale(out string reason)) { Failure = reason; return false; }
+            PersonEncounterActive = true;
+            FinalActionsAllowed = true;
+            BeginFinale();
+            _say($"Person objective encountered in room {room.Instance}: {person.Action.Type}:{person.Target}; " +
+                "acting now, then continuing remaining exploration and loot before exit.");
+            return true;
+        }
+
         public void BeginFinale()
         {
             if (Finale) return;
             Finale = true;
-            _say("Other rooms checked and ordinary enemies cleared; starting the reserved objective finale. Any loot deferred by combat will be collected before exit.");
+            _say(PersonEncounterActive
+                ? "Starting the encountered person objective; remaining rooms and loot still gate automatic exit."
+                : "Other rooms checked and ordinary enemies cleared; starting the reserved objective finale. Any loot deferred by combat will be collected before exit.");
             if (HasFindPersonTarget)
                 _say($"FindPerson finale: exact target={FindPersonTarget}, mapped room=" +
                     $"{RoomFor(FindPersonTarget)?.ToString() ?? "unknown"}; target remains protected during observation.");

@@ -796,6 +796,11 @@ namespace RKmission
             _objective.Refresh(_layout);
             if (_objective.Failure != null) { Stop(); _say(_objective.Failure); return; }
             _objective.ObserveAcknowledgement();
+            Room encounterRoom = DynelManager.LocalPlayer.Room;
+            if (_transition == null && _layout.IsInside(encounterRoom.Instance,
+                DynelManager.LocalPlayer.Position, 0.4f))
+                _objective.TryActivatePersonEncounter(encounterRoom, _layout);
+            if (_objective.Failure != null) { Stop(); _say(_objective.Failure); return; }
             ReopenOccupiedRooms();
             ObservePostCombatCorpseGuard();
             // Evidence reconciliation and the 90-second deadline must advance
@@ -809,7 +814,7 @@ namespace RKmission
                 EnemyCandidates(x).Any(enemy => !_objective.IsObjective(enemy.Identity)));
             bool allRoomsChecked = Playfield.Rooms.All(x =>
                 _clearedRooms.Contains(x.Instance) || _combatCheckedRooms.Contains(x.Instance));
-            _objective.FinalActionsAllowed = allRoomsChecked && !ordinaryEnemiesRemain &&
+            _objective.FinalActionsAllowed = _objective.PersonEncounterActive || allRoomsChecked && !ordinaryEnemiesRemain &&
                 (_loot.UnfinishedMissionLootCount == 0 ||
                     ((_objective.HasKillTarget || _objective.HasFindPersonTarget) &&
                         _combatCheckedRooms.Count > 0));
@@ -905,6 +910,17 @@ namespace RKmission
             if (_objective.Finale && _objective.FinalActionsAllowed &&
                 _objective.HasKillTarget && !_objective.RewardConfirmed &&
                 TickKillPersonFinale(room)) return;
+            if (_objective.PersonEncounterActive && _objective.HasFindPersonTarget &&
+                !_objective.RewardConfirmed && _objective.PendingRoom == room.Instance &&
+                !EnemyCandidates(room).Any())
+            {
+                // Exact FindPerson aggro must not send us back to a global sweep
+                // once its room has been reached. Observe/acknowledge it here.
+                TickObjective(room);
+                if (_objective.Failure != null) { Stop(); _say(_objective.Failure); }
+                _roomQuietAt = DateTime.MinValue;
+                return;
+            }
             if (_readiness.InCombat)
             {
                 if (FightInRoom(room))
@@ -2988,7 +3004,7 @@ namespace RKmission
             // Prefer routes that avoid entering the objective room entirely.
             Room next = RouteTo(current.Instance, id => ordinary(id) && !reserved.Contains(id), true);
             if (next != null) return next;
-            // A cut-through objective room may be unavoidable; its actions remain held.
+            // A cut-through person room may be unavoidable; act on its target on entry.
             next = RouteTo(current.Instance, id => ordinary(id) && !reserved.Contains(id), false);
             if (next != null) return next;
             next = RouteTo(current.Instance, ordinary, false);
@@ -3041,7 +3057,7 @@ namespace RKmission
                     while (parent[index] != current && parent[index] != -1)
                         index = parent[index];
                     _say($"Routing from room {current} through {index} toward room {goal}" +
-                        (reserved.Contains(index) && !_objective.Finale ? "; objective interaction remains held." : "."));
+                        (reserved.Contains(index) && !_objective.Finale ? "; objective room encountered on this route." : "."));
                     return _layout.Room(index);
                 }
 
