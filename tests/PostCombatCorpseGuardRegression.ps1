@@ -8,6 +8,7 @@ foreach ($required in @(
     'PostCombatCorpseMaterializationWait = TimeSpan.FromSeconds(5)',
     'RememberCombatEngagement(room, enemy)',
     'ObservePostCombatCorpseGuard()',
+    'ReconcilePostCombatCorpseGuards(DynelManager.LocalPlayer.Room)',
     'HoldForPostCombatCorpse(room)',
     'PostCombatCorpseSettlementWait = TimeSpan.FromSeconds(90)',
     'PostCombatCorpseSkipVisibilityGrace = TimeSpan.FromSeconds(5)',
@@ -27,11 +28,12 @@ foreach ($required in @(
 Write-Output 'PASS RKMission-controlled kills create a bounded verified-room corpse materialization guard'
 
 $observe = $dungeon.IndexOf('ObservePostCombatCorpseGuard();')
+$reconcile = $dungeon.IndexOf('ReconcilePostCombatCorpseGuards(DynelManager.LocalPlayer.Room)', $observe)
 $readiness = $dungeon.IndexOf('if (_transition == null && HoldForReadiness()) return;')
 $fight = $dungeon.IndexOf('bool roomAction = FightInRoom(room)')
 $guard = $dungeon.IndexOf('if (HoldForPostCombatCorpse(room)) return;', $fight)
 $clear = $dungeon.IndexOf('_clearedRooms.Add(room.Instance);', $guard)
-if ($observe -lt 0 -or $readiness -lt 0 -or $observe -gt $readiness -or
+if ($observe -lt 0 -or $reconcile -lt $observe -or $readiness -lt 0 -or $reconcile -gt $readiness -or
     $fight -lt 0 -or $guard -lt $fight -or $clear -lt $guard) {
     throw 'Corpse guard no longer survives readiness or precedes room clearance/routing.'
 }

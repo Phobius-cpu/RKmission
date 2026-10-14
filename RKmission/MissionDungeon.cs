@@ -776,6 +776,10 @@ namespace RKmission
             _objective.ObserveAcknowledgement();
             ReopenOccupiedRooms();
             ObservePostCombatCorpseGuard();
+            // Evidence reconciliation and the 90-second deadline must advance
+            // even when combat/readiness gates retain action ownership. This
+            // pass never moves, halts, opens, or otherwise steals combat.
+            if (ReconcilePostCombatCorpseGuards(DynelManager.LocalPlayer.Room)) return;
             foreach (Room occupied in Playfield.Rooms.Where(x =>
                 EnemyCandidates(x).Any(enemy => !_objective.IsObjective(enemy.Identity))))
                 _combatCheckedRooms.Remove(occupied.Instance);
@@ -1346,13 +1350,7 @@ namespace RKmission
         private bool HoldForPostCombatCorpse(Room room)
         {
             if (_postCombatCorpseGuards.Count == 0) return false;
-            foreach (PostCombatCorpseGuard settled in _postCombatCorpseGuards.Where(guard =>
-                guard.Corpse != Identity.None && _loot.IsMissionLootSuccessfullyProcessed(
-                    guard.Corpse, guard.RoomId, guard.CorpseOccurrence)).ToList())
-            {
-                _say($"Post-combat corpse guard completed {settled.Corpse} in room {settled.RoomId}; exact ContainerOpened and processing-finished evidence confirmed, outstanding corpse ownership released.");
-                _postCombatCorpseGuards.Remove(settled);
-            }
+            if (ReconcilePostCombatCorpseGuards(room)) return true;
             if (_postCombatCorpseGuards.Count == 0) return false;
             bool localOutstanding = room != null &&
                 _postCombatCorpseGuards.Any(guard => guard.RoomId == room.Instance);
@@ -1374,6 +1372,33 @@ namespace RKmission
                 _say($"Post-combat corpse guard terminal safe-stop: no mapped route from room {room?.Instance.ToString() ?? "unknown"} to verified outstanding room {wrongRoom.RoomId} for {(wrongRoom.Corpse == Identity.None ? wrongRoom.Enemy : wrongRoom.Corpse)}.");
                 return true;
             }
+            DateTime now = DateTime.UtcNow;
+            MovementArbiter.Current.Halt(_requestedOwner);
+            _destination = null;
+            _roomQuietAt = DateTime.MinValue;
+            foreach (PostCombatCorpseGuard guard in _postCombatCorpseGuards.Where(x =>
+                now - x.LastDiagnostic >= TimeSpan.FromSeconds(2)))
+            {
+                guard.LastDiagnostic = now;
+                TimeSpan elapsed = now - guard.Started;
+                _say(guard.Corpse == Identity.None
+                    ? $"Post-combat corpse guard rescanning room {guard.RoomId} for target {guard.Enemy}; elapsed={elapsed.TotalSeconds:0.0}s/{PostCombatCorpseMaterializationWait.TotalSeconds:0}s."
+                    : $"Post-combat corpse guard holding room {guard.RoomId} for ManagerLoot settlement of {guard.Corpse}; visible={DynelManager.GetDynel(guard.Corpse) != null}, processing={_loot.ProcessingMissionLootIdentity}.");
+            }
+            return true;
+        }
+
+        private bool ReconcilePostCombatCorpseGuards(Room room)
+        {
+            if (_postCombatCorpseGuards.Count == 0) return false;
+            foreach (PostCombatCorpseGuard settled in _postCombatCorpseGuards.Where(guard =>
+                guard.Corpse != Identity.None && _loot.IsMissionLootSuccessfullyProcessed(
+                    guard.Corpse, guard.RoomId, guard.CorpseOccurrence)).ToList())
+            {
+                _say($"Post-combat corpse guard completed {settled.Corpse} in room {settled.RoomId}; exact ContainerOpened and processing-finished evidence confirmed, outstanding corpse ownership released.");
+                _postCombatCorpseGuards.Remove(settled);
+            }
+            if (_postCombatCorpseGuards.Count == 0) return false;
             DateTime now = DateTime.UtcNow;
             foreach (PostCombatCorpseGuard skipped in _postCombatCorpseGuards.Where(guard =>
                 guard.Corpse != Identity.None && _loot.TryGetMissionLootSkipReason(guard.Corpse, out _)).ToList())
@@ -1410,24 +1435,25 @@ namespace RKmission
                 guard.Corpse != Identity.None && now - guard.AcquiredAt >= PostCombatCorpseSettlementWait);
             if (failed != null)
             {
+                Dynel visible = DynelManager.GetDynel(failed.Corpse);
+                bool visibleInOwnedRoom = visible != null && _layout.ContainsDynel(failed.RoomId, visible);
+                string unavailableReason = $"not visible in verified room {failed.RoomId} for the full " +
+                    $"{PostCombatCorpseSettlementWait.TotalSeconds:0}-second settlement window; exact ContainerOpened and processing-finished evidence absent";
+                string refusal = null;
+                if (!visibleInOwnedRoom && _loot.TrySkipUnavailableMissionLoot(failed.Corpse,
+                    failed.RoomId, failed.CorpseOccurrence, unavailableReason, out refusal))
+                {
+                    _say($"Post-combat corpse guard explicitly skipped unavailable ordinary corpse {failed.Corpse} " +
+                        $"in room {failed.RoomId} without successful-loot credit: {unavailableReason}.");
+                    _postCombatCorpseGuards.Remove(failed);
+                    return false;
+                }
                 Stop();
-                _say($"Post-combat corpse guard safe-stop: {failed.Corpse} in room {failed.RoomId} did not reach a settled ManagerLoot state within {PostCombatCorpseSettlementWait.TotalSeconds:0}s. {_loot.MissionLootBlockers}");
+                _say($"Post-combat corpse guard safe-stop: {failed.Corpse} in room {failed.RoomId} did not reach a settled ManagerLoot state within {PostCombatCorpseSettlementWait.TotalSeconds:0}s; " +
+                    $"visible in owned room={visibleInOwnedRoom}; unavailable-skip refusal={refusal ?? "source remained visible"}. {_loot.MissionLootBlockers}");
                 return true;
             }
-            if (_postCombatCorpseGuards.Count == 0) return false;
-            MovementArbiter.Current.Halt(_requestedOwner);
-            _destination = null;
-            _roomQuietAt = DateTime.MinValue;
-            foreach (PostCombatCorpseGuard guard in _postCombatCorpseGuards.Where(x =>
-                now - x.LastDiagnostic >= TimeSpan.FromSeconds(2)))
-            {
-                guard.LastDiagnostic = now;
-                TimeSpan elapsed = now - guard.Started;
-                _say(guard.Corpse == Identity.None
-                    ? $"Post-combat corpse guard rescanning room {guard.RoomId} for target {guard.Enemy}; elapsed={elapsed.TotalSeconds:0.0}s/{PostCombatCorpseMaterializationWait.TotalSeconds:0}s."
-                    : $"Post-combat corpse guard holding room {guard.RoomId} for ManagerLoot settlement of {guard.Corpse}; visible={DynelManager.GetDynel(guard.Corpse) != null}, processing={_loot.ProcessingMissionLootIdentity}.");
-            }
-            return true;
+            return !IsRunning;
         }
 
         private void ResetPostCombatCorpseTracking()

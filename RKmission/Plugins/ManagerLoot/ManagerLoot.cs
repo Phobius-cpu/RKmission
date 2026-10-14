@@ -96,7 +96,7 @@ namespace ManagerLoot
         {
             Discovered, PendingApproach, DeferredApproach, Opening, Lockpicking, Looting, Completed,
             SkippedUnreachable, SkippedInsufficientSkill, SkippedNoLockpick,
-            SkippedRepeatedFailure, SkippedNoCapacity, CriticalBlocked
+            SkippedRepeatedFailure, SkippedNoCapacity, SkippedUnavailable, CriticalBlocked
         }
         private readonly Dictionary<MissionIdentity, MissionSourceState> _missionSources =
             new Dictionary<MissionIdentity, MissionSourceState>();
@@ -123,7 +123,8 @@ namespace ManagerLoot
         private static bool Settled(MissionSourceState state) =>
             state == MissionSourceState.Completed || state == MissionSourceState.SkippedUnreachable ||
             state == MissionSourceState.SkippedInsufficientSkill || state == MissionSourceState.SkippedNoLockpick ||
-            state == MissionSourceState.SkippedRepeatedFailure || state == MissionSourceState.SkippedNoCapacity;
+            state == MissionSourceState.SkippedRepeatedFailure || state == MissionSourceState.SkippedNoCapacity ||
+            state == MissionSourceState.SkippedUnavailable;
         private readonly HashSet<MissionIdentity> _objectiveLootItems = new HashSet<MissionIdentity>();
         private const int MaxBackgroundBagMoveAttempts = 3;
         private const double BackgroundBagMoveConfirmationSeconds = 1.5;
@@ -510,7 +511,50 @@ namespace ManagerLoot
                 state == MissionSourceState.SkippedNoLockpick ? "no lockpick available" :
                 state == MissionSourceState.SkippedRepeatedFailure ? "repeated lockpick failure" :
                 state == MissionSourceState.SkippedNoCapacity ? "no safe main-inventory slot" :
+                state == MissionSourceState.SkippedUnavailable ? "source permanently unavailable" :
                 state.ToString();
+            return true;
+        }
+
+        // A vanished optional source is not successful loot. The dungeon guard
+        // may terminally classify only the exact occurrence it owns, after its
+        // bounded visibility wait, and never while ManagerLoot still owns live
+        // processing state for that source.
+        public bool TrySkipUnavailableMissionLoot(MissionIdentity identity, int roomId, long occurrence,
+            string reason, out string refusal)
+        {
+            refusal = null;
+            if (identity == MissionIdentity.None || occurrence == 0 ||
+                !_missionLootRooms.TryGetValue(identity, out int observedRoom) || observedRoom != roomId ||
+                !_missionLootOccurrences.TryGetValue(identity, out long currentOccurrence) || currentOccurrence != occurrence)
+            {
+                refusal = "the guarded room/occurrence no longer matches ManagerLoot's ledger";
+                return false;
+            }
+            if (IsMissionCriticalLoot(identity))
+            {
+                SetMissionSource(identity, MissionSourceState.CriticalBlocked);
+                refusal = "the unavailable source is mission-critical";
+                return false;
+            }
+            if (IsMissionLootSuccessfullyProcessed(identity, roomId, occurrence))
+            {
+                refusal = "the occurrence already has exact successful processing evidence";
+                return false;
+            }
+            if (_pendingMissionLoot == identity || _sourceAcquisition?.Source == identity ||
+                CorpseContainer?.Identity == identity || CurrentCorpse?.Identity == identity)
+            {
+                refusal = "ManagerLoot still owns active source processing state";
+                return false;
+            }
+
+            _unreachableMissionLoot.Add(identity);
+            _deferredApproaches.Remove(identity);
+            _missionSkipReasons[identity] = reason;
+            SetMissionSource(identity, MissionSourceState.SkippedUnavailable);
+            Chat.WriteLine($"RKMission: Optional loot {identity} in room {roomId}, generation {occurrence}, " +
+                $"settled as unavailable without successful-loot credit: {reason}");
             return true;
         }
 
