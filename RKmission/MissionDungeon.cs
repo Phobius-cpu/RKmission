@@ -105,6 +105,8 @@ namespace RKmission
         private MissionObjective _objective;
         private bool _exiting;
         private bool _reservedAggroReported;
+        private DateTime _findPersonFinaleRouteWait, _findPersonFinaleRouteDiagnostic;
+        private static readonly TimeSpan FindPersonFinaleRouteWaitLimit = TimeSpan.FromSeconds(30);
         private DateTime _reservedProtectionStarted;
         private static readonly TimeSpan ReservedProtectionTimeout = TimeSpan.FromSeconds(5);
         private int _entryRoom;
@@ -264,6 +266,7 @@ namespace RKmission
             _clearedRooms.Clear();
             _combatCheckedRooms.Clear();
             _reservedAggroReported = false;
+            ResetFindPersonFinaleRouteWait();
             _reservedProtectionStarted = DateTime.MinValue;
             _visitedRooms.Clear();
             _surveyedRooms.Clear();
@@ -407,6 +410,7 @@ namespace RKmission
             ResetProvenStaircase();
             _combatTopologyHandoff = null;
             _recordedRoomReturn = null;
+            ResetFindPersonFinaleRouteWait();
             ResetPostCombatCorpseTracking();
             _navRoutes?.StopPlayback();
             CombatRecoveryWaiting = false;
@@ -810,6 +814,8 @@ namespace RKmission
                     ((_objective.HasKillTarget || _objective.HasFindPersonTarget) &&
                         _combatCheckedRooms.Count > 0));
             bool reservedAggro = GuardReservedEnemy(ordinaryEnemiesRemain);
+            if (!reservedAggro || !_objective.Finale || !_objective.FinalActionsAllowed)
+                ResetFindPersonFinaleRouteWait();
             if (!IsRunning) return;
             _loot.MissionActionsPaused = _readiness.InCombat;
             // An established doorway crossing retains its existing ownership and
@@ -930,8 +936,17 @@ namespace RKmission
                         if (FightInRoom(room)) return;
                         if (ScanRemainingRoom(room)) return;
                         int? objectiveRoom = _objective.PendingRoom;
-                        if (objectiveRoom.HasValue && objectiveRoom.Value != room.Instance &&
-                            RouteToRoom(objectiveRoom.Value)) return;
+                        if (objectiveRoom.HasValue && objectiveRoom.Value != room.Instance)
+                        {
+                            if (RouteToRoom(objectiveRoom.Value))
+                            {
+                                ResetFindPersonFinaleRouteWait();
+                                return;
+                            }
+                            if (_objective.HasFindPersonTarget &&
+                                HoldFindPersonFinaleRoute(room, objectiveRoom.Value)) return;
+                        }
+                        else ResetFindPersonFinaleRouteWait();
                     }
                     else
                     {
@@ -2322,6 +2337,37 @@ namespace RKmission
                 _scanWaypoints.Add(point);
         }
 
+        internal static bool ReservedAggroActive(bool finaleReady, bool exactHeldFindPersonAggro,
+            int hostileHeldCount) => hostileHeldCount > 0 && (!finaleReady || exactHeldFindPersonAggro);
+
+        private void ResetFindPersonFinaleRouteWait()
+        {
+            _findPersonFinaleRouteWait = _findPersonFinaleRouteDiagnostic = DateTime.MinValue;
+        }
+
+        private bool HoldFindPersonFinaleRoute(Room room, int targetRoom)
+        {
+            DateTime now = DateTime.UtcNow;
+            MovementArbiter.Current.Halt(MovementOwner.Objective);
+            _destination = null;
+            _roomQuietAt = DateTime.MinValue;
+            if (_findPersonFinaleRouteWait == DateTime.MinValue) _findPersonFinaleRouteWait = now;
+            if (now - _findPersonFinaleRouteDiagnostic >= TimeSpan.FromSeconds(5))
+            {
+                _findPersonFinaleRouteDiagnostic = now;
+                _say($"FindPerson finale routing held: exact target={_objective.FindPersonTarget}, " +
+                    $"current room={room.Instance}, target room={targetRoom}, temporary route cooldown={WaitingForRoute}; " +
+                    $"retrying for up to {FindPersonFinaleRouteWaitLimit.TotalSeconds:0}s with target protection active.");
+            }
+            if (now - _findPersonFinaleRouteWait >= FindPersonFinaleRouteWaitLimit)
+            {
+                Stop();
+                _say($"FindPerson finale could not route from room {room.Instance} to exact target room {targetRoom} " +
+                    $"within {FindPersonFinaleRouteWaitLimit.TotalSeconds:0}s; stopped without attacking the protected target or accepting completion.");
+            }
+            return true;
+        }
+
         private bool GuardReservedEnemy(bool ordinaryEnemiesRemain)
         {
             var player = DynelManager.LocalPlayer;
@@ -2342,7 +2388,12 @@ namespace RKmission
                     x.Character.FightingTarget?.Identity == findPersonTarget));
             var hostileReserved = DynelManager.NPCs.Where(x => x.IsAlive && _objective.HoldEnemy(x.Identity) &&
                 x.IsAttacking && owned.Contains(x.FightingTarget?.Identity ?? Identity.None)).ToList();
-            bool reservedAggro = !(_objective.Finale && _objective.FinalActionsAllowed) && hostileReserved.Count > 0;
+            // FindPerson stays protected through acknowledgement. Its incoming
+            // aggro must also retain routing ownership after the finale starts.
+            bool reservedAggro = ReservedAggroActive(
+                _objective.Finale && _objective.FinalActionsAllowed,
+                findPersonHeld && hostileReserved.Any(x => x.Identity == findPersonTarget),
+                hostileReserved.Count);
             if (attackingReserved)
             {
                 player.StopAttack(); // Includes pet follow; prevent the reserved kill.

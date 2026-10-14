@@ -89,3 +89,39 @@ foreach ($required in @(
     }
 }
 Write-Output 'PASS KillPerson exact-target finale ownership remains intact'
+
+# Execute the production lifecycle predicate: incoming exact FindPerson aggro
+# remains recognized after finale activation, while released/other targets do not.
+$gate = [regex]::Match($dungeon, 'internal static bool ReservedAggroActive\(bool finaleReady, bool exactHeldFindPersonAggro,\s*int hostileHeldCount\) => ([^;]+);').Groups[1].Value
+if ([string]::IsNullOrWhiteSpace($gate)) { throw 'Reserved aggro lifecycle predicate missing.' }
+Add-Type -TypeDefinition ('public static class FindPersonAggroGate { public static bool Active(bool finaleReady, bool exactHeldFindPersonAggro, int hostileHeldCount) => ' + $gate + '; }')
+if (-not [FindPersonAggroGate]::Active($false,$true,1) -or
+    -not [FindPersonAggroGate]::Active($true,$true,1) -or
+    [FindPersonAggroGate]::Active($true,$false,1) -or
+    [FindPersonAggroGate]::Active($true,$true,0)) {
+    throw 'Finale activation lost exact protected aggro ownership or released/unrelated aggro bypassed the gate.'
+}
+Write-Output 'PASS production C# predicate preserves exact protected FindPerson aggro across finale activation and rejects released/unrelated targets'
+foreach ($required in @(
+    'findPersonHeld && hostileReserved.Any(x => x.Identity == findPersonTarget)',
+    'HoldFindPersonFinaleRoute(room, objectiveRoom.Value)',
+    'FindPersonFinaleRouteWaitLimit = TimeSpan.FromSeconds(30)',
+    'current room={room.Instance}, target room={targetRoom}',
+    'stopped without attacking the protected target or accepting completion.')) {
+    if (-not $dungeon.Contains($required)) { throw "Finale routing recovery invariant missing: $required" }
+}
+$routeStart = $dungeon.IndexOf('int? objectiveRoom = _objective.PendingRoom;', $dungeon.IndexOf('if (reservedAggro &&'))
+$routeEnd = $dungeon.IndexOf('else ResetFindPersonFinaleRouteWait();', $routeStart)
+$routeBody = $dungeon.Substring($routeStart, $routeEnd - $routeStart)
+if ($routeBody.IndexOf('RouteToRoom(objectiveRoom.Value)') -gt $routeBody.IndexOf('HoldFindPersonFinaleRoute(room, objectiveRoom.Value)') -or
+    -not $routeBody.Contains('ResetFindPersonFinaleRouteWait();')) {
+    throw 'Finale routing must attempt mapped travel first and reset waiting on successful route ownership.'
+}
+$waitStart = $dungeon.IndexOf('private bool HoldFindPersonFinaleRoute(')
+$waitEnd = $dungeon.IndexOf('private bool GuardReservedEnemy(', $waitStart)
+$waitBody = $dungeon.Substring($waitStart, $waitEnd - $waitStart)
+if (-not $waitBody.Contains('Stop();') -or $waitBody.Contains('StopAttack()') -or
+    $waitBody.Contains('BeginFinale()') -or $waitBody.Contains('RewardConfirmed =')) {
+    throw 'Unavailable-route recovery must stop explicitly without weakening target protection or faking completion.'
+}
+Write-Output 'PASS unavailable cross-room finale route retries with bounded diagnostics and explicit failure while protection stays active'
