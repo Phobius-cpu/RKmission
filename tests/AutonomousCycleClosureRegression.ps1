@@ -42,7 +42,7 @@ $roll = $bot.IndexOf('StartZoneRolling(_autoZone)', $gate)
 Assert ($gate -ge 0 -and $roll -gt $gate) 'Automatic rolling can start before batch-refill readiness.'
 Assert ($bot.Contains('if (!ReadyToRoll(out string finalInvariant))')) `
     'Strict READY_TO_ROLL no longer guards final lifecycle disarm.'
-Assert ($bot.Contains('!string.IsNullOrEmpty(_rollLogisticsTerminalIdentity)') -and
+Assert ($bot.Contains('!string.IsNullOrEmpty(_rollTerminalIdentity)') -and
     $bot.Contains('Vector3.Distance(x.Position, _rollTerminalPosition) <= 1f')) `
     'Saved roller terminal lacks exact live identity/position verification.'
 Write-Output 'PASS batch refill and final READY_TO_ROLL use separate authoritative gates with exact terminal evidence'

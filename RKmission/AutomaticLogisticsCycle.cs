@@ -276,6 +276,10 @@ namespace RKmission
                     int unsafeKeep = _normalizer.MisplacedKeepCount();
                     if (unsafeKeep > 0)
                     { Fail($"shop phase held: {unsafeKeep} known Keep item(s) remain in RK Junk"); return; }
+                    if (!_route.TryNavigateToOrigin(_site, "shop", out bool atShopOrigin,
+                        out string connectorFailure))
+                    { Fail("shop-origin connector failed: " + connectorFailure); return; }
+                    if (!atShopOrigin) return;
                     if (!_route.Start(_site, "shop", true))
                     { Fail("shop route did not start: " + (_route.LastFailure ?? "unknown reason")); return; }
                     _phase = Phase.TravelShop;

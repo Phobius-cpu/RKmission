@@ -109,7 +109,10 @@ namespace RKmission
         public bool HasRollTerminal { get; set; }
         public int RollTerminalPlayfield { get; set; }
         public Vector3 RollTerminalPosition { get; set; }
+        public string RollTerminalIdentity { get; set; }
         public string RollLogisticsSite { get; set; }
+        // Legacy surveyed-origin identity. New checkpoints keep the exact
+        // roller identity above and obtain each bank/shop origin from its route.
         public string RollLogisticsTerminalIdentity { get; set; }
         // Per-quest provenance. The global roller location can change among sites.
         public List<MissionOriginBinding> OriginTerminals { get; set; } = new List<MissionOriginBinding>();

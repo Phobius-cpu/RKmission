@@ -59,12 +59,24 @@ namespace RKmission
             return matches.Length == 1 ? matches[0] : null;
         }
 
+        public string FindSharedLogisticsSite(int playfield)
+        {
+            string[] matches = _routes.Where(route => route.OriginPlayfield == playfield)
+                .GroupBy(route => route.Site, StringComparer.OrdinalIgnoreCase)
+                .Where(group => group.Any(route => route.Purpose == "bank") &&
+                    group.Any(route => route.Purpose == "shop"))
+                .Select(group => group.Key).ToArray();
+            return matches.Length == 1 ? matches[0] : null;
+        }
+
+        public Route FindOrigin(string site, string purpose) => Find(site, purpose);
+
         public bool TryFindTerminalApproach(string site, int playfield, string terminalIdentity,
             Vector3 terminalPosition, Vector3 playerPosition, out Vector3 approach)
         {
             approach = Vector3.Zero;
-            if (string.IsNullOrWhiteSpace(site) || string.IsNullOrWhiteSpace(terminalIdentity)) return false;
-            Vector3[] candidates = _routes.Where(route => route.OriginPlayfield == playfield &&
+            Vector3[] candidates = _routes.Where(route => !string.IsNullOrWhiteSpace(site) &&
+                    route.OriginPlayfield == playfield &&
                     string.Equals(route.Site, site, StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(route.OriginTerminalIdentity, terminalIdentity,
                         StringComparison.OrdinalIgnoreCase))
@@ -75,8 +87,20 @@ namespace RKmission
                 .Where(point => Vector3.Distance(point, terminalPosition) >= 1.5f &&
                     Vector3.Distance(point, terminalPosition) <= 3f)
                 .OrderBy(point => Vector3.Distance(point, playerPosition)).ToArray();
-            if (candidates.Length == 0) return false;
-            approach = candidates[0];
+            if (candidates.Length > 0)
+            {
+                approach = candidates[0];
+                return true;
+            }
+            // An arbitrary roller has no survey point. Derive a conservative
+            // standoff on the player's visible side of the exact live actor;
+            // never submit the collidable terminal centre as a destination.
+            Vector3 away = playerPosition - terminalPosition;
+            float horizontal = (float)Math.Sqrt(away.X * away.X + away.Z * away.Z);
+            if (horizontal < 0.1f) return false;
+            const float standoff = 2.25f;
+            approach = new Vector3(terminalPosition.X + away.X / horizontal * standoff,
+                playerPosition.Y, terminalPosition.Z + away.Z / horizontal * standoff);
             return true;
         }
 

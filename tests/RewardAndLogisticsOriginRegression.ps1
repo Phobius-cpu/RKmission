@@ -48,7 +48,7 @@ Assert ($policy.IndexOf('EnsureDestinationSnapshot(bag, say, out bool snapshotBl
 Assert ($policy.Contains('if (!inSellBag && !newlyAcquiredMain)')) `
     'pre-existing unstaged Rejects remain ineligible for automatic sale'
 
-Assert ($checkpoint.Contains('RollLogisticsSite') -and
+Assert ($checkpoint.Contains('RollTerminalIdentity') -and $checkpoint.Contains('RollLogisticsSite') -and
     $checkpoint.Contains('RollLogisticsTerminalIdentity')) `
     'saved roller checkpoint persists surveyed logistics provenance'
 Assert ($catalog.Contains('FindUniqueOriginSite') -and
@@ -58,9 +58,9 @@ Assert ($catalog.Contains('FindUniqueOriginSite') -and
 Assert ($navigator.Contains('FindVerifiedOriginSite(string requiredSite = null)') -and
     $navigator.Contains('string.Equals(route.Site, requiredSite')) `
     'live origin verification is constrained to the persisted surveyed site'
-Assert ($bot.Contains('TryBindSavedTerminalToSurveyedOrigin();') -and
+Assert ($bot.Contains('TryNavigateToOrigin(_rollLogisticsSite, "bank"') -and
     $bot.Contains('TimeSpan.FromSeconds(30)') -and
-    $bot.Contains('waiting for its exact live terminal identity')) `
+    $bot.Contains('surveyed logistics hub')) `
     'post-warp logistics waits boundedly for live surveyed-origin evidence'
 Assert ($bot.Contains('private const float RollTerminalApproachDistance = 3f;') -and
     $bot.Contains('<= RollTerminalApproachDistance') -and

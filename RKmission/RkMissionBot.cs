@@ -56,7 +56,7 @@ namespace RKmission
         private readonly HashSet<int> _awaitingQuestDetails = new HashSet<int>();
         private readonly Dictionary<int, int> _autoAcceptedPlayfields = new Dictionary<int, int>();
         private Vector3 _rollTerminalPosition;
-        private string _rollLogisticsSite, _rollLogisticsTerminalIdentity;
+        private string _rollTerminalIdentity, _rollLogisticsSite;
         private Identity _rollingTerminalIdentity = Identity.None;
         private MissionTerminal _rollingTerminalReference;
         private int _rollingTerminalPlayfield;
@@ -152,7 +152,9 @@ namespace RKmission
                 _rollTerminalPlayfield = _checkpoint.RollTerminalPlayfield;
                 _rollTerminalPosition = _checkpoint.RollTerminalPosition;
                 _rollLogisticsSite = _checkpoint.RollLogisticsSite;
-                _rollLogisticsTerminalIdentity = _checkpoint.RollLogisticsTerminalIdentity;
+                _rollTerminalIdentity = !string.IsNullOrEmpty(_checkpoint.RollTerminalIdentity)
+                    ? _checkpoint.RollTerminalIdentity
+                    : _checkpoint.RollLogisticsTerminalIdentity;
             }
             // A module reload/state refresh must never silently re-arm movement,
             // rolling, or accepted-mission mutation. The saved binding remains
@@ -605,6 +607,7 @@ namespace RKmission
             _bankTransactions?.Stop();
             _shopSale?.Stop();
             _logisticsNavigator?.Stop(true);
+            _logisticsNavigator?.ResetOriginConnector();
             _running = true;
             _recoveringDeath = false;
             _deathReturnToRollTerminal = false;
@@ -663,6 +666,7 @@ namespace RKmission
             _bankTransactions?.Stop();
             _shopSale?.Stop();
             _logisticsNavigator?.Stop(true);
+            _logisticsNavigator?.ResetOriginConnector();
             _dungeon?.Stop();
             _movement?.StopAll();
             _autoCycle = false;
@@ -1139,8 +1143,8 @@ namespace RKmission
             _checkpoint.HasRollTerminal = _hasRollTerminal;
             _checkpoint.RollTerminalPlayfield = _rollTerminalPlayfield;
             _checkpoint.RollTerminalPosition = _rollTerminalPosition;
+            _checkpoint.RollTerminalIdentity = _rollTerminalIdentity;
             _checkpoint.RollLogisticsSite = _rollLogisticsSite;
-            _checkpoint.RollLogisticsTerminalIdentity = _rollLogisticsTerminalIdentity;
             _checkpoint.Phase = !_running ? "Idle" : _recoveringDeath ? "Recovery" :
                 _autoRolling ? "Rolling" : _selected == null ? "SelectingMission" :
                 Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid ? "Travel" :
@@ -1201,7 +1205,7 @@ namespace RKmission
             _autoLogisticsReason = reason;
             if (_checkpoint != null) _checkpoint.LogisticsPending = true;
             _waitingReason = null;
-            Say($"Automatic logistics queued: {reason}. Returning to the saved surveyed mission terminal before any bank or shop action.");
+            Say($"Automatic logistics queued: {reason}. Navigating to the saved city's surveyed logistics hub before any bank or shop action.");
         }
 
         private bool TickScheduledAutomaticLogistics()
@@ -1226,8 +1230,41 @@ namespace RKmission
             if (!_autoLogisticsPending && _inventory.NeedsAutomaticLogistics(out string reason))
                 QueueAutomaticLogistics(reason);
             if (!_autoLogisticsPending) return false;
-            if (!ReturnToRollTerminal()) return true;
-            TryBindSavedTerminalToSurveyedOrigin();
+            if (string.IsNullOrEmpty(_rollLogisticsSite))
+            {
+                _rollLogisticsSite = _logisticsRoutes.FindSharedLogisticsSite(_rollTerminalPlayfield);
+                if (!string.IsNullOrEmpty(_rollLogisticsSite) && _checkpoint != null)
+                {
+                    _checkpoint.RollLogisticsSite = _rollLogisticsSite;
+                    _checkpoint.Save(true, Say);
+                }
+            }
+            if (string.IsNullOrEmpty(_rollLogisticsSite))
+            {
+                Stop();
+                Say($"Automatic mission cycle stopped before logistics: PF {_rollTerminalPlayfield} has no unique validated bank+shop logistics hub.");
+                return true;
+            }
+            if (Playfield.ModelIdentity.Instance != _rollTerminalPlayfield || _longTravel.IsActive)
+            {
+                TravelResult result = _longTravel.Tick(_rollTerminalPlayfield);
+                if (result == TravelResult.Blocked)
+                { string travelFailure = _longTravel.LastFailure; Stop(); Say("Travel to the shared logistics city stopped: " + travelFailure); }
+                return true;
+            }
+            if (!_logisticsNavigator.TryNavigateToOrigin(_rollLogisticsSite, "bank",
+                out bool atHub, out string connectorFailure))
+            {
+                Stop();
+                Say("Automatic mission cycle stopped before logistics: " + connectorFailure + ".");
+                return true;
+            }
+            if (!atHub)
+            {
+                Wait($"Navigating by AO# outdoor routing to the surveyed {_rollLogisticsSite} logistics hub; " +
+                    "the target is a recorded reachable standoff, not a terminal centre.");
+                return true;
+            }
             string site = string.IsNullOrEmpty(_rollLogisticsSite) ? null :
                 _logisticsNavigator.FindVerifiedOriginSite(_rollLogisticsSite);
             if (string.IsNullOrEmpty(site))
@@ -1238,13 +1275,13 @@ namespace RKmission
                 {
                     Wait(string.IsNullOrEmpty(_rollLogisticsSite)
                         ? "Saved roller terminal has no unique surveyed logistics-origin binding yet; waiting for its exact live terminal identity."
-                        : $"Waiting for surveyed logistics origin '{_rollLogisticsSite}' and terminal {_rollLogisticsTerminalIdentity} " +
-                            $"to become live-verifiable after the 2m approach; {LogisticsOriginDiagnostic(_rollLogisticsSite)}.");
+                        : $"Waiting for surveyed logistics hub '{_rollLogisticsSite}' to become live-verifiable; " +
+                            LogisticsOriginDiagnostic(_rollLogisticsSite) + ".");
                     return true;
                 }
                 string failure = string.IsNullOrEmpty(_rollLogisticsSite)
                     ? "the saved roller terminal could not be bound to one unique surveyed OA, Borealis, or ICC logistics origin"
-                    : $"surveyed logistics origin '{_rollLogisticsSite}' with terminal {_rollLogisticsTerminalIdentity} was not live-verified within 30 seconds; " +
+                    : $"surveyed logistics hub '{_rollLogisticsSite}' was not live-verified within 30 seconds; " +
                         LogisticsOriginDiagnostic(_rollLogisticsSite);
                 Stop();
                 Say("Automatic mission cycle stopped before logistics: " + failure + ".");
@@ -1701,16 +1738,14 @@ namespace RKmission
             SimpleChar player = DynelManager.LocalPlayer;
             bool exactTerminal = false;
             if (player != null && _hasRollTerminal &&
-                !string.IsNullOrEmpty(_rollLogisticsSite) &&
-                !string.IsNullOrEmpty(_rollLogisticsTerminalIdentity) &&
+                !string.IsNullOrEmpty(_rollTerminalIdentity) &&
                 Playfield.ModelIdentity.Instance == _rollTerminalPlayfield)
             {
                 Dynel terminal = DynelManager.AllDynels.FirstOrDefault(x =>
                     x.Identity.Type == IdentityType.MissionTerminal &&
                     Vector3.Distance(x.Position, _rollTerminalPosition) <= 1f &&
-                    (string.IsNullOrEmpty(_rollLogisticsTerminalIdentity) ||
-                     string.Equals(x.Identity.ToString(), _rollLogisticsTerminalIdentity,
-                         StringComparison.OrdinalIgnoreCase)));
+                    string.Equals(x.Identity.ToString(), _rollTerminalIdentity,
+                        StringComparison.OrdinalIgnoreCase));
                 exactTerminal = terminal != null &&
                     Vector3.Distance(player.Position, terminal.Position) <= RollTerminalApproachDistance;
             }
@@ -1847,16 +1882,29 @@ namespace RKmission
             if (!_vehicle.RestoreOriginal())
             { Wait($"Vehicle lifecycle: {_vehicle.Status}; waiting for live ground verification before the precise saved-terminal connector."); return false; }
             SimpleChar player = DynelManager.LocalPlayer;
+            if (string.IsNullOrEmpty(_rollTerminalIdentity))
+            {
+                Dynel[] legacyMatches = DynelManager.AllDynels.Where(x =>
+                    x.Identity.Type == IdentityType.MissionTerminal &&
+                    Vector3.Distance(x.Position, _rollTerminalPosition) <= 1f).ToArray();
+                if (legacyMatches.Length == 1)
+                {
+                    _rollTerminalIdentity = legacyMatches[0].Identity.ToString();
+                    _checkpoint.RollTerminalIdentity = _rollTerminalIdentity;
+                    _checkpoint.Save(true, Say);
+                    Say($"Migrated legacy saved roller position to unambiguous live terminal {_rollTerminalIdentity}.");
+                }
+            }
             Dynel terminal = DynelManager.AllDynels.FirstOrDefault(x =>
                 x.Identity.Type == IdentityType.MissionTerminal &&
-                string.Equals(x.Identity.ToString(), _rollLogisticsTerminalIdentity,
+                string.Equals(x.Identity.ToString(), _rollTerminalIdentity,
                     StringComparison.OrdinalIgnoreCase) &&
                 Vector3.Distance(x.Position, _rollTerminalPosition) <= 1f);
             if (player == null || terminal == null)
             { Stop(); Say("Return to roller stopped: the exact saved mission terminal is not visible at its recorded position."); return false; }
             if (!_logisticsRoutes.TryFindTerminalApproach(_rollLogisticsSite, _rollTerminalPlayfield,
-                _rollLogisticsTerminalIdentity, terminal.Position, player.Position, out Vector3 approach))
-            { Stop(); Say("Return to roller stopped: no surveyed reachable interaction standoff matches the exact saved mission terminal."); return false; }
+                _rollTerminalIdentity, terminal.Position, player.Position, out Vector3 approach))
+            { Stop(); Say("Return to roller stopped: no collision-safe interaction standoff could be derived for the exact saved mission terminal."); return false; }
             if (_returnStarted == DateTime.MinValue)
             {
                 _returnStarted = DateTime.UtcNow;
@@ -1910,10 +1958,8 @@ namespace RKmission
             if (player == null) return "local player unavailable";
             LogisticsRouteCatalog.Route route = _logisticsRoutes?.Routes
                 .Where(x => string.Equals(x.Site, site, StringComparison.OrdinalIgnoreCase) &&
-                    x.OriginPlayfield == Playfield.ModelIdentity.Instance &&
-                    string.Equals(x.OriginTerminalIdentity, _rollLogisticsTerminalIdentity,
-                        StringComparison.OrdinalIgnoreCase))
-                .OrderBy(x => Vector3.Distance(_rollTerminalPosition,
+                    x.OriginPlayfield == Playfield.ModelIdentity.Instance)
+                .OrderBy(x => Vector3.Distance(player.Position,
                     new Vector3(x.OriginPosition[0], x.OriginPosition[1], x.OriginPosition[2])))
                 .FirstOrDefault();
             float savedDistance = Vector3.Distance(player.Position, _rollTerminalPosition);
@@ -1922,7 +1968,7 @@ namespace RKmission
             Vector3 origin = new Vector3(route.OriginPosition[0], route.OriginPosition[1], route.OriginPosition[2]);
             Dynel terminal = DynelManager.AllDynels.FirstOrDefault(x =>
                 x.Identity.Type == IdentityType.MissionTerminal &&
-                string.Equals(x.Identity.ToString(), _rollLogisticsTerminalIdentity,
+                string.Equals(x.Identity.ToString(), route.OriginTerminalIdentity,
                     StringComparison.OrdinalIgnoreCase));
             string live = terminal == null ? "not visible" :
                 $"visible, live-to-origin={Vector3.Distance(terminal.Position, origin):0.0}m";
@@ -2044,49 +2090,28 @@ namespace RKmission
         {
             if (terminal == null) return;
             int playfield = Playfield.ModelIdentity.Instance;
-            string site = _logisticsRoutes?.FindUniqueOriginSite(playfield,
-                terminal.Identity.ToString(), terminal.Position);
+            string site = _logisticsRoutes?.FindSharedLogisticsSite(playfield);
             bool unchanged = _hasRollTerminal && _rollTerminalPlayfield == playfield &&
                 Vector3.Distance(_rollTerminalPosition, terminal.Position) < 0.5f &&
                 string.Equals(_rollLogisticsSite, site, StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(_rollLogisticsTerminalIdentity, terminal.Identity.ToString(),
+                string.Equals(_rollTerminalIdentity, terminal.Identity.ToString(),
                     StringComparison.OrdinalIgnoreCase);
             if (unchanged) return;
             _hasRollTerminal = true;
             _rollTerminalPlayfield = playfield;
             _rollTerminalPosition = terminal.Position;
+            _rollTerminalIdentity = terminal.Identity.ToString();
             _rollLogisticsSite = site;
-            _rollLogisticsTerminalIdentity = site == null ? null : terminal.Identity.ToString();
             if (_checkpoint == null) return;
             _checkpoint.HasRollTerminal = true;
             _checkpoint.RollTerminalPlayfield = playfield;
             _checkpoint.RollTerminalPosition = terminal.Position;
+            _checkpoint.RollTerminalIdentity = _rollTerminalIdentity;
             _checkpoint.RollLogisticsSite = _rollLogisticsSite;
-            _checkpoint.RollLogisticsTerminalIdentity = _rollLogisticsTerminalIdentity;
             _checkpoint.Save(true, Say);
             Say($"Saved roller terminal {terminal.Identity} in playfield {playfield} for the automatic return after missions; " +
-                (site == null ? "no unique surveyed logistics origin is bound."
-                    : $"verified surveyed logistics-origin provenance='{site}'."));
-        }
-
-        private void TryBindSavedTerminalToSurveyedOrigin()
-        {
-            if (!_hasRollTerminal || !string.IsNullOrEmpty(_rollLogisticsSite) ||
-                Playfield.ModelIdentity.Instance != _rollTerminalPlayfield) return;
-            Dynel terminal = DynelManager.AllDynels.Where(x =>
-                    x.Identity.Type == IdentityType.MissionTerminal &&
-                    Vector3.Distance(x.Position, _rollTerminalPosition) <= 1f)
-                .OrderBy(x => Vector3.Distance(x.Position, _rollTerminalPosition)).FirstOrDefault();
-            if (terminal == null) return;
-            string site = _logisticsRoutes.FindUniqueOriginSite(_rollTerminalPlayfield,
-                terminal.Identity.ToString(), terminal.Position);
-            if (string.IsNullOrEmpty(site)) return;
-            _rollLogisticsSite = site;
-            _rollLogisticsTerminalIdentity = terminal.Identity.ToString();
-            _checkpoint.RollLogisticsSite = site;
-            _checkpoint.RollLogisticsTerminalIdentity = _rollLogisticsTerminalIdentity;
-            _checkpoint.Save(true, Say);
-            Say($"Bound saved roller terminal {_rollLogisticsTerminalIdentity} to unique surveyed logistics origin '{site}' from live identity and route evidence.");
+                (site == null ? "no complete city logistics hub is available."
+                    : $"shared surveyed logistics hub='{site}'."));
         }
 
         private void OnRubberband(Vector3 position)

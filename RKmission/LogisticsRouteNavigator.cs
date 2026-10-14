@@ -26,6 +26,10 @@ namespace RKmission
         private Vector3 _crossingTarget, _crossingOrigin, _crossingDirection;
         private DateTime _nextTick, _lastSubmit, _lastProgress, _zoneDeadline, _crossingStarted;
         private float _bestDistance;
+        private string _connectorSite, _connectorPurpose;
+        private DateTime _connectorStarted, _connectorNextMove;
+        private Vector3 _connectorLastPosition;
+        private int _connectorNoProgress;
 
         public bool IsActive => _route != null;
         public bool AtTarget => _route != null && _atTarget;
@@ -33,6 +37,78 @@ namespace RKmission
         public string LastFailure { get; private set; }
         public string ActiveSite => _route?.Site;
         public string ActivePurpose => _route?.Purpose;
+
+        public bool TryNavigateToOrigin(string site, string purpose, out bool ready, out string failure)
+        {
+            ready = false;
+            failure = null;
+            LogisticsRouteCatalog.Route surveyed = _catalog.FindOrigin(site, purpose);
+            SimpleChar player = DynelManager.LocalPlayer;
+            if (surveyed == null)
+            { failure = $"no validated {site}/{purpose} origin exists"; ResetOriginConnector(); return false; }
+            if (Game.IsZoning || player == null)
+            { failure = "player is zoning or unavailable"; return true; }
+            if (Playfield.IsDungeon || Playfield.ModelIdentity.Instance != surveyed.OriginPlayfield)
+            { failure = $"the {site}/{purpose} connector requires outdoor PF {surveyed.OriginPlayfield}"; ResetOriginConnector(); return false; }
+            if (_movement.Owner != MovementOwner.None && _movement.Owner != MovementOwner.LogisticsTravel)
+            { failure = $"movement owner {_movement.Owner} conflicts with the logistics-hub connector"; ResetOriginConnector(); return false; }
+
+            Vector3 target = V(surveyed.OriginPosition);
+            if (!string.Equals(_connectorSite, site, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(_connectorPurpose, purpose, StringComparison.OrdinalIgnoreCase))
+            {
+                ResetOriginConnector();
+                _connectorSite = site;
+                _connectorPurpose = purpose;
+                _connectorStarted = DateTime.UtcNow;
+                _connectorLastPosition = player.Position;
+            }
+            if (DateTime.UtcNow - _connectorStarted > TimeSpan.FromMinutes(3))
+            { failure = $"the {site}/{purpose} outdoor connector timed out"; ResetOriginConnector(); return false; }
+
+            if (Vector3.Distance(player.Position, target) <= 6f)
+            {
+                Dynel terminal = DynelManager.AllDynels.FirstOrDefault(x =>
+                    x.Identity.Type == IdentityType.MissionTerminal &&
+                    string.Equals(x.Identity.ToString(), surveyed.OriginTerminalIdentity,
+                        StringComparison.OrdinalIgnoreCase) &&
+                    Vector3.Distance(x.Position, target) <= 15f);
+                if (terminal == null)
+                { failure = $"recorded {site}/{purpose} origin terminal {surveyed.OriginTerminalIdentity} is not visible"; ResetOriginConnector(); return false; }
+                _movement.Release(MovementOwner.LogisticsTravel);
+                ResetOriginConnector();
+                ready = true;
+                return true;
+            }
+
+            if (DateTime.UtcNow >= _connectorNextMove)
+            {
+                float progress = Vector3.Distance(player.Position, _connectorLastPosition);
+                if (progress >= 0.5f)
+                { _connectorLastPosition = player.Position; _connectorNoProgress = 0; }
+                else if (++_connectorNoProgress >= 4)
+                {
+                    failure = $"the {site}/{purpose} outdoor connector made no progress after {_connectorNoProgress} retries; " +
+                        $"player-to-recorded-origin={Vector3.Distance(player.Position, target):0.0}m";
+                    _movement.Release(MovementOwner.LogisticsTravel);
+                    ResetOriginConnector();
+                    return false;
+                }
+                // OriginPosition is a recorded reachable player location, not
+                // the terminal centre, and preserves the route's exact actor gate.
+                _movement.SetDestination(MovementOwner.LogisticsTravel, target);
+                _connectorNextMove = DateTime.UtcNow.AddSeconds(3);
+            }
+            return true;
+        }
+
+        public void ResetOriginConnector()
+        {
+            _connectorSite = _connectorPurpose = null;
+            _connectorStarted = _connectorNextMove = DateTime.MinValue;
+            _connectorLastPosition = Vector3.Zero;
+            _connectorNoProgress = 0;
+        }
 
         // Automatic mission-cycle handoff only. Route Start deliberately
         // remains strict for both manual callers and the final verification.
