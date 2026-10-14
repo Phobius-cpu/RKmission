@@ -185,7 +185,14 @@ namespace RKmission
         private string _killFinaleState;
         private static readonly TimeSpan KillFinaleOwnershipWatchdog = TimeSpan.FromSeconds(7);
 
-        private enum TransitionPhase { SourceApproach, ProbeDoor, OpenDoor, TargetCenterline, SafeInterior }
+        private sealed class RecordedRoomReturn
+        {
+            public int RoomId, Floor, Playfield;
+            public NavigationRouteRecorder.DungeonTopologyContinuation Ascent;
+        }
+        private RecordedRoomReturn _recordedRoomReturn;
+
+        private enum TransitionPhase { RecordedReturn, SourceApproach, ProbeDoor, OpenDoor, TargetCenterline, SafeInterior }
         private sealed class Transition
         {
             public DungeonLayout.Connection Edge;
@@ -194,7 +201,7 @@ namespace RKmission
             public float BestDistance;
             public int DoorAttempts, CrossingRetries;
             public bool PushingDeeper, DoorApproachLogged;
-            public Vector3 TargetObservedPosition;
+            public Vector3 TargetObservedPosition, ReturnGround, ReturnLastPosition;
         }
         private sealed class EdgeFailure
         {
@@ -273,6 +280,7 @@ namespace RKmission
             ResetStaircaseRecoveryAttempts();
             ResetProvenStaircase();
             _combatTopologyHandoff = null;
+            _recordedRoomReturn = null;
             CombatRecoveryWaiting = false;
             _scanTarget = Identity.None;
             _scanWaypoints.Clear();
@@ -398,6 +406,7 @@ namespace RKmission
             ResetStaircaseRecoveryAttempts();
             ResetProvenStaircase();
             _combatTopologyHandoff = null;
+            _recordedRoomReturn = null;
             ResetPostCombatCorpseTracking();
             _navRoutes?.StopPlayback();
             CombatRecoveryWaiting = false;
@@ -814,6 +823,7 @@ namespace RKmission
             {
                 MovementArbiter.Current.StopAll();
                 _floor = floor;
+                _recordedRoomReturn = null;
                 _floorsVisited.Add(floor);
                 LoadFloor();
                 _activeLift = null;
@@ -2650,7 +2660,8 @@ namespace RKmission
                 if (_lootRecordedTransit)
                 {
                     if (_navRoutes == null || !_navRoutes.TryNavigatePreparedDungeonTopology(
-                        next.Position, MovementArbiter.Current, _requestedOwner, out bool completed))
+                        next.Position, MovementArbiter.Current, _requestedOwner, out bool completed,
+                        out NavigationRouteRecorder.DungeonTopologyContinuation completedPath))
                     {
                         _lootRecordedTransit = false;
                         _lootRecordedFallbackAttempted = true;
@@ -2660,6 +2671,14 @@ namespace RKmission
                     }
                     if (completed)
                     {
+                        if (completedPath != null && completedPath.Points.Count >= 2 &&
+                            completedPath.Points[completedPath.Points.Count - 1].Y -
+                            completedPath.Points[0].Y >= CombatTopologyVerticalSeparation)
+                            _recordedRoomReturn = new RecordedRoomReturn
+                            {
+                                RoomId = room.Instance, Floor = _floor,
+                                Playfield = Playfield.ModelIdentity.Instance, Ascent = completedPath
+                            };
                         _lootRecordedTransit = false;
                         _combatTopologyHandoff = null;
                         _lootLastProgress = now;
@@ -3027,16 +3046,81 @@ namespace RKmission
                 Started = now, PhaseStarted = now, LastProgress = now,
                 BestDistance = float.MaxValue
             };
+            if (_recordedRoomReturn != null &&
+                _recordedRoomReturn.RoomId == source && _recordedRoomReturn.Floor == _floor &&
+                _recordedRoomReturn.Playfield == Playfield.ModelIdentity.Instance &&
+                DynelManager.LocalPlayer.Position.Y - edge.SourceApproach.Y >= CombatTopologyVerticalSeparation)
+            {
+                if (_navRoutes == null || !_navRoutes.TryPrepareRecordedReturn(
+                    _recordedRoomReturn.Ascent, DynelManager.LocalPlayer.Position,
+                    edge.SourceApproach, out _transition.ReturnGround))
+                {
+                    Stop();
+                    _say($"Transition {source}->{target} held: retained ramp descent cannot attach safely; no direct ground-door attempt was issued.");
+                    return;
+                }
+                MovementArbiter.Current.Halt(_requestedOwner);
+                _transition.Phase = TransitionPhase.RecordedReturn;
+                _transition.ReturnLastPosition = DynelManager.LocalPlayer.Position;
+            }
             _loot.EndMissionRoom(restoreUserState: false);
             _destination = null;
             _observedRoom = -1;
             _say($"Transition {source}->{target}: source approach {edge.SourceApproach}, door center {edge.DoorCenter}, " +
                 $"target centerline {edge.TargetCenterline}, aligned safe interior {edge.SafeInterior}, " +
                 $"deep fallback {edge.DeepInterior}, door {door?.Identity.ToString() ?? "none"}.");
+            if (_transition.Phase == TransitionPhase.RecordedReturn) return;
             if (UseLiveDoorwayHeight(edge, edge.Interior, DynelManager.LocalPlayer.Position))
                 _say($"Transition {source}->{target}: Mali interior height {edge.Interior.Y:0.0} differs from the live floor " +
                     $"{DynelManager.LocalPlayer.Position.Y:0.0}; using live floor height for this same-floor crossing.");
             Navigate(DoorwayWaypoint(edge, edge.SourceApproach, DynelManager.LocalPlayer.Position));
+        }
+
+        private void TickRecordedReturn(Room room, Transition crossing)
+        {
+            Vector3 position = DynelManager.LocalPlayer.Position;
+            DateTime now = DateTime.UtcNow;
+            if (room.Instance != crossing.Edge.Source)
+            {
+                Stop();
+                _say("Recorded return descent left its verified source room; doorway crossing held.");
+                return;
+            }
+            if (_readiness.InCombat)
+            {
+                MovementArbiter.Current.Halt(MovementOwner.DoorTransition);
+                crossing.Started = crossing.LastProgress = now;
+                crossing.ReturnLastPosition = position;
+                return;
+            }
+            if (Vector3.Distance(position, crossing.ReturnLastPosition) >= 0.5f)
+            {
+                crossing.LastProgress = now;
+                crossing.ReturnLastPosition = position;
+            }
+            if (now - crossing.Started > TimeSpan.FromSeconds(75) ||
+                now - crossing.LastProgress > TimeSpan.FromSeconds(10))
+            {
+                Stop();
+                _say("Recorded return descent stalled; stopped without charging the doorway edge or attempting a direct ground shortcut.");
+                return;
+            }
+            if (_navRoutes == null || !_navRoutes.TryNavigatePreparedDungeonTopology(
+                crossing.ReturnGround, MovementArbiter.Current, MovementOwner.DoorTransition,
+                out bool completed))
+            {
+                Stop();
+                _say("Recorded return descent playback failed; doorway crossing held.");
+                return;
+            }
+            if (!completed) return;
+            MovementArbiter.Current.Halt(MovementOwner.DoorTransition);
+            _recordedRoomReturn = null;
+            _destination = null;
+            crossing.Phase = TransitionPhase.SourceApproach;
+            crossing.Started = crossing.PhaseStarted = crossing.LastProgress = now;
+            crossing.BestDistance = float.MaxValue;
+            _say($"Transition {crossing.Edge.Source}->{crossing.Edge.Target}: recorded return descent reached ground attachment {crossing.ReturnGround}; normal doorway approach resumed.");
         }
 
         private void TickTransition(Room detectedRoom)
@@ -3044,6 +3128,11 @@ namespace RKmission
             _requestedOwner = MovementOwner.DoorTransition;
             Transition crossing = _transition;
             DungeonLayout.Connection edge = crossing.Edge;
+            if (crossing.Phase == TransitionPhase.RecordedReturn)
+            {
+                TickRecordedReturn(detectedRoom, crossing);
+                return;
+            }
             Door door = _layout.DoorAt(edge);
             bool passageOpen = IsPassageOpen(edge, door);
             DateTime now = DateTime.UtcNow;

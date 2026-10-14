@@ -741,7 +741,13 @@ namespace RKmission
 
         public bool TryNavigatePreparedDungeonTopology(Vector3 target,
             MovementArbiter movement, MovementOwner owner, out bool completed)
+            => TryNavigatePreparedDungeonTopology(target, movement, owner, out completed, out _);
+
+        public bool TryNavigatePreparedDungeonTopology(Vector3 target,
+            MovementArbiter movement, MovementOwner owner, out bool completed,
+            out DungeonTopologyContinuation completedPath)
         {
+            completedPath = null;
             completed = false;
             SimpleChar player = DynelManager.LocalPlayer;
             if (!_dungeonPlayback || _playing == null || _playPoints == null ||
@@ -763,6 +769,14 @@ namespace RKmission
             if (_playIndex == _playPoints.Count - 1 &&
                 Vector3.Distance(player.Position, waypoint) <= 1.5f)
             {
+                completedPath = new DungeonTopologyContinuation
+                {
+                    RouteName = _playing.Name,
+                    Playfield = Playfield.ModelIdentity.Instance,
+                    Points = new List<Vector3>(_playPoints),
+                    ProgressIndex = _playIndex,
+                    TargetSide = waypoint
+                };
                 completed = true;
                 StopPlayback();
                 return true;
@@ -837,6 +851,41 @@ namespace RKmission
                 $"{start + 1}/{continuation.Points.Count} ({remaining.Count} point(s)); " +
                 $"source attach={bestDistance:0.0}m, target attach=" +
                 $"{Vector3.Distance(target, remaining[remaining.Count - 1]):0.0}m.");
+            return true;
+        }
+
+        // Reverse only the actual selected ascent slice, never the full recording
+        // or a newly matched route. Connectors must remain on the proven levels.
+        internal static List<Vector3> RecordedReturnPoints(DungeonTopologyContinuation ascent,
+            Vector3 from, Vector3 doorApproach, int playfield)
+        {
+            if (ascent == null || ascent.Playfield != playfield || ascent.Points == null ||
+                ascent.Points.Count < 2) return null;
+            Vector3 ground = ascent.Points[0], upper = ascent.Points[ascent.Points.Count - 1];
+            if (upper.Y - ground.Y < DungeonMinimumVerticalSpan ||
+                Vector3.Distance(from, upper) > DungeonSourceAttachDistance ||
+                Math.Abs(from.Y - upper.Y) > 0.75f ||
+                Math.Abs(doorApproach.Y - ground.Y) > 1.25f ||
+                !IsContinuousDungeonRecording(ascent.Points)) return null;
+            return ascent.Points.AsEnumerable().Reverse().ToList();
+        }
+
+        public bool TryPrepareRecordedReturn(DungeonTopologyContinuation ascent,
+            Vector3 from, Vector3 doorApproach, out Vector3 ground)
+        {
+            ground = default(Vector3);
+            List<Vector3> points = RecordedReturnPoints(ascent, from, doorApproach,
+                Playfield.ModelIdentity.Instance);
+            if (points == null) return false;
+            StopPlayback();
+            _playing = new Route { Name = ascent.RouteName + " (return descent)",
+                Playfield = ascent.Playfield };
+            _playPoints = points;
+            _playIndex = 0;
+            _dungeonPlayback = true;
+            _lastDungeonReportedIndex = 0;
+            ground = points[points.Count - 1];
+            _say($"Prepared recorded return descent '{ascent.RouteName}': {points.Count} reversed physical point(s), ground attachment={ground}; doorway crossing held.");
             return true;
         }
 
