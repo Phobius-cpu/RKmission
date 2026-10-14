@@ -379,6 +379,8 @@ namespace RKmission
                         _navWindow.Show();
                         break;
                     }
+                    if (args.Length > 1 && args[1].Equals("capture", StringComparison.OrdinalIgnoreCase))
+                    { _navRoutes.CaptureCurrentRoom(); break; }
                     if (args.Length > 1 && args[1].Equals("record", StringComparison.OrdinalIgnoreCase))
                     {
                         string navMode = args.Length > 2 && (args[2].Equals("foot", StringComparison.OrdinalIgnoreCase) ||
@@ -394,7 +396,7 @@ namespace RKmission
                     { _navRoutes.List(); break; }
                     if (args.Length > 1 && args[1].Equals("window", StringComparison.OrdinalIgnoreCase))
                     { _navWindow.Show(); break; }
-                    Say("Usage: /rkm nav [window] | record [foot|vehicle|auto] [name] | stop | list. Existing files remain Foot/Bidirectional; vehicle profiles preserve recorded altitude and support forward reacquisition.");
+                    Say("Usage: /rkm nav [window] | capture | record [foot|vehicle|auto] [name] | stop | list. Existing files remain Foot/Bidirectional; vehicle profiles preserve recorded altitude and support forward reacquisition.");
                     break;
                 case "fgrid":
                     if (args.Length > 1 && args[1].Equals("nav", StringComparison.OrdinalIgnoreCase))

@@ -62,6 +62,7 @@ namespace RKmission
         private readonly Action<string> _say;
         private readonly List<Route> _routes = new List<Route>();
         private Route _recording, _playing;
+        private DungeonRoomCapture.Snapshot _recordingRoomCapture;
         private List<Vector3> _playPoints, _dungeonPhysicalPoints;
         private int _playIndex;
         private bool _dungeonPlayback;
@@ -109,6 +110,12 @@ namespace RKmission
             _recording = new Route { Name = name.Trim(), Playfield = Playfield.ModelIdentity.Instance,
                 RecordedAtUtc = DateTime.UtcNow, MovementMode = mode, Directionality = direction,
                 AltitudeProfile = mode == "Vehicle" ? "Recorded" : "Ground" };
+            _recordingRoomCapture = null;
+            if (Playfield.IsDungeon)
+            {
+                try { _recordingRoomCapture = DungeonRoomCapture.ReadCurrent(); }
+                catch (Exception ex) { _say("Room metadata unavailable; ordinary route recording continues: " + ex.Message); }
+            }
             AddPoint(DynelManager.LocalPlayer.Position, true);
             _say($"Nav recorder started '{_recording.Name}' in playfield {_recording.Playfield}; mode={mode}, altitude={_recording.AltitudeProfile}, direction={direction}. Follow the safe route, then /rkm nav stop.");
         }
@@ -121,7 +128,33 @@ namespace RKmission
             if (route.Points.Count < 2) { _say($"Nav route '{route.Name}' discarded: fewer than two distinct points."); return; }
             _routes.RemoveAll(x => string.Equals(x.Name, route.Name, StringComparison.OrdinalIgnoreCase));
             _routes.Add(route); Save();
+            if (_recordingRoomCapture != null)
+            {
+                try
+                {
+                    string capture = DungeonRoomCapture.Save(RoomCaptureDirectory,
+                        _recordingRoomCapture, route.Name, route.Points);
+                    _say($"Room metadata and route evidence saved: {capture}; candidate fingerprint={_recordingRoomCapture.CandidateFingerprint}; reusable playback remains disabled.");
+                }
+                catch (Exception ex) { _say("Room metadata save failed; recorded route preserved: " + ex.Message); }
+                _recordingRoomCapture = null;
+            }
             _say($"Nav route '{route.Name}' saved with {route.Points.Count} points in playfield {route.Playfield}.");
+        }
+
+        private string RoomCaptureDirectory => System.IO.Path.Combine(
+            System.IO.Path.GetDirectoryName(_path), "room-captures");
+
+        public void CaptureCurrentRoom()
+        {
+            try
+            {
+                var capture = DungeonRoomCapture.ReadCurrent();
+                string path = DungeonRoomCapture.Save(RoomCaptureDirectory, capture);
+                _say($"Room metadata captured: room={capture.RoomInstance}, name='{capture.RoomName}', " +
+                    $"surface meshes={capture.Surfaces.Count}, doors={capture.Doors.Count}, candidate fingerprint={capture.CandidateFingerprint}; file={path}. Reusable playback is not enabled.");
+            }
+            catch (Exception ex) { _say("Room capture failed: " + ex.Message); }
         }
 
         public void List()
