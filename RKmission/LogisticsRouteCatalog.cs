@@ -100,7 +100,28 @@ namespace RKmission
             if (horizontal < 0.1f) return false;
             const float standoff = 2.25f;
             approach = new Vector3(terminalPosition.X + away.X / horizontal * standoff,
-                playerPosition.Y, terminalPosition.Z + away.Z / horizontal * standoff);
+                terminalPosition.Y, terminalPosition.Z + away.Z / horizontal * standoff);
+            return true;
+        }
+
+        public bool TryFindTerminalLandingStaging(string site, int playfield, string terminalIdentity,
+            Vector3 terminalPosition, Vector3 playerPosition, out Vector3 staging)
+        {
+            staging = Vector3.Zero;
+            if (!TryFindTerminalApproach(site, playfield, terminalIdentity, terminalPosition,
+                playerPosition, out Vector3 approach)) return false;
+
+            // Descend outside the terminal collision body and with a material
+            // lateral component. Never use the player's airborne Y as evidence
+            // of ground height and never request a blind vertical plunge.
+            Vector3 away = approach - terminalPosition;
+            float horizontal = (float)Math.Sqrt(away.X * away.X + away.Z * away.Z);
+            if (horizontal < 0.1f) return false;
+            const float landingRadius = 5f;
+            const float groundClearance = 0.5f;
+            staging = new Vector3(terminalPosition.X + away.X / horizontal * landingRadius,
+                terminalPosition.Y + groundClearance,
+                terminalPosition.Z + away.Z / horizontal * landingRadius);
             return true;
         }
 

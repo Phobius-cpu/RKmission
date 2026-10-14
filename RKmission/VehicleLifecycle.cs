@@ -17,6 +17,9 @@ namespace RKmission
         private readonly Action<string> _say;
         private bool _observedOriginal, _originalFlying, _activationRequested, _ownsFlight;
         private DateTime _requestedAt;
+        private bool _terminalLandingActive, _terminalLeaveFlyRequested;
+        private DateTime _terminalLandingStarted, _terminalGroundObservedAt;
+        private Vector3 _terminalLandingStaging;
         public string Status { get; private set; } = "unobserved";
 
         public VehicleLifecycle(MovementArbiter movement, Action<string> say)
@@ -70,11 +73,90 @@ namespace RKmission
             return false;
         }
 
+        // Terminal transactions are deliberately stricter than ordinary travel:
+        // they require verified foot state even when flight predates RKMission.
+        // This does not change ownership/restoration policy anywhere else.
+        public VehicleTransitionResult RequireFootForTerminal(Vector3 landingStaging)
+        {
+            SimpleChar player = DynelManager.LocalPlayer;
+            if (player == null || Game.IsZoning) return VehicleTransitionResult.Waiting;
+            if (!_terminalLandingActive || Vector3.Distance(_terminalLandingStaging, landingStaging) > 0.5f)
+            {
+                _terminalLandingActive = true;
+                _terminalLeaveFlyRequested = false;
+                _terminalGroundObservedAt = DateTime.MinValue;
+                _terminalLandingStarted = DateTime.UtcNow;
+                _terminalLandingStaging = landingStaging;
+                Status = "terminal-landing-staging";
+                _say($"Terminal foot requirement: verified grounded staging target " +
+                    $"({_terminalLandingStaging.X:0.0},{_terminalLandingStaging.Y:0.0},{_terminalLandingStaging.Z:0.0}); " +
+                    "flight ownership is intentionally irrelevant for this terminal-only transition.");
+            }
+            if (DateTime.UtcNow - _terminalLandingStarted > TimeSpan.FromSeconds(45))
+            {
+                Status = $"terminal-foot-timeout; state={player.MovementState}, falling={player.IsFalling}, " +
+                    $"staging-range={Vector3.Distance(player.Position, _terminalLandingStaging):0.0}m";
+                return VehicleTransitionResult.Unavailable;
+            }
+            if (player.MovementState == MovementState.Fly)
+            {
+                _terminalGroundObservedAt = DateTime.MinValue;
+                float stagingRange = Vector3.Distance(player.Position, _terminalLandingStaging);
+                float verticalDelta = Math.Abs(player.Position.Y - _terminalLandingStaging.Y);
+                if (stagingRange > 1.25f || verticalDelta > 1.25f)
+                {
+                    if (!SafeToTransition(player)) { Status = "terminal-descent-gated"; return VehicleTransitionResult.Blocked; }
+                    _movement.SetDestination(MovementOwner.OutdoorTravel, _terminalLandingStaging);
+                    Status = $"terminal-safe-descent; staging-range={stagingRange:0.0}m, vertical={verticalDelta:0.0}m";
+                    return VehicleTransitionResult.Waiting;
+                }
+                _movement.Halt(MovementOwner.OutdoorTravel);
+                if (Item.HasPendingUse || Spell.HasPendingCast)
+                { Status = "terminal-dismount-waits-for-pending-action"; return VehicleTransitionResult.Waiting; }
+                if (!_terminalLeaveFlyRequested)
+                {
+                    _movement.SetMovement(MovementOwner.OutdoorTravel, MovementAction.LeaveFly);
+                    _terminalLeaveFlyRequested = true;
+                    Status = "terminal-dismount-requested-once";
+                    _say("Terminal foot requirement: safe landing staging verified; sent one LeaveFly and waiting for authoritative live foot state.");
+                }
+                else Status = "terminal-dismount-awaiting-live-state";
+                return VehicleTransitionResult.Waiting;
+            }
+            _movement.Release(MovementOwner.OutdoorTravel);
+            if (player.IsFalling || Item.HasPendingUse || Spell.HasPendingCast)
+            {
+                _terminalGroundObservedAt = DateTime.MinValue;
+                Status = player.IsFalling ? "terminal-ground-settling" : "terminal-pending-action-settling";
+                return VehicleTransitionResult.Waiting;
+            }
+            if (_terminalGroundObservedAt == DateTime.MinValue)
+            {
+                _terminalGroundObservedAt = DateTime.UtcNow;
+                Status = "terminal-ground-verification";
+                return VehicleTransitionResult.Waiting;
+            }
+            if (DateTime.UtcNow - _terminalGroundObservedAt < TimeSpan.FromMilliseconds(750))
+                return VehicleTransitionResult.Waiting;
+            Status = "terminal-foot-verified";
+            return VehicleTransitionResult.Ready;
+        }
+
+        public void ResetTerminalRequirement()
+        {
+            _terminalLandingActive = _terminalLeaveFlyRequested = false;
+            _terminalLandingStarted = _terminalGroundObservedAt = DateTime.MinValue;
+            _terminalLandingStaging = Vector3.Zero;
+        }
+
         private bool SafeToTransition(SimpleChar player) => !Game.IsZoning && !Playfield.IsDungeon &&
             !player.IsAttacking && !player.IsFalling &&
             (_movement.Owner == MovementOwner.None || _movement.Owner == MovementOwner.OutdoorTravel);
 
         public void ResetJourney()
-        { _observedOriginal = _activationRequested = _ownsFlight = false; Status = "unobserved"; }
+        {
+            _observedOriginal = _activationRequested = _ownsFlight = false;
+            ResetTerminalRequirement(); Status = "unobserved";
+        }
     }
 }

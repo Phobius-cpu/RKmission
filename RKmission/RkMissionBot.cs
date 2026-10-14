@@ -63,6 +63,8 @@ namespace RKmission
         private Vector3 _rollingTerminalPosition;
         private DateTime _nextReturnMove, _returnStarted;
         private Vector3 _lastReturnProgressPosition;
+        private Vector3 _returnTerminalApproach, _returnLandingStaging;
+        private bool _returnTerminalPlanReady;
         private int _returnNoProgressAttempts;
         private bool _returnCityRouteEligible;
         private Vector3 _returnScottyLanding;
@@ -1879,8 +1881,6 @@ namespace RKmission
                     Say("Recorded city return route reached its terminal-side endpoint; " +
                         "continuing to grounded exact-terminal identity/position verification.");
             }
-            if (!_vehicle.RestoreOriginal())
-            { Wait($"Vehicle lifecycle: {_vehicle.Status}; waiting for live ground verification before the precise saved-terminal connector."); return false; }
             SimpleChar player = DynelManager.LocalPlayer;
             if (string.IsNullOrEmpty(_rollTerminalIdentity))
             {
@@ -1902,9 +1902,18 @@ namespace RKmission
                 Vector3.Distance(x.Position, _rollTerminalPosition) <= 1f);
             if (player == null || terminal == null)
             { Stop(); Say("Return to roller stopped: the exact saved mission terminal is not visible at its recorded position."); return false; }
-            if (!_logisticsRoutes.TryFindTerminalApproach(_rollLogisticsSite, _rollTerminalPlayfield,
-                _rollTerminalIdentity, terminal.Position, player.Position, out Vector3 approach))
-            { Stop(); Say("Return to roller stopped: no collision-safe interaction standoff could be derived for the exact saved mission terminal."); return false; }
+            if (!_returnTerminalPlanReady)
+            {
+                if (!_logisticsRoutes.TryFindTerminalApproach(_rollLogisticsSite, _rollTerminalPlayfield,
+                    _rollTerminalIdentity, terminal.Position, player.Position, out _returnTerminalApproach))
+                { Stop(); Say("Return to roller stopped: no collision-safe interaction standoff could be derived for the exact saved mission terminal."); return false; }
+                if (!_logisticsRoutes.TryFindTerminalLandingStaging(_rollLogisticsSite, _rollTerminalPlayfield,
+                    _rollTerminalIdentity, terminal.Position, player.Position, out _returnLandingStaging))
+                { Stop(); Say("Return to roller stopped: no safe lateral ground-level landing staging point could be derived for the exact saved mission terminal."); return false; }
+                _returnTerminalPlanReady = true;
+            }
+            Vector3 approach = _returnTerminalApproach;
+            Vector3 landingStaging = _returnLandingStaging;
             if (_returnStarted == DateTime.MinValue)
             {
                 _returnStarted = DateTime.UtcNow;
@@ -1913,6 +1922,20 @@ namespace RKmission
             }
             if (DateTime.UtcNow - _returnStarted > TimeSpan.FromMinutes(3))
             { Stop(); Say("Return to the mission terminal timed out before reaching its surveyed interaction standoff."); return false; }
+            VehicleTransitionResult foot = _vehicle.RequireFootForTerminal(landingStaging);
+            if (foot == VehicleTransitionResult.Unavailable)
+            {
+                _movement.Release(MovementOwner.OutdoorTravel);
+                Stop(); Say($"Return to roller stopped: safe terminal landing/dismount could not be verified; {_vehicle.Status}.");
+                return false;
+            }
+            if (foot != VehicleTransitionResult.Ready)
+            {
+                Wait($"Vehicle lifecycle: {_vehicle.Status}; exact terminal={terminal.Identity}, " +
+                    $"player-to-landing={Vector3.Distance(player.Position, landingStaging):0.0}m, " +
+                    $"player-to-terminal={Vector3.Distance(player.Position, terminal.Position):0.0}m.");
+                return false;
+            }
             if (Vector3.Distance(player.Position, terminal.Position) <= RollTerminalApproachDistance)
             {
                 _movement.Release(MovementOwner.OutdoorTravel);
@@ -1950,6 +1973,9 @@ namespace RKmission
             _returnNoProgressAttempts = 0;
             _returnCityRouteEligible = false;
             _returnScottyLanding = Vector3.Zero;
+            _returnTerminalApproach = _returnLandingStaging = Vector3.Zero;
+            _returnTerminalPlanReady = false;
+            _vehicle.ResetTerminalRequirement();
         }
 
         private string LogisticsOriginDiagnostic(string site)
