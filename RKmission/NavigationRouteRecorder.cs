@@ -32,6 +32,7 @@ namespace RKmission
             public string MovementMode { get; set; }
             public string AltitudeProfile { get; set; }
             public string Directionality { get; set; }
+            public bool DungeonTopologyOnly { get; set; }
             [JsonIgnore] public bool Bundled { get; set; }
         }
         private sealed class DungeonSubpath
@@ -89,6 +90,7 @@ namespace RKmission
             _path = System.IO.Path.Combine(pluginDir, "RKMissionData", "navigation-routes.json");
             LoadBundled(System.IO.Path.Combine(pluginDir, "Data", "NavigationRoutes.json"));
             Load();
+            LoadDungeonTopology(System.IO.Path.Combine(pluginDir, "Data", "DungeonTopologyRoutes.json"));
             Game.OnUpdate += OnUpdate;
         }
 
@@ -133,7 +135,7 @@ namespace RKmission
         public bool TryGetEndpoint(string name, int playfield, Vector3 origin, out Vector3 endpoint)
         {
             endpoint = default(Vector3);
-            Route route = _routes.FirstOrDefault(x => x.Playfield == playfield &&
+            Route route = _routes.FirstOrDefault(x => !x.DungeonTopologyOnly && x.Playfield == playfield &&
                 string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase) &&
                 x.Points.Count >= 2 && Vector3.Distance(V(x.Points[0]), origin) <= 6f);
             if (route == null) return false;
@@ -148,7 +150,7 @@ namespace RKmission
         {
             SimpleChar player = DynelManager.LocalPlayer;
             if (player == null) return false;
-            return _routes.Any(route => route.Playfield == Playfield.ModelIdentity.Instance &&
+            return _routes.Any(route => !route.DungeonTopologyOnly && route.Playfield == Playfield.ModelIdentity.Instance &&
                 route.Points.Count >= 2 && RouteMode(route) == "Foot" &&
                 (Vector3.Distance(player.Position, V(route.Points[0])) <= endpointTolerance &&
                  Vector3.Distance(target, V(route.Points[route.Points.Count - 1])) <= endpointTolerance ||
@@ -490,7 +492,7 @@ namespace RKmission
                 Route best = null; bool reverse = false; float bestCost = float.MaxValue;
                 foreach (Route route in _routes.Where(x =>
                     x.Playfield == Playfield.ModelIdentity.Instance && x.Points.Count >= 2 &&
-                    RouteModeMatches(x, player.MovementState == MovementState.Fly) &&
+                    !x.DungeonTopologyOnly && RouteModeMatches(x, player.MovementState == MovementState.Fly) &&
                     (string.IsNullOrWhiteSpace(routeName) ||
                      string.Equals(x.Name, routeName, StringComparison.OrdinalIgnoreCase))))
                 {
@@ -620,7 +622,7 @@ namespace RKmission
             if (layout == null || IsRecording || _dungeonPlayback) return _dungeonPlayback;
             DungeonSubpath best = null;
             int eligibleRecordings = 0;
-            foreach (Route route in _routes.Where(x => !x.Bundled && x.Points.Count >= 2))
+            foreach (Route route in _routes.Where(x => (!x.Bundled || x.DungeonTopologyOnly) && x.Points.Count >= 2))
             {
                 List<Vector3> points = route.Points.Select(V).ToList();
                 float minimumY = points.Min(x => x.Y), maximumY = points.Max(x => x.Y);
@@ -634,11 +636,21 @@ namespace RKmission
                 eligibleRecordings++;
                 foreach (bool reverse in new[] { false, true })
                 {
+                    if (reverse && route.DungeonTopologyOnly && RouteDirection(route) == "Forward") continue;
                     List<Vector3> oriented = reverse
                         ? points.AsEnumerable().Reverse().ToList() : points;
                     DungeonSubpath candidate = FindDungeonSubpath(route, oriented,
                         reverse, from, target);
-                    if (candidate == null || best != null && candidate.Cost >= best.Cost) continue;
+                    if (candidate == null) continue;
+                    // Operational derivatives win only after conservative physical
+                    // attachment gates; no room translation is inferred.
+                    if (route.DungeonTopologyOnly &&
+                        (route.Playfield != Playfield.ModelIdentity.Instance ||
+                         !layout.IsInside(roomId, candidate.Points[0]) ||
+                         !layout.IsInside(roomId, candidate.Points[candidate.Points.Count - 1]))) continue;
+                    if (best != null &&
+                        (best.Route.DungeonTopologyOnly && !route.DungeonTopologyOnly ||
+                         best.Route.DungeonTopologyOnly == route.DungeonTopologyOnly && candidate.Cost >= best.Cost)) continue;
                     best = candidate;
                 }
             }
@@ -673,7 +685,8 @@ namespace RKmission
             for (int source = 0; source < points.Count - 1; source++)
             {
                 float sourceDistance = Vector3.Distance(from, points[source]);
-                if (sourceDistance > DungeonSourceAttachDistance) continue;
+                if (sourceDistance > DungeonSourceAttachDistance ||
+                    route.DungeonTopologyOnly && Math.Abs(from.Y - points[source].Y) > 0.75f) continue;
                 float pathLength = 0f;
                 float verticalRegression = 0f;
                 float minimumY = points[source].Y, maximumY = points[source].Y;
@@ -685,7 +698,8 @@ namespace RKmission
                     minimumY = Math.Min(minimumY, points[end].Y);
                     maximumY = Math.Max(maximumY, points[end].Y);
                     float targetDistance = Vector3.Distance(target, points[end]);
-                    if (targetDistance > DungeonTargetAttachDistance) continue;
+                    if (targetDistance > DungeonTargetAttachDistance ||
+                        route.DungeonTopologyOnly && Math.Abs(target.Y - points[end].Y) > 0.75f) continue;
                     float verticalSpan = maximumY - minimumY;
                     float finalVerticalGap = Math.Abs(target.Y - points[end].Y);
                     float verticalProgress = initialVerticalGap - finalVerticalGap;
@@ -1130,6 +1144,24 @@ namespace RKmission
             routes.Clear();
             routes.AddRange(normalized);
             return changed;
+        }
+
+        private void LoadDungeonTopology(string path)
+        {
+            try
+            {
+                if (!File.Exists(path)) return;
+                foreach (Route route in ReadRoutes(path).Routes)
+                {
+                    // User routes retain authority over identical names. Dedicated
+                    // topology assets never enter generic endpoint playback.
+                    if (!route.DungeonTopologyOnly || _routes.Any(x =>
+                        string.Equals(x.Name, route.Name, StringComparison.OrdinalIgnoreCase))) continue;
+                    route.Bundled = true;
+                    _routes.Add(route);
+                }
+            }
+            catch (Exception ex) { _say("Dungeon topology assets were not loaded: " + ex.Message); }
         }
 
         private void LoadBundled(string path)

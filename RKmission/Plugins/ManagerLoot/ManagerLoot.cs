@@ -650,6 +650,11 @@ namespace ManagerLoot
             return true;
         }
 
+        // A chest cannot be acquired during combat. Corpses remain eligible.
+        // Apply this before both approach planning and independent ManagerLoot use.
+        private bool MissionContainerAcquisitionReady(MissionIdentity identity) =>
+            identity.Type != IdentityType.Container || MissionCombatFree?.Invoke() == true;
+
         private bool DeferredApproachReady(MissionIdentity identity) =>
             (IsMissionCriticalLoot(identity) ||
              !_deferredApproaches.TryGetValue(identity, out DeferredApproach deferred) ||
@@ -751,7 +756,8 @@ namespace ManagerLoot
             Dynel selected = candidates.Where(x =>
                 !_unreachableMissionLoot.Contains(x.Identity)
                 && !_finishedMissionLoot.Contains(x.Identity)
-                && DeferredApproachReady(x.Identity))
+                && DeferredApproachReady(x.Identity)
+                && MissionContainerAcquisitionReady(x.Identity))
             .OrderBy(x => x.Identity == _pendingMissionLoot ? 0 : 1)
             .ThenBy(x => x.Identity.Type == IdentityType.Corpse ? 0 : 1)
             .ThenBy(x => x.DistanceFrom(DynelManager.LocalPlayer)).FirstOrDefault();
@@ -1599,6 +1605,19 @@ namespace ManagerLoot
             {
                 if (Game.IsZoning) return;
                 if (Time.AONormalTime < ZoneDelay) return;
+                // Combat can resume after selection. Release unopened ownership;
+                // no server-rejection count or geometry retry is consumed here.
+                if (MissionRoomId >= 0 && CorpseContainer == null &&
+                    _pendingMissionLoot != MissionIdentity.None &&
+                    !MissionContainerAcquisitionReady(_pendingMissionLoot))
+                {
+                    SetMissionSource(_pendingMissionLoot, MissionSourceState.PendingApproach);
+                    _pendingMissionLoot = MissionIdentity.None;
+                    _pendingMissionLootOccurrence = 0;
+                    CurrentCorpse = null;
+                    _sourceAcquisition = null;
+                    CurrentProcess = ProcessState.Open_Corpse;
+                }
                 if (MissionActionsPaused) return;
                 if (MissionLootAllowed != null && MissionRoomId < 0) return;
 
@@ -1666,6 +1685,7 @@ namespace ManagerLoot
                         && (_pendingMissionLoot == MissionIdentity.None || c.Identity == _pendingMissionLoot)
                         && !_unreachableMissionLoot.Contains(c.Identity)
                         && (MissionRoomId < 0 || DeferredApproachReady(c.Identity))
+                        && (MissionRoomId < 0 || MissionContainerAcquisitionReady(c.Identity))
                         && (MissionRoomId < 0 || LockpickReady(c.Identity))
                         && (c.Identity.Type == IdentityType.Container || c.Identity.Type == IdentityType.Corpse)
                         && (MissionLootAllowed?.Invoke(c) ?? true)

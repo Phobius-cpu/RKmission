@@ -70,3 +70,37 @@ Write-Output 'PASS existing in-range chest geometry is unchanged'
 Require ($loot.Contains('BeginMissionControl();') -and $loot.Contains('ReleaseMissionControl();')) `
     'ManagerLoot mission ownership lifecycle is missing.'
 Write-Output 'PASS ManagerLoot mission ownership remains explicit and releasable'
+
+Require ($loot.Contains('&& MissionContainerAcquisitionReady(x.Identity)') -and
+    $loot.Contains('MissionContainerAcquisitionReady(c.Identity)')) 'Both acquisition pickers must reject combat-active chests before ownership.'
+$release = $loot.IndexOf('!MissionContainerAcquisitionReady(_pendingMissionLoot)')
+$pause = $loot.IndexOf('if (MissionActionsPaused) return;', $release)
+Require ($release -ge 0 -and $pause -gt $release) 'Pending unopened ownership must be rechecked even while actions are paused.'
+$body = $loot.Substring($release, $pause - $release)
+Require ($body.Contains('_pendingMissionLoot = MissionIdentity.None;') -and
+    $body.Contains('_sourceAcquisition = null;') -and
+    -not $body.Contains('Attempts++') -and -not $body.Contains('DeferMissionLoot')) 'Combat pause must release ownership without consuming retry budgets.'
+Require ($dungeon.Contains('_readiness.InCombat && (!_loot.IsProcessingMissionLoot ||')) 'Approach timers must pause when combat resumes during unopened ownership.'
+Write-Output 'PASS proactive acquisition and resumed-combat ownership gates preserve retry budgets'
+# Execute the production acquisition expression with AO identity data stubbed.
+$gate = [regex]::Match($loot, 'private bool MissionContainerAcquisitionReady\(MissionIdentity identity\) =>\s*([^;]+);').Groups[1].Value
+Require (-not [string]::IsNullOrWhiteSpace($gate)) 'Production acquisition gate not found.'
+Add-Type -TypeDefinition (@'
+using System;
+public enum IdentityType { Container, Corpse }
+public struct MissionIdentity { public IdentityType Type; }
+public class AcquisitionGate {
+    public Func<bool> MissionCombatFree;
+    public bool Ready(MissionIdentity identity) =>
+'@ + $gate + '; }')
+$g = [AcquisitionGate]::new()
+$chest = [MissionIdentity]::new(); $chest.Type = [IdentityType]::Container
+$corpse = [MissionIdentity]::new(); $corpse.Type = [IdentityType]::Corpse
+Require (-not $g.Ready($chest) -and $g.Ready($corpse)) 'Missing combat evidence must block chests only.'
+$g.MissionCombatFree = [Func[bool]] { $false }
+Require (-not $g.Ready($chest) -and $g.Ready($corpse)) 'Combat/hostile aggro must block chests while preserving corpses.'
+$g.MissionCombatFree = [Func[bool]] { $true }
+Require ($g.Ready($chest)) 'Chest must become eligible after combat without traversal or retry charge.'
+$g.MissionCombatFree = [Func[bool]] { $false }
+Require (-not $g.Ready($chest)) 'Resumed combat must revoke chest acquisition eligibility.'
+Write-Output 'PASS production C# acquisition gate covers unknown, combat, combat-free and resumed combat'

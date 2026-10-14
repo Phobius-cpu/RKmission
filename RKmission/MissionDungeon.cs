@@ -2533,6 +2533,16 @@ namespace RKmission
                 _say("Mission-critical loot is blocked; objective completion and exit are held. " + blockers);
                 return true;
             }
+            if (_readiness.InCombat && (!_loot.IsProcessingMissionLoot ||
+                _loot.ProcessingMissionLootIdentity.Type == IdentityType.Container &&
+                _loot.WaitingForOrdinaryMissionContainer(_loot.ProcessingMissionLootIdentity)))
+            {
+                // Pause approach timers as well as ManagerLoot ownership. Resume
+                // from fresh geometry after combat, without deferring the source.
+                _waitingForLoot = Identity.None;
+                _loot.MissionActionsPaused = true;
+                return false;
+            }
             Dynel next = _loot.NextMissionLoot(room.Instance);
             DateTime now = DateTime.UtcNow;
             Identity processingIdentity = _loot.ProcessingMissionLootIdentity;
