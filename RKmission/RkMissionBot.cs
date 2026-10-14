@@ -44,6 +44,7 @@ namespace RKmission
         private MissionCheckpoint _checkpoint;
         private AcceptedMission _selected;
         private bool _autoCycle, _autoRolling, _hasRollTerminal, _recoveringDeath, _deathReturnToRollTerminal;
+        private bool _missionBatchRemountPending;
         private bool _capacityLogisticsBlocked, _capacityLogisticsDeferredWhileAccepted;
         private bool _clearAcceptedBeforeRolling;
         private bool _autoLogisticsPending, _autoLogisticsRunning, _autoLogisticsFinalPending;
@@ -613,6 +614,7 @@ namespace RKmission
             _running = true;
             _recoveringDeath = false;
             _deathReturnToRollTerminal = false;
+            _missionBatchRemountPending = false;
             _dungeonStarted = false;
             _clearanceReported = false;
             _selected = null;
@@ -679,6 +681,7 @@ namespace RKmission
             _capacityLogisticsBlocked = _capacityLogisticsDeferredWhileAccepted = false;
             _recoveringDeath = false;
             _deathReturnToRollTerminal = false;
+            _missionBatchRemountPending = false;
             _exitZoningStarted = false;
             _handInExitVerified = false;
             _handInLocateStarted = DateTime.MinValue;
@@ -844,6 +847,17 @@ namespace RKmission
                     Say($"Death recovery reacquired exact saved roller terminal in PF {_rollTerminalPlayfield}; resuming the normal automatic mission selection and travel path.");
                 }
                 if (_autoCycle && _autoRolling && !ObserveAutoAcceptance()) return;
+                if (_autoCycle && _missionBatchRemountPending)
+                {
+                    VehicleTransitionResult remount = _vehicle.RequireFlightAfterMissionBatch();
+                    if (remount == VehicleTransitionResult.Unavailable)
+                    { Stop(); Say("Mission batch remount stopped: " + _vehicle.Status + "."); return; }
+                    if (remount != VehicleTransitionResult.Ready)
+                    { Wait("Mission batch remount required before mission selection/travel: " + _vehicle.Status + "."); return; }
+                    _missionBatchRemountPending = false;
+                    _vehicle.CompleteMissionBatchRemount();
+                    Say("Mission batch remount verified: equipped vehicle attachment and authoritative live Fly state confirmed; mission travel may begin.");
+                }
                 // AO# classifies Fixer Grid as a dungeon, but it is a travel
                 // playfield. Actual mission dungeons still need exact binding.
                 bool inFixerGrid = Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid;
@@ -1624,6 +1638,9 @@ namespace RKmission
                         _awaitingQuestDetails.Add(acceptedId);
                     window.StopZoneRolling();
                     _autoRolling = false;
+                    if (Inventory.NumFreeSlots < 2 ||
+                        (_maxAutoMissions > 0 && _autoAcceptedCount >= _maxAutoMissions))
+                        _missionBatchRemountPending = true;
                     Say($"Automatic acceptance confirmed: offer {pending}, quest {acceptedId}; " +
                         $"destination playfield {destination}, " +
                         $"{_autoAcceptedCount}/{(_maxAutoMissions == 0 ? "unlimited" : _maxAutoMissions.ToString())} this cycle" +
@@ -1650,6 +1667,7 @@ namespace RKmission
             {
                 window.StopZoneRolling();
                 _autoRolling = false;
+                _missionBatchRemountPending = true;
                 Say($"Mission batch ready: {_autoAcceptedCount} accepted, " +
                     $"{Inventory.NumFreeSlots} free inventory slots; selecting an accepted mission.");
                 return false;

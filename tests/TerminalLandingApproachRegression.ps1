@@ -29,6 +29,13 @@ Assert ($vehicle.Contains('x.Id == YalmahaXl29478ItemId && x.IsEquipped') -and
     $vehicle.Contains('player.VehiclePointer != IntPtr.Zero') -and
     $vehicle.Contains('terminal-vehicle-detachment-pending')) `
     'terminal rolling requires explicit Yalmaha unequip and live vehicle attachment clearance'
+Assert ($vehicle.Contains('RequireFlightAfterMissionBatch') -and
+    $vehicle.Contains('attached && player.MovementState == MovementState.Fly') -and
+    $vehicle.Contains('batch-remount-requested-once') -and
+    $bot.Contains('_missionBatchRemountPending = true;') -and
+    $bot.Contains('Mission batch remount required before mission selection/travel') -and
+    $bot.Contains('Mission batch remount verified: equipped vehicle attachment')) `
+    'completed rolling batch blocks mission selection and travel until mandatory remount is live-verified'
 Assert ($vehicle.Contains('player.IsFalling || Item.HasPendingUse || Spell.HasPendingCast') -and
     $vehicle.Contains('TimeSpan.FromMilliseconds(750)') -and
     $vehicle.Contains('TimeSpan.FromSeconds(45)')) `

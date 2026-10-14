@@ -20,6 +20,8 @@ namespace RKmission
         private bool _terminalLandingActive, _terminalDismountRequested;
         private DateTime _terminalLandingStarted, _terminalGroundObservedAt;
         private Vector3 _terminalLandingStaging;
+        private bool _batchRemountActive, _batchRemountRequested;
+        private DateTime _batchRemountStarted;
         public string Status { get; private set; } = "unobserved";
 
         public VehicleLifecycle(MovementArbiter movement, Action<string> say)
@@ -71,6 +73,59 @@ namespace RKmission
             _movement.SetMovement(MovementOwner.OutdoorTravel, MovementAction.LeaveFly);
             Status = "restore-requested";
             return false;
+        }
+
+        public VehicleTransitionResult RequireFlightAfterMissionBatch()
+        {
+            ObserveOriginal();
+            SimpleChar player = DynelManager.LocalPlayer;
+            if (player == null || Game.IsZoning) return VehicleTransitionResult.Waiting;
+            if (!_batchRemountActive)
+            {
+                _batchRemountActive = true;
+                _batchRemountRequested = false;
+                _batchRemountStarted = DateTime.UtcNow;
+                Status = "batch-remount-started";
+            }
+            bool attached = TerminalVehicleAttached(player);
+            if (attached && player.MovementState == MovementState.Fly &&
+                !Item.HasPendingUse && !Spell.HasPendingCast)
+            {
+                _activationRequested = false;
+                Status = "batch-remount-live-fly-verified";
+                return VehicleTransitionResult.Ready;
+            }
+            if (DateTime.UtcNow - _batchRemountStarted > TimeSpan.FromSeconds(15))
+            {
+                Status = $"batch-remount-timeout; state={player.MovementState}, attached={attached}, " +
+                    $"pendingUse={Item.HasPendingUse}, pendingCast={Spell.HasPendingCast}";
+                return VehicleTransitionResult.Unavailable;
+            }
+            if (!SafeToTransition(player))
+            { Status = "batch-remount-transition-gated"; return VehicleTransitionResult.Blocked; }
+            if (Item.HasPendingUse || Spell.HasPendingCast)
+            { Status = "batch-remount-pending-action"; return VehicleTransitionResult.Waiting; }
+            if (!_batchRemountRequested)
+            {
+                Item vehicle = Inventory.Items.FirstOrDefault(x =>
+                    x.Id == YalmahaXl29478ItemId && !x.IsEquipped);
+                if (vehicle == null)
+                { Status = "batch-remount-vehicle-unavailable"; return VehicleTransitionResult.Unavailable; }
+                vehicle.Use();
+                _batchRemountRequested = true;
+                _batchRemountStarted = DateTime.UtcNow;
+                Status = "batch-remount-requested-once";
+                _say("Mission batch complete: requested the known Yalmaha once; mission selection and travel remain held until equipped attachment and live Fly are verified.");
+            }
+            else Status = attached ? "batch-remount-awaiting-live-fly" :
+                "batch-remount-awaiting-attachment";
+            return VehicleTransitionResult.Waiting;
+        }
+
+        public void CompleteMissionBatchRemount()
+        {
+            _batchRemountActive = _batchRemountRequested = false;
+            _batchRemountStarted = DateTime.MinValue;
         }
 
         // Terminal transactions are deliberately stricter than ordinary travel:
@@ -199,7 +254,7 @@ namespace RKmission
         public void ResetJourney()
         {
             _observedOriginal = _activationRequested = _ownsFlight = false;
-            ResetTerminalRequirement(); Status = "unobserved";
+            ResetTerminalRequirement(); CompleteMissionBatchRemount(); Status = "unobserved";
         }
     }
 }
