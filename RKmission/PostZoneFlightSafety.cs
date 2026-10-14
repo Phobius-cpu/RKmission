@@ -30,9 +30,13 @@ namespace RKmission
             _fromFGrid = Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid;
         }
 
+        internal static bool IsCityReturnPlayfield(int playfield) =>
+            playfield == 540 || playfield == 655 || playfield == 800;
+
         private void Ended(object sender, EventArgs args)
         {
-            if ((!_fromDungeon && !_fromFGrid) || Playfield.IsDungeon ||
+            if (IsCityReturnPlayfield(Playfield.ModelIdentity.Instance) ||
+                (!_fromDungeon && !_fromFGrid) || Playfield.IsDungeon ||
                 Playfield.ModelIdentity.Instance == (int)PlayfieldId.FixerGrid ||
                 DynelManager.LocalPlayer?.MovementState != MovementState.Fly)
             { _active = false; return; }

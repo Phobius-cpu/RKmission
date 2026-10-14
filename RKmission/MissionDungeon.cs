@@ -3190,6 +3190,8 @@ namespace RKmission
             _say($"Transition {crossing.Edge.Source}->{crossing.Edge.Target}: recorded return descent reached ground attachment {crossing.ReturnGround}; normal doorway approach resumed.");
         }
 
+        internal static double DoorProbeSeconds(bool locked) => locked ? 1d : 3d;
+
         private void TickTransition(Room detectedRoom)
         {
             _requestedOwner = MovementOwner.DoorTransition;
@@ -3312,7 +3314,7 @@ namespace RKmission
                     _destination = null;
                     if (door != null && !passageOpen) MovementArbiter.Current.Halt(_requestedOwner);
                 }
-                else if (now - crossing.PhaseStarted < TimeSpan.FromSeconds(3))
+                else if (now - crossing.PhaseStarted < TimeSpan.FromSeconds(DoorProbeSeconds(door.IsLocked)))
                 {
                     Navigate(CrossingWaypoint(edge, position));
                     return;

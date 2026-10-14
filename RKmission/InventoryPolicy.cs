@@ -90,6 +90,7 @@ namespace RKmission
             if (item == null) return false;
             if (item.UniqueIdentity.Type == IdentityType.Container) return true;
             if (item.Id == YalmahaXl29478ItemId) return true;
+            if (IsProtectedCombatEquipmentTemplate(item.LowId, item.HighId)) return true;
             if (ProtectedItemIds.Contains(item.Id)) return true;
             string name = item.Name?.Trim() ?? string.Empty;
             if (ProtectedNameFragments.Any(x => !string.IsNullOrWhiteSpace(x) &&
@@ -97,6 +98,11 @@ namespace RKmission
             return _consumerItemIds.Contains(item.Id) || IsBuiltInOperationalName(name) ||
                 MissionReadiness.IsRecoveryItem(item);
         }
+
+        // User-designated HUD1 combat equipment must not become Junk when
+        // unequipped. Keep exact template protection even for Identity.None.
+        internal static bool IsProtectedCombatEquipmentTemplate(int lowId, int highId) =>
+            lowId == 267696 || highId == 267696;
 
         internal static bool IsBuiltInOperationalName(string name)
         {

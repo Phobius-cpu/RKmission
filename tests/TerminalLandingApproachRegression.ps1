@@ -53,10 +53,10 @@ Assert ($bot.Contains('_returnTerminalPlanReady') -and
     $bot.Contains('Vector3 approach = _returnTerminalApproach;') -and
     $bot.Contains('Vector3 landingStaging = _returnLandingStaging;')) `
     'one grounded landing/approach plan is retained instead of chasing a repeatedly changing point'
-Assert ($bot.Contains('Vector3.Distance(player.Position, terminal.Position) <= RollTerminalApproachDistance') -and
+Assert ($bot.Contains('terminal != null && Vector3.Distance(player.Position, terminalPosition) <= RollTerminalApproachDistance') -and
     $bot.Contains('foot != VehicleTransitionResult.Ready') -and
     $bot.IndexOf('foot != VehicleTransitionResult.Ready') -lt
-        $bot.IndexOf('Vector3.Distance(player.Position, terminal.Position) <= RollTerminalApproachDistance',
+        $bot.IndexOf('terminal != null && Vector3.Distance(player.Position, terminalPosition) <= RollTerminalApproachDistance',
             $bot.IndexOf('private bool ReturnToRollTerminal()'))) `
     'authoritative grounded foot verification precedes true 3D terminal-range arrival'
 Assert ($bot.Contains('_returnNoProgressAttempts >= 4') -and

@@ -62,7 +62,7 @@ namespace RKmission
         private MissionTerminal _rollingTerminalReference;
         private int _rollingTerminalPlayfield;
         private Vector3 _rollingTerminalPosition;
-        private DateTime _nextReturnMove, _returnStarted;
+        private DateTime _nextReturnMove, _returnStarted, _returnTerminalVisibilitySince;
         private Vector3 _lastReturnProgressPosition;
         private Vector3 _returnTerminalApproach, _returnLandingStaging;
         private bool _returnTerminalPlanReady;
@@ -898,6 +898,14 @@ namespace RKmission
                     }
                     if (!_handInExitVerified && !_verifiedExitReported)
                     {
+                        if (warpExitVerified && _hasRollTerminal &&
+                            Playfield.ModelIdentity.Instance == _rollTerminalPlayfield &&
+                            PostZoneFlightSafety.IsCityReturnPlayfield(_rollTerminalPlayfield))
+                        {
+                            _returnCityRouteEligible = true;
+                            _returnScottyLanding = DynelManager.LocalPlayer.Position;
+                            Say("Verified completed-mission city warp: recorded terminal-return route enabled from the observed landing.");
+                        }
                         Say(warpExitVerified
                             ? $"Verified Scottyboi warp from completed mission {_selected.Id.Instance} to playfield {_completedMissionWarpTarget}."
                             : $"Verified exit from mission {_selected.Id.Instance} to its outdoor playfield {_selected.PlayfieldId}.");
@@ -1937,15 +1945,28 @@ namespace RKmission
                 string.Equals(x.Identity.ToString(), _rollTerminalIdentity,
                     StringComparison.OrdinalIgnoreCase) &&
                 Vector3.Distance(x.Position, _rollTerminalPosition) <= 1f);
-            if (player == null || terminal == null)
-            { Stop(); Say("Return to roller stopped: the exact saved mission terminal is not visible at its recorded position."); return false; }
+            if (player == null) return false;
+            // Saved position is navigation evidence; live identity remains the
+            // required rolling proof. Do not require streaming at a distant warp.
+            Vector3 terminalPosition = terminal?.Position ?? _rollTerminalPosition;
+            if (terminal == null && Vector3.Distance(player.Position, terminalPosition) <= 10f)
+            {
+                _movement.Release(MovementOwner.OutdoorTravel);
+                if (_returnTerminalVisibilitySince == DateTime.MinValue)
+                    _returnTerminalVisibilitySince = DateTime.UtcNow;
+                if (DateTime.UtcNow - _returnTerminalVisibilitySince > TimeSpan.FromSeconds(8))
+                { Stop(); Say("Return to roller stopped: the exact saved mission terminal is not visible at its recorded position."); return false; }
+                Wait("Near the saved terminal position; waiting for exact terminal visibility before landing verification and rolling.");
+                return false;
+            }
+            _returnTerminalVisibilitySince = DateTime.MinValue;
             if (!_returnTerminalPlanReady)
             {
                 if (!_logisticsRoutes.TryFindTerminalApproach(_rollLogisticsSite, _rollTerminalPlayfield,
-                    _rollTerminalIdentity, terminal.Position, player.Position, out _returnTerminalApproach))
+                    _rollTerminalIdentity, terminalPosition, player.Position, out _returnTerminalApproach))
                 { Stop(); Say("Return to roller stopped: no collision-safe interaction standoff could be derived for the exact saved mission terminal."); return false; }
                 if (!_logisticsRoutes.TryFindTerminalLandingStaging(_rollLogisticsSite, _rollTerminalPlayfield,
-                    _rollTerminalIdentity, terminal.Position, player.Position, out _returnLandingStaging))
+                    _rollTerminalIdentity, terminalPosition, player.Position, out _returnLandingStaging))
                 { Stop(); Say("Return to roller stopped: no safe lateral ground-level landing staging point could be derived for the exact saved mission terminal."); return false; }
                 _returnTerminalPlanReady = true;
             }
@@ -1969,17 +1990,17 @@ namespace RKmission
             }
             if (foot != VehicleTransitionResult.Ready)
             {
-                Wait($"Vehicle lifecycle: {_vehicle.Status}; exact terminal={terminal.Identity}, " +
+                Wait($"Vehicle lifecycle: {_vehicle.Status}; exact terminal={terminal?.Identity.ToString() ?? _rollTerminalIdentity}, " +
                     $"player-to-landing={Vector3.Distance(player.Position, landingStaging):0.0}m, " +
-                    $"player-to-terminal={Vector3.Distance(player.Position, terminal.Position):0.0}m.");
+                    $"player-to-terminal={Vector3.Distance(player.Position, terminalPosition):0.0}m.");
                 return false;
             }
-            if (Vector3.Distance(player.Position, terminal.Position) <= RollTerminalApproachDistance)
+            if (terminal != null && Vector3.Distance(player.Position, terminalPosition) <= RollTerminalApproachDistance)
             {
                 _movement.Release(MovementOwner.OutdoorTravel);
-                Say($"Exact saved roller terminal verification passed: {terminal.Identity} in PF {_rollTerminalPlayfield}, " +
-                    $"position delta={Vector3.Distance(terminal.Position, _rollTerminalPosition):0.0}m, " +
-                    $"player range={Vector3.Distance(player.Position, terminal.Position):0.0}m.");
+                Say($"Exact saved roller terminal verification passed: {terminal?.Identity.ToString() ?? _rollTerminalIdentity} in PF {_rollTerminalPlayfield}, " +
+                    $"position delta={Vector3.Distance(terminalPosition, _rollTerminalPosition):0.0}m, " +
+                    $"player range={Vector3.Distance(player.Position, terminalPosition):0.0}m.");
                 ResetRollTerminalReturn();
                 return true;
             }
@@ -1994,7 +2015,7 @@ namespace RKmission
                     Stop();
                     Say($"Return to roller stopped after {_returnNoProgressAttempts} non-progress retries; " +
                         $"player-to-standoff={Vector3.Distance(player.Position, approach):0.0}m, " +
-                        $"player-to-terminal={Vector3.Distance(player.Position, terminal.Position):0.0}m.");
+                        $"player-to-terminal={Vector3.Distance(player.Position, terminalPosition):0.0}m.");
                     return false;
                 }
                 _movement.SetDestination(MovementOwner.OutdoorTravel, approach);
@@ -2006,6 +2027,7 @@ namespace RKmission
         private void ResetRollTerminalReturn()
         {
             _returnStarted = DateTime.MinValue;
+            _returnTerminalVisibilitySince = DateTime.MinValue;
             _nextReturnMove = DateTime.MinValue;
             _lastReturnProgressPosition = Vector3.Zero;
             _returnNoProgressAttempts = 0;
