@@ -1,6 +1,6 @@
 # RKMission Project Memory
 
-_Last updated: 2026-10-13_
+_Last updated: 2026-10-14_
 
 ## 2026-10-03 post-crossing lateral motion follow-up
 
@@ -2950,3 +2950,21 @@ The `cefb80d` behavior recorded here is superseded by the height-band correction
 - The canonical 27-item AO gate and end-of-day workstream state are recorded in
   `CONTROL_BOARD.md`. The next action is to pull/build current `main`, execute
   the PRE-SOAK checklist, and start long soak only after its gates pass.
+
+## 2026-10-14 soak readiness
+
+- The user declared RKMission "ready for the soak." Treat that statement as
+  batch-level AO validation that the PRE-SOAK gates are complete enough to
+  begin long-duration testing; do not infer separate scenario-by-scenario
+  evidence beyond the user's statement.
+- Current GitHub `main` includes the OA Sirocco, OA Clan Agency, ICC Lift, ICC
+  Statue, and Borealis Baffbots warper-to-terminal navpaths in `600b2be`. The
+  user's soak-readiness statement covers that Travel item, so it is
+  **VALIDATED** for entry into soak. Global Scotty nearest-subdestination
+  ranking remains a separate **DECIDED** Travel item.
+- **LONG AUTONOMOUS SOAK — AWAITING AO TEST** is the next active validation
+  phase. Its purpose is repeated full-cycle evidence across OA/Borealis/ICC,
+  especially cumulative/stale state, rare fallbacks, inventory/logistics
+  drift, repeated transitions, and long-run lifecycle/watchdog behavior.
+  Future changes should be driven by concrete soak failures and logs, not
+  speculative feature expansion.

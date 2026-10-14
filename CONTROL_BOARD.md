@@ -4,7 +4,7 @@ _Updated: 2026-10-14_
 
 ## Current release gate
 
-**PRE-SOAK batch — AWAITING AO TEST**
+**PRE-SOAK batch — VALIDATED**
 
 Implementation is present on `main` beginning with `53058ab` and includes:
 
@@ -14,20 +14,41 @@ Implementation is present on `main` beginning with `53058ab` and includes:
 - City Vehicle Routing for OA / Borealis / ICC
 - Resurrection / Death Recovery expansion
 
-No part of this batch is marked **VALIDATED** without live AO evidence. The next
-action is for the user to pull and build current `main`, run the checklist below,
-and begin a long soak only after its gates pass.
+On 2026-10-14 the user reported RKMission "ready for the soak." This is the AO
+validation statement for the batch as a whole: the pre-soak checks are complete
+enough to begin long-duration testing. It does not claim separate evidence for
+every checklist scenario beyond that explicit readiness statement.
+
+## Active validation phase
+
+**LONG AUTONOMOUS SOAK — AWAITING AO TEST (ready to begin)**
+
+Run repeated full autonomous mission cycles from OA, Borealis, and ICC origins,
+covering rolling, travel, Scotty/FGrid/Neko, city routes, vehicle lifecycle,
+mission dungeon, combat, loot/inventory settlement, exit/chaining, terminal
+return, logistics, and death recovery when naturally encountered.
+
+The primary goal is to detect cumulative or stale-state failures, rare routing
+fallbacks, inventory/logistics drift, repeated-transition failures, and
+long-running lifecycle/watchdog problems. Do not reopen already validated
+mechanics without evidence. Future changes should be driven by concrete soak
+failures and logs.
 
 ## Workstreams
 
 ### Travel
 
-- **AWAITING AO TEST:** Borealis Scotty routing exclusively uses live-verified
+- **VALIDATED:** Borealis Scotty routing exclusively uses live-verified
   `/tell scty bor` for `Borealis, Near Baffbotz, Implantbob, Reclaim`. The
   assigned warper remains dynamic and identity-verified; `Warpboi3` is only the
-  observed assignment from the confirming run.
-- **AWAITING AO TEST:** PRE-SOAK Vehicle Lifecycle, Neko-first handoff, and
-  vehicle-aware OA/Borealis/ICC routing.
+  observed assignment from the confirming run. Current `main` also contains the
+  OA Sirocco, OA Clan Agency, ICC Lift, ICC Statue, and Borealis Baffbots
+  warper-to-terminal navpaths (`600b2be`); the user's soak-readiness statement
+  covers this city-return item without asserting route-specific evidence beyond
+  that statement.
+- **VALIDATED:** PRE-SOAK Vehicle Lifecycle, Neko-first handoff, and
+  vehicle-aware OA/Borealis/ICC routing, based on the user's 2026-10-14
+  soak-readiness statement.
 - **DECIDED:** global Scotty nearest-subdestination ranking across all
   playfields remains a separate Travel item. It is not folded into PRE-SOAK.
 - **OPPORTUNITY:** staircase recovery and unreachable-combat continuation stay
@@ -36,8 +57,9 @@ and begin a long soak only after its gates pass.
 
 ### Dungeon
 
-- **AWAITING AO TEST:** exact dungeon verification after Neko entry, stale
-  movement cancellation on key acceptance/zoning, and same-playfield chaining.
+- **VALIDATED:** PRE-SOAK exact dungeon verification after Neko entry, stale
+  movement cancellation on key acceptance/zoning, and same-playfield chaining,
+  based on the user's 2026-10-14 soak-readiness statement.
 
 ### Combat
 
@@ -46,25 +68,31 @@ and begin a long soak only after its gates pass.
 
 ### Inventory / Logistics
 
-- **AWAITING AO TEST:** post-hydration/post-transfer bag auto-close remains in
-  its existing lifecycle implementation and needs AO evidence; user-owned bags
-  must not be closed.
+- **AWAITING AO TEST:** post-hydration/post-transfer bag auto-close remains a
+  separate Inventory/Logistics item and needs specific AO evidence; user-owned
+  bags must not be closed. The batch-level soak-readiness statement does not
+  supply that separate evidence.
 - Existing validated logistics evidence remains unchanged.
 
 ### Objectives / Lifecycle
 
-- **AWAITING AO TEST:** PRE-SOAK Resurrection / Death Recovery expansion.
-  This extends the existing resurrection topic; it is not a second subsystem.
+- **VALIDATED:** PRE-SOAK Resurrection / Death Recovery expansion, based on the
+  user's 2026-10-14 soak-readiness statement. This extends the existing
+  resurrection topic; it is not a second subsystem.
 - Batch 1 Autonomous Cycle Closure is implemented on `main` (`2579cab`), but no
   new AO validation is inferred by this closeout.
 
 ### UI
 
-- **AWAITING AO TEST:** Neko key discovery, manual Key Warp, ON/OFF state, and
-  help text covering the Rubi-Ka reclaim prerequisite and Nano Can-or-wait
-  behavior.
+- **VALIDATED:** Neko key discovery, manual Key Warp, ON/OFF state, and help
+  text covering the Rubi-Ka reclaim prerequisite and Nano Can-or-wait behavior,
+  based on the user's 2026-10-14 soak-readiness statement.
 
 ## PRE-SOAK AO test checklist
+
+**Phase result:** complete enough to proceed to soak, per the user's 2026-10-14
+AO readiness statement. Retain this checklist as the pre-soak gate record; it is
+not a claim of separately captured evidence for every numbered scenario.
 
 1. **Startup/basic regression smoke test:** confirm no unsolicited movement;
    the Neko UI loads; and Roller, ManagerLoot, Map, and Settings still work.

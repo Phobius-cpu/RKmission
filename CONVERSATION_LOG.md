@@ -1890,3 +1890,25 @@ The assigned warper remains dynamic and identity-verified; `Warpboi3` is
 recorded only as observed evidence. Existing queue, offline, retry,
 cooldown/fallback, and landing-learning behavior remains unchanged. Travel is
 **AWAITING AO TEST** for the full Borealis warp and roller handoff.
+
+## 2026-10-14 - Soak readiness
+
+The user stated that RKMission is "ready for the soak." That explicit AO status
+marks the PRE-SOAK batch **VALIDATED** as a whole and establishes that its gates
+are complete enough to begin long-duration testing. It does not create
+scenario-by-scenario validation evidence beyond the user's statement.
+
+Current GitHub `main` includes the OA Sirocco, OA Clan Agency, ICC Lift, ICC
+Statue, and Borealis Baffbots warper-to-terminal navpaths in `600b2be`. The
+soak-readiness statement reasonably covers that Travel item, which is therefore
+**VALIDATED** for soak entry. Global Scotty nearest-subdestination ranking stays
+separate and **DECIDED**.
+
+The next active phase is **LONG AUTONOMOUS SOAK — AWAITING AO TEST**, covering
+repeated complete autonomous cycles from OA, Borealis, and ICC through rolling,
+travel, Scotty/FGrid/Neko, city routes, vehicle lifecycle, dungeon, combat,
+loot/inventory settlement, exit/chaining, terminal return, logistics, and death
+recovery when naturally encountered. Prioritize concrete logs for cumulative or
+stale-state failures, rare routing fallbacks, inventory/logistics drift,
+repeated-transition issues, and long-run lifecycle/watchdog failures. The next
+priority is soak evidence, not speculative feature expansion.
