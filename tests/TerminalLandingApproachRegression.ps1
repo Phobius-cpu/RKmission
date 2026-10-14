@@ -25,10 +25,15 @@ Assert ($vehicle.Contains('RequireFootForTerminal') -and
     $vehicle.Contains('if (!_terminalDismountRequested)')) `
     'user-owned and RKMission-owned flight share a terminal-only one-shot safe exit path'
 Assert ($vehicle.Contains('x.Id == YalmahaXl29478ItemId && x.IsEquipped') -and
-    $vehicle.Contains('equippedVehicle.MoveToInventory(freeSlot);') -and
+    $vehicle.Contains('equippedVehicle.MoveToInventory();') -and
+    $vehicle.Contains('automatic-inventory-slot=111') -and
+    -not $vehicle.Contains('Enumerable.Range(64, 30)') -and
     $vehicle.Contains('player.VehiclePointer != IntPtr.Zero') -and
     $vehicle.Contains('terminal-vehicle-detachment-pending')) `
     'terminal rolling requires explicit Yalmaha unequip and live vehicle attachment clearance'
+Assert ($bot.Contains('string vehicleFailure = _vehicle.Status;') -and
+    $bot.Contains('could not be verified; {vehicleFailure}')) `
+    'terminal timeout diagnostics are captured before Stop resets vehicle lifecycle state'
 Assert ($vehicle.Contains('RequireFlightAfterMissionBatch') -and
     $vehicle.Contains('attached && player.MovementState == MovementState.Fly') -and
     $vehicle.Contains('batch-remount-requested-once') -and

@@ -174,13 +174,10 @@ namespace RKmission
                         x.Id == YalmahaXl29478ItemId && x.IsEquipped);
                     if (equippedVehicle != null)
                     {
-                        int freeSlot = Enumerable.Range(64, 30).FirstOrDefault(slot =>
-                            !Inventory.Items.Any(x => x.Slot.Type == IdentityType.Inventory &&
-                                x.Slot.Instance == slot));
-                        if (freeSlot == 0)
+                        if (Inventory.NumFreeSlots <= 0)
                         { Status = "terminal-dismount-no-free-inventory-slot"; return VehicleTransitionResult.Unavailable; }
-                        equippedVehicle.MoveToInventory(freeSlot);
-                        Status = $"terminal-vehicle-unequip-requested-once; inventory-slot={freeSlot}";
+                        equippedVehicle.MoveToInventory();
+                        Status = "terminal-vehicle-unequip-requested-once; automatic-inventory-slot=111";
                         _say("Terminal foot requirement: safe landing staging verified; requested one explicit equipped-Yalmaha move to main inventory and waiting for live detachment proof.");
                     }
                     else
@@ -202,18 +199,15 @@ namespace RKmission
                 { Status = "terminal-attached-vehicle-waits-for-pending-action"; return VehicleTransitionResult.Waiting; }
                 Item equippedVehicle = Inventory.Items.FirstOrDefault(x =>
                     x.Id == YalmahaXl29478ItemId && x.IsEquipped);
-                int freeSlot = Enumerable.Range(64, 30).FirstOrDefault(slot =>
-                    !Inventory.Items.Any(x => x.Slot.Type == IdentityType.Inventory &&
-                        x.Slot.Instance == slot));
-                if (equippedVehicle == null || freeSlot == 0)
+                if (equippedVehicle == null || Inventory.NumFreeSlots <= 0)
                 {
                     Status = equippedVehicle == null ? "terminal-attached-vehicle-not-resolvable" :
                         "terminal-dismount-no-free-inventory-slot";
                     return VehicleTransitionResult.Unavailable;
                 }
-                equippedVehicle.MoveToInventory(freeSlot);
+                equippedVehicle.MoveToInventory();
                 _terminalDismountRequested = true;
-                Status = $"terminal-vehicle-unequip-requested-once; inventory-slot={freeSlot}";
+                Status = "terminal-vehicle-unequip-requested-once; automatic-inventory-slot=111";
                 _say("Terminal foot requirement: AO reports non-Fly while a vehicle remains attached; requested one explicit equipped-Yalmaha move to main inventory and waiting for live detachment proof.");
                 return VehicleTransitionResult.Waiting;
             }

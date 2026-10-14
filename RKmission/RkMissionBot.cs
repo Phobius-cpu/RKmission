@@ -1944,7 +1944,8 @@ namespace RKmission
             if (foot == VehicleTransitionResult.Unavailable)
             {
                 _movement.Release(MovementOwner.OutdoorTravel);
-                Stop(); Say($"Return to roller stopped: safe terminal landing/dismount could not be verified; {_vehicle.Status}.");
+                string vehicleFailure = _vehicle.Status;
+                Stop(); Say($"Return to roller stopped: safe terminal landing/dismount could not be verified; {vehicleFailure}.");
                 return false;
             }
             if (foot != VehicleTransitionResult.Ready)
