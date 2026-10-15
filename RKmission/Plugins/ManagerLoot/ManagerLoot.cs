@@ -583,6 +583,30 @@ namespace ManagerLoot
             return true;
         }
 
+        // The post-combat guard owns this corpse and prohibits departure until
+        // exact settlement. Reacquire its deferred occurrence without inventing
+        // traversal progress, touching other sources, or claiming loot success.
+        public bool TryRetryGuardedDeferredCorpse(MissionIdentity identity, int roomId, long occurrence)
+        {
+            if (identity.Type != IdentityType.Corpse || occurrence == 0 ||
+                MissionRoomId != roomId || IsMissionCriticalLoot(identity) ||
+                !_missionLootRooms.TryGetValue(identity, out int trackedRoom) || trackedRoom != roomId ||
+                !_missionLootOccurrences.TryGetValue(identity, out long trackedOccurrence) ||
+                trackedOccurrence != occurrence ||
+                !_missionSources.TryGetValue(identity, out MissionSourceState state) ||
+                state != MissionSourceState.DeferredApproach ||
+                !_deferredApproaches.ContainsKey(identity) ||
+                _pendingMissionLoot == identity || _sourceAcquisition?.Source == identity ||
+                CorpseContainer?.Identity == identity || CurrentCorpse?.Identity == identity)
+                return false;
+            _deferredApproaches.Remove(identity);
+            SetMissionSource(identity, MissionSourceState.Discovered);
+            Chat.WriteLine($"RKMission: Guard-owned deferred corpse {identity} in room {roomId}, " +
+                $"occurrence {occurrence}: exact same-room approach retry released; " +
+                "no room-traversal requirement and no loot completion credited.");
+            return true;
+        }
+
         public void RetryVisibleOutstandingMissionLoot(MissionIdentity identity, int roomId, string priorReason)
         {
             if (identity == MissionIdentity.None || MissionRoomId < 0 ||

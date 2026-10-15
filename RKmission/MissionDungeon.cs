@@ -124,7 +124,8 @@ namespace RKmission
             public int RoomId;
             public long CorpseOccurrence;
             public Vector3 DeathPosition;
-            public DateTime Started, AcquiredAt, LastDiagnostic, SkipInvisibleAt;
+            public DateTime Started, AcquiredAt, LastDiagnostic, SkipInvisibleAt, NextInRoomRetryAt;
+            public int InRoomRetryCount;
             public readonly HashSet<Identity> ExistingCorpses = new HashSet<Identity>();
         }
         private readonly List<PostCombatCorpseGuard> _postCombatCorpseGuards = new List<PostCombatCorpseGuard>();
@@ -135,6 +136,8 @@ namespace RKmission
         private static readonly TimeSpan PostCombatCorpseMaterializationWait = TimeSpan.FromSeconds(5);
         private static readonly TimeSpan PostCombatCorpseSkipVisibilityGrace = TimeSpan.FromSeconds(5);
         private static readonly TimeSpan PostCombatCorpseSettlementWait = TimeSpan.FromSeconds(90);
+        private static readonly TimeSpan GuardedCorpseRetryCooldown = TimeSpan.FromSeconds(5);
+        private const int MaxGuardedCorpseSameRoomRetries = 2;
 
         private int VerifiedDynelRoom(Dynel dynel, int fallbackRoom = -1)
         {
@@ -166,6 +169,7 @@ namespace RKmission
         private float _objectiveBestDistance;
         private DateTime _objectiveProgressAt;
         private int _lootApproachIndex;
+        private int _lootCorpseFinalReissues;
         private bool _lootTransitStaging;
         private Vector3 _lootLastPosition;
         private DateTime _lootNearStarted;
@@ -1430,7 +1434,8 @@ namespace RKmission
             _destination = null;
             _roomQuietAt = DateTime.MinValue;
             foreach (PostCombatCorpseGuard guard in _postCombatCorpseGuards.Where(x =>
-                now - x.LastDiagnostic >= TimeSpan.FromSeconds(2)))
+                now - x.LastDiagnostic >= (x.Corpse == Identity.None ?
+                    TimeSpan.FromSeconds(2) : TimeSpan.FromSeconds(10))))
             {
                 guard.LastDiagnostic = now;
                 TimeSpan elapsed = now - guard.Started;
@@ -1453,6 +1458,26 @@ namespace RKmission
             }
             if (_postCombatCorpseGuards.Count == 0) return false;
             DateTime now = DateTime.UtcNow;
+            // A guarded corpse cannot wait for a room traversal that the same guard forbids.
+            // Release only its exact deferred occurrence for a bounded in-room reapproach.
+            foreach (PostCombatCorpseGuard guarded in _postCombatCorpseGuards.Where(guard =>
+                guard.Corpse != Identity.None && room != null && guard.RoomId == room.Instance &&
+                guard.InRoomRetryCount < MaxGuardedCorpseSameRoomRetries &&
+                now >= guard.NextInRoomRetryAt).ToList())
+            {
+                Dynel visible = DynelManager.GetDynel(guarded.Corpse);
+                if (visible == null || !_layout.ContainsDynel(guarded.RoomId, visible)) continue;
+                if (_loot.TryRetryGuardedDeferredCorpse(guarded.Corpse, guarded.RoomId,
+                    guarded.CorpseOccurrence))
+                {
+                    guarded.InRoomRetryCount++;
+                    guarded.NextInRoomRetryAt = now + GuardedCorpseRetryCooldown;
+                    guarded.LastDiagnostic = now;
+                    _say($"Post-combat corpse guard released exact deferred {guarded.Corpse} in room {guarded.RoomId} " +
+                        $"for bounded same-room reapproach {guarded.InRoomRetryCount}/{MaxGuardedCorpseSameRoomRetries}; " +
+                        "corpse still requires ContainerOpened and finished processing proof.");
+                }
+            }
             foreach (PostCombatCorpseGuard skipped in _postCombatCorpseGuards.Where(guard =>
                 guard.Corpse != Identity.None && _loot.TryGetMissionLootSkipReason(guard.Corpse, out _)).ToList())
             {
@@ -1461,9 +1486,17 @@ namespace RKmission
                 if (visible != null && _layout.ContainsDynel(skipped.RoomId, visible))
                 {
                     skipped.SkipInvisibleAt = DateTime.MinValue;
-                    _say($"Post-combat corpse guard rejected skip for visible {skipped.Corpse} in room {skipped.RoomId}: {reason}; exact processing evidence is absent, retrying this corpse.");
-                    _loot.RetryVisibleOutstandingMissionLoot(skipped.Corpse, skipped.RoomId, reason);
-                    skipped.LastDiagnostic = now;
+                    // A visible, terminally skipped corpse is never settled, but retries
+                    // must remain bounded and cannot repeatedly clear the retry ledger.
+                    if (skipped.InRoomRetryCount < MaxGuardedCorpseSameRoomRetries &&
+                        now >= skipped.NextInRoomRetryAt)
+                    {
+                        _say($"Post-combat corpse guard rejected skip for visible {skipped.Corpse} in room {skipped.RoomId}: {reason}; exact processing evidence is absent, retrying this corpse.");
+                        _loot.RetryVisibleOutstandingMissionLoot(skipped.Corpse, skipped.RoomId, reason);
+                        skipped.InRoomRetryCount++;
+                        skipped.NextInRoomRetryAt = now + GuardedCorpseRetryCooldown;
+                        skipped.LastDiagnostic = now;
+                    }
                 }
                 else if (skipped.SkipInvisibleAt == DateTime.MinValue)
                 {
@@ -2632,6 +2665,7 @@ namespace RKmission
                 _lootProgressVersion = _loot.MissionLootProgress;
                 _lootLastPosition = DynelManager.LocalPlayer.Position;
                 _lootApproachIndex = 0;
+                _lootCorpseFinalReissues = 0;
                 _lootNearStarted = DateTime.MinValue;
                 _lootProbeNextSide = false;
                 _lootTransitStaging = false;
@@ -2767,8 +2801,14 @@ namespace RKmission
                     MovementArbiter.Current.Halt(_requestedOwner);
                     return true;
                 }
+                // A 1.5m waypoint tolerance can leave a corpse outside its 3m use
+                // range even when the waypoint itself is a legal 2.5–3m side point.
+                // Keep the coarse tolerance for containers/staging, but finish corpse
+                // final approaches at higher precision before declaring completion.
+                float arrivalTolerance = next.Identity.Type == IdentityType.Corpse && !_lootTransitStaging
+                    ? 0.35f : 1.5f;
                 bool reachedApproach = _destination.HasValue && _lootApproachIndex < _lootApproachPoints.Count &&
-                    Vector3.Distance(position, _lootApproachPoints[_lootApproachIndex]) < 1.5f;
+                    Vector3.Distance(position, _lootApproachPoints[_lootApproachIndex]) < arrivalTolerance;
                 if (reachedApproach && _lootTransitStaging)
                 {
                     MovementArbiter.Current.Halt(_requestedOwner);
@@ -2803,6 +2843,27 @@ namespace RKmission
                      now - _lootLastProgress > TimeSpan.FromSeconds(10) ||
                      (!SMovementController.IsNavigating() && now - _lootLastProgress > TimeSpan.FromSeconds(2))))
                 {
+                    if (next.Identity.Type == IdentityType.Corpse && !_lootTransitStaging &&
+                        !reachedApproach && _lootCorpseFinalReissues < 1)
+                    {
+                        // A movement controller may stop with the side waypoint
+                        // nominally reached while corpse interaction is still 3.1m+.
+                        // Force one bounded reissue of this same verified point.
+                        Vector3 finalPoint = _lootApproachPoints[_lootApproachIndex];
+                        MovementArbiter.Current.Halt(_requestedOwner);
+                        _destination = null;
+                        if (MovementArbiter.Current.SetNavDestination(_requestedOwner, finalPoint))
+                        {
+                            _lootCorpseFinalReissues++;
+                            _destination = finalPoint;
+                            _lootLastProgress = now;
+                            _lootLastPosition = position;
+                            _say($"Loot {next.Identity} reissued precise corpse-side approach " +
+                                $"({_lootCorpseFinalReissues}/1) at {distance:0.0}m; " +
+                                $"waypoint={finalPoint}, interaction-ready=false.");
+                            return true;
+                        }
+                    }
                     _say($"Loot {next.Identity} approach {_lootApproachIndex + 1} ended while 3D distance={distance:0.0}m, " +
                         $"player Y={position.Y:0.0}, target Y={next.Position.Y:0.0}, interaction-ready={LootInteractionReady(next)}; trying another route.");
                     _lootApproachIndex++;
@@ -2870,6 +2931,7 @@ namespace RKmission
             Vector3 player = DynelManager.LocalPlayer.Position;
             _lootApproachPoints.Clear();
             _lootApproachIndex = 0;
+            _lootCorpseFinalReissues = 0;
             _lootApproachPoints.AddRange(DungeonApproachPlanner.Candidates(_layout,
                 room.Instance, player, target, new[] { 2.5f, 3f }, 0.4f)
                 .Where(point => Vector3.Distance(point, target) >= 2f &&
@@ -2985,6 +3047,7 @@ namespace RKmission
                 _say($"Skipping unreachable loot {loot.Identity} in room {roomId} after attempt {attempt}/{maxAttempts}: " +
                     $"{reason}. Independent retry policy exhausted; exploration continues.");
             _waitingForLoot = Identity.None;
+            _lootCorpseFinalReissues = 0;
             _lootApproachPoints.Clear();
             _lootProbeNextSide = false;
             _lootTransitStaging = false;
