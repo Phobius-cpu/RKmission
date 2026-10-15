@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using AOSharp.Common.GameData;
 using AOSharp.Core;
@@ -8,32 +9,61 @@ namespace RKmission
 {
     internal enum VehicleTransitionResult { Ready, Waiting, Unavailable, Blocked }
 
-    // Owns only transitions RKMission requested. Live MovementState is always
-    // authoritative; an item use or LeaveFly command is never treated as proof.
+    // HUD1 is a managed role. Slot metadata supplies candidates; only the live
+    // equipped slot plus MovementState.Fly can classify a candidate as a vehicle.
     internal sealed class VehicleLifecycle
     {
-        private const int YalmahaXl29478ItemId = 117322;
+        private sealed class ItemReference
+        {
+            public Identity Identity;
+            public int Id, LowId, HighId, QualityLevel;
+            public string Name;
+            public static ItemReference From(Item x) => x == null ? null : new ItemReference
+            { Identity=x.UniqueIdentity, Id=x.Id, LowId=x.LowId, HighId=x.HighId,
+              QualityLevel=x.QualityLevel, Name=x.Name ?? string.Empty };
+            public bool Matches(Item x) => x != null && x.Id == Id && x.LowId == LowId &&
+                x.HighId == HighId && x.QualityLevel == QualityLevel &&
+                (Identity == Identity.None || x.UniqueIdentity == Identity) &&
+                string.Equals(x.Name ?? string.Empty, Name ?? string.Empty, StringComparison.Ordinal);
+            public override string ToString() =>
+                $"'{Name}', id={Id}, templates={LowId}/{HighId}, QL={QualityLevel}, identity={Identity}";
+        }
+
+        private static readonly TimeSpan TransitionTimeout = TimeSpan.FromSeconds(8);
         private readonly MovementArbiter _movement;
+        private readonly InventoryPolicy _inventoryPolicy;
         private readonly Action<string> _say;
-        private bool _observedOriginal, _originalFlying, _activationRequested, _ownsFlight;
+        private readonly HashSet<string> _rejectedCandidates = new HashSet<string>();
+        private bool _observedOriginal, _originalFlying, _ownsHud1;
+        private int _characterInstance;
+        private ItemReference _verifiedVehicle, _indoorItem, _pendingTarget;
+        private string _pendingRole;
         private DateTime _requestedAt;
         private bool _terminalLandingActive, _terminalDismountRequested;
         private DateTime _terminalLandingStarted, _terminalGroundObservedAt;
         private Vector3 _terminalLandingStaging;
-        private bool _batchRemountActive, _batchRemountRequested;
-        private DateTime _batchRemountStarted;
-        private string _batchRemountEvidence = "command=none";
         public string Status { get; private set; } = "unobserved";
 
-        public VehicleLifecycle(MovementArbiter movement, Action<string> say)
-        { _movement = movement; _say = say; }
+        public VehicleLifecycle(MovementArbiter movement, InventoryPolicy inventoryPolicy, Action<string> say)
+        { _movement = movement; _inventoryPolicy = inventoryPolicy; _say = say; }
 
         public void ObserveOriginal()
         {
-            if (_observedOriginal || DynelManager.LocalPlayer == null) return;
+            SimpleChar player = DynelManager.LocalPlayer;
+            if (player == null) return;
+            if (_characterInstance != 0 && _characterInstance != player.Identity.Instance) ResetJourney();
+            _characterInstance = player.Identity.Instance;
+            if (_observedOriginal) return;
             _observedOriginal = true;
-            _originalFlying = DynelManager.LocalPlayer.MovementState == MovementState.Fly;
-            Status = _originalFlying ? "original-flight-preserved" : "original-ground";
+            _originalFlying = player.MovementState == MovementState.Fly;
+            Item hud1 = Hud1Item();
+            if (!_originalFlying && hud1 != null)
+            {
+                _indoorItem = ItemReference.From(hud1);
+                _inventoryPolicy.RegisterOperationalItem(hud1);
+                _say("HUD1 lifecycle observed original item = " + _indoorItem + ".");
+            }
+            Status = _originalFlying ? "vehicle/original-flight-preserved" : HudRole(hud1);
             _say($"Vehicle lifecycle: observed original mode={(_originalFlying ? "Fly" : "Foot")}; RKMission will restore only transitions it owns.");
         }
 
@@ -42,257 +72,225 @@ namespace RKmission
             ObserveOriginal();
             SimpleChar player = DynelManager.LocalPlayer;
             if (player == null) return VehicleTransitionResult.Waiting;
+            Item liveHud1 = Hud1Item();
+            if (_pendingRole == "candidate-cleanup")
+            {
+                if (_pendingTarget?.Matches(liveHud1) == true)
+                { ClearPending(); Status = "vehicle/rejected-candidate-cleanup-verified"; }
+                else if (DateTime.UtcNow - _requestedAt < TransitionTimeout)
+                    return VehicleTransitionResult.Waiting;
+                else { ClearPending(); Status = "vehicle/rejected-candidate-cleanup-unverified"; return VehicleTransitionResult.Unavailable; }
+            }
+            else if (_pendingRole == "candidate-cleanup-empty")
+            {
+                if (liveHud1 == null)
+                { ClearPending(); Status = "vehicle/rejected-candidate-removal-verified"; }
+                else if (DateTime.UtcNow - _requestedAt < TransitionTimeout)
+                    return VehicleTransitionResult.Waiting;
+                else { ClearPending(); Status = "vehicle/rejected-candidate-removal-unverified"; return VehicleTransitionResult.Unavailable; }
+            }
             if (player.MovementState == MovementState.Fly)
             {
-                if (_activationRequested) { _ownsFlight = !_originalFlying; _activationRequested = false; }
-                Status = _ownsFlight ? "rkm-flight-active" : "existing-flight-preserved";
+                Item hud1 = Hud1Item();
+                if (_pendingRole == "vehicle" && _pendingTarget?.Matches(hud1) == true)
+                {
+                    _verifiedVehicle = ItemReference.From(hud1);
+                    _inventoryPolicy.RegisterOperationalItem(hud1);
+                    _ownsHud1 = !_originalFlying;
+                    ClearPending();
+                    _say("Verified flying vehicle " + _verifiedVehicle + " from live HUD1 and MovementState.Fly.");
+                }
+                Status = _ownsHud1 ? "vehicle/verified-owned" : "vehicle/existing-flight-preserved";
                 return VehicleTransitionResult.Ready;
             }
-            if (!routeBenefits) { Status = "foot-selected-route-cost"; return VehicleTransitionResult.Unavailable; }
-            if (!SafeToTransition(player)) { Status = "transition-gated"; return VehicleTransitionResult.Blocked; }
-            if (_activationRequested)
+            if (!routeBenefits) { Status = "indoor-or-foot/route-does-not-benefit"; return VehicleTransitionResult.Unavailable; }
+            if (!SafeToTransition(player, false)) { Status = "vehicle/transition-gated"; return VehicleTransitionResult.Blocked; }
+            if (_pendingTarget != null)
             {
-                if (DateTime.UtcNow - _requestedAt < TimeSpan.FromSeconds(8)) return VehicleTransitionResult.Waiting;
-                _activationRequested = false; Status = "activation-unverified";
-                _say("Vehicle lifecycle: activation was not verified from live Fly state; continuing on foot.");
+                if (DateTime.UtcNow - _requestedAt < TransitionTimeout)
+                { Status = "vehicle/awaiting-hud1-and-fly-verification"; return VehicleTransitionResult.Waiting; }
+                _rejectedCandidates.Add(CandidateKey(_pendingTarget));
+                _say("Vehicle candidate " + _pendingTarget + " rejected: no Fly verification within bounded timeout.");
+                ClearPending();
+                Item rejected = Hud1Item();
+                Item indoorCleanup = FindItem(_indoorItem, true);
+                if (indoorCleanup != null && indoorCleanup.MeetsUseReqs(player))
+                    return DispatchEquip(indoorCleanup, "candidate-cleanup", "Restoring displaced HUD1 after rejected vehicle candidate");
+                if (rejected != null && Inventory.NumFreeSlots > 0)
+                {
+                    rejected.MoveToInventory();
+                    _pendingRole = "candidate-cleanup-empty"; _requestedAt = DateTime.UtcNow;
+                    Status = "vehicle/rejected-candidate-removal-requested";
+                    return VehicleTransitionResult.Waiting;
+                }
+                Status = "vehicle/rejected-candidate-cleanup-blocked";
                 return VehicleTransitionResult.Unavailable;
             }
-            Item vehicle = Inventory.Items.FirstOrDefault(x => x.Id == YalmahaXl29478ItemId);
-            if (vehicle == null || Item.HasPendingUse || Spell.HasPendingCast)
-            { Status = "vehicle-unavailable"; return VehicleTransitionResult.Unavailable; }
-            vehicle.Use(); _activationRequested = true; _requestedAt = DateTime.UtcNow;
-            Status = "activation-requested";
-            _say("Vehicle lifecycle: route cost benefits from flight; requested the known Yalmaha and waiting for live Fly verification.");
+            Item vehicle = FindItem(_verifiedVehicle, true);
+            if (vehicle != null && _rejectedCandidates.Contains(CandidateKey(ItemReference.From(vehicle))))
+                vehicle = null;
+            if (vehicle == null)
+            {
+                List<Item> candidates = Inventory.Items.Where(IsHud1InventoryCandidate)
+                    .Where(x => !_rejectedCandidates.Contains(CandidateKey(ItemReference.From(x))))
+                    .OrderBy(x => x.Id).ThenBy(x => x.QualityLevel).ToList();
+                _say($"HUD1 lifecycle scanning {candidates.Count} HUD1-compatible candidate(s).");
+                vehicle = candidates.FirstOrDefault();
+            }
+            if (vehicle == null) { Status = "vehicle/no-verified-or-eligible-candidate"; return VehicleTransitionResult.Unavailable; }
+            if (!vehicle.MeetsUseReqs(player))
+            {
+                _rejectedCandidates.Add(CandidateKey(ItemReference.From(vehicle)));
+                Status = "vehicle/candidate-requirements-not-met";
+                return VehicleTransitionResult.Waiting;
+            }
+            Item current = Hud1Item();
+            if (!_ownsHud1 && !_originalFlying && current != null &&
+                (_verifiedVehicle == null || !_verifiedVehicle.Matches(current)))
+            {
+                _indoorItem = ItemReference.From(current);
+                _inventoryPolicy.RegisterOperationalItem(current);
+                _say("Displaced indoor HUD1 item remembered: " + _indoorItem + ".");
+            }
+            return DispatchEquip(vehicle, "vehicle", "Trying vehicle candidate");
+        }
+
+        public VehicleTransitionResult RequireIndoorHud1()
+        {
+            ObserveOriginal();
+            SimpleChar player = DynelManager.LocalPlayer;
+            if (player == null || Game.IsZoning) return VehicleTransitionResult.Waiting;
+            if (!SafeToTransition(player, true)) { Status = "indoor/transition-gated"; return VehicleTransitionResult.Blocked; }
+            Item current = Hud1Item();
+            if (!_ownsHud1)
+            { Status = _originalFlying ? "vehicle/original-flight-preserved" : HudRole(current); return VehicleTransitionResult.Ready; }
+            if (_pendingRole == "indoor")
+            {
+                if (_pendingTarget?.Matches(current) == true && player.MovementState != MovementState.Fly)
+                {
+                    ClearPending(); Status = "indoor/restore-verified";
+                    _say("Indoor HUD1 restore verified: " + _indoorItem + ".");
+                    return VehicleTransitionResult.Ready;
+                }
+                if (DateTime.UtcNow - _requestedAt < TransitionTimeout) return VehicleTransitionResult.Waiting;
+                ClearPending(); Status = "indoor/restore-unverified"; return VehicleTransitionResult.Unavailable;
+            }
+            if (_pendingRole == "empty")
+            {
+                if (current == null && player.MovementState != MovementState.Fly)
+                { ClearPending(); Status = "indoor/empty-verified"; return VehicleTransitionResult.Ready; }
+                if (DateTime.UtcNow - _requestedAt < TransitionTimeout) return VehicleTransitionResult.Waiting;
+                ClearPending(); Status = "indoor/vehicle-removal-unverified"; return VehicleTransitionResult.Unavailable;
+            }
+            if (_verifiedVehicle == null || !_verifiedVehicle.Matches(current))
+            {
+                _ownsHud1 = false; ClearPending(); Status = "indoor/manual-hud1-change-preserved";
+                _say("HUD1 lifecycle detected a manual slot change; stale owned restoration was abandoned.");
+                return VehicleTransitionResult.Ready;
+            }
+            Item indoor = FindItem(_indoorItem, true);
+            if (indoor != null && indoor.MeetsUseReqs(player))
+            {
+                _say("Exact mission entered; restoring indoor HUD1 " + _indoorItem + ".");
+                return DispatchEquip(indoor, "indoor", "Restoring indoor HUD1 item");
+            }
+            if (Inventory.NumFreeSlots <= 0) { Status = "indoor/no-space-to-remove-vehicle"; return VehicleTransitionResult.Unavailable; }
+            current.MoveToInventory();
+            _pendingTarget = _verifiedVehicle; _pendingRole = "empty"; _requestedAt = DateTime.UtcNow;
+            Status = "indoor/vehicle-removal-requested";
+            _say("Exact mission entered; no learned indoor HUD1 item exists, so the owned vehicle was requested back to inventory.");
             return VehicleTransitionResult.Waiting;
         }
 
         public bool RestoreOriginal()
         {
             SimpleChar player = DynelManager.LocalPlayer;
-            if (!_ownsFlight || player == null || player.MovementState != MovementState.Fly) return true;
-            if (!SafeToTransition(player)) { Status = "restore-gated"; return false; }
+            if (!_ownsHud1 || player == null || player.MovementState != MovementState.Fly) return true;
+            if (!SafeToTransition(player, false)) { Status = "restore-gated"; return false; }
             _movement.SetMovement(MovementOwner.OutdoorTravel, MovementAction.LeaveFly);
-            Status = "restore-requested";
-            return false;
+            Status = "restore-requested"; return false;
         }
 
-        public VehicleTransitionResult RequireFlightAfterMissionBatch()
-            => RequireFlightAfterMissionBatch(true);
+        public void RestoreOwnedEquipmentOnStop()
+        {
+            SimpleChar player = DynelManager.LocalPlayer;
+            Item current = Hud1Item();
+            if (!_ownsHud1 || player == null || _verifiedVehicle?.Matches(current) != true ||
+                !SafeToTransition(player, Playfield.IsDungeon)) return;
+            Item indoor = FindItem(_indoorItem, true);
+            try
+            {
+                if (indoor != null && indoor.MeetsUseReqs(player))
+                { indoor.Equip(EquipSlot.Weap_Hud1); Status = "stop/owned-indoor-restore-requested"; }
+                else if (Inventory.NumFreeSlots > 0)
+                { current.MoveToInventory(); Status = "stop/owned-vehicle-removal-requested"; }
+            }
+            catch (Exception ex) { Status = "stop/restore-dispatch-failed:" + ex.GetType().Name; }
+        }
 
+        public VehicleTransitionResult RequireFlightAfterMissionBatch() => RequireFlightAfterMissionBatch(true);
         public VehicleTransitionResult RequireFlightAfterMissionBatch(bool requireFlight)
         {
-            ObserveOriginal();
-            SimpleChar player = DynelManager.LocalPlayer;
-            if (player == null || Game.IsZoning) return VehicleTransitionResult.Waiting;
             if (!requireFlight)
             {
-                bool attachedForFootRoute = TerminalVehicleAttached(player);
-                if (!attachedForFootRoute && player.MovementState != MovementState.Fly &&
-                    !player.IsFalling && !Item.HasPendingUse && !Spell.HasPendingCast)
-                {
-                    Status = "batch-departure-foot-route-verified";
-                    return VehicleTransitionResult.Ready;
-                }
-                Status = $"batch-departure-foot-route-unready; state={player.MovementState}, " +
-                    $"attached={attachedForFootRoute}, falling={player.IsFalling}";
-                return VehicleTransitionResult.Blocked;
+                SimpleChar player = DynelManager.LocalPlayer;
+                if (player == null || Game.IsZoning) return VehicleTransitionResult.Waiting;
+                if (player.MovementState != MovementState.Fly && !player.IsFalling &&
+                    !Item.HasPendingUse && !Spell.HasPendingCast)
+                { Status = "batch-departure-foot-route-verified"; return VehicleTransitionResult.Ready; }
+                Status = "batch-departure-foot-route-unready"; return VehicleTransitionResult.Blocked;
             }
-            if (!_batchRemountActive)
-            {
-                _batchRemountActive = true;
-                _batchRemountRequested = false;
-                _batchRemountStarted = DateTime.UtcNow;
-                Status = "batch-remount-started";
-            }
-            bool attached = TerminalVehicleAttached(player);
-            if (attached && player.MovementState == MovementState.Fly &&
-                !Item.HasPendingUse && !Spell.HasPendingCast)
-            {
-                _activationRequested = false;
-                Status = "batch-remount-live-fly-verified";
-                return VehicleTransitionResult.Ready;
-            }
-            if (DateTime.UtcNow - _batchRemountStarted > TimeSpan.FromSeconds(15))
-            {
-                Status = $"batch-remount-timeout; state={player.MovementState}, attached={attached}, " +
-                    $"pendingUse={Item.HasPendingUse}, pendingCast={Spell.HasPendingCast}, " +
-                    $"{_batchRemountEvidence}, equipped={EquippedVehicleSnapshot()}";
-                return VehicleTransitionResult.Unavailable;
-            }
-            if (!SafeToTransition(player))
-            { Status = "batch-remount-transition-gated"; return VehicleTransitionResult.Blocked; }
-            if (Item.HasPendingUse || Spell.HasPendingCast)
-            { Status = "batch-remount-pending-action"; return VehicleTransitionResult.Waiting; }
-            if (!_batchRemountRequested)
-            {
-                Item vehicle = Inventory.Items.FirstOrDefault(x =>
-                    x.Id == YalmahaXl29478ItemId && !x.IsEquipped);
-                if (vehicle == null)
-                { Status = "batch-remount-vehicle-unavailable"; return VehicleTransitionResult.Unavailable; }
-                if (vehicle.Slot.Type != IdentityType.Inventory ||
-                    vehicle.UniqueIdentity.Type == IdentityType.Container)
-                {
-                    Status = $"batch-remount-invalid-source; source={vehicle.Slot}, " +
-                        $"identity={vehicle.UniqueIdentity}";
-                    return VehicleTransitionResult.Unavailable;
-                }
-                bool supportsHud1 = vehicle.EquipSlots != null &&
-                    vehicle.EquipSlots.Contains(EquipSlot.Weap_Hud1);
-                Item hud1Occupant = Inventory.Items.FirstOrDefault(x => x.IsEquipped &&
-                    x.Slot.Type == IdentityType.WeaponPage &&
-                    x.Slot.Instance == (int)EquipSlot.Weap_Hud1);
-                if (!supportsHud1 || hud1Occupant != null)
-                {
-                    Status = !supportsHud1
-                        ? $"batch-remount-hud1-not-supported; source={vehicle.Slot}, " +
-                          $"advertisedSlots={EquipSlotSnapshot(vehicle)}"
-                        : $"batch-remount-hud1-occupied; source={vehicle.Slot}, " +
-                          $"occupantId={hud1Occupant.Id}, occupantSlot={hud1Occupant.Slot}";
-                    return VehicleTransitionResult.Unavailable;
-                }
-                _batchRemountEvidence = $"source={vehicle.Slot}, identity={vehicle.UniqueIdentity}, " +
-                    $"target={EquipSlot.Weap_Hud1}, advertisedSlots={EquipSlotSnapshot(vehicle)}, " +
-                    "dispatch=void-no-synchronous-ack";
-                try { vehicle.Equip(EquipSlot.Weap_Hud1); }
-                catch (Exception ex)
-                {
-                    Status = $"batch-remount-equip-dispatch-failed; {_batchRemountEvidence}, " +
-                        $"exception={ex.GetType().Name}: {ex.Message}";
-                    return VehicleTransitionResult.Unavailable;
-                }
-                _batchRemountRequested = true;
-                _batchRemountStarted = DateTime.UtcNow;
-                Status = $"batch-remount-equip-requested-once; {_batchRemountEvidence}";
-                _say("Mission batch complete: dispatched one verified AOSharp Equip to HUD1 for " +
-                    $"the known Yalmaha; {_batchRemountEvidence}; mission selection and travel " +
-                    "remain held until the equipped snapshot and live Fly are verified.");
-            }
-            else Status = (attached ? "batch-remount-awaiting-live-fly" :
-                "batch-remount-awaiting-attachment") + $"; {_batchRemountEvidence}, " +
-                $"equipped={EquippedVehicleSnapshot()}, state={player.MovementState}, " +
-                $"pendingUse={Item.HasPendingUse}, pendingCast={Spell.HasPendingCast}";
-            return VehicleTransitionResult.Waiting;
+            return RequireFlight(true);
         }
+        public void CompleteMissionBatchRemount() { }
 
-        public void CompleteMissionBatchRemount()
-        {
-            _batchRemountActive = _batchRemountRequested = false;
-            _batchRemountStarted = DateTime.MinValue;
-            _batchRemountEvidence = "command=none";
-        }
-
-        private static string EquipSlotSnapshot(Item item) => item?.EquipSlots == null
-            ? "none"
-            : string.Join(",", item.EquipSlots.Select(x => x.ToString()));
-
-        private static string EquippedVehicleSnapshot()
-        {
-            Item equipped = Inventory.Items.FirstOrDefault(x =>
-                x.Id == YalmahaXl29478ItemId && x.IsEquipped);
-            return equipped == null ? "none" :
-                $"id={equipped.Id}, slot={equipped.Slot}, identity={equipped.UniqueIdentity}";
-        }
-
-        // Terminal transactions are deliberately stricter than ordinary travel:
-        // they require verified foot state even when flight predates RKMission.
-        // This does not change ownership/restoration policy anywhere else.
         public VehicleTransitionResult RequireFootForTerminal(Vector3 landingStaging)
         {
             SimpleChar player = DynelManager.LocalPlayer;
             if (player == null || Game.IsZoning) return VehicleTransitionResult.Waiting;
             if (!_terminalLandingActive || Vector3.Distance(_terminalLandingStaging, landingStaging) > 0.5f)
             {
-                _terminalLandingActive = true;
-                _terminalDismountRequested = false;
-                _terminalGroundObservedAt = DateTime.MinValue;
-                _terminalLandingStarted = DateTime.UtcNow;
-                _terminalLandingStaging = landingStaging;
-                Status = "terminal-landing-staging";
-                _say($"Terminal foot requirement: verified grounded staging target " +
-                    $"({_terminalLandingStaging.X:0.0},{_terminalLandingStaging.Y:0.0},{_terminalLandingStaging.Z:0.0}); " +
-                    "flight ownership is intentionally irrelevant for this terminal-only transition.");
+                _terminalLandingActive = true; _terminalDismountRequested = false;
+                _terminalGroundObservedAt = DateTime.MinValue; _terminalLandingStarted = DateTime.UtcNow;
+                _terminalLandingStaging = landingStaging; Status = "terminal-landing-staging";
             }
             if (DateTime.UtcNow - _terminalLandingStarted > TimeSpan.FromSeconds(45))
-            {
-                Status = $"terminal-foot-timeout; state={player.MovementState}, falling={player.IsFalling}, " +
-                    $"staging-range={Vector3.Distance(player.Position, _terminalLandingStaging):0.0}m";
-                return VehicleTransitionResult.Unavailable;
-            }
+            { Status = "terminal-foot-timeout"; return VehicleTransitionResult.Unavailable; }
+            Item attached = EquippedVerifiedVehicle();
             if (player.MovementState == MovementState.Fly)
             {
                 _terminalGroundObservedAt = DateTime.MinValue;
-                float stagingRange = Vector3.Distance(player.Position, _terminalLandingStaging);
-                float verticalDelta = Math.Abs(player.Position.Y - _terminalLandingStaging.Y);
-                if (stagingRange > 1.25f || verticalDelta > 1.25f)
+                float range = Vector3.Distance(player.Position, _terminalLandingStaging);
+                float vertical = Math.Abs(player.Position.Y - _terminalLandingStaging.Y);
+                if (range > 1.25f || vertical > 1.25f)
                 {
-                    if (!SafeToTransition(player)) { Status = "terminal-descent-gated"; return VehicleTransitionResult.Blocked; }
+                    if (!SafeToTransition(player, false)) { Status = "terminal-descent-gated"; return VehicleTransitionResult.Blocked; }
                     _movement.SetDestination(MovementOwner.OutdoorTravel, _terminalLandingStaging);
-                    Status = $"terminal-safe-descent; staging-range={stagingRange:0.0}m, vertical={verticalDelta:0.0}m";
-                    return VehicleTransitionResult.Waiting;
+                    Status = "terminal-safe-descent"; return VehicleTransitionResult.Waiting;
                 }
                 _movement.Halt(MovementOwner.OutdoorTravel);
-                if (Item.HasPendingUse || Spell.HasPendingCast)
-                { Status = "terminal-dismount-waits-for-pending-action"; return VehicleTransitionResult.Waiting; }
+                if (Item.HasPendingUse || Spell.HasPendingCast) return VehicleTransitionResult.Waiting;
                 if (!_terminalDismountRequested)
                 {
-                    Item equippedVehicle = Inventory.Items.FirstOrDefault(x =>
-                        x.Id == YalmahaXl29478ItemId && x.IsEquipped);
-                    if (equippedVehicle != null)
-                    {
-                        if (Inventory.NumFreeSlots <= 0)
-                        { Status = "terminal-dismount-no-free-inventory-slot"; return VehicleTransitionResult.Unavailable; }
-                        equippedVehicle.MoveToInventory();
-                        Status = "terminal-vehicle-unequip-requested-once; automatic-inventory-slot=111";
-                        _say("Terminal foot requirement: safe landing staging verified; requested one explicit equipped-Yalmaha move to main inventory and waiting for live detachment proof.");
-                    }
-                    else
-                    {
-                        _movement.SetMovement(MovementOwner.OutdoorTravel, MovementAction.LeaveFly);
-                        Status = "terminal-leave-fly-requested-once";
-                        _say("Terminal foot requirement: safe landing staging verified; no equipped known Yalmaha was exposed, so sent one LeaveFly and waiting for live detachment proof.");
-                    }
-                    _terminalDismountRequested = true;
+                    if (attached != null && Inventory.NumFreeSlots > 0) attached.MoveToInventory();
+                    else _movement.SetMovement(MovementOwner.OutdoorTravel, MovementAction.LeaveFly);
+                    _terminalDismountRequested = true; Status = "terminal-dismount-requested-once";
                 }
-                else Status = TerminalVehicleAttached(player) ?
-                    "terminal-dismount-awaiting-live-detachment" : "terminal-dismount-awaiting-live-foot-state";
                 return VehicleTransitionResult.Waiting;
             }
             _movement.Release(MovementOwner.OutdoorTravel);
-            if (TerminalVehicleAttached(player) && !_terminalDismountRequested)
+            if (attached != null && !_terminalDismountRequested)
             {
-                if (Item.HasPendingUse || Spell.HasPendingCast)
-                { Status = "terminal-attached-vehicle-waits-for-pending-action"; return VehicleTransitionResult.Waiting; }
-                Item equippedVehicle = Inventory.Items.FirstOrDefault(x =>
-                    x.Id == YalmahaXl29478ItemId && x.IsEquipped);
-                if (equippedVehicle == null || Inventory.NumFreeSlots <= 0)
-                {
-                    Status = equippedVehicle == null ? "terminal-attached-vehicle-not-resolvable" :
-                        "terminal-dismount-no-free-inventory-slot";
-                    return VehicleTransitionResult.Unavailable;
-                }
-                equippedVehicle.MoveToInventory();
-                _terminalDismountRequested = true;
-                Status = "terminal-vehicle-unequip-requested-once; automatic-inventory-slot=111";
-                _say("Terminal foot requirement: AO reports non-Fly while a vehicle remains attached; requested one explicit equipped-Yalmaha move to main inventory and waiting for live detachment proof.");
-                return VehicleTransitionResult.Waiting;
+                if (Inventory.NumFreeSlots <= 0) return VehicleTransitionResult.Unavailable;
+                attached.MoveToInventory(); _terminalDismountRequested = true;
+                Status = "terminal-vehicle-unequip-requested-once"; return VehicleTransitionResult.Waiting;
             }
-            if (TerminalVehicleAttached(player) || player.IsFalling || Item.HasPendingUse || Spell.HasPendingCast)
-            {
-                _terminalGroundObservedAt = DateTime.MinValue;
-                Status = TerminalVehicleAttached(player) ? "terminal-vehicle-detachment-pending" :
-                    player.IsFalling ? "terminal-ground-settling" : "terminal-pending-action-settling";
-                return VehicleTransitionResult.Waiting;
-            }
+            if (attached != null || player.IsFalling || Item.HasPendingUse || Spell.HasPendingCast)
+            { _terminalGroundObservedAt = DateTime.MinValue; return VehicleTransitionResult.Waiting; }
             if (_terminalGroundObservedAt == DateTime.MinValue)
-            {
-                _terminalGroundObservedAt = DateTime.UtcNow;
-                Status = "terminal-ground-verification";
-                return VehicleTransitionResult.Waiting;
-            }
-            if (DateTime.UtcNow - _terminalGroundObservedAt < TimeSpan.FromMilliseconds(750))
-                return VehicleTransitionResult.Waiting;
-            Status = "terminal-foot-verified";
-            return VehicleTransitionResult.Ready;
+            { _terminalGroundObservedAt = DateTime.UtcNow; return VehicleTransitionResult.Waiting; }
+            if (DateTime.UtcNow - _terminalGroundObservedAt < TimeSpan.FromMilliseconds(750)) return VehicleTransitionResult.Waiting;
+            Status = "terminal-foot-verified"; return VehicleTransitionResult.Ready;
         }
 
         public void ResetTerminalRequirement()
@@ -302,20 +300,53 @@ namespace RKmission
             _terminalLandingStaging = Vector3.Zero;
         }
 
-        // Dynel.VehiclePointer is AOSharp's persistent movement/position backing
-        // object even on foot; it is not evidence that a vehicle is attached.
-        // Equipment-page presence plus live Fly/non-Fly is authoritative here.
-        private static bool TerminalVehicleAttached(SimpleChar player) =>
-            Inventory.Items.Any(x => x.Id == YalmahaXl29478ItemId && x.IsEquipped);
+        private VehicleTransitionResult DispatchEquip(Item item, string role, string diagnostic)
+        {
+            if (Item.HasPendingUse || Spell.HasPendingCast)
+            { Status = role + "/pending-action"; return VehicleTransitionResult.Waiting; }
+            ItemReference target = ItemReference.From(item);
+            try { item.Equip(EquipSlot.Weap_Hud1); }
+            catch (Exception ex)
+            {
+                _rejectedCandidates.Add(CandidateKey(target));
+                Status = role + "/equip-dispatch-failed:" + ex.GetType().Name;
+                return VehicleTransitionResult.Unavailable;
+            }
+            _pendingTarget = target; _pendingRole = role; _requestedAt = DateTime.UtcNow;
+            Status = role + "/equip-requested-awaiting-live-verification";
+            _say(diagnostic + " " + target + "; Equip(HUD1) dispatched once, awaiting live slot/state proof.");
+            return VehicleTransitionResult.Waiting;
+        }
 
-        private bool SafeToTransition(SimpleChar player) => !Game.IsZoning && !Playfield.IsDungeon &&
-            !player.IsAttacking && !player.IsFalling &&
+        private static Item Hud1Item() => Inventory.Items.FirstOrDefault(x => x.IsEquipped &&
+            x.Slot.Type == IdentityType.WeaponPage && x.Slot.Instance == (int)EquipSlot.Weap_Hud1);
+        private Item EquippedVerifiedVehicle()
+        { Item item = Hud1Item(); return _verifiedVehicle?.Matches(item) == true ? item : null; }
+        private static bool IsHud1InventoryCandidate(Item x) => x != null && !x.IsEquipped &&
+            x.Slot.Type == IdentityType.Inventory && x.UniqueIdentity.Type != IdentityType.Container &&
+            x.EquipSlots != null && x.EquipSlots.Contains(EquipSlot.Weap_Hud1);
+        private static string CandidateKey(ItemReference x) => x == null ? "none" :
+            $"{x.Identity}:{x.Id}:{x.LowId}:{x.HighId}:{x.QualityLevel}";
+        private static string HudRole(Item x) => x == null ? "indoor/empty" : "indoor/equipped:" + (x.Name ?? x.Id.ToString());
+        private static Item FindItem(ItemReference reference, bool inventoryOnly) => reference == null ? null :
+            Inventory.Items.FirstOrDefault(x => reference.Matches(x) &&
+                (!inventoryOnly || x.Slot.Type == IdentityType.Inventory && !x.IsEquipped));
+        private bool SafeToTransition(SimpleChar player, bool allowExactDungeon) => !Game.IsZoning &&
+            (allowExactDungeon || !Playfield.IsDungeon) && !player.IsAttacking && !player.IsFalling &&
+            !Item.HasPendingUse && !Spell.HasPendingCast &&
             (_movement.Owner == MovementOwner.None || _movement.Owner == MovementOwner.OutdoorTravel);
+        private void ClearPending() { _pendingTarget = null; _pendingRole = null; _requestedAt = DateTime.MinValue; }
 
         public void ResetJourney()
         {
-            _observedOriginal = _activationRequested = _ownsFlight = false;
-            ResetTerminalRequirement(); CompleteMissionBatchRemount(); Status = "unobserved";
+            if (_indoorItem != null)
+            {
+                Item item = FindItem(_indoorItem, false);
+                if (item != null) _inventoryPolicy.UnregisterOperationalItem(item);
+            }
+            _observedOriginal = _originalFlying = _ownsHud1 = false;
+            _characterInstance = 0; _verifiedVehicle = _indoorItem = null;
+            _rejectedCandidates.Clear(); ClearPending(); ResetTerminalRequirement(); Status = "unobserved";
         }
     }
 }

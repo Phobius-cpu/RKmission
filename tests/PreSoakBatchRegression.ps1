@@ -63,7 +63,7 @@ if (-not $routes.Contains('string.IsNullOrWhiteSpace(route?.MovementMode) ? "Foo
 if (-not $routes.Contains('string.IsNullOrWhiteSpace(route?.Directionality) ? "Bidirectional"')) { throw 'Legacy route files do not default to Bidirectional.' }
 Write-Output 'PASS route metadata is backward compatible and supports Foot/Vehicle selection plus forward reacquisition'
 
-foreach ($required in @('ObserveOriginal()', '_ownsFlight', 'SafeToTransition', 'Game.IsZoning', 'IsAttacking', 'MovementOwner.OutdoorTravel', 'activation-unverified', 'RestoreOriginal()')) {
+foreach ($required in @('ObserveOriginal()', '_ownsHud1', 'SafeToTransition', 'Game.IsZoning', 'IsAttacking', 'MovementOwner.OutdoorTravel', 'awaiting-hud1-and-fly-verification', 'RestoreOriginal()')) {
     if (-not ($vehicle + $bot).Contains($required)) { throw "Vehicle ownership/transition invariant missing: $required" }
 }
 if (-not $bot.Contains('localDistance >= 120f')) { throw 'Automatic flight is not demand-driven by route cost.' }

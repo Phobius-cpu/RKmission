@@ -128,7 +128,7 @@ namespace RKmission
             _navWindow = new NavigationRecorderWindow(pluginDir, _navRoutes, Say);
             _dungeon = new MissionDungeon(Say, _loot, _readiness, _inventory, _navRoutes);
             _postZoneSafety = new PostZoneFlightSafety(_movement, Say);
-            _vehicle = new VehicleLifecycle(_movement, Say);
+            _vehicle = new VehicleLifecycle(_movement, _inventory, Say);
             _fgrid = new FGridServiceProvider(pluginDir, Say, _movement, _navRoutes);
             _longTravel = new RubiKaTravelPlanner(pluginDir, _warp, _fgrid, _movement, _navRoutes, Say);
             _entranceResolver = new MissionEntranceResolver(pluginDir, Say);
@@ -252,7 +252,7 @@ namespace RKmission
                         $"accepted RK={_missions.Records.Count(x => x.Present && x.IsRubiKaDestination)}, " +
                         $"rolling={_autoRolling}, offers={_autoRollCount}/{_maxAutoRolls}, " +
                         $"auto accepted={_autoAcceptedCount}/{(_maxAutoMissions == 0 ? "unlimited" : _maxAutoMissions.ToString())}, " +
-                        $"mission={_selected?.Name ?? "none"} [{_selected?.State.ToString() ?? "none"}], dungeon={_dungeon.Status}.");
+                        $"mission={_selected?.Name ?? "none"} [{_selected?.State.ToString() ?? "none"}], dungeon={_dungeon.Status}, HUD1={_vehicle.Status}.");
                     if (_autoLogisticsPending || _autoLogisticsRunning)
                         Say($"Mission-cycle logistics={(_autoLogisticsRunning ? _automaticLogistics.Status : "queued")}; " +
                             $"reason={_autoLogisticsReason ?? "inventory policy"}.");
@@ -664,6 +664,7 @@ namespace RKmission
             _running = false;
             _dungeonStarted = false;
             _travel?.Reset();
+            _vehicle?.RestoreOwnedEquipmentOnStop();
             _vehicle?.ResetJourney();
             _longTravel?.Reset();
             _entranceResolver?.Reset();
@@ -1556,6 +1557,12 @@ namespace RKmission
             _travel.CompleteHandoff(true, "exact selected mission dungeon stable for one second with a live room");
             _travel.Reset();
             _waitingReason = null;
+            VehicleTransitionResult indoorHud1 = _vehicle.RequireIndoorHud1();
+            if (indoorHud1 == VehicleTransitionResult.Waiting || indoorHud1 == VehicleTransitionResult.Blocked)
+            {
+                Wait("Exact mission entered; HUD1 indoor role is settling: " + _vehicle.Status + ".");
+                return;
+            }
             _dungeon.Start(record);
             _dungeonStarted = _dungeon.IsRunning;
             _lifecycleSignature = null;

@@ -22,6 +22,7 @@ namespace RKmission
         private const int YalmahaXl29478ItemId = 117322;
         private static readonly TimeSpan DestinationSnapshotResponse = TimeSpan.FromSeconds(2.5);
         private readonly HashSet<int> _consumerItemIds = new HashSet<int>();
+        private readonly HashSet<string> _consumerItemModels = new HashSet<string>();
         public int MinimumFreeSlots { get; set; } = 3;
         public int AutomaticSellTriggerItems { get; set; } = 15;
         public int AutomaticLogisticsItemLimit { get; set; } = 20;
@@ -83,6 +84,26 @@ namespace RKmission
             if (itemId > 0) _consumerItemIds.Add(itemId);
         }
 
+        // Equipment lifecycle consumers register only models they have actually
+        // verified or must restore. Slot compatibility alone never protects an item.
+        public void RegisterOperationalItem(Item item)
+        {
+            if (item == null) return;
+            if (item.Id > 0) _consumerItemIds.Add(item.Id);
+            _consumerItemModels.Add(OperationalModel(item));
+        }
+
+        public void UnregisterOperationalItem(Item item)
+        {
+            if (item == null) return;
+            _consumerItemModels.Remove(OperationalModel(item));
+            if (item.Id > 0 && !_consumerItemModels.Any(x => x.StartsWith(item.Id + ":", StringComparison.Ordinal)))
+                _consumerItemIds.Remove(item.Id);
+        }
+
+        private static string OperationalModel(Item item) =>
+            $"{item.Id}:{item.LowId}:{item.HighId}:{item.QualityLevel}";
+
         // ManagerLoot calls this before its Keep/Reject decision, including
         // for items already in RK Junk (including legacy RKM Sell aliases).
         public bool IsOperationalItem(Item item)
@@ -90,19 +111,14 @@ namespace RKmission
             if (item == null) return false;
             if (item.UniqueIdentity.Type == IdentityType.Container) return true;
             if (item.Id == YalmahaXl29478ItemId) return true;
-            if (IsProtectedCombatEquipmentTemplate(item.LowId, item.HighId)) return true;
             if (ProtectedItemIds.Contains(item.Id)) return true;
             string name = item.Name?.Trim() ?? string.Empty;
             if (ProtectedNameFragments.Any(x => !string.IsNullOrWhiteSpace(x) &&
                 name.IndexOf(x.Trim(), StringComparison.OrdinalIgnoreCase) >= 0)) return true;
-            return _consumerItemIds.Contains(item.Id) || IsBuiltInOperationalName(name) ||
+            return _consumerItemIds.Contains(item.Id) || _consumerItemModels.Contains(OperationalModel(item)) ||
+                IsBuiltInOperationalName(name) ||
                 MissionReadiness.IsRecoveryItem(item);
         }
-
-        // User-designated HUD1 combat equipment must not become Junk when
-        // unequipped. Keep exact template protection even for Identity.None.
-        internal static bool IsProtectedCombatEquipmentTemplate(int lowId, int highId) =>
-            lowId == 267696 || highId == 267696;
 
         internal static bool IsBuiltInOperationalName(string name)
         {

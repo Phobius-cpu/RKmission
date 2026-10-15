@@ -20,24 +20,21 @@ Assert ($catalog.Contains('const float landingRadius = 5f') -and
     $catalog.Contains('TryFindTerminalLandingStaging')) `
     'landing staging is lateral, outside terminal collision body, and terminal-height-relative'
 Assert ($vehicle.Contains('RequireFootForTerminal') -and
-    $vehicle.Contains('flight ownership is intentionally irrelevant') -and
     $vehicle.Contains('_terminalDismountRequested') -and
     $vehicle.Contains('if (!_terminalDismountRequested)')) `
     'user-owned and RKMission-owned flight share a terminal-only one-shot safe exit path'
-Assert ($vehicle.Contains('x.Id == YalmahaXl29478ItemId && x.IsEquipped') -and
-    $vehicle.Contains('equippedVehicle.MoveToInventory();') -and
-    $vehicle.Contains('automatic-inventory-slot=111') -and
+Assert ($vehicle.Contains('EquippedVerifiedVehicle()') -and
+    $vehicle.Contains('attached.MoveToInventory();') -and
     -not $vehicle.Contains('Enumerable.Range(64, 30)') -and
-    $vehicle.Contains('Dynel.VehiclePointer is AOSharp''s persistent movement/position backing') -and
     -not $vehicle.Contains('player.VehiclePointer != IntPtr.Zero') -and
-    $vehicle.Contains('terminal-vehicle-detachment-pending')) `
-    'terminal rolling requires explicit Yalmaha unequip and live vehicle attachment clearance'
+    $vehicle.Contains('terminal-vehicle-unequip-requested-once')) `
+    'terminal rolling requires explicit verified-vehicle unequip and live attachment clearance'
 Assert ($bot.Contains('string vehicleFailure = _vehicle.Status;') -and
     $bot.Contains('could not be verified; {vehicleFailure}')) `
     'terminal timeout diagnostics are captured before Stop resets vehicle lifecycle state'
 Assert ($vehicle.Contains('RequireFlightAfterMissionBatch') -and
-    $vehicle.Contains('attached && player.MovementState == MovementState.Fly') -and
-    $vehicle.Contains('batch-remount-equip-requested-once') -and
+    $vehicle.Contains('return RequireFlight(true);') -and
+    $vehicle.Contains('vehicle/verified-owned') -and
     $bot.Contains('_missionBatchRemountPending = true;') -and
     $bot.Contains('Mission batch remount required before mission selection/travel') -and
     $bot.Contains('Mission batch remount verified: equipped vehicle attachment')) `
@@ -47,7 +44,7 @@ Assert ($vehicle.Contains('player.IsFalling || Item.HasPendingUse || Spell.HasPe
     $vehicle.Contains('TimeSpan.FromSeconds(45)')) `
     'live non-Fly, non-falling, settled actions and bounded transition time gate terminal approach'
 Assert ($vehicle.Contains('public bool RestoreOriginal()') -and
-    $vehicle.Contains('if (!_ownsFlight || player == null || player.MovementState != MovementState.Fly) return true;')) `
+    $vehicle.Contains('if (!_ownsHud1 || player == null || player.MovementState != MovementState.Fly) return true;')) `
     'non-terminal flight ownership restoration policy remains unchanged'
 Assert ($bot.Contains('_returnTerminalPlanReady') -and
     $bot.Contains('Vector3 approach = _returnTerminalApproach;') -and

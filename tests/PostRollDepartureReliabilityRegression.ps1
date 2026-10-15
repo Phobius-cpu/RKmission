@@ -19,20 +19,17 @@ Assert ($bot.Contains('_longTravel.PrefersFootDeparture') -and
     $bot.Contains('_vehicle.RequireFlightAfterMissionBatch();')) `
     'departure must choose verified Foot cooperation or live-proven vehicle flight'
 Assert ($vehicle.Contains('batch-departure-foot-route-verified') -and
-    $vehicle.Contains('attachedForFootRoute') -and
-    $vehicle.Contains('attached && player.MovementState == MovementState.Fly')) `
+    $vehicle.Contains('player.MovementState != MovementState.Fly') -and
+    $vehicle.Contains('return RequireFlight(true);')) `
     'both Foot and Vehicle departure modes require authoritative live state'
-Assert ($vehicle.Contains('vehicle.Equip(EquipSlot.Weap_Hud1);') -and
-    $vehicle.Contains('vehicle.EquipSlots.Contains(EquipSlot.Weap_Hud1)') -and
-    $vehicle.Contains('vehicle.Slot.Type != IdentityType.Inventory') -and
-    $vehicle.Contains('batch-remount-hud1-occupied') -and
-    $vehicle.IndexOf('vehicle.Equip(EquipSlot.Weap_Hud1);') -gt
-        $vehicle.IndexOf('public VehicleTransitionResult RequireFlightAfterMissionBatch(bool requireFlight)')) `
-    'known main-inventory Yalmaha uses the validated one-shot AOSharp HUD1 equipment primitive'
-Assert ($vehicle.Contains('dispatch=void-no-synchronous-ack') -and
-    $vehicle.Contains('EquippedVehicleSnapshot()') -and
-    $vehicle.Contains('pendingUse={Item.HasPendingUse}, pendingCast={Spell.HasPendingCast}')) `
-    'equipment request and timeout retain source, target, acknowledgement, live equipment, and pending-action evidence'
+Assert ($vehicle.Contains('item.Equip(EquipSlot.Weap_Hud1);') -and
+    $vehicle.Contains('x.EquipSlots.Contains(EquipSlot.Weap_Hud1)') -and
+    $vehicle.Contains('x.Slot.Type == IdentityType.Inventory') -and
+    $vehicle.Contains('awaiting live slot/state proof')) `
+    'dynamic main-inventory candidates use the validated one-shot AOSharp HUD1 equipment primitive'
+Assert ($vehicle.Contains('TransitionTimeout') -and $vehicle.Contains('_pendingTarget') -and
+    $vehicle.Contains('Item.HasPendingUse || Spell.HasPendingCast')) `
+    'equipment request and timeout retain target, live verification, and pending-action evidence'
 Assert ($bot.Contains('string remountFailure = _vehicle.Status;') -and
     $bot.IndexOf('string remountFailure = _vehicle.Status;') -lt
         $bot.IndexOf('Say("Mission batch remount stopped: " + remountFailure')) `
