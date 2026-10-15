@@ -305,7 +305,26 @@ namespace RKmission
                                 "clearing all accepted missions before returning to the roller terminal.");
                     }
                     Dynel? visibleTerminal = FindVisibleRollTerminal();
-                    if (visibleTerminal != null) RememberRollTerminal(visibleTerminal);
+                    if (visibleTerminal != null)
+                    {
+                        if (!RememberRollTerminal(visibleTerminal) &&
+                            !HasVerifiedRollLogisticsBinding(out _))
+                        {
+                            Say($"Automatic mission cycle was not armed: visible terminal {visibleTerminal.Identity} " +
+                                $"is in PF {Playfield.ModelIdentity.Instance}, which has no unique validated bank+shop logistics hub, " +
+                                "and no previously verified city roller/logistics binding is saved.");
+                            break;
+                        }
+                        if (Playfield.ModelIdentity.Instance != _rollTerminalPlayfield)
+                            Say($"Ignored visible terminal {visibleTerminal.Identity} in PF {Playfield.ModelIdentity.Instance}; " +
+                                $"preserving the verified roller/logistics binding in PF {_rollTerminalPlayfield} ({_rollLogisticsSite}).");
+                    }
+                    else if (!HasVerifiedRollLogisticsBinding(out _))
+                    {
+                        Say("Automatic mission cycle was not armed: no live terminal in a validated OA, Borealis, or ICC " +
+                            "bank+shop hub is visible, and no previously verified city roller/logistics binding is saved.");
+                        break;
+                    }
                     _autoCycle = true; Start(); Say("Automatic mission cycle armed."); break;
                 case "local":
                     if (_bankTransactions.IsActive || _shopSale.IsActive || _automaticLogistics.IsActive)
@@ -1903,7 +1922,14 @@ namespace RKmission
                     Wait("No saved roller terminal is available. Automatic cycle remains armed; move within sight of a mission terminal to resume rolling.");
                     return false;
                 }
-                RememberRollTerminal(visible);
+                if (!RememberRollTerminal(visible))
+                {
+                    Stop();
+                    Say($"Automatic mission cycle stopped before returning to the roller: visible terminal {visible.Identity} " +
+                        $"is in PF {Playfield.ModelIdentity.Instance}, which has no unique validated bank+shop logistics hub, " +
+                        "and no previously verified city roller/logistics binding is saved.");
+                    return false;
+                }
             }
             if (Playfield.ModelIdentity.Instance != _rollTerminalPlayfield || _longTravel.IsActive)
             {
@@ -2181,23 +2207,37 @@ namespace RKmission
                 .OrderBy(x => x.DistanceFrom(player)).FirstOrDefault();
         }
 
-        private void RememberRollTerminal(Dynel? terminal)
+        private bool HasVerifiedRollLogisticsBinding(out string site)
         {
-            if (terminal == null) return;
+            site = _hasRollTerminal
+                ? _logisticsRoutes?.FindSharedLogisticsSite(_rollTerminalPlayfield)
+                : null;
+            return !string.IsNullOrEmpty(site) &&
+                (string.IsNullOrEmpty(_rollLogisticsSite) ||
+                    string.Equals(_rollLogisticsSite, site, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private bool RememberRollTerminal(Dynel? terminal)
+        {
+            if (terminal == null) return false;
             int playfield = Playfield.ModelIdentity.Instance;
             string site = _logisticsRoutes?.FindSharedLogisticsSite(playfield);
+            // A nearby mission terminal is not logistics provenance. Only a
+            // live terminal in a city with one fully surveyed bank+shop hub may
+            // create or replace the durable automatic-cycle binding.
+            if (string.IsNullOrEmpty(site)) return false;
             bool unchanged = _hasRollTerminal && _rollTerminalPlayfield == playfield &&
                 Vector3.Distance(_rollTerminalPosition, terminal.Position) < 0.5f &&
                 string.Equals(_rollLogisticsSite, site, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(_rollTerminalIdentity, terminal.Identity.ToString(),
                     StringComparison.OrdinalIgnoreCase);
-            if (unchanged) return;
+            if (unchanged) return true;
             _hasRollTerminal = true;
             _rollTerminalPlayfield = playfield;
             _rollTerminalPosition = terminal.Position;
             _rollTerminalIdentity = terminal.Identity.ToString();
             _rollLogisticsSite = site;
-            if (_checkpoint == null) return;
+            if (_checkpoint == null) return true;
             _checkpoint.HasRollTerminal = true;
             _checkpoint.RollTerminalPlayfield = playfield;
             _checkpoint.RollTerminalPosition = terminal.Position;
@@ -2205,8 +2245,8 @@ namespace RKmission
             _checkpoint.RollLogisticsSite = _rollLogisticsSite;
             _checkpoint.Save(true, Say);
             Say($"Saved roller terminal {terminal.Identity} in playfield {playfield} for the automatic return after missions; " +
-                (site == null ? "no complete city logistics hub is available."
-                    : $"shared surveyed logistics hub='{site}'."));
+                $"shared surveyed logistics hub='{site}'.");
+            return true;
         }
 
         private void OnRubberband(Vector3 position)
