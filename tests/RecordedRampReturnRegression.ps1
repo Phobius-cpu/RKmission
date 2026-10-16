@@ -68,6 +68,20 @@ foreach ($text in @('_recordedRoomReturn.RoomId == source', '_recordedRoomReturn
     'normal doorway approach resumed.', 'TimeSpan.FromSeconds(75)', 'TimeSpan.FromSeconds(10)')) {
     Require ($dungeon.Contains($text)) "Missing descent lifecycle invariant: $text"
 }
+$lootReadyStart = $dungeon.IndexOf('NavigationRouteRecorder.DungeonTopologyContinuation activeAscent')
+$lootReadyEnd = $dungeon.IndexOf('_combatTopologyHandoff = null;', $lootReadyStart)
+$lootReady = $dungeon.Substring($lootReadyStart, $lootReadyEnd - $lootReadyStart)
+foreach ($text in @('PauseDungeonTopology(next.Position, out activeAscent)',
+ 'activeAscent.PreciseRecordedPlayback',
+ 'activeAscent.Points[activeAscent.ProgressIndex].Y -',
+ 'DynelManager.LocalPlayer.Position.Y - activeAscent.Points[0].Y',
+ 'Ascent = activeAscent',
+ 'before ManagerLoot handoff; return descent required before doorway travel.')) {
+    Require ($lootReady.Contains($text)) "Missing partial-ascent ManagerLoot handoff invariant: $text"
+}
+Require ($lootReady.IndexOf('PauseDungeonTopology(next.Position, out activeAscent)') -lt
+ $lootReady.IndexOf('_lootRecordedTransit = false;')) 'Active ascent must be snapshotted before recorded loot ownership is released.'
+Write-Output 'PASS interaction-ready ManagerLoot handoff preserves meaningful in-progress reusable ascent for mandatory return descent'
 $tick = $dungeon.Substring($dungeon.IndexOf('private void TickTransition(Room detectedRoom)'))
 Require ($tick.IndexOf('crossing.Phase == TransitionPhase.RecordedReturn') -lt $tick.IndexOf('IsPassageOpen(edge, door)')) 'Door probing must follow descent completion.'
 $returnStart = $dungeon.IndexOf('private void TickRecordedReturn(')

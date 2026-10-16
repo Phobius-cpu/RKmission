@@ -3030,7 +3030,28 @@ namespace RKmission
             }
             if (_lootRecordedTransit)
             {
-                _navRoutes?.StopPlayback();
+                NavigationRouteRecorder.DungeonTopologyContinuation activeAscent = null;
+                bool preservedReturn = _navRoutes != null &&
+                    _navRoutes.PauseDungeonTopology(next.Position, out activeAscent) &&
+                    activeAscent != null && activeAscent.PreciseRecordedPlayback &&
+                    activeAscent.Points != null && activeAscent.Points.Count >= 2 &&
+                    activeAscent.ProgressIndex > 0 &&
+                    activeAscent.Points[activeAscent.ProgressIndex].Y -
+                        activeAscent.Points[0].Y >= CombatTopologyVerticalSeparation &&
+                    DynelManager.LocalPlayer.Position.Y - activeAscent.Points[0].Y >=
+                        CombatTopologyVerticalSeparation;
+                if (preservedReturn)
+                {
+                    _recordedRoomReturn = new RecordedRoomReturn
+                    {
+                        RoomId = room.Instance, Floor = _floor,
+                        Playfield = Playfield.ModelIdentity.Instance, Ascent = activeAscent
+                    };
+                    _say($"Loot {next.Identity} preserved active recorded ascent '{activeAscent.RouteName}' " +
+                        $"at waypoint {activeAscent.ProgressIndex + 1}/{activeAscent.Points.Count} before ManagerLoot handoff; return descent required before doorway travel.");
+                }
+                else
+                    _navRoutes?.StopPlayback();
                 _lootRecordedTransit = false;
             }
             _combatTopologyHandoff = null;
