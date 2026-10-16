@@ -45,6 +45,7 @@ foreach ($token in @(
  'reusable ? 30f : DungeonSourceAttachDistance',
  'requireTargetLevel && Math.Abs(target.Y - points[end].Y) > 0.9f',
  'SafeReusableTargetHandoff(layout, roomId',
+ 'No viable reusable dungeon topology subpath:',
  'Vector3.Distance(target, _dungeonRequestedTarget) > 0.5f',
  'layout.IsInside(roomId, midpoint, 0.02f)',
  'Mali outline point-misses=',
@@ -69,3 +70,9 @@ Require (-not $recorder.Contains('point/leg {i + 1} is discontinuous or outside 
  -not $recorder.Contains('sampled leg {i}->{i + 1} leaves room bounds')) 'Coarse intermediate Mali outline remains a reusable-route veto.'
 Require ($recorder.Contains('trusted start or end lies outside the live room')) 'Start/end room containment guard was removed.'
 Write-Output 'PASS clipped intermediate Mali outline is diagnostic while start/end containment stays mandatory'
+Require (-not $recorder.Substring($recorder.IndexOf('private static bool SafeReusableTargetHandoff'),
+ $recorder.IndexOf('private static bool IsContinuousDungeonRecording') -
+ $recorder.IndexOf('private static bool SafeReusableTargetHandoff')).Contains('ClearInteractionSegment')) 'Upper-floor handoff still requires a straight ray.'
+foreach ($guard in @('target lies outside the live room', 'route landing is not on the target level',
+ 'same-level route landing is')) { Require ($recorder.Contains($guard)) "Missing reusable handoff diagnostic: $guard" }
+Write-Output 'PASS upper-floor handoff keeps room/level/distance gates without requiring straight line of sight'

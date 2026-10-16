@@ -668,6 +668,7 @@ namespace RKmission
             if (layout == null || IsRecording || _dungeonPlayback) return _dungeonPlayback;
             DungeonSubpath best = null;
             int eligibleRecordings = 0;
+            string reusableRejection = null;
             DungeonRoomCapture.Snapshot live = null;
             bool captureAttempted = false;
             foreach (Route route in _routes.Where(x => (!x.Bundled || x.DungeonTopologyOnly) && x.Points.Count >= 2))
@@ -725,9 +726,15 @@ namespace RKmission
                     DungeonSubpath candidate = FindDungeonSubpath(route, oriented,
                         reverse, from, target, reusable ? 30f : DungeonSourceAttachDistance,
                         reusable ? 30f : DungeonTargetAttachDistance, reusable);
-                    if (candidate == null) continue;
+                    if (candidate == null)
+                    {
+                        if (reusable) reusableRejection =
+                            "no ordered same-level endpoint satisfied the 30m reusable source/target attachment gates";
+                        continue;
+                    }
                     if (reusable && !SafeReusableTargetHandoff(layout, roomId,
-                        candidate.Points[candidate.Points.Count - 1], target)) continue;
+                        candidate.Points[candidate.Points.Count - 1], target,
+                        out reusableRejection)) continue;
                     // Operational derivatives win only after conservative physical
                     // attachment gates; no room translation is inferred.
                     if (route.DungeonTopologyOnly && !reusable &&
@@ -743,8 +750,10 @@ namespace RKmission
             if (best == null)
             {
                 if (eligibleRecordings > 0)
-                    _say($"No viable recorded dungeon topology subpath: checked {eligibleRecordings} continuous multi-level recording(s); " +
-                        $"source attach must be <= {DungeonSourceAttachDistance:0.0}m and target attach <= {DungeonTargetAttachDistance:0.0}m with ordered vertical progress.");
+                    _say(reusableRejection != null
+                        ? $"No viable reusable dungeon topology subpath: {reusableRejection}."
+                        : $"No viable recorded dungeon topology subpath: checked {eligibleRecordings} continuous multi-level recording(s); " +
+                          $"source attach must be <= {DungeonSourceAttachDistance:0.0}m and target attach <= {DungeonTargetAttachDistance:0.0}m with ordered vertical progress.");
                 return false;
             }
             StopPlayback();
@@ -897,12 +906,15 @@ namespace RKmission
         }
 
         private static bool SafeReusableTargetHandoff(DungeonLayout layout, int roomId,
-            Vector3 routeEnd, Vector3 target)
+            Vector3 routeEnd, Vector3 target, out string reason)
         {
-            if (!layout.IsInside(roomId, target) || Math.Abs(routeEnd.Y - target.Y) > 0.9f ||
-                Vector3.Distance(routeEnd, target) > 30f) return false;
-            return LocalRoutePlanner.ClearInteractionSegment(routeEnd + Vector3.Up,
-                target + Vector3.Up);
+            reason = null;
+            if (!layout.IsInside(roomId, target)) reason = "target lies outside the live room";
+            else if (Math.Abs(routeEnd.Y - target.Y) > 0.9f)
+                reason = $"route landing is not on the target level (vertical gap={Math.Abs(routeEnd.Y - target.Y):0.0}m)";
+            else if (Vector3.Distance(routeEnd, target) > 30f)
+                reason = $"same-level route landing is {Vector3.Distance(routeEnd, target):0.0}m from target (maximum 30m)";
+            return reason == null;
         }
 
         private static bool IsContinuousDungeonRecording(List<Vector3> points) =>
