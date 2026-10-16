@@ -32,11 +32,14 @@ namespace RKmission
         private static readonly TimeSpan TransitionTimeout = TimeSpan.FromSeconds(8);
         private readonly MovementArbiter _movement;
         private readonly InventoryPolicy _inventoryPolicy;
+        private readonly Hud1EquipmentProfiles _profiles;
         private readonly Action<string> _say;
         private readonly HashSet<string> _rejectedCandidates = new HashSet<string>();
         private bool _observedOriginal, _originalFlying, _ownsHud1;
         private int _characterInstance;
+        private string _characterName;
         private ItemReference _verifiedVehicle, _indoorItem, _pendingTarget;
+        private Hud1EquipmentProfile _profile;
         private string _pendingRole;
         private DateTime _requestedAt;
         private bool _terminalLandingActive, _terminalDismountRequested;
@@ -44,23 +47,39 @@ namespace RKmission
         private Vector3 _terminalLandingStaging;
         public string Status { get; private set; } = "unobserved";
 
-        public VehicleLifecycle(MovementArbiter movement, InventoryPolicy inventoryPolicy, Action<string> say)
-        { _movement = movement; _inventoryPolicy = inventoryPolicy; _say = say; }
+        public VehicleLifecycle(MovementArbiter movement, InventoryPolicy inventoryPolicy,
+            Hud1EquipmentProfiles profiles, Action<string> say)
+        { _movement = movement; _inventoryPolicy = inventoryPolicy; _profiles = profiles; _say = say; }
 
         public void ObserveOriginal()
         {
             SimpleChar player = DynelManager.LocalPlayer;
             if (player == null) return;
-            if (_characterInstance != 0 && _characterInstance != player.Identity.Instance) ResetJourney();
+            if (_characterInstance != 0 && (_characterInstance != player.Identity.Instance ||
+                !string.Equals(_characterName, player.Name ?? string.Empty, StringComparison.OrdinalIgnoreCase))) ResetJourney();
             _characterInstance = player.Identity.Instance;
+            _characterName = player.Name ?? string.Empty;
             if (_observedOriginal) return;
+            _profile = _profiles.ForCharacter(player.Identity.Instance, player.Name);
+            Item savedVehicle = FindModel(_profile.Vehicle, false);
+            Item savedIndoor = FindModel(_profile.Indoor, false);
+            if (savedVehicle != null) { _verifiedVehicle = ItemReference.From(savedVehicle); _inventoryPolicy.RegisterOperationalItem(savedVehicle); }
+            if (savedIndoor != null) { _indoorItem = ItemReference.From(savedIndoor); _inventoryPolicy.RegisterOperationalItem(savedIndoor); }
             _observedOriginal = true;
             _originalFlying = player.MovementState == MovementState.Fly;
             Item hud1 = Hud1Item();
+            if (_originalFlying && hud1 != null)
+            {
+                _verifiedVehicle = ItemReference.From(hud1);
+                _inventoryPolicy.RegisterOperationalItem(hud1);
+                _ownsHud1 = true;
+                PersistVehicle(hud1);
+            }
             if (!_originalFlying && hud1 != null)
             {
                 _indoorItem = ItemReference.From(hud1);
                 _inventoryPolicy.RegisterOperationalItem(hud1);
+                PersistIndoor(hud1);
                 _say("HUD1 lifecycle observed original item = " + _indoorItem + ".");
             }
             Status = _originalFlying ? "vehicle/original-flight-preserved" : HudRole(hud1);
@@ -96,7 +115,8 @@ namespace RKmission
                 {
                     _verifiedVehicle = ItemReference.From(hud1);
                     _inventoryPolicy.RegisterOperationalItem(hud1);
-                    _ownsHud1 = !_originalFlying;
+                    _ownsHud1 = true;
+                    PersistVehicle(hud1);
                     ClearPending();
                     _say("Verified flying vehicle " + _verifiedVehicle + " from live HUD1 and MovementState.Fly.");
                 }
@@ -104,7 +124,7 @@ namespace RKmission
                 return VehicleTransitionResult.Ready;
             }
             if (!routeBenefits) { Status = "indoor-or-foot/route-does-not-benefit"; return VehicleTransitionResult.Unavailable; }
-            if (!SafeToTransition(player, false)) { Status = "vehicle/transition-gated"; return VehicleTransitionResult.Blocked; }
+            if (!SafeToTransition(player, false)) { Status = GateStatus("vehicle", player, false); return VehicleTransitionResult.Blocked; }
             if (_pendingTarget != null)
             {
                 if (DateTime.UtcNow - _requestedAt < TransitionTimeout)
@@ -150,6 +170,7 @@ namespace RKmission
             {
                 _indoorItem = ItemReference.From(current);
                 _inventoryPolicy.RegisterOperationalItem(current);
+                PersistIndoor(current);
                 _say("Displaced indoor HUD1 item remembered: " + _indoorItem + ".");
             }
             return DispatchEquip(vehicle, "vehicle", "Trying vehicle candidate");
@@ -159,8 +180,9 @@ namespace RKmission
         {
             ObserveOriginal();
             SimpleChar player = DynelManager.LocalPlayer;
-            if (player == null || Game.IsZoning) return VehicleTransitionResult.Waiting;
-            if (!SafeToTransition(player, true)) { Status = "indoor/transition-gated"; return VehicleTransitionResult.Blocked; }
+            if (player == null) return VehicleTransitionResult.Waiting;
+            if (Game.IsZoning) { Status = GateStatus("indoor", player, true); return VehicleTransitionResult.Waiting; }
+            if (!SafeToTransition(player, true)) { Status = GateStatus("indoor", player, true); return VehicleTransitionResult.Blocked; }
             Item current = Hud1Item();
             if (!_ownsHud1)
             { Status = _originalFlying ? "vehicle/original-flight-preserved" : HudRole(current); return VehicleTransitionResult.Ready; }
@@ -169,6 +191,9 @@ namespace RKmission
                 if (_pendingTarget?.Matches(current) == true && player.MovementState != MovementState.Fly)
                 {
                     ClearPending(); Status = "indoor/restore-verified";
+                    _indoorItem = ItemReference.From(current);
+                    _inventoryPolicy.RegisterOperationalItem(current);
+                    PersistIndoor(current);
                     _say("Indoor HUD1 restore verified: " + _indoorItem + ".");
                     return VehicleTransitionResult.Ready;
                 }
@@ -189,24 +214,41 @@ namespace RKmission
                 return VehicleTransitionResult.Ready;
             }
             Item indoor = FindItem(_indoorItem, true);
+            if (indoor != null && !indoor.MeetsUseReqs(player)) indoor = null;
+            if (indoor == null)
+            {
+                List<Item> candidates = Inventory.Items.Where(IsHud1InventoryCandidate)
+                    .Where(x => _verifiedVehicle == null || !_verifiedVehicle.Matches(x))
+                    .Where(x => x.MeetsUseReqs(player))
+                    .OrderBy(x => x.Id).ThenBy(x => x.QualityLevel).ToList();
+                if (candidates.Count == 1)
+                {
+                    indoor = candidates[0];
+                    _indoorItem = ItemReference.From(indoor);
+                    _inventoryPolicy.RegisterOperationalItem(indoor);
+                    _say("Unique usable indoor HUD1 candidate learned: " + _indoorItem + ".");
+                }
+                else if (candidates.Count > 1)
+                {
+                    _say($"Exact mission entered; {candidates.Count} usable non-vehicle HUD1 candidates remain, so RKMission will not guess: " +
+                        string.Join("; ", candidates.Select(x => $"'{x.Name}', id={x.Id}, templates={x.LowId}/{x.HighId}, QL={x.QualityLevel}")) + ".");
+                    return RemoveOwnedVehicle(current, "ambiguous indoor HUD1 candidates");
+                }
+            }
             if (indoor != null && indoor.MeetsUseReqs(player))
             {
                 _say("Exact mission entered; restoring indoor HUD1 " + _indoorItem + ".");
                 return DispatchEquip(indoor, "indoor", "Restoring indoor HUD1 item");
             }
-            if (Inventory.NumFreeSlots <= 0) { Status = "indoor/no-space-to-remove-vehicle"; return VehicleTransitionResult.Unavailable; }
-            current.MoveToInventory();
-            _pendingTarget = _verifiedVehicle; _pendingRole = "empty"; _requestedAt = DateTime.UtcNow;
-            Status = "indoor/vehicle-removal-requested";
-            _say("Exact mission entered; no learned indoor HUD1 item exists, so the owned vehicle was requested back to inventory.");
-            return VehicleTransitionResult.Waiting;
+            return RemoveOwnedVehicle(current, "no usable indoor HUD1 candidate exists");
         }
 
         public bool RestoreOriginal()
         {
             SimpleChar player = DynelManager.LocalPlayer;
             if (!_ownsHud1 || player == null || player.MovementState != MovementState.Fly) return true;
-            if (!SafeToTransition(player, false)) { Status = "restore-gated"; return false; }
+            if (_originalFlying) return true;
+            if (!SafeToTransition(player, false)) { Status = GateStatus("restore", player, false); return false; }
             _movement.SetMovement(MovementOwner.OutdoorTravel, MovementAction.LeaveFly);
             Status = "restore-requested"; return false;
         }
@@ -215,7 +257,7 @@ namespace RKmission
         {
             SimpleChar player = DynelManager.LocalPlayer;
             Item current = Hud1Item();
-            if (!_ownsHud1 || player == null || _verifiedVehicle?.Matches(current) != true ||
+            if (_originalFlying || !_ownsHud1 || player == null || _verifiedVehicle?.Matches(current) != true ||
                 !SafeToTransition(player, Playfield.IsDungeon)) return;
             Item indoor = FindItem(_indoorItem, true);
             try
@@ -264,7 +306,7 @@ namespace RKmission
                 float vertical = Math.Abs(player.Position.Y - _terminalLandingStaging.Y);
                 if (range > 1.25f || vertical > 1.25f)
                 {
-                    if (!SafeToTransition(player, false)) { Status = "terminal-descent-gated"; return VehicleTransitionResult.Blocked; }
+                    if (!SafeToTransition(player, false)) { Status = GateStatus("terminal-descent", player, false); return VehicleTransitionResult.Blocked; }
                     _movement.SetDestination(MovementOwner.OutdoorTravel, _terminalLandingStaging);
                     Status = "terminal-safe-descent"; return VehicleTransitionResult.Waiting;
                 }
@@ -331,10 +373,41 @@ namespace RKmission
         private static Item FindItem(ItemReference reference, bool inventoryOnly) => reference == null ? null :
             Inventory.Items.FirstOrDefault(x => reference.Matches(x) &&
                 (!inventoryOnly || x.Slot.Type == IdentityType.Inventory && !x.IsEquipped));
+        private static Item FindModel(Hud1EquipmentModel model, bool inventoryOnly) => model == null ? null :
+            Inventory.Items.FirstOrDefault(x => model.Matches(x) &&
+                (!inventoryOnly || x.Slot.Type == IdentityType.Inventory && !x.IsEquipped));
         private bool SafeToTransition(SimpleChar player, bool allowExactDungeon) => !Game.IsZoning &&
             (allowExactDungeon || !Playfield.IsDungeon) && !player.IsAttacking && !player.IsFalling &&
             !Item.HasPendingUse && !Spell.HasPendingCast &&
             (_movement.Owner == MovementOwner.None || _movement.Owner == MovementOwner.OutdoorTravel);
+        private string GateStatus(string role, SimpleChar player, bool allowExactDungeon) =>
+            $"{role}/transition-gated; owner={_movement.Owner}, zoning={Game.IsZoning}, " +
+            $"dungeon={Playfield.IsDungeon}, exactDungeonAllowed={allowExactDungeon}, attacking={player?.IsAttacking == true}, " +
+            $"falling={player?.IsFalling == true}, pendingItem={Item.HasPendingUse}, pendingSpell={Spell.HasPendingCast}";
+        private VehicleTransitionResult RemoveOwnedVehicle(Item current, string reason)
+        {
+            if (current == null || Inventory.NumFreeSlots <= 0)
+            { Status = "indoor/no-space-to-remove-vehicle"; return VehicleTransitionResult.Unavailable; }
+            current.MoveToInventory();
+            _pendingTarget = _verifiedVehicle; _pendingRole = "empty"; _requestedAt = DateTime.UtcNow;
+            Status = reason.StartsWith("no usable", StringComparison.Ordinal) ?
+                "indoor/no-candidate-vehicle-removal-requested" : "indoor/ambiguous-vehicle-removal-requested";
+            _say("Exact mission entered; " + reason +
+                ", so the owned vehicle was requested back to inventory and HUD1 will remain empty.");
+            return VehicleTransitionResult.Waiting;
+        }
+        private void PersistVehicle(Item item)
+        {
+            if (_profile == null || item == null) return;
+            _profile.Vehicle = Hud1EquipmentModel.From(item);
+            _profiles.Save();
+        }
+        private void PersistIndoor(Item item)
+        {
+            if (_profile == null || item == null) return;
+            _profile.Indoor = Hud1EquipmentModel.From(item);
+            _profiles.Save();
+        }
         private void ClearPending() { _pendingTarget = null; _pendingRole = null; _requestedAt = DateTime.MinValue; }
 
         public void ResetJourney()
@@ -345,7 +418,7 @@ namespace RKmission
                 if (item != null) _inventoryPolicy.UnregisterOperationalItem(item);
             }
             _observedOriginal = _originalFlying = _ownsHud1 = false;
-            _characterInstance = 0; _verifiedVehicle = _indoorItem = null;
+            _characterInstance = 0; _characterName = null; _verifiedVehicle = _indoorItem = null; _profile = null;
             _rejectedCandidates.Clear(); ClearPending(); ResetTerminalRequirement(); Status = "unobserved";
         }
     }

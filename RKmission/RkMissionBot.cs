@@ -128,7 +128,8 @@ namespace RKmission
             _navWindow = new NavigationRecorderWindow(pluginDir, _navRoutes, Say);
             _dungeon = new MissionDungeon(Say, _loot, _readiness, _inventory, _navRoutes);
             _postZoneSafety = new PostZoneFlightSafety(_movement, Say);
-            _vehicle = new VehicleLifecycle(_movement, _inventory, Say);
+            _vehicle = new VehicleLifecycle(_movement, _inventory,
+                new Hud1EquipmentProfiles(pluginDir, Say), Say);
             _fgrid = new FGridServiceProvider(pluginDir, Say, _movement, _navRoutes);
             _longTravel = new RubiKaTravelPlanner(pluginDir, _warp, _fgrid, _movement, _navRoutes, Say);
             _entranceResolver = new MissionEntranceResolver(pluginDir, Say);
@@ -1575,6 +1576,7 @@ namespace RKmission
                 $"dungeon={Playfield.ModelIdentity}, result=exact selected mission verified after zoning.");
             _travel.CompleteHandoff(true, "exact selected mission dungeon stable for one second with a live room");
             _travel.Reset();
+            _movement.Release(MovementOwner.MissionEntrance);
             _waitingReason = null;
             VehicleTransitionResult indoorHud1 = _vehicle.RequireIndoorHud1();
             if (indoorHud1 == VehicleTransitionResult.Waiting || indoorHud1 == VehicleTransitionResult.Blocked)
