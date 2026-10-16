@@ -87,6 +87,10 @@ namespace RKmission
         private DateTime _handInLocateStarted;
         private int _completedMissionWarpTarget;
         private bool _completedMissionWarpAttempted;
+        private bool _verifiedOutdoorMissionExit;
+        private bool _emergencyExtractionActive;
+        private Identity _emergencyExtractionMission = Identity.None;
+        private int _emergencyExtractionDestination;
         private string _lifecycleSignature;
         private Vector3 _lifecyclePosition;
         private DateTime _lastLifecycleProgress, _watchdogRecoveryAt;
@@ -649,6 +653,8 @@ namespace RKmission
             _handIn.Reset();
             _completedMissionWarpTarget = 0;
             _completedMissionWarpAttempted = false;
+            ResetEmergencyExtraction();
+            _verifiedOutdoorMissionExit = false;
             _lifecycleSignature = null;
             _lastLifecycleProgress = DateTime.UtcNow;
             _watchdogRecoveryAt = DateTime.MinValue;
@@ -711,6 +717,8 @@ namespace RKmission
             _handIn.Reset();
             _completedMissionWarpTarget = 0;
             _completedMissionWarpAttempted = false;
+            ResetEmergencyExtraction();
+            _verifiedOutdoorMissionExit = false;
             _deathRecovery?.Stop();
             if (!preserveCheckpoint && _checkpoint != null)
             { _checkpoint.Armed = false; _checkpoint.Phase = "Idle"; _checkpoint.Save(true, Say); }
@@ -836,6 +844,8 @@ namespace RKmission
                     if (!_recoveringDeath)
                     {
                         _recoveringDeath = true;
+                        ResetEmergencyExtraction();
+                        _verifiedOutdoorMissionExit = false;
                         _dungeon.Stop(); _dungeonStarted = false;
                         _travel.Reset(); _longTravel.Reset(); _movement.StopAll();
                         _completedMissionWarpTarget = 0;
@@ -861,6 +871,11 @@ namespace RKmission
                     _entranceResolver.Reset();
                     _nextSelection = DateTime.MinValue;
                     Say($"Death recovery readiness complete; returning by Scotty/travel graph to the exact saved roller terminal in PF {_rollTerminalPlayfield} before mission retry.");
+                }
+                if (_emergencyExtractionActive)
+                {
+                    TickEmergencyExtraction(_selected);
+                    return;
                 }
                 if (_deathReturnToRollTerminal)
                 {
@@ -935,6 +950,7 @@ namespace RKmission
                             ? $"Verified Scottyboi warp from completed mission {_selected.Id.Instance} to playfield {_completedMissionWarpTarget}."
                             : $"Verified exit from mission {_selected.Id.Instance} to its outdoor playfield {_selected.PlayfieldId}.");
                         _verifiedExitReported = true;
+                        _verifiedOutdoorMissionExit = !warpExitVerified && !Playfield.IsDungeon;
                     }
                     if (_selected.ReturnHandInPending)
                     {
@@ -1179,6 +1195,11 @@ namespace RKmission
                     bool flightRequired = _travel.Mode == TravelMode.Flying ||
                         _travel.Mode == TravelMode.Auto && localDistance >= 120f;
                     VehicleTransitionResult vehicle = _vehicle.RequireFlight(flightRequired);
+                    if (flightRequired && vehicle == VehicleTransitionResult.Blocked &&
+                        _vehicle.FlightTransitionCombatGated && _verifiedOutdoorMissionExit)
+                    {
+                        if (TickEmergencyExtraction(_selected)) return;
+                    }
                     if (flightRequired && vehicle != VehicleTransitionResult.Ready)
                     {
                         Wait("Long local mission travel is held until live Fly preflight succeeds: " + _vehicle.Status + ".");
@@ -1579,6 +1600,7 @@ namespace RKmission
             if (DateTime.UtcNow - _dungeonObservedAt < TimeSpan.FromSeconds(1) || DynelManager.LocalPlayer.Room == null) return;
             _selected = record;
             _verifiedRun = true;
+            _verifiedOutdoorMissionExit = false;
             _verifiedExitReported = false;
             _activeDungeon = Playfield.ModelIdentity;
             _entranceResolver.RecordVerified(bound);
@@ -1653,6 +1675,69 @@ namespace RKmission
                 return false;
             }
             return true; // Outdoor zoning must verify the exact warp destination.
+        }
+
+        private bool TickEmergencyExtraction(AcceptedMission mission)
+        {
+            if (!_autoCycle || mission == null || !_hasRollTerminal || _rollTerminalPlayfield <= 0)
+                return false;
+            if (!_emergencyExtractionActive)
+            {
+                _emergencyExtractionActive = true;
+                _emergencyExtractionMission = mission.Id;
+                _emergencyExtractionDestination = _rollTerminalPlayfield;
+                _movement.Halt(MovementOwner.OutdoorTravel);
+                _travel.Reset("outdoor combat-gated flight requires emergency extraction");
+                Say("Flight required after verified exit; vehicle transition combat-gated; requesting Scotty emergency extraction.");
+                Say($"Emergency extraction safe hub: saved roller city playfield {_emergencyExtractionDestination}.");
+            }
+            else if (_emergencyExtractionMission != mission.Id || !mission.Present)
+            {
+                Stop();
+                Say("Emergency extraction stopped because the selected mission changed or disappeared during the bounded request.");
+                return true;
+            }
+            // A saved roller hub may be in this same playfield. Emergency
+            // extraction still requires a real provider-attributed zone, not
+            // the ordinary provider's already-in-destination shortcut.
+            WarpResult result = _warp.Tick(_emergencyExtractionDestination, null, true);
+            if (result == WarpResult.InProgress)
+            {
+                Wait($"Scotty emergency extraction is in progress to playfield {_emergencyExtractionDestination}.");
+                return true;
+            }
+            if (result == WarpResult.Failed)
+            {
+                string failure = _warp.LastFailure ?? "bounded provider request failed";
+                Stop();
+                Say("Scotty emergency extraction failed; automatic travel safely stopped: " + failure + ".");
+                return true;
+            }
+            if (!_warp.VerifiedDestination(_emergencyExtractionDestination))
+            {
+                Stop();
+                Say("Scotty emergency extraction returned without verified destination proof; automatic travel safely stopped.");
+                return true;
+            }
+            int destination = _emergencyExtractionDestination;
+            _warp.Reset();
+            _emergencyExtractionActive = false;
+            _emergencyExtractionMission = Identity.None;
+            _emergencyExtractionDestination = 0;
+            _verifiedOutdoorMissionExit = false;
+            _travel.Reset("verified emergency extraction destination; resume normal planner");
+            _longTravel.Reset();
+            _waitingReason = null;
+            Say($"Verified Scotty emergency extraction destination playfield {destination}; normal autonomous travel planner resumed.");
+            return true;
+        }
+
+        private void ResetEmergencyExtraction()
+        {
+            if (_emergencyExtractionActive) _warp?.Reset();
+            _emergencyExtractionActive = false;
+            _emergencyExtractionMission = Identity.None;
+            _emergencyExtractionDestination = 0;
         }
 
         private void Wait(string reason)

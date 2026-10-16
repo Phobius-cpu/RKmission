@@ -46,6 +46,7 @@ namespace RKmission
         private DateTime _terminalLandingStarted, _terminalGroundObservedAt;
         private Vector3 _terminalLandingStaging;
         public string Status { get; private set; } = "unobserved";
+        public bool FlightTransitionCombatGated { get; private set; }
 
         public VehicleLifecycle(MovementArbiter movement, InventoryPolicy inventoryPolicy,
             Hud1EquipmentProfiles profiles, Action<string> say)
@@ -88,6 +89,7 @@ namespace RKmission
 
         public VehicleTransitionResult RequireFlight(bool routeBenefits)
         {
+            FlightTransitionCombatGated = false;
             ObserveOriginal();
             SimpleChar player = DynelManager.LocalPlayer;
             if (player == null) return VehicleTransitionResult.Waiting;
@@ -124,7 +126,15 @@ namespace RKmission
                 return VehicleTransitionResult.Ready;
             }
             if (!routeBenefits) { Status = "indoor-or-foot/route-does-not-benefit"; return VehicleTransitionResult.Unavailable; }
-            if (!SafeToTransition(player, false)) { Status = GateStatus("vehicle", player, false); return VehicleTransitionResult.Blocked; }
+            if (!SafeToTransition(player, false))
+            {
+                FlightTransitionCombatGated = player.IsAttacking && !Game.IsZoning && !Playfield.IsDungeon &&
+                    !player.IsFalling && !Item.HasPendingUse && !Spell.HasPendingCast &&
+                    (_movement.Owner == MovementOwner.None || _movement.Owner == MovementOwner.OutdoorTravel) &&
+                    HasUsableFlightVehicle(player);
+                Status = GateStatus("vehicle", player, false);
+                return VehicleTransitionResult.Blocked;
+            }
             if (_pendingTarget != null)
             {
                 if (DateTime.UtcNow - _requestedAt < TransitionTimeout)
@@ -401,6 +411,14 @@ namespace RKmission
         private static Item FindModel(Hud1EquipmentModel model, bool inventoryOnly) => model == null ? null :
             Inventory.Items.FirstOrDefault(x => model.Matches(x) &&
                 (!inventoryOnly || x.Slot.Type == IdentityType.Inventory && !x.IsEquipped));
+        private bool HasUsableFlightVehicle(SimpleChar player)
+        {
+            Item known = FindItem(_verifiedVehicle, true);
+            if (known != null && known.MeetsUseReqs(player) &&
+                !_rejectedCandidates.Contains(CandidateKey(ItemReference.From(known)))) return true;
+            return Inventory.Items.Any(x => IsHud1InventoryCandidate(x) && x.MeetsUseReqs(player) &&
+                !_rejectedCandidates.Contains(CandidateKey(ItemReference.From(x))));
+        }
         private bool SafeToTransition(SimpleChar player, bool allowExactDungeon) => !Game.IsZoning &&
             (allowExactDungeon || !Playfield.IsDungeon) && !player.IsAttacking && !player.IsFalling &&
             !Item.HasPendingUse && !Spell.HasPendingCast &&
@@ -447,6 +465,7 @@ namespace RKmission
             _observedOriginal = _originalFlying = _ownsHud1 = false;
             _characterInstance = 0; _characterName = null; _verifiedVehicle = _indoorItem = null; _profile = null;
             _rejectedCandidates.Clear(); _indoorReadinessFailure = null; ClearPending(); ResetTerminalRequirement(); Status = "unobserved";
+            FlightTransitionCombatGated = false;
         }
     }
 }

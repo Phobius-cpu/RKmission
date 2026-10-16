@@ -108,9 +108,9 @@ namespace RKmission
             Game.TeleportEnded += OnTeleportEnded;
         }
 
-        public WarpResult Tick(int targetId, Vector3? missionAnchor = null)
+        public WarpResult Tick(int targetId, Vector3? missionAnchor = null, bool requireZoning = false)
         {
-            if (Playfield.ModelIdentity.Instance == targetId && _state == State.Idle) return WarpResult.Succeeded;
+            if (!requireZoning && Playfield.ModelIdentity.Instance == targetId && _state == State.Idle) return WarpResult.Succeeded;
             if (_state == State.Done && _targetId == targetId) return WarpResult.Succeeded;
             if (_state == State.Failed && _targetId == targetId) return WarpResult.Failed;
             if (_state == State.Idle || _targetId != targetId)

@@ -42,6 +42,8 @@ namespace RKmission
         private readonly MissionCompletionTracker _completion = new MissionCompletionTracker();
         private DateTime _acknowledgementStarted;
         private bool _serverCompletion;
+        private string _serverCompletionMessageType;
+        private string _lastAcknowledgementDiagnostic;
         private string _roleResolutionFailure;
         public bool Finale { get; private set; }
         public bool PersonEncounterActive { get; private set; }
@@ -253,6 +255,16 @@ namespace RKmission
             // longer than an arbitrary recency window; neither may erase ownership.
             bool ownedAction = _steps.Any(x => x.Sent);
             bool objectiveProof = _steps.Count > 0 && _steps.All(x => x.Proof || x.Done);
+            bool boundQuestPresent = Mission.List?.Any(x => x.Identity == _record.Id) == true;
+            string acknowledgementDiagnostic = $"serverCompletion={_serverCompletion}" +
+                (_serverCompletion ? $" ({_serverCompletionMessageType})" : "") +
+                $", boundQuest={(boundQuestPresent ? "present" : "absent")}, objectiveProof={objectiveProof}, " +
+                $"sourceItemProof={_steps.Where(x => x.Action is UseItemOnItemAction).All(x => x.Proof || x.Done)}";
+            if (!string.Equals(_lastAcknowledgementDiagnostic, acknowledgementDiagnostic, StringComparison.Ordinal))
+            {
+                _lastAcknowledgementDiagnostic = acknowledgementDiagnostic;
+                _say($"Mission {_record.Id.Instance}: acknowledgement state: {acknowledgementDiagnostic}.");
+            }
             if (!_completion.Reconcile(_record.Id, ownedAction, objectiveProof,
                 _serverCompletion, _record.DeletedByUser, out string evidence)) return;
             RewardConfirmed = true;
@@ -271,10 +283,17 @@ namespace RKmission
             if (message is CharacterActionMessage action && action.Action == CharacterActionType.Death)
                 foreach (Step step in _steps.Where(x => x.Sent && x.Action is KillPersonAction &&
                     (x.Target == action.Target || x.Target == action.Identity))) step.DeathObserved = true;
-            if (message is ChatTextMessage chat && chat.Text != null &&
-                (chat.Text.IndexOf("Mission accomplished", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                 chat.Text.IndexOf("You have completed the mission", StringComparison.OrdinalIgnoreCase) >= 0))
+            string text = message is ChatTextMessage chat ? chat.Text :
+                message is FormatFeedbackMessage feedback ? feedback.Message : null;
+            if (!_serverCompletion && text != null &&
+                (text.IndexOf("Mission accomplished", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 text.IndexOf("You have completed the mission", StringComparison.OrdinalIgnoreCase) >= 0))
+            {
                 _serverCompletion = true;
+                _serverCompletionMessageType = message.GetType().Name;
+                _say($"Mission {_record.Id.Instance}: server completion text observed via {_serverCompletionMessageType}; " +
+                    "awaiting exact bound-quest absence and the stable 2-second completion gate.");
+            }
         }
 
         public void ArmKill(SimpleChar enemy)
