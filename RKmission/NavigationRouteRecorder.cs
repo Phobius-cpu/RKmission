@@ -1221,18 +1221,25 @@ namespace RKmission
             List<Vector3> points = RecordedReturnPoints(ascent, from, doorApproach,
                 Playfield.ModelIdentity.Instance);
             if (points == null) return false;
+            int reachedPrefix = 0;
+            while (points.Count - reachedPrefix > 2 &&
+                Vector3.Distance(from, points[reachedPrefix]) <= 1.5f)
+                reachedPrefix++;
+            if (reachedPrefix > 0)
+                points = points.GetRange(reachedPrefix, points.Count - reachedPrefix);
             StopPlayback();
             _playing = new Route { Name = ascent.RouteName + " (return descent)",
                 Playfield = ascent.Playfield };
             _playPoints = points;
-            _dungeonPhysicalPoints = (ascent.PhysicalPoints ?? ascent.Points).AsEnumerable().Reverse().ToList();
+            _dungeonPhysicalPoints = new List<Vector3>(points);
             _dungeonPrecisePlayback = ascent.PreciseRecordedPlayback;
             _playIndex = 0;
             _dungeonPlayback = true;
             _lastDungeonReportedIndex = 0;
             ground = points[points.Count - 1];
             _dungeonRequestedTarget = ground;
-            _say($"Prepared recorded return descent '{ascent.RouteName}': {points.Count} reversed physical point(s), ground attachment={ground}; doorway crossing held.");
+            _say($"Prepared recorded return descent '{ascent.RouteName}': {points.Count} reversed physical point(s), " +
+                $"skipped {reachedPrefix} already-reached loot-side point(s), ground attachment={ground}; doorway crossing held.");
             return true;
         }
 

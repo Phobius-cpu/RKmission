@@ -48,6 +48,17 @@ Write-Output 'PASS production C# reversal preserves physical points, ground endp
 foreach ($text in @('out DungeonTopologyContinuation completedPath', 'Points = new List<Vector3>(_playPoints)')) {
     Require ($recorder.Contains($text)) "Missing completion snapshot: $text"
 }
+$prepareReturn = $recorder.Substring($recorder.IndexOf('public bool TryPrepareRecordedReturn('),
+ $recorder.IndexOf('public void StopPlayback()', $recorder.IndexOf('public bool TryPrepareRecordedReturn(')) -
+ $recorder.IndexOf('public bool TryPrepareRecordedReturn('))
+foreach ($text in @('points.Count - reachedPrefix > 2',
+ 'Vector3.Distance(from, points[reachedPrefix]) <= 1.5f',
+ 'points = points.GetRange(reachedPrefix, points.Count - reachedPrefix)',
+ 'skipped {reachedPrefix} already-reached loot-side point(s)')) {
+    Require ($prepareReturn.Contains($text)) "Missing bounded descent reacquisition invariant: $text"
+}
+Require (-not $prepareReturn.Contains('OrderBy(') -and -not $prepareReturn.Contains('Nearest')) 'Descent reacquisition may not jump to an arbitrary nearest route segment.'
+Write-Output 'PASS descent skips only consecutive already-reached loot-side points and retains at least two ordered physical points'
 $completion = $recorder.IndexOf('completedPath = new DungeonTopologyContinuation')
 Require ($completion -lt $recorder.IndexOf('StopPlayback();', $completion)) 'Completed ascent must be copied before playback state is cleared.'
 foreach ($text in @('_recordedRoomReturn.RoomId == source', '_recordedRoomReturn.Floor == _floor',
