@@ -278,11 +278,21 @@ namespace ManagerLoot
         public void BeginMissionRoom(int roomId)
         {
             if (_settings == null) return;
+            bool enteringMission = MissionRoomId < 0;
+            bool roomChanged = MissionRoomId != roomId;
             MissionRoomId = roomId;
             _settings["Chests"] = true;
-            RKmission.CarriedItems.RequestBackpackSnapshots("confirmed mission dungeon entry");
-            CurrentProcess = ProcessState.Load_Backpacks;
             BeginMissionControl();
+            if (!roomChanged) return;
+
+            RKmission.CarriedItems.RequestBackpackSnapshots(enteringMission
+                ? "confirmed mission dungeon entry"
+                : "confirmed mission room transition");
+            // Only initial dungeon entry starts managed-bag hydration. A genuine
+            // room transition updates context without interrupting an outstanding
+            // source acquisition, transfer, Keep placement, close, or lockpick.
+            if (enteringMission && !IsProcessingMissionLoot)
+                CurrentProcess = ProcessState.Load_Backpacks;
         }
 
         public void ObserveMissionRoomTraversal()
@@ -1694,7 +1704,6 @@ namespace ManagerLoot
                     case ProcessState.Load_Backpacks:
                         // Chat.WriteLine("Loading backpack info.", ChatColor.Yellow);
                         InitializeBackpackInfo();
-                        CurrentProcess = ProcessState.Open_Corpse;
                         break;
                     case ProcessState.Open_Corpse:
                         if (CorpseContainer != null) { CurrentProcess = ProcessState.Move_To_Inventory; return; }

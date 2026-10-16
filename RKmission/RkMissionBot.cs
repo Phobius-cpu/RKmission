@@ -91,6 +91,8 @@ namespace RKmission
         private bool _emergencyExtractionActive;
         private Identity _emergencyExtractionMission = Identity.None;
         private int _emergencyExtractionDestination;
+        private Identity _lastLocalRouteModeMission = Identity.None;
+        private string _lastLocalRouteModeSelection, _lastLocalRouteVehicleStatus;
         private string _lifecycleSignature;
         private Vector3 _lifecyclePosition;
         private DateTime _lastLifecycleProgress, _watchdogRecoveryAt;
@@ -659,6 +661,7 @@ namespace RKmission
             _lastLifecycleProgress = DateTime.UtcNow;
             _watchdogRecoveryAt = DateTime.MinValue;
             _travelInvalidated = false;
+            ResetLocalRouteModeDiagnostic();
             _handoffWaitStarted = DateTime.MinValue;
             _observedDungeon = Identity.None;
             _associationAttempts = 0;
@@ -719,6 +722,7 @@ namespace RKmission
             _completedMissionWarpAttempted = false;
             ResetEmergencyExtraction();
             _verifiedOutdoorMissionExit = false;
+            ResetLocalRouteModeDiagnostic();
             _deathRecovery?.Stop();
             if (!preserveCheckpoint && _checkpoint != null)
             { _checkpoint.Armed = false; _checkpoint.Phase = "Idle"; _checkpoint.Save(true, Say); }
@@ -1212,8 +1216,7 @@ namespace RKmission
                     }
                     if (flightRequired && _travel.MatchesAnchor(_selected) && !_travel.RouteUsesFlight)
                         _travel.Reset("live Fly preflight changed route mode; rebuild estimates before movement");
-                    Say($"Local mission route mode choice: distance={localDistance:0.0}m, vehicle={_vehicle.Status}; " +
-                        $"selected={(DynelManager.LocalPlayer.MovementState == MovementState.Fly ? "Fly" : "Foot")}.");
+                    ReportLocalRouteModeChoice(localDistance);
                 }
                 if (_autoCycle && !_travel.MatchesAnchor(_selected) &&
                     _travel.SelectNearest(new[] { _selected }) == null)
@@ -1234,6 +1237,28 @@ namespace RKmission
                 Stop(); Say("Stopped after an AO# error: " + ex);
             }
             finally { SaveCheckpoint(); }
+        }
+
+        private void ReportLocalRouteModeChoice(float distance)
+        {
+            if (_selected == null) return;
+            string selection = DynelManager.LocalPlayer.MovementState == MovementState.Fly ? "Fly" : "Foot";
+            string vehicleStatus = _vehicle.Status ?? string.Empty;
+            if (_lastLocalRouteModeMission == _selected.Id &&
+                string.Equals(_lastLocalRouteModeSelection, selection, StringComparison.Ordinal) &&
+                string.Equals(_lastLocalRouteVehicleStatus, vehicleStatus, StringComparison.Ordinal)) return;
+
+            _lastLocalRouteModeMission = _selected.Id;
+            _lastLocalRouteModeSelection = selection;
+            _lastLocalRouteVehicleStatus = vehicleStatus;
+            Say($"Local mission route mode choice: distance={distance:0.0}m, vehicle={vehicleStatus}; selected={selection}.");
+        }
+
+        private void ResetLocalRouteModeDiagnostic()
+        {
+            _lastLocalRouteModeMission = Identity.None;
+            _lastLocalRouteModeSelection = null;
+            _lastLocalRouteVehicleStatus = null;
         }
 
         private void SaveCheckpoint()
