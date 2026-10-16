@@ -12,7 +12,8 @@ using Newtonsoft.Json;
 
 namespace RKmission
 {
-    // Evidence collection only. A candidate fingerprint never enables playback.
+    // Captures immutable room-template evidence. A fingerprint can only enable
+    // playback when a route also carries an explicitly validated source capture.
     internal static class DungeonRoomCapture
     {
         internal sealed class Snapshot
@@ -58,6 +59,41 @@ namespace RKmission
             return new[] { (float)(x * Math.Cos(angle) - z * Math.Sin(angle)),
                 point[1] - origin[1], (float)(x * Math.Sin(angle) + z * Math.Cos(angle)) };
         }
+
+        internal static Vector3 WorldFromCandidateLocal(float[] point, float[] origin,
+            float degrees)
+        {
+            double angle = degrees * Math.PI / 180d;
+            return new Vector3(origin[0] + (float)(point[0] * Math.Cos(angle) - point[2] * Math.Sin(angle)),
+                origin[1] + point[1], origin[2] + (float)(point[0] * Math.Sin(angle) + point[2] * Math.Cos(angle)));
+        }
+
+        internal static bool Compatible(Snapshot live, string roomName, string fingerprint,
+            float[] templatePosition, float templateRotation, float[] localRect,
+            int surfaceCount, int doorCount, out string reason)
+        {
+            reason = null;
+            if (live == null || string.IsNullOrWhiteSpace(fingerprint) ||
+                !string.Equals(live.CandidateFingerprint, fingerprint, StringComparison.Ordinal))
+                reason = "template fingerprint differs";
+            else if (!string.Equals(live.RoomName, roomName, StringComparison.Ordinal) ||
+                live.Surfaces.Count != surfaceCount || live.Doors.Count != doorCount)
+                reason = "room identity or geometry counts differ";
+            else if (templatePosition == null || templatePosition.Length != 3 ||
+                localRect == null || localRect.Length != 4 || live.TemplatePosition == null ||
+                live.LocalRect == null || live.TemplatePosition.Zip(templatePosition,
+                    (a, b) => Math.Abs(a - b)).Any(x => x > 0.05f) ||
+                Math.Abs(live.TemplateRotationDegrees - templateRotation) > 0.05f ||
+                live.LocalRect.Zip(localRect, (a, b) => Math.Abs(a - b)).Any(x => x > 0.05f))
+                reason = "template placement metadata differs";
+            else if (live.Position == null || live.Position.Length != 3 ||
+                !Finite(live.Position) || !Finite(new[] { live.RotationDegrees }))
+                reason = "live room transform is invalid";
+            return reason == null;
+        }
+
+        private static bool Finite(IEnumerable<float> values) =>
+            values != null && values.All(x => !float.IsNaN(x) && !float.IsInfinity(x));
 
         internal static string GeometryFingerprint(IEnumerable<string> geometry)
         {

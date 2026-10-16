@@ -5,10 +5,11 @@ $original = Get-Content (Join-Path $root 'docs/navigation-evidence/navigation-ro
 $asset = Get-Content (Join-Path $root 'RKmission/Data/DungeonTopologyRoutes.json') -Raw | ConvertFrom-Json
 $route = @($original.Routes | Where-Object Name -CEQ 'U turn Ramp')
 if ($route.Count -ne 1 -or $route[0].Points.Count -ne 54) { throw 'Original evidence changed' }
-$derived = $asset.Routes[0]
-if ($asset.Routes.Count -ne 1 -or $derived.Name -cne 'U turn ramp - Upper Container' -or
-    $derived.Playfield -ne 14680242 -or $derived.Points.Count -ne 16 -or
-    -not $derived.DungeonTopologyOnly -or $derived.Directionality -ne 'Forward') { throw 'Derivative metadata changed' }
+$derived = @($asset.Routes | Where-Object Name -CEQ 'U turn ramp - Upper Container')
+if ($derived.Count -ne 1 -or $derived[0].Name -cne 'U turn ramp - Upper Container' -or
+    $derived[0].Playfield -ne 14680242 -or $derived[0].Points.Count -ne 16 -or
+    -not $derived[0].DungeonTopologyOnly -or $derived[0].Directionality -ne 'Forward') { throw 'Derivative metadata changed' }
+$derived = $derived[0]
 for ($i = 0; $i -lt 16; $i++) {
     for ($axis = 0; $axis -lt 3; $axis++) {
         if ($derived.Points[$i][$axis] -ne $route[0].Points[$i][$axis]) { throw 'Invented derivative coordinate' }
@@ -19,7 +20,7 @@ Write-Output 'PASS derivative is exactly original points 0..15 with preserved ca
 
 # Compile the production selector itself, with only AO vector/playfield data stubbed.
 $start = $recorder.IndexOf('        private static DungeonSubpath FindDungeonSubpath(')
-$end = $recorder.IndexOf('        private static bool IsContinuousDungeonRecording', $start)
+$end = $recorder.IndexOf('        private static bool SafeReusableTargetHandoff', $start)
 $method = $recorder.Substring($start, $end - $start).Replace('private static DungeonSubpath', 'public static DungeonSubpath')
 Add-Type -TypeDefinition (@'
 using System;

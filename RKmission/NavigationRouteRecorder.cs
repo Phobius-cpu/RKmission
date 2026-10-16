@@ -33,6 +33,17 @@ namespace RKmission
             public string AltitudeProfile { get; set; }
             public string Directionality { get; set; }
             public bool DungeonTopologyOnly { get; set; }
+            public string SourceRoomName { get; set; }
+            public string SourceRoomFingerprint { get; set; }
+            public float[] SourceRoomPosition { get; set; }
+            public float SourceRoomRotationDegrees { get; set; }
+            public float[] SourceTemplatePosition { get; set; }
+            public float SourceTemplateRotationDegrees { get; set; }
+            public float[] SourceLocalRect { get; set; }
+            public int SourceSurfaceCount { get; set; }
+            public int SourceDoorCount { get; set; }
+            public int FirstReusablePoint { get; set; }
+            public bool ReusableTemplateValidated { get; set; }
             [JsonIgnore] public bool Bundled { get; set; }
         }
         private sealed class DungeonSubpath
@@ -66,6 +77,7 @@ namespace RKmission
         private List<Vector3> _playPoints, _dungeonPhysicalPoints;
         private int _playIndex;
         private bool _dungeonPlayback;
+        private Vector3 _dungeonRequestedTarget;
         private bool _cityReturnPlayback;
         private int _lastDungeonReportedIndex;
         private int _issuedPlayIndex = -1, _playRecoveryAttempts;
@@ -656,9 +668,46 @@ namespace RKmission
             if (layout == null || IsRecording || _dungeonPlayback) return _dungeonPlayback;
             DungeonSubpath best = null;
             int eligibleRecordings = 0;
+            DungeonRoomCapture.Snapshot live = null;
+            bool captureAttempted = false;
             foreach (Route route in _routes.Where(x => (!x.Bundled || x.DungeonTopologyOnly) && x.Points.Count >= 2))
             {
-                List<Vector3> points = route.Points.Select(V).ToList();
+                List<Vector3> points;
+                bool reusable = route.DungeonTopologyOnly && route.ReusableTemplateValidated;
+                if (reusable)
+                {
+                    if (!captureAttempted)
+                    {
+                        captureAttempted = true;
+                        try { live = DungeonRoomCapture.ReadCurrent(); }
+                        catch (Exception ex)
+                        {
+                            _say("Reusable dungeon topology rejected: live room capture unavailable: " + ex.Message);
+                        }
+                    }
+                    if (!DungeonRoomCapture.Compatible(live, route.SourceRoomName,
+                        route.SourceRoomFingerprint, route.SourceTemplatePosition,
+                        route.SourceTemplateRotationDegrees, route.SourceLocalRect,
+                        route.SourceSurfaceCount, route.SourceDoorCount, out string mismatch))
+                    {
+                        _say($"Reusable dungeon topology '{route.Name}' rejected: {mismatch}.");
+                        continue;
+                    }
+                    points = TransformReusableDungeonRoute(route, live);
+                    if (!PreflightReusableDungeonRoute(route, points, layout, roomId,
+                        from, out string preflight))
+                    {
+                        _say($"Reusable dungeon topology '{route.Name}' rejected by preflight: {preflight}.");
+                        continue;
+                    }
+                    _say($"Reusable dungeon topology template match: route='{route.Name}', fingerprint={route.SourceRoomFingerprint}, " +
+                        $"source PF={route.Playfield}, live PF={Playfield.ModelIdentity.Instance}, room={roomId}, " +
+                        $"rotation={route.SourceRoomRotationDegrees:0}->{live.RotationDegrees:0}, translation=({live.Position[0] - route.SourceRoomPosition[0]:0.0}," +
+                        $"{live.Position[1] - route.SourceRoomPosition[1]:0.0},{live.Position[2] - route.SourceRoomPosition[2]:0.0}); " +
+                        $"all {points.Count} points transformed, trusted playback starts at point {route.FirstReusablePoint + 1}.");
+                    points = points.Skip(route.FirstReusablePoint).ToList();
+                }
+                else points = route.Points.Select(V).ToList();
                 float minimumY = points.Min(x => x.Y), maximumY = points.Max(x => x.Y);
                 // Combat topology recovery starts at a 1.5m separation. Keep
                 // the recording gate above incidental floor noise while still
@@ -674,11 +723,14 @@ namespace RKmission
                     List<Vector3> oriented = reverse
                         ? points.AsEnumerable().Reverse().ToList() : points;
                     DungeonSubpath candidate = FindDungeonSubpath(route, oriented,
-                        reverse, from, target);
+                        reverse, from, target, reusable ? 30f : DungeonSourceAttachDistance,
+                        reusable ? 30f : DungeonTargetAttachDistance, reusable);
                     if (candidate == null) continue;
+                    if (reusable && !SafeReusableTargetHandoff(layout, roomId,
+                        candidate.Points[candidate.Points.Count - 1], target)) continue;
                     // Operational derivatives win only after conservative physical
                     // attachment gates; no room translation is inferred.
-                    if (route.DungeonTopologyOnly &&
+                    if (route.DungeonTopologyOnly && !reusable &&
                         (route.Playfield != Playfield.ModelIdentity.Instance ||
                          !layout.IsInside(roomId, candidate.Points[0]) ||
                          !layout.IsInside(roomId, candidate.Points[candidate.Points.Count - 1]))) continue;
@@ -702,6 +754,7 @@ namespace RKmission
             _say($"Recorded dungeon topology '{best.Route.Name}' reduced {best.Points.Count - 1} sampled legs to {_playPoints.Count - 1} physical corridor leg(s); turns and slope changes retained.");
             _playIndex = 0;
             _dungeonPlayback = true;
+            _dungeonRequestedTarget = target;
             _lastDungeonReportedIndex = 0;
             routeName = best.Route.Name;
             string direction = best.Reversed ? "reverse" : "forward";
@@ -711,8 +764,64 @@ namespace RKmission
             return true;
         }
 
+        private static List<Vector3> TransformReusableDungeonRoute(Route route,
+            DungeonRoomCapture.Snapshot live)
+        {
+            return route.Points.Select(point =>
+            {
+                float[] local = DungeonRoomCapture.CandidateLocal(point,
+                    route.SourceRoomPosition, route.SourceRoomRotationDegrees);
+                return DungeonRoomCapture.WorldFromCandidateLocal(local, live.Position,
+                    live.RotationDegrees);
+            }).ToList();
+        }
+
+        private static bool PreflightReusableDungeonRoute(Route route, List<Vector3> points,
+            DungeonLayout layout, int roomId, Vector3 from, out string reason)
+        {
+            reason = null;
+            int first = route.FirstReusablePoint;
+            if (first < 0 || first >= points.Count - 1)
+                reason = "validated reusable start index is invalid";
+            else if (first > 0 && first != 2)
+                reason = "unsupported prefix was not explicitly reviewed";
+            else if (points.Max(x => x.Y) - points.Min(x => x.Y) < 7.5f)
+                reason = "transformed route lost its recorded multi-level span";
+            else if (!layout.IsInside(roomId, points[first], 0.1f) ||
+                !layout.IsInside(roomId, points[points.Count - 1], 0.1f))
+                reason = "trusted start or end lies outside the live room";
+            else if (Math.Abs(from.Y - points[first].Y) > 0.9f ||
+                Vector3.Distance(from, points[first]) > 30f)
+                reason = $"player cannot safely approach trusted start (distance={Vector3.Distance(from, points[first]):0.0}m, vertical={Math.Abs(from.Y - points[first].Y):0.0}m)";
+            else
+            {
+                for (int i = first + 1; i < points.Count; i++)
+                {
+                    if (Vector3.Distance(points[i - 1], points[i]) > 3f ||
+                        !layout.IsInside(roomId, points[i], 0.05f))
+                    { reason = $"point/leg {i + 1} is discontinuous or outside room bounds"; break; }
+                    Vector3 midpoint = (points[i - 1] + points[i]) * 0.5f;
+                    if (!layout.IsInside(roomId, midpoint, 0.02f))
+                    { reason = $"sampled leg {i}->{i + 1} leaves room bounds"; break; }
+                    try
+                    {
+                        Vector3 top = midpoint + Vector3.Up * 1.2f;
+                        Vector3 bottom = midpoint - Vector3.Up * 1.2f;
+                        if (!Playfield.Raycast(top, bottom, out Vector3 floor, out _) ||
+                            Math.Abs(floor.Y - midpoint.Y) > 0.45f)
+                        { reason = $"sampled leg {i}->{i + 1} lacks live surface support"; break; }
+                    }
+                    catch { reason = $"sampled leg {i}->{i + 1} support ray failed"; break; }
+                }
+            }
+            return reason == null;
+        }
+
         private static DungeonSubpath FindDungeonSubpath(Route route, List<Vector3> points,
-            bool reversed, Vector3 from, Vector3 target)
+            bool reversed, Vector3 from, Vector3 target,
+            float sourceAttachDistance = DungeonSourceAttachDistance,
+            float targetAttachDistance = DungeonTargetAttachDistance,
+            bool requireTargetLevel = false)
         {
             float initialVerticalGap = Math.Abs(target.Y - from.Y);
             if (initialVerticalGap < DungeonMinimumVerticalSpan) return null;
@@ -721,7 +830,7 @@ namespace RKmission
             for (int source = 0; source < points.Count - 1; source++)
             {
                 float sourceDistance = Vector3.Distance(from, points[source]);
-                if (sourceDistance > DungeonSourceAttachDistance ||
+                if (sourceDistance > sourceAttachDistance ||
                     route.DungeonTopologyOnly && Math.Abs(from.Y - points[source].Y) > 0.75f) continue;
                 float pathLength = 0f;
                 float verticalRegression = 0f;
@@ -734,7 +843,8 @@ namespace RKmission
                     minimumY = Math.Min(minimumY, points[end].Y);
                     maximumY = Math.Max(maximumY, points[end].Y);
                     float targetDistance = Vector3.Distance(target, points[end]);
-                    if (targetDistance > DungeonTargetAttachDistance ||
+                    if (targetDistance > targetAttachDistance ||
+                        requireTargetLevel && Math.Abs(target.Y - points[end].Y) > 0.9f ||
                         route.DungeonTopologyOnly && Math.Abs(target.Y - points[end].Y) > 0.75f) continue;
                     float verticalSpan = maximumY - minimumY;
                     float finalVerticalGap = Math.Abs(target.Y - points[end].Y);
@@ -770,6 +880,15 @@ namespace RKmission
             return best;
         }
 
+        private static bool SafeReusableTargetHandoff(DungeonLayout layout, int roomId,
+            Vector3 routeEnd, Vector3 target)
+        {
+            if (!layout.IsInside(roomId, target) || Math.Abs(routeEnd.Y - target.Y) > 0.9f ||
+                Vector3.Distance(routeEnd, target) > 30f) return false;
+            return LocalRoutePlanner.ClearInteractionSegment(routeEnd + Vector3.Up,
+                target + Vector3.Up);
+        }
+
         private static bool IsContinuousDungeonRecording(List<Vector3> points) =>
             points != null && points.Count >= 2 &&
             Enumerable.Range(1, points.Count - 1).All(i =>
@@ -788,7 +907,7 @@ namespace RKmission
             SimpleChar player = DynelManager.LocalPlayer;
             if (!_dungeonPlayback || _playing == null || _playPoints == null ||
                 player == null || Game.IsZoning ||
-                Vector3.Distance(target, _playPoints[_playPoints.Count - 1]) > 6f) return false;
+                Vector3.Distance(target, _dungeonRequestedTarget) > 0.5f) return false;
             int previousIndex = _playIndex;
             while (_playIndex < _playPoints.Count - 1 &&
                 Vector3.Distance(player.Position, _playPoints[_playIndex]) <= 1.2f)
@@ -812,7 +931,7 @@ namespace RKmission
                     Points = new List<Vector3>(_playPoints),
                     PhysicalPoints = new List<Vector3>(_dungeonPhysicalPoints ?? _playPoints),
                     ProgressIndex = _playIndex,
-                    TargetSide = waypoint
+                    TargetSide = _dungeonRequestedTarget
                 };
                 completed = true;
                 StopPlayback();
@@ -884,6 +1003,7 @@ namespace RKmission
             _dungeonPhysicalPoints = new List<Vector3>(continuation.PhysicalPoints ?? continuation.Points);
             _playIndex = 0;
             _dungeonPlayback = true;
+            _dungeonRequestedTarget = target;
             _lastDungeonReportedIndex = 0;
             routeName = continuation.RouteName;
             _say($"Prepared recorded loot topology '{routeName}' from forward combat progress " +
@@ -997,6 +1117,7 @@ namespace RKmission
             _dungeonPlayback = true;
             _lastDungeonReportedIndex = 0;
             ground = points[points.Count - 1];
+            _dungeonRequestedTarget = ground;
             _say($"Prepared recorded return descent '{ascent.RouteName}': {points.Count} reversed physical point(s), ground attachment={ground}; doorway crossing held.");
             return true;
         }
@@ -1005,6 +1126,7 @@ namespace RKmission
 
         private void StopPlayback(bool clearFailure)
         { _playing = null; _playPoints = null; _dungeonPhysicalPoints = null; _playIndex = 0; _dungeonPlayback = false;
+            _dungeonRequestedTarget = Vector3.Zero;
             _cityReturnPlayback = false;
             _lastDungeonReportedIndex = 0; _issuedPlayIndex = -1; _playRecoveryAttempts = 0;
             _playLastWaypointDistance = float.MaxValue; _playLastProgress = _nextPlayDiagnostic = DateTime.MinValue;

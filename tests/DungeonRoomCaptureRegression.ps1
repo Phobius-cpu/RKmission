@@ -5,8 +5,10 @@ $recorder=Get-Content (Join-Path $root 'RKmission/NavigationRouteRecorder.cs') -
 $bot=Get-Content (Join-Path $root 'RKmission/RkMissionBot.cs') -Raw
 function Require([bool]$ok,[string]$why){if(-not $ok){throw $why}}
 $start=$source.IndexOf('        internal static float[] CandidateLocal(')
-$end=$source.IndexOf('        private static string PointKey(', $start)
-$methods=$source.Substring($start,$end-$start).Replace('internal static','public static')
+$end=$source.IndexOf('        internal static Vector3 WorldFromCandidateLocal(', $start)
+$hashStart=$source.IndexOf('        internal static string GeometryFingerprint(')
+$hashEnd=$source.IndexOf('        private static string PointKey(', $hashStart)
+$methods=($source.Substring($start,$end-$start)+$source.Substring($hashStart,$hashEnd-$hashStart)).Replace('internal static','public static')
 Add-Type -TypeDefinition ('using System; using System.Linq; using System.Collections.Generic; using System.Text; using System.Security.Cryptography; public static class CaptureMath {'+$methods+'}')
 $p=[float[]]@(105,8,200);$origin=[float[]]@(100,5,200)
 $local=[CaptureMath]::CandidateLocal($p,$origin,90)
