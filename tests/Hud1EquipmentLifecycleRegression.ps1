@@ -15,7 +15,7 @@ Assert ($vehicle.Contains('TransitionTimeout') -and $vehicle.Contains('_rejected
 Assert ($vehicle.Contains('candidate-cleanup') -and $vehicle.Contains('Restoring displaced HUD1 after rejected vehicle candidate')) 'Rejected candidates must restore the displaced HUD1 role before fallback.'
 Assert ($vehicle.Contains('_indoorItem = ItemReference.From(current)')) 'The displaced HUD1 item must be captured exactly.'
 Assert ($vehicle.Contains('RequireIndoorHud1')) 'The indoor HUD1 role must be implemented.'
-Assert ($vehicle.Contains('manual-hud1-change-preserved')) 'Manual HUD1 changes must defeat stale restoration.'
+Assert ($vehicle.Contains('manual-hud1-change-unverified')) 'Manual HUD1 changes must defeat stale restoration without bypassing readiness.'
 Assert ($vehicle.Contains('!routeBenefits')) 'Outdoor activation must remain demand driven.'
 Assert ($vehicle.Contains('Game.IsZoning') -and $vehicle.Contains('player.IsAttacking') -and
     $vehicle.Contains('player.IsFalling') -and $vehicle.Contains('Item.HasPendingUse') -and
@@ -25,6 +25,7 @@ Assert ($policy.Contains('RegisterOperationalItem(Item item)') -and
 Assert (-not $policy.Contains('lowId == 267696')) 'Example combat HUD1 items must not be universally protected.'
 Assert ($bot.Contains('_vehicle.RequireIndoorHud1()') -and
     $bot.Contains('exact selected mission dungeon stable for one second')) 'Indoor restoration must be gated by exact stable mission entry.'
+Assert ($bot.Contains('if (indoorHud1 != VehicleTransitionResult.Ready)')) 'Waiting, blocked and unavailable indoor transitions must all hold dungeon startup.'
 Assert ($bot.IndexOf('_movement.Release(MovementOwner.MissionEntrance)') -lt
     $bot.IndexOf('_vehicle.RequireIndoorHud1()', $bot.IndexOf('_movement.Release(MovementOwner.MissionEntrance)'))) 'Verified entry must release stale MissionEntrance ownership before indoor HUD1.'
 Assert (-not $vehicle.Contains('_movement.Owner == MovementOwner.MissionEntrance')) 'SafeToTransition must not admit MissionEntrance ownership.'

@@ -40,7 +40,7 @@ namespace RKmission
         private string _characterName;
         private ItemReference _verifiedVehicle, _indoorItem, _pendingTarget;
         private Hud1EquipmentProfile _profile;
-        private string _pendingRole;
+        private string _pendingRole, _indoorReadinessFailure;
         private DateTime _requestedAt;
         private bool _terminalLandingActive, _terminalDismountRequested;
         private DateTime _terminalLandingStarted, _terminalGroundObservedAt;
@@ -184,13 +184,11 @@ namespace RKmission
             if (Game.IsZoning) { Status = GateStatus("indoor", player, true); return VehicleTransitionResult.Waiting; }
             if (!SafeToTransition(player, true)) { Status = GateStatus("indoor", player, true); return VehicleTransitionResult.Blocked; }
             Item current = Hud1Item();
-            if (!_ownsHud1)
-            { Status = _originalFlying ? "vehicle/original-flight-preserved" : HudRole(current); return VehicleTransitionResult.Ready; }
             if (_pendingRole == "indoor")
             {
                 if (_pendingTarget?.Matches(current) == true && player.MovementState != MovementState.Fly)
                 {
-                    ClearPending(); Status = "indoor/restore-verified";
+                    ClearPending(); _indoorReadinessFailure = null; Status = "indoor/restore-verified";
                     _indoorItem = ItemReference.From(current);
                     _inventoryPolicy.RegisterOperationalItem(current);
                     PersistIndoor(current);
@@ -203,15 +201,42 @@ namespace RKmission
             if (_pendingRole == "empty")
             {
                 if (current == null && player.MovementState != MovementState.Fly)
-                { ClearPending(); Status = "indoor/empty-verified"; return VehicleTransitionResult.Ready; }
+                {
+                    ClearPending(); Status = "indoor/vehicle-removed-but-required-item-unavailable";
+                    return VehicleTransitionResult.Unavailable;
+                }
                 if (DateTime.UtcNow - _requestedAt < TransitionTimeout) return VehicleTransitionResult.Waiting;
                 ClearPending(); Status = "indoor/vehicle-removal-unverified"; return VehicleTransitionResult.Unavailable;
             }
-            if (_verifiedVehicle == null || !_verifiedVehicle.Matches(current))
+            bool liveVehicle = current != null && (_verifiedVehicle?.Matches(current) == true ||
+                player.MovementState == MovementState.Fly);
+            if (!_ownsHud1 && player.MovementState == MovementState.Fly && current != null)
             {
-                _ownsHud1 = false; ClearPending(); Status = "indoor/manual-hud1-change-preserved";
-                _say("HUD1 lifecycle detected a manual slot change; stale owned restoration was abandoned.");
+                _verifiedVehicle = ItemReference.From(current);
+                _inventoryPolicy.RegisterOperationalItem(current);
+                PersistVehicle(current);
+                liveVehicle = true;
+                _say("Manual flying HUD1 vehicle verified from the live slot and MovementState.Fly; indoor readiness will replace it without claiming stop-time ownership.");
+            }
+            if (!liveVehicle && player.MovementState != MovementState.Fly)
+            {
+                if (current == null)
+                {
+                    Status = _indoorReadinessFailure == null ? "indoor/no-live-hud1-item" : _indoorReadinessFailure;
+                    return VehicleTransitionResult.Unavailable;
+                }
+                _indoorReadinessFailure = null;
+                _indoorItem = ItemReference.From(current);
+                _inventoryPolicy.RegisterOperationalItem(current);
+                PersistIndoor(current);
+                Status = "indoor/live-equipped-and-grounded-verified";
                 return VehicleTransitionResult.Ready;
+            }
+            if (_ownsHud1 && _verifiedVehicle?.Matches(current) != true)
+            {
+                _ownsHud1 = false; ClearPending(); Status = "indoor/manual-hud1-change-unverified";
+                _say("HUD1 lifecycle detected a manual slot change, but the live indoor role is not verified; dungeon startup remains held.");
+                return VehicleTransitionResult.Unavailable;
             }
             Item indoor = FindItem(_indoorItem, true);
             if (indoor != null && !indoor.MeetsUseReqs(player)) indoor = null;
@@ -232,7 +257,7 @@ namespace RKmission
                 {
                     _say($"Exact mission entered; {candidates.Count} usable non-vehicle HUD1 candidates remain, so RKMission will not guess: " +
                         string.Join("; ", candidates.Select(x => $"'{x.Name}', id={x.Id}, templates={x.LowId}/{x.HighId}, QL={x.QualityLevel}")) + ".");
-                    return RemoveOwnedVehicle(current, "ambiguous indoor HUD1 candidates");
+                    return RemoveVehicleForIndoorReadiness(current, "ambiguous indoor HUD1 candidates");
                 }
             }
             if (indoor != null && indoor.MeetsUseReqs(player))
@@ -240,7 +265,7 @@ namespace RKmission
                 _say("Exact mission entered; restoring indoor HUD1 " + _indoorItem + ".");
                 return DispatchEquip(indoor, "indoor", "Restoring indoor HUD1 item");
             }
-            return RemoveOwnedVehicle(current, "no usable indoor HUD1 candidate exists");
+            return RemoveVehicleForIndoorReadiness(current, "no usable indoor HUD1 candidate exists");
         }
 
         public bool RestoreOriginal()
@@ -384,7 +409,7 @@ namespace RKmission
             $"{role}/transition-gated; owner={_movement.Owner}, zoning={Game.IsZoning}, " +
             $"dungeon={Playfield.IsDungeon}, exactDungeonAllowed={allowExactDungeon}, attacking={player?.IsAttacking == true}, " +
             $"falling={player?.IsFalling == true}, pendingItem={Item.HasPendingUse}, pendingSpell={Spell.HasPendingCast}";
-        private VehicleTransitionResult RemoveOwnedVehicle(Item current, string reason)
+        private VehicleTransitionResult RemoveVehicleForIndoorReadiness(Item current, string reason)
         {
             if (current == null || Inventory.NumFreeSlots <= 0)
             { Status = "indoor/no-space-to-remove-vehicle"; return VehicleTransitionResult.Unavailable; }
@@ -392,8 +417,10 @@ namespace RKmission
             _pendingTarget = _verifiedVehicle; _pendingRole = "empty"; _requestedAt = DateTime.UtcNow;
             Status = reason.StartsWith("no usable", StringComparison.Ordinal) ?
                 "indoor/no-candidate-vehicle-removal-requested" : "indoor/ambiguous-vehicle-removal-requested";
+            _indoorReadinessFailure = reason.StartsWith("no usable", StringComparison.Ordinal) ?
+                "indoor/no-usable-candidate" : "indoor/ambiguous-candidates";
             _say("Exact mission entered; " + reason +
-                ", so the owned vehicle was requested back to inventory and HUD1 will remain empty.");
+                ", so the verified live vehicle was requested back to inventory and HUD1 will remain empty.");
             return VehicleTransitionResult.Waiting;
         }
         private void PersistVehicle(Item item)
@@ -419,7 +446,7 @@ namespace RKmission
             }
             _observedOriginal = _originalFlying = _ownsHud1 = false;
             _characterInstance = 0; _characterName = null; _verifiedVehicle = _indoorItem = null; _profile = null;
-            _rejectedCandidates.Clear(); ClearPending(); ResetTerminalRequirement(); Status = "unobserved";
+            _rejectedCandidates.Clear(); _indoorReadinessFailure = null; ClearPending(); ResetTerminalRequirement(); Status = "unobserved";
         }
     }
 }

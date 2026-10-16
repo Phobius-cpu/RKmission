@@ -825,8 +825,10 @@ namespace RKmission
                     FinishScheduledAutomaticLogistics();
                     return;
                 }
-                // Give a just-zoned flying character a short diagonal altitude
-                // escape before mission selection, terminal return or other travel.
+                if (Playfield.IsDungeon && _selected != null)
+                    _postZoneSafety.ObserveExpectedOutdoorExit(_selected.Entrance);
+                // Give a just-zoned flying character a verified outward clearance
+                // before the diagonal altitude escape and normal travel.
                 if (_postZoneSafety.Tick()) return;
                 if (!DynelManager.LocalPlayer.IsAlive)
                 {
@@ -1168,13 +1170,27 @@ namespace RKmission
                     if (entrance == EntranceResult.Failed)
                     { Stop(); Say("Mission-key entrance was accepted, but exact dungeon entry was not verified."); return; }
                 }
-                if (_autoCycle && !_travel.MatchesAnchor(_selected) &&
+                if (_autoCycle && !inFixerGrid &&
+                    _selected.PlayfieldId == Playfield.ModelIdentity.Instance &&
                     DynelManager.LocalPlayer != null)
                 {
                     float localDistance = LocalRoutePlanner.HorizontalDistance(
                         DynelManager.LocalPlayer.Position, _selected.Entrance);
-                    VehicleTransitionResult vehicle = _vehicle.RequireFlight(localDistance >= 120f);
-                    if (vehicle == VehicleTransitionResult.Waiting) return;
+                    bool flightRequired = _travel.Mode == TravelMode.Flying ||
+                        _travel.Mode == TravelMode.Auto && localDistance >= 120f;
+                    VehicleTransitionResult vehicle = _vehicle.RequireFlight(flightRequired);
+                    if (flightRequired && vehicle != VehicleTransitionResult.Ready)
+                    {
+                        Wait("Long local mission travel is held until live Fly preflight succeeds: " + _vehicle.Status + ".");
+                        return;
+                    }
+                    if (flightRequired && DynelManager.LocalPlayer.MovementState != MovementState.Fly)
+                    {
+                        Wait("Long local mission travel is held because HUD1 activation has not produced authoritative MovementState.Fly.");
+                        return;
+                    }
+                    if (flightRequired && _travel.MatchesAnchor(_selected) && !_travel.RouteUsesFlight)
+                        _travel.Reset("live Fly preflight changed route mode; rebuild estimates before movement");
                     Say($"Local mission route mode choice: distance={localDistance:0.0}m, vehicle={_vehicle.Status}; " +
                         $"selected={(DynelManager.LocalPlayer.MovementState == MovementState.Fly ? "Fly" : "Foot")}.");
                 }
@@ -1579,9 +1595,9 @@ namespace RKmission
             _movement.Release(MovementOwner.MissionEntrance);
             _waitingReason = null;
             VehicleTransitionResult indoorHud1 = _vehicle.RequireIndoorHud1();
-            if (indoorHud1 == VehicleTransitionResult.Waiting || indoorHud1 == VehicleTransitionResult.Blocked)
+            if (indoorHud1 != VehicleTransitionResult.Ready)
             {
-                Wait("Exact mission entered; HUD1 indoor role is settling: " + _vehicle.Status + ".");
+                Wait("Exact mission entered; dungeon startup is held until HUD1 and non-Fly state are verified: " + _vehicle.Status + ".");
                 return;
             }
             _dungeon.Start(record);

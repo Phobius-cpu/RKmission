@@ -48,6 +48,7 @@ namespace RKmission
         private string _lastEvaluation;
         public TravelMode Mode { get; set; } = TravelMode.Auto;
         public string Status => _phase.ToString();
+        public bool RouteUsesFlight => _route != null && _flying;
         public Identity ActiveDoor => _entrance?.Active?.DoorId ?? Identity.None;
         public int UpdateIntervalMilliseconds => _route != null && IsFlying ? 25 : 250;
         private static bool IsFlying => DynelManager.LocalPlayer?.MovementState == MovementState.Fly;
