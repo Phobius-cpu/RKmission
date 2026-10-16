@@ -21,7 +21,7 @@ public struct Vector3 {
     public static Vector3 operator -(Vector3 a,Vector3 b) => new Vector3(a.X-b.X,a.Y-b.Y,a.Z-b.Z);
     public static float Distance(Vector3 a,Vector3 b) => (float)Math.Sqrt((a.X-b.X)*(a.X-b.X)+(a.Y-b.Y)*(a.Y-b.Y)+(a.Z-b.Z)*(a.Z-b.Z));
 }
-public class DungeonTopologyContinuation { public int Playfield; public List<Vector3> Points,PhysicalPoints; public bool PreciseRecordedPlayback; }
+public class DungeonTopologyContinuation { public int Playfield; public List<Vector3> Points,PhysicalPoints,EntryAlignmentPoints; public bool PreciseRecordedPlayback; }
 public static class RampReturn {
     const float DungeonMinimumVerticalSpan=1.5f,DungeonSourceAttachDistance=4f;
 '@ + $simplifier + $method + $continuous + '}')
@@ -45,6 +45,17 @@ Require ($null -eq [RampReturn]::RecordedReturnPoints($ascent,$upper,[Vector3]::
 $ascent.Points[4] = [Vector3]::new(999,5,999)
 Require ($null -eq [RampReturn]::RecordedReturnPoints($ascent,$upper,$door,14680242)) 'Discontinuous retained path accepted.'
 Write-Output 'PASS production C# reversal preserves physical points, ground endpoint and conservative context/connector gates'
+$ascent.Points[4] = [Vector3]::new($asset.Routes[0].Points[4][0],$asset.Routes[0].Points[4][1],$asset.Routes[0].Points[4][2])
+$ascent.PreciseRecordedPlayback = $true
+$ascent.EntryAlignmentPoints = [System.Collections.Generic.List[Vector3]]::new()
+$ascent.EntryAlignmentPoints.Add([Vector3]::new(285,5,90))
+$ascent.EntryAlignmentPoints.Add([Vector3]::new(285,5,91.5))
+$return = [RampReturn]::RecordedReturnPoints($ascent,$upper,$door,14680242)
+Require ($return.Count -eq $ascent.Points.Count + 2) 'Precise descent did not append both recorded ground alignment points.'
+Require ($return[-1].Y -eq 5 -and $return[-1].Z -eq 90) 'Precise descent did not finish at the outer ground run-up point.'
+$ascent.EntryAlignmentPoints[1] = [Vector3]::new(999,5,999)
+Require ($null -eq [RampReturn]::RecordedReturnPoints($ascent,$upper,$door,14680242)) 'Discontinuous ground exit alignment was accepted.'
+Write-Output 'PASS precise return continues beyond trusted slope point through both reversed ground-entry alignment points'
 foreach ($text in @('out DungeonTopologyContinuation completedPath', 'Points = new List<Vector3>(_playPoints)')) {
     Require ($recorder.Contains($text)) "Missing completion snapshot: $text"
 }
@@ -105,6 +116,8 @@ foreach ($index in @(0,7,9,10,11,13,15)) {
 }
 $ascent.PhysicalPoints = $raw
 $ascent.Points = $reduced
+$ascent.PreciseRecordedPlayback = $false
+$ascent.EntryAlignmentPoints = $null
 $return = [RampReturn]::RecordedReturnPoints($ascent,$raw[-1],$door,14680242)
 Require ($return.Count -eq $raw.Count) 'Return must restore dense physical evidence instead of reversing only simplified legs.'
 for ($i=0; $i -lt $return.Count; $i++) {
@@ -117,7 +130,7 @@ for ($i=0; $i -lt 21; $i++) { $straight.Add([Vector3]::new($i,5,0)) }
 Require ([RampReturn]::SimplifyDungeonTopology($straight).Count -eq 2) 'Straight corridor must use the minimum one leg.'
 foreach ($text in @('_playPoints = _dungeonPrecisePlayback',
     'PhysicalPoints = new List<Vector3>(_dungeonPhysicalPoints ?? _playPoints)',
-    '(ascent.PhysicalPoints ?? ascent.Points).AsEnumerable().Reverse().ToList()', 'if (keep[i]) return false;',
+    'List<Vector3> descent = (ascent.PhysicalPoints ?? ascent.Points)', 'if (keep[i]) return false;',
     'dx * dx + dz * dz > 0.2f * 0.2f', 'Math.Abs(offset.Y - leg.Y * amount) > 0.15f')) {
     Require ($recorder.Contains($text)) "Missing smoothing/reversal invariant: $text"
 }

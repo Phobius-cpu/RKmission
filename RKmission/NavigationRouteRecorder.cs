@@ -66,6 +66,7 @@ namespace RKmission
             public int Playfield;
             public List<Vector3> Points;
             public List<Vector3> PhysicalPoints;
+            public List<Vector3> EntryAlignmentPoints;
             public int ProgressIndex;
             public bool PreciseRecordedPlayback;
             public Vector3 TargetSide;
@@ -77,6 +78,7 @@ namespace RKmission
         private Route _recording, _playing;
         private DungeonRoomCapture.Snapshot _recordingRoomCapture;
         private List<Vector3> _playPoints, _dungeonPhysicalPoints;
+        private List<Vector3> _dungeonEntryAlignmentPoints;
         private bool _dungeonPrecisePlayback;
         private List<Vector3> _dungeonStartConnector;
         private int _dungeonStartConnectorIndex;
@@ -777,6 +779,8 @@ namespace RKmission
             StopPlayback();
             _playing = best.Route;
             _dungeonPhysicalPoints = new List<Vector3>(best.Points);
+            _dungeonEntryAlignmentPoints = best.ReusableEntryAlignment == null
+                ? null : new List<Vector3>(best.ReusableEntryAlignment);
             _dungeonPrecisePlayback = best.Route.ReusableTemplateValidated;
             _playPoints = _dungeonPrecisePlayback
                 ? new List<Vector3>(best.Points)
@@ -1040,6 +1044,8 @@ namespace RKmission
                     Playfield = Playfield.ModelIdentity.Instance,
                     Points = new List<Vector3>(_playPoints),
                     PhysicalPoints = new List<Vector3>(_dungeonPhysicalPoints ?? _playPoints),
+                    EntryAlignmentPoints = _dungeonEntryAlignmentPoints == null
+                        ? null : new List<Vector3>(_dungeonEntryAlignmentPoints),
                     ProgressIndex = _playIndex,
                     PreciseRecordedPlayback = _dungeonPrecisePlayback,
                     TargetSide = _dungeonRequestedTarget
@@ -1071,6 +1077,8 @@ namespace RKmission
                 Playfield = Playfield.ModelIdentity.Instance,
                 Points = new List<Vector3>(_playPoints),
                 PhysicalPoints = new List<Vector3>(_dungeonPhysicalPoints ?? _playPoints),
+                EntryAlignmentPoints = _dungeonEntryAlignmentPoints == null
+                    ? null : new List<Vector3>(_dungeonEntryAlignmentPoints),
                 ProgressIndex = Math.Max(0, Math.Min(_playIndex, _playPoints.Count - 1)),
                 PreciseRecordedPlayback = _dungeonPrecisePlayback,
                 TargetSide = targetSide
@@ -1113,6 +1121,8 @@ namespace RKmission
                 Playfield = continuation.Playfield };
             _playPoints = remaining;
             _dungeonPhysicalPoints = new List<Vector3>(continuation.PhysicalPoints ?? continuation.Points);
+            _dungeonEntryAlignmentPoints = continuation.EntryAlignmentPoints == null
+                ? null : new List<Vector3>(continuation.EntryAlignmentPoints);
             _playIndex = 0;
             _dungeonPlayback = true;
             _dungeonPrecisePlayback = continuation.PreciseRecordedPlayback;
@@ -1203,7 +1213,21 @@ namespace RKmission
                 Math.Abs(doorApproach.Y - ground.Y) > 1.25f ||
                 !IsContinuousDungeonRecording(ascent.PhysicalPoints ?? ascent.Points) ||
                 !IsRecordedSubsequence(ascent.PhysicalPoints ?? ascent.Points, ascent.Points)) return null;
-            return (ascent.PhysicalPoints ?? ascent.Points).AsEnumerable().Reverse().ToList();
+            List<Vector3> descent = (ascent.PhysicalPoints ?? ascent.Points)
+                .AsEnumerable().Reverse().ToList();
+            if (ascent.PreciseRecordedPlayback)
+            {
+                List<Vector3> alignment = ascent.EntryAlignmentPoints;
+                if (alignment == null || alignment.Count != 2 ||
+                    Vector3.Distance(alignment[0], alignment[1]) > 3f ||
+                    Vector3.Distance(alignment[1], ascent.Points[0]) > 3f ||
+                    Math.Abs(alignment[0].Y - doorApproach.Y) > 1.25f ||
+                    Math.Abs(alignment[1].Y - doorApproach.Y) > 1.25f)
+                    return null;
+                descent.Add(alignment[1]);
+                descent.Add(alignment[0]);
+            }
+            return descent;
         }
 
         private static bool IsRecordedSubsequence(List<Vector3> physical, List<Vector3> retained)
@@ -1232,6 +1256,7 @@ namespace RKmission
                 Playfield = ascent.Playfield };
             _playPoints = points;
             _dungeonPhysicalPoints = new List<Vector3>(points);
+            _dungeonEntryAlignmentPoints = null;
             _dungeonPrecisePlayback = ascent.PreciseRecordedPlayback;
             _playIndex = 0;
             _dungeonPlayback = true;
@@ -1246,7 +1271,7 @@ namespace RKmission
         public void StopPlayback() => StopPlayback(true);
 
         private void StopPlayback(bool clearFailure)
-        { _playing = null; _playPoints = null; _dungeonPhysicalPoints = null; _playIndex = 0; _dungeonPlayback = false; _dungeonPrecisePlayback = false;
+        { _playing = null; _playPoints = null; _dungeonPhysicalPoints = null; _dungeonEntryAlignmentPoints = null; _playIndex = 0; _dungeonPlayback = false; _dungeonPrecisePlayback = false;
             _dungeonStartConnector = null; _dungeonStartConnectorIndex = 0;
             _dungeonRequestedTarget = Vector3.Zero;
             _cityReturnPlayback = false;
