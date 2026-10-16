@@ -21,7 +21,7 @@ public struct Vector3 {
     public static Vector3 operator -(Vector3 a,Vector3 b) => new Vector3(a.X-b.X,a.Y-b.Y,a.Z-b.Z);
     public static float Distance(Vector3 a,Vector3 b) => (float)Math.Sqrt((a.X-b.X)*(a.X-b.X)+(a.Y-b.Y)*(a.Y-b.Y)+(a.Z-b.Z)*(a.Z-b.Z));
 }
-public class DungeonTopologyContinuation { public int Playfield; public List<Vector3> Points,PhysicalPoints; }
+public class DungeonTopologyContinuation { public int Playfield; public List<Vector3> Points,PhysicalPoints; public bool PreciseRecordedPlayback; }
 public static class RampReturn {
     const float DungeonMinimumVerticalSpan=1.5f,DungeonSourceAttachDistance=4f;
 '@ + $simplifier + $method + $continuous + '}')
@@ -81,19 +81,19 @@ foreach ($index in @(0,7,9,10,11,13,15)) {
 $ascent.PhysicalPoints = $raw
 $ascent.Points = $reduced
 $return = [RampReturn]::RecordedReturnPoints($ascent,$raw[-1],$door,14680242)
-Require ($return.Count -eq $reduced.Count) 'Long reduced legs must validate against dense physical evidence.'
+Require ($return.Count -eq $raw.Count) 'Return must restore dense physical evidence instead of reversing only simplified legs.'
 for ($i=0; $i -lt $return.Count; $i++) {
-    Require ([Vector3]::Distance($return[$i],$reduced[$reduced.Count-1-$i]) -eq 0) 'Descent must reverse the exact reduced ascent without re-simplifying.'
+    Require ([Vector3]::Distance($return[$i],$raw[$raw.Count-1-$i]) -eq 0) 'Descent must reverse every selected physical point in order.'
 }
 $ascent.Points[1] = [Vector3]::new(999,5,999)
 Require ($null -eq [RampReturn]::RecordedReturnPoints($ascent,$raw[-1],$door,14680242)) 'Reduced path with invented vertex must fail physical-subsequence validation.'
 $straight = [System.Collections.Generic.List[Vector3]]::new()
 for ($i=0; $i -lt 21; $i++) { $straight.Add([Vector3]::new($i,5,0)) }
 Require ([RampReturn]::SimplifyDungeonTopology($straight).Count -eq 2) 'Straight corridor must use the minimum one leg.'
-foreach ($text in @('_playPoints = SimplifyDungeonTopology(best.Points);',
+foreach ($text in @('_playPoints = _dungeonPrecisePlayback',
     'PhysicalPoints = new List<Vector3>(_dungeonPhysicalPoints ?? _playPoints)',
-    'ascent.Points.AsEnumerable().Reverse().ToList()', 'if (keep[i]) return false;',
+    '(ascent.PhysicalPoints ?? ascent.Points).AsEnumerable().Reverse().ToList()', 'if (keep[i]) return false;',
     'dx * dx + dz * dz > 0.2f * 0.2f', 'Math.Abs(offset.Y - leg.Y * amount) > 0.15f')) {
     Require ($recorder.Contains($text)) "Missing smoothing/reversal invariant: $text"
 }
-Write-Output 'PASS U-turn reduces 15 sampled legs to six physical legs with all turns/slope joints and exact reverse descent'
+Write-Output 'PASS U-turn simplification remains available while reusable descent restores every physical turn sample'
