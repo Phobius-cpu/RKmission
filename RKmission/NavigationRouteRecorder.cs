@@ -727,11 +727,11 @@ namespace RKmission
                         ? points.AsEnumerable().Reverse().ToList() : points;
                     DungeonSubpath candidate = FindDungeonSubpath(route, oriented,
                         reverse, from, target, reusable ? 30f : DungeonSourceAttachDistance,
-                        reusable ? 30f : DungeonTargetAttachDistance, reusable);
+                        DungeonTargetAttachDistance, reusable);
                     if (candidate == null)
                     {
                         if (reusable) reusableRejection =
-                            "no ordered same-level endpoint satisfied the 30m reusable source/target attachment gates";
+                            $"no ordered same-level endpoint reached within {DungeonTargetAttachDistance:0.0}m of the target; reusable source attachment may use a generated connector up to 30m";
                         continue;
                     }
                     if (reusable && !SafeReusableTargetHandoff(layout, roomId,
@@ -950,8 +950,8 @@ namespace RKmission
             if (!layout.IsInside(roomId, target)) reason = "target lies outside the live room";
             else if (Math.Abs(routeEnd.Y - target.Y) > 0.9f)
                 reason = $"route landing is not on the target level (vertical gap={Math.Abs(routeEnd.Y - target.Y):0.0}m)";
-            else if (Vector3.Distance(routeEnd, target) > 30f)
-                reason = $"same-level route landing is {Vector3.Distance(routeEnd, target):0.0}m from target (maximum 30m)";
+            else if (Vector3.Distance(routeEnd, target) > DungeonTargetAttachDistance)
+                reason = $"same-level route landing is {Vector3.Distance(routeEnd, target):0.0}m from target (maximum {DungeonTargetAttachDistance:0.0}m)";
             return reason == null;
         }
 

@@ -43,6 +43,7 @@ foreach ($token in @(
  'Math.Abs(from.Y - points[first].Y) > 0.9f',
  'Vector3.Distance(from, points[first]) > 30f',
  'reusable ? 30f : DungeonSourceAttachDistance',
+ 'DungeonTargetAttachDistance, reusable',
  'requireTargetLevel && Math.Abs(target.Y - points[end].Y) > 0.9f',
  'SafeReusableTargetHandoff(layout, roomId',
  'No viable reusable dungeon topology subpath:',
@@ -79,6 +80,8 @@ Require (-not $recorder.Substring($recorder.IndexOf('private static bool SafeReu
  $recorder.IndexOf('private static bool SafeReusableTargetHandoff')).Contains('ClearInteractionSegment')) 'Upper-floor handoff still requires a straight ray.'
 foreach ($guard in @('target lies outside the live room', 'route landing is not on the target level',
  'same-level route landing is')) { Require ($recorder.Contains($guard)) "Missing reusable handoff diagnostic: $guard" }
+Require (-not $recorder.Contains('reusable ? 30f : DungeonTargetAttachDistance') -and
+ $recorder.Contains('Vector3.Distance(routeEnd, target) > DungeonTargetAttachDistance')) 'Reusable playback must not complete with an unproven distant target-side handoff.'
 Write-Output 'PASS upper-floor handoff keeps room/level/distance gates without requiring straight line of sight'
 Require ($recorder.Contains('best.SourceDistance > DungeonSourceAttachDistance') -and
  $recorder.Contains('Vector3.Distance(route.Destination, trustedStart) <= DungeonSourceAttachDistance') -and

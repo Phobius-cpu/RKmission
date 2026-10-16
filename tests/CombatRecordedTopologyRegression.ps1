@@ -46,7 +46,8 @@ Write-Output 'PASS combat fallback selects and plays generic recorded dungeon to
 if (-not $recorder.Contains('maximumY - minimumY < DungeonMinimumVerticalSpan') -or
     $recorder.Contains('maximumY - minimumY < 3f') -or
     -not $recorder.Contains('reusable ? 30f : DungeonSourceAttachDistance') -or
-    -not $recorder.Contains('reusable ? 30f : DungeonTargetAttachDistance') -or
+    $recorder.Contains('reusable ? 30f : DungeonTargetAttachDistance') -or
+    -not $recorder.Contains('DungeonTargetAttachDistance, reusable') -or
     -not $recorder.Contains('sourceDistance > sourceAttachDistance') -or
     -not $recorder.Contains('targetDistance > targetAttachDistance') -or
     -not $recorder.Contains('Points = points.GetRange(source, end - source + 1)') -or
