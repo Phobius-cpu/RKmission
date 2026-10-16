@@ -24,6 +24,7 @@ Assert ($vehicle.Contains('batch-departure-foot-route-verified') -and
     'both Foot and Vehicle departure modes require authoritative live state'
 Assert ($vehicle.Contains('item.Equip(EquipSlot.Weap_Hud1);') -and
     $vehicle.Contains('x.EquipSlots.Contains(EquipSlot.Weap_Hud1)') -and
+    $vehicle.Contains('Inventory.Items.Where(IsKnownFlightCandidate)') -and
     $vehicle.Contains('x.Slot.Type == IdentityType.Inventory') -and
     $vehicle.Contains('awaiting live slot/state proof')) `
     'dynamic main-inventory candidates use the validated one-shot AOSharp HUD1 equipment primitive'

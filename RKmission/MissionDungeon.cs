@@ -3574,6 +3574,7 @@ namespace RKmission
                 MovementArbiter.Current.Halt(_requestedOwner);
                 if (door.IsLocked)
                 {
+                    CarriedItems.RequestBackpackSnapshots("locked mission door");
                     if (!CarriedItems.BackpackSnapshotsReady) return;
                     if (++crossing.DoorAttempts > 5)
                     {

@@ -6,8 +6,14 @@ $bot=Get-Content (Join-Path $root 'RKmission/RkMissionBot.cs') -Raw
 $profiles=Get-Content (Join-Path $root 'RKmission/Hud1EquipmentProfiles.cs') -Raw
 function Assert($ok,$message){ if(-not $ok){ throw $message } }
 
-Assert (-not $vehicle.Contains('117322')) 'Vehicle activation must not depend on the Yalmaha template.'
+Assert ($vehicle.Contains('YalmahaXl29478ItemId = 117322')) 'The live-confirmed Yalmaha model must be a positive flight candidate.'
 Assert ($vehicle.Contains('EquipSlots.Contains(EquipSlot.Weap_Hud1)')) 'Discovery must use AOSharp HUD1 slot metadata.'
+Assert ($vehicle.Contains('Inventory.Items.Where(IsKnownFlightCandidate)') -and
+    $vehicle.Contains('_profile?.Vehicle?.Matches(x) == true') -and
+    -not $vehicle.Contains('Inventory.Items.Where(IsHud1InventoryCandidate)`r`n                    .Where(x => !_rejectedCandidates')) 'Flight discovery must exclude arbitrary HUD1 equipment while retaining verified character profiles.'
+Assert ($vehicle.Contains('candidates-exhausted; equip a known vehicle manually')) 'Candidate exhaustion must stop with actionable diagnostics.'
+Assert ($vehicle.Contains('_candidateExhaustionReported') -and
+    $vehicle.Contains('Manual flying HUD1 vehicle learned from live attachment plus MovementState.Fly')) 'Exhaustion diagnostics must be bounded while live manual flight can teach a per-character model.'
 Assert ($vehicle.Contains('vehicle.MeetsUseReqs(player)')) 'Candidate requirements must be checked.'
 Assert ($vehicle.Contains('item.Equip(EquipSlot.Weap_Hud1)')) 'HUD equipment must use Equip(HUD1).'
 Assert ($vehicle.Contains('player.MovementState == MovementState.Fly')) 'Live Fly state must verify classification.'

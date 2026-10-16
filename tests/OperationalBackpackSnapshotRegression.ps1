@@ -25,9 +25,14 @@ Assert (-not $carried.Contains('ManagedBagFamily') -and -not $carried.Contains('
 Assert ($carried.Contains('Consumers still decide whether an item is a lockpick, valid recovery item') -and
     -not $carried.Contains('IsUtilityBagName(item')) 'utility bag membership alone does not classify or protect contained items'
 Assert ($bot.Contains('CarriedItems.ResetBackpackSnapshots();') -and
-    $bot.Contains('CarriedItems.UpdateBackpackSnapshots();')) 'shared snapshots reset after zoning and advance from the host update loop'
-Assert ($loot.Contains('if (chest.IsLocked && !RKmission.CarriedItems.BackpackSnapshotsReady)') -and
-    $loot.IndexOf('if (chest.IsLocked && !RKmission.CarriedItems.BackpackSnapshotsReady)') -lt $loot.IndexOf('FinishLockpickFailure(chest.Identity, LockpickOutcome.NoLockPick)')) 'locked chests wait for carried snapshots before ownership or NoLockPick settlement'
+    $bot.Contains('CarriedItems.UpdateBackpackSnapshots();') -and
+    $carried.Contains('if (!_initialized || !_hydrationRequested || Game.IsZoning) return;')) 'shared snapshots invalidate after zoning but advance only after demand'
+Assert ($bot.Contains('InventoryReady = true') -and
+    $readiness.Contains('RequestBackpackSnapshots("mission HP/nano recovery")') -and
+    $dungeon.Contains('RequestBackpackSnapshots("locked mission door")')) 'outdoor roll readiness does not force bag loading while dungeon consumers request it'
+Assert ($loot.Contains('RequestBackpackSnapshots("locked mission chest")') -and
+    $loot.Contains('if (!RKmission.CarriedItems.BackpackSnapshotsReady) return;') -and
+    $loot.IndexOf('if (!RKmission.CarriedItems.BackpackSnapshotsReady) return;') -lt $loot.IndexOf('FinishLockpickFailure(chest.Identity, LockpickOutcome.NoLockPick)')) 'locked chests request and wait for carried snapshots before ownership or NoLockPick settlement'
 Assert ($dungeon.Contains('if (!CarriedItems.BackpackSnapshotsReady) return;') -and
     $dungeon.IndexOf('if (!CarriedItems.BackpackSnapshotsReady) return;') -lt $dungeon.IndexOf('FailTransition("locked door requires a Lock Pick")')) 'locked doors wait without consuming attempts before lookup readiness'
 Assert ($readiness.Contains('if (!CarriedItems.BackpackSnapshotsReady) return true;') -and

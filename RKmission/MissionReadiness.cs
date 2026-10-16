@@ -187,6 +187,7 @@ namespace RKmission
             if (pending) _quietAt = _lastProgress = now;
             if ((healthLow || nanoLow) && !CarriedItems.BackpackSnapshotsReady)
             {
+                CarriedItems.RequestBackpackSnapshots("mission HP/nano recovery");
                 // Snapshot loading is finite work, not failed recovery progress.
                 _lastProgress = now;
                 return true;
@@ -247,6 +248,7 @@ namespace RKmission
 
         private bool TryRecovery(bool healthLow, bool nanoLow, DateTime now)
         {
+            CarriedItems.RequestBackpackSnapshots("mission HP/nano recovery");
             // Do not conclude that recovery supplies are absent while carried bag
             // snapshots are still being restored after zoning.
             if (!CarriedItems.BackpackSnapshotsReady) return true;

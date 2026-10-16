@@ -30,12 +30,17 @@ namespace RKmission
         }
 
         private static readonly TimeSpan TransitionTimeout = TimeSpan.FromSeconds(8);
+        // HUD1 compatibility is not vehicle evidence (for example, a Combat Tuner).
+        // This exact model is live-confirmed; other models are learned only after a
+        // character proves both the live HUD1 attachment and MovementState.Fly.
+        private const int YalmahaXl29478ItemId = 117322;
         private readonly MovementArbiter _movement;
         private readonly InventoryPolicy _inventoryPolicy;
         private readonly Hud1EquipmentProfiles _profiles;
         private readonly Action<string> _say;
         private readonly HashSet<string> _rejectedCandidates = new HashSet<string>();
         private bool _observedOriginal, _originalFlying, _ownsHud1;
+        private bool _candidateExhaustionReported;
         private int _characterInstance;
         private string _characterName;
         private ItemReference _verifiedVehicle, _indoorItem, _pendingTarget;
@@ -122,6 +127,14 @@ namespace RKmission
                     ClearPending();
                     _say("Verified flying vehicle " + _verifiedVehicle + " from live HUD1 and MovementState.Fly.");
                 }
+                else if (hud1 != null && _verifiedVehicle?.Matches(hud1) != true)
+                {
+                    _verifiedVehicle = ItemReference.From(hud1);
+                    _inventoryPolicy.RegisterOperationalItem(hud1);
+                    PersistVehicle(hud1);
+                    _candidateExhaustionReported = false;
+                    _say("Manual flying HUD1 vehicle learned from live attachment plus MovementState.Fly: " + _verifiedVehicle + ".");
+                }
                 Status = _ownsHud1 ? "vehicle/verified-owned" : "vehicle/existing-flight-preserved";
                 return VehicleTransitionResult.Ready;
             }
@@ -161,13 +174,20 @@ namespace RKmission
                 vehicle = null;
             if (vehicle == null)
             {
-                List<Item> candidates = Inventory.Items.Where(IsHud1InventoryCandidate)
+                List<Item> candidates = Inventory.Items.Where(IsKnownFlightCandidate)
                     .Where(x => !_rejectedCandidates.Contains(CandidateKey(ItemReference.From(x))))
                     .OrderBy(x => x.Id).ThenBy(x => x.QualityLevel).ToList();
-                _say($"HUD1 lifecycle scanning {candidates.Count} HUD1-compatible candidate(s).");
+                if (candidates.Count > 0 || !_candidateExhaustionReported)
+                    _say($"HUD1 lifecycle scanning {candidates.Count} known/verified flight candidate(s); arbitrary HUD1 equipment is excluded.");
                 vehicle = candidates.FirstOrDefault();
             }
-            if (vehicle == null) { Status = "vehicle/no-verified-or-eligible-candidate"; return VehicleTransitionResult.Unavailable; }
+            if (vehicle == null)
+            {
+                _candidateExhaustionReported = true;
+                Status = "vehicle/candidates-exhausted; equip a known vehicle manually and enter Fly to establish live evidence";
+                return VehicleTransitionResult.Unavailable;
+            }
+            _candidateExhaustionReported = false;
             if (!vehicle.MeetsUseReqs(player))
             {
                 _rejectedCandidates.Add(CandidateKey(ItemReference.From(vehicle)));
@@ -402,6 +422,9 @@ namespace RKmission
         private static bool IsHud1InventoryCandidate(Item x) => x != null && !x.IsEquipped &&
             x.Slot.Type == IdentityType.Inventory && x.UniqueIdentity.Type != IdentityType.Container &&
             x.EquipSlots != null && x.EquipSlots.Contains(EquipSlot.Weap_Hud1);
+        private bool IsKnownFlightCandidate(Item x) => IsHud1InventoryCandidate(x) &&
+            (x.Id == YalmahaXl29478ItemId || _profile?.Vehicle?.Matches(x) == true ||
+                _verifiedVehicle?.Matches(x) == true);
         private static string CandidateKey(ItemReference x) => x == null ? "none" :
             $"{x.Identity}:{x.Id}:{x.LowId}:{x.HighId}:{x.QualityLevel}";
         private static string HudRole(Item x) => x == null ? "indoor/empty" : "indoor/equipped:" + (x.Name ?? x.Id.ToString());
@@ -416,7 +439,7 @@ namespace RKmission
             Item known = FindItem(_verifiedVehicle, true);
             if (known != null && known.MeetsUseReqs(player) &&
                 !_rejectedCandidates.Contains(CandidateKey(ItemReference.From(known)))) return true;
-            return Inventory.Items.Any(x => IsHud1InventoryCandidate(x) && x.MeetsUseReqs(player) &&
+            return Inventory.Items.Any(x => IsKnownFlightCandidate(x) && x.MeetsUseReqs(player) &&
                 !_rejectedCandidates.Contains(CandidateKey(ItemReference.From(x))));
         }
         private bool SafeToTransition(SimpleChar player, bool allowExactDungeon) => !Game.IsZoning &&
@@ -464,7 +487,7 @@ namespace RKmission
             }
             _observedOriginal = _originalFlying = _ownsHud1 = false;
             _characterInstance = 0; _characterName = null; _verifiedVehicle = _indoorItem = null; _profile = null;
-            _rejectedCandidates.Clear(); _indoorReadinessFailure = null; ClearPending(); ResetTerminalRequirement(); Status = "unobserved";
+            _rejectedCandidates.Clear(); _candidateExhaustionReported = false; _indoorReadinessFailure = null; ClearPending(); ResetTerminalRequirement(); Status = "unobserved";
             FlightTransitionCombatGated = false;
         }
     }

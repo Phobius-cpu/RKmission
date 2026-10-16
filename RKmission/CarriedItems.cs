@@ -18,6 +18,7 @@ namespace RKmission
             new Dictionary<Identity, BackpackSnapshot>();
         private static Identity _waitingFor = Identity.None;
         private static bool _initialized;
+        private static bool _hydrationRequested;
 
         private sealed class BackpackSnapshot
         {
@@ -31,6 +32,7 @@ namespace RKmission
         {
             get
             {
+                if (!_hydrationRequested) return false;
                 ReconcileBackpacks();
                 return BackpackSnapshots.Values.All(snapshot => snapshot.Confirmed || snapshot.Exhausted);
             }
@@ -61,12 +63,20 @@ namespace RKmission
         {
             BackpackSnapshots.Clear();
             _waitingFor = Identity.None;
+            _hydrationRequested = false;
+            ReconcileBackpacks();
+        }
+
+        public static void RequestBackpackSnapshots(string reason)
+        {
+            if (!_initialized) return;
+            _hydrationRequested = true;
             ReconcileBackpacks();
         }
 
         public static void UpdateBackpackSnapshots()
         {
-            if (!_initialized || Game.IsZoning) return;
+            if (!_initialized || !_hydrationRequested || Game.IsZoning) return;
             ReconcileBackpacks();
             ConfirmPopulatedSnapshots();
             ManagedBagOpenOwnership.Tick();

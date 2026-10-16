@@ -1940,7 +1940,8 @@ namespace RKmission
                 NoInventorySettlementPending = !_checkpoint.InventorySettlementPending,
                 NoLogisticsPending = !_autoLogisticsPending && !_autoLogisticsRunning &&
                     !_autoLogisticsFinalPending && !_automaticLogistics.IsActive,
-                InventoryReady = CarriedItems.BackpackSnapshotsReady,
+                // Rolling and ordinary outdoor travel do not consume utility-bag contents.
+                InventoryReady = true,
                 NoPendingItemAction = !Item.HasPendingUse && !Spell.HasPendingCast,
                 NoOwnedMovement = _movement.Owner == MovementOwner.None,
                 ExactRollTerminalVerified = exactTerminal,

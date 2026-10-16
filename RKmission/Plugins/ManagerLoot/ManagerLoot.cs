@@ -280,6 +280,8 @@ namespace ManagerLoot
             if (_settings == null) return;
             MissionRoomId = roomId;
             _settings["Chests"] = true;
+            RKmission.CarriedItems.RequestBackpackSnapshots("confirmed mission dungeon entry");
+            CurrentProcess = ProcessState.Load_Backpacks;
             BeginMissionControl();
         }
 
@@ -1333,7 +1335,7 @@ namespace ManagerLoot
                 UIController.WindowDeleted += Windowclosed;
                 Network.N3MessageSent += N3MessageSent;
 
-                CurrentProcess = ProcessState.Load_Backpacks;
+                CurrentProcess = ProcessState.Open_Corpse;
 
                 MainUI();
 
@@ -1394,7 +1396,9 @@ namespace ManagerLoot
             _waitingForManagedBag = MissionIdentity.None;
             _backgroundBagMove = null;
             _deferredBackgroundBagSlots.Clear();
-            CurrentProcess = ProcessState.Load_Backpacks;
+            // Invalidate after every zone, but hydrate only when mission or explicit
+            // inventory work actually consumes managed-bag contents.
+            CurrentProcess = ProcessState.Open_Corpse;
         }
 
         private void DynelSpawned(object sender, Dynel e)
@@ -1739,8 +1743,11 @@ namespace ManagerLoot
                             if (DynelManager.LocalPlayer.IsAttacking || DynelManager.NPCs.Any(c => c.IsAttacking && c.FightingTarget?.Identity == DynelManager.LocalPlayer.Identity)) return;
 
                             var chest = new Chest(dynel);
-                            if (chest.IsLocked && !RKmission.CarriedItems.BackpackSnapshotsReady)
-                                return;
+                            if (chest.IsLocked)
+                            {
+                                RKmission.CarriedItems.RequestBackpackSnapshots("locked mission chest");
+                                if (!RKmission.CarriedItems.BackpackSnapshotsReady) return;
+                            }
                             CurrentCorpse = dynel;
                             BindMissionLoot(dynel);
                             Timeout = Time.AONormalTime + 2;
