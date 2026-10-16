@@ -782,7 +782,8 @@ namespace RKmission
         {
             reason = null;
             int missingSurfaceRays = 0, wrongHeightSurfaceRays = 0,
-                failedSurfaceRays = 0;
+                failedSurfaceRays = 0, outlinePointMisses = 0,
+                outlineMidpointMisses = 0;
             surfaceAdvisory = "surface-ray advisory unavailable";
             int first = route.FirstReusablePoint;
             if (first < 0 || first >= points.Count - 1)
@@ -801,12 +802,13 @@ namespace RKmission
             {
                 for (int i = first + 1; i < points.Count; i++)
                 {
-                    if (Vector3.Distance(points[i - 1], points[i]) > 3f ||
-                        !layout.IsInside(roomId, points[i], 0.05f))
-                    { reason = $"point/leg {i + 1} is discontinuous or outside room bounds"; break; }
+                    if (Vector3.Distance(points[i - 1], points[i]) > 3f)
+                    { reason = $"recorded leg {i}->{i + 1} is discontinuous"; break; }
+                    if (!layout.IsInside(roomId, points[i], 0.05f))
+                        outlinePointMisses++;
                     Vector3 midpoint = (points[i - 1] + points[i]) * 0.5f;
                     if (!layout.IsInside(roomId, midpoint, 0.02f))
-                    { reason = $"sampled leg {i}->{i + 1} leaves room bounds"; break; }
+                        outlineMidpointMisses++;
                     try
                     {
                         Vector3 top = midpoint + Vector3.Up * 1.2f;
@@ -823,7 +825,11 @@ namespace RKmission
             // can see the lower floor through it. They are evidence only here:
             // the exact validated mesh fingerprint plus the user-walked samples
             // are the static corridor authority. Runtime stalls remain bounded.
-            surfaceAdvisory = $"captured fingerprint supplies ramp support; live downward rays no-hit={missingSurfaceRays}, wrong-height={wrongHeightSurfaceRays}, failed={failedSurfaceRays}";
+            // Mali's 2D outline clips this template's valid ramp switchbacks.
+            // Start/end containment remains mandatory; intermediate misses are
+            // diagnostic because the exact captured mesh and walked samples are
+            // more precise evidence for the interior multi-level corridor.
+            surfaceAdvisory = $"captured fingerprint supplies ramp support; Mali outline point-misses={outlinePointMisses}, midpoint-misses={outlineMidpointMisses}; live downward rays no-hit={missingSurfaceRays}, wrong-height={wrongHeightSurfaceRays}, failed={failedSurfaceRays}";
             return reason == null;
         }
 

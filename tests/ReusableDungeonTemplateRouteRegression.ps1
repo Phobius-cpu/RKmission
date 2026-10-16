@@ -47,7 +47,8 @@ foreach ($token in @(
  'SafeReusableTargetHandoff(layout, roomId',
  'Vector3.Distance(target, _dungeonRequestedTarget) > 0.5f',
  'layout.IsInside(roomId, midpoint, 0.02f)',
- 'captured fingerprint supplies ramp support; live downward rays no-hit=',
+ 'Mali outline point-misses=',
+ 'live downward rays no-hit=',
  'Playfield.Raycast(top, bottom, out Vector3 floor',
  'route.DungeonTopologyOnly && !reusable',
  'foreach (bool reverse in new[] { false, true })')) {
@@ -64,3 +65,7 @@ foreach ($veto in @('lacks live surface support', 'has blocked body clearance', 
  Require (-not $recorder.Contains($veto)) "AO ramp ray remains a playback veto: $veto"
 }
 Write-Output 'PASS exact captured geometry is authoritative; unreliable AO ramp rays are diagnostic only'
+Require (-not $recorder.Contains('point/leg {i + 1} is discontinuous or outside room bounds') -and
+ -not $recorder.Contains('sampled leg {i}->{i + 1} leaves room bounds')) 'Coarse intermediate Mali outline remains a reusable-route veto.'
+Require ($recorder.Contains('trusted start or end lies outside the live room')) 'Start/end room containment guard was removed.'
+Write-Output 'PASS clipped intermediate Mali outline is diagnostic while start/end containment stays mandatory'
