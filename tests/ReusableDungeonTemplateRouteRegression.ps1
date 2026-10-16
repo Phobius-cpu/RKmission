@@ -48,8 +48,12 @@ foreach ($token in @(
  'SafeReusableTargetHandoff(layout, roomId',
  'No viable reusable dungeon topology subpath:',
  'TryBuildReusableStartConnector(layout, roomId, from, best.Points[0]',
+ 'best.ReusableEntryAlignment',
+ 'reusableEntryAlignment = points.Take(route.FirstReusablePoint).ToList()',
+ 'recordedGroundPrefix.Count != 2',
+ 'points.Add(prefixPoint)',
  'generated same-level waypoint(s)',
- 'no complete same-level generated connector reaches within',
+ 'no complete same-level generated connector reaches the recorded ramp run-up',
  'reached generated same-level start connector; beginning trusted playback at point 3',
  '_dungeonPrecisePlayback ? 0.6f : 1.2f',
  '_dungeonPrecisePlayback ? 0.75f : 1.5f',
@@ -87,7 +91,8 @@ Require (-not $recorder.Contains('reusable ? 30f : DungeonTargetAttachDistance')
  $recorder.Contains('Vector3.Distance(routeEnd, target) > DungeonTargetAttachDistance')) 'Reusable playback must not complete with an unproven distant target-side handoff.'
 Write-Output 'PASS upper-floor handoff keeps room/level/distance gates without requiring straight line of sight'
 Require ($recorder.Contains('best.SourceDistance > DungeonSourceAttachDistance') -and
- $recorder.Contains('Vector3.Distance(route.Destination, trustedStart) <= DungeonSourceAttachDistance') -and
+ $recorder.Contains('Vector3.Distance(route.Destination, groundTarget) <= DungeonSourceAttachDistance') -and
+ $recorder.Contains('recordedGroundPrefix.Any(point => Math.Abs(point.Y - from.Y) > 0.75f') -and
  $recorder.Contains('_dungeonStartConnectorIndex++')) 'Far reusable starts do not require an ordered same-level connector.'
 Require (-not $recorder.Contains('points.Insert(0, from)')) 'Connector may not invent a direct player-to-ramp leg.'
-Write-Output 'PASS far trusted start uses complete generated same-level connector without enabling unsupported prefix points'
+Write-Output 'PASS far trusted start uses a generated connector plus two evidence-gated ground alignment points without trusting the prefix as ramp playback'

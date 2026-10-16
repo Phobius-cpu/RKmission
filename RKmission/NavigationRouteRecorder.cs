@@ -57,6 +57,7 @@ namespace RKmission
             public float TargetDistance;
             public float VerticalSpan;
             public float Cost;
+            public List<Vector3> ReusableEntryAlignment;
         }
 
         internal sealed class DungeonTopologyContinuation
@@ -678,6 +679,7 @@ namespace RKmission
             foreach (Route route in _routes.Where(x => (!x.Bundled || x.DungeonTopologyOnly) && x.Points.Count >= 2))
             {
                 List<Vector3> points;
+                List<Vector3> reusableEntryAlignment = null;
                 bool reusable = route.DungeonTopologyOnly && route.ReusableTemplateValidated;
                 if (reusable)
                 {
@@ -710,6 +712,7 @@ namespace RKmission
                         $"rotation={route.SourceRoomRotationDegrees:0}->{live.RotationDegrees:0}, translation=({live.Position[0] - route.SourceRoomPosition[0]:0.0}," +
                         $"{live.Position[1] - route.SourceRoomPosition[1]:0.0},{live.Position[2] - route.SourceRoomPosition[2]:0.0}); " +
                         $"all {points.Count} points transformed, trusted playback starts at point {route.FirstReusablePoint + 1}; {surfaceAdvisory}.");
+                    reusableEntryAlignment = points.Take(route.FirstReusablePoint).ToList();
                     points = points.Skip(route.FirstReusablePoint).ToList();
                 }
                 else points = route.Points.Select(V).ToList();
@@ -739,6 +742,7 @@ namespace RKmission
                     if (reusable && !SafeReusableTargetHandoff(layout, roomId,
                         candidate.Points[candidate.Points.Count - 1], target,
                         out reusableRejection)) continue;
+                    if (reusable) candidate.ReusableEntryAlignment = reusableEntryAlignment;
                     // Operational derivatives win only after conservative physical
                     // attachment gates; no room translation is inferred.
                     if (route.DungeonTopologyOnly && !reusable &&
@@ -764,6 +768,7 @@ namespace RKmission
             if (best.Route.ReusableTemplateValidated &&
                 best.SourceDistance > DungeonSourceAttachDistance &&
                 !TryBuildReusableStartConnector(layout, roomId, from, best.Points[0],
+                    best.ReusableEntryAlignment,
                     out startConnector, out string connectorFailure))
             {
                 _say($"Reusable dungeon topology '{best.Route.Name}' rejected: {connectorFailure}.");
@@ -795,26 +800,38 @@ namespace RKmission
         }
 
         private static bool TryBuildReusableStartConnector(DungeonLayout layout, int roomId,
-            Vector3 from, Vector3 trustedStart, out List<Vector3> points, out string reason)
+            Vector3 from, Vector3 trustedStart, List<Vector3> recordedGroundPrefix,
+            out List<Vector3> points, out string reason)
         {
             points = null;
             reason = null;
-            Vector3 groundTarget = trustedStart;
-            groundTarget.Y = from.Y;
+            if (recordedGroundPrefix == null || recordedGroundPrefix.Count != 2 ||
+                recordedGroundPrefix.Any(point => Math.Abs(point.Y - from.Y) > 0.75f ||
+                    !layout.IsInside(roomId, point, 0.05f)) ||
+                Vector3.Distance(recordedGroundPrefix[0], recordedGroundPrefix[1]) > 3f ||
+                Vector3.Distance(recordedGroundPrefix[1], trustedStart) > 3f)
+            {
+                reason = "the two recorded ground-prefix points cannot safely align the live ramp entrance";
+                return false;
+            }
+            Vector3 groundTarget = recordedGroundPrefix[0];
             DungeonTransitPlanner.Route connector = DungeonTransitPlanner.Candidates(layout,
                     roomId, from, groundTarget, new[] { 1.5f, 2f, 2.5f, 3f }, 0.3f)
                 .Where(route => route.Waypoints != null && route.Waypoints.Count > 0 &&
                     Math.Abs(route.Destination.Y - from.Y) <= 0.75f &&
-                    Vector3.Distance(route.Destination, trustedStart) <= DungeonSourceAttachDistance)
+                    Vector3.Distance(route.Destination, groundTarget) <= DungeonSourceAttachDistance)
                 .OrderBy(route => route.Cost).FirstOrDefault();
             if (connector == null)
             {
-                reason = $"no complete same-level generated connector reaches within {DungeonSourceAttachDistance:0.0}m of trusted point 3 from {Vector3.Distance(from, trustedStart):0.0}m away";
+                reason = $"no complete same-level generated connector reaches the recorded ramp run-up from {Vector3.Distance(from, trustedStart):0.0}m away";
                 return false;
             }
             points = new List<Vector3>(connector.Waypoints);
             if (Vector3.Distance(points[points.Count - 1], connector.Destination) > 0.5f)
                 points.Add(connector.Destination);
+            foreach (Vector3 prefixPoint in recordedGroundPrefix)
+                if (Vector3.Distance(points[points.Count - 1], prefixPoint) > 0.25f)
+                    points.Add(prefixPoint);
             return points.Count > 0;
         }
 
