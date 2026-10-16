@@ -175,6 +175,7 @@ namespace RKmission
         private DateTime _objectiveProgressAt;
         private int _lootApproachIndex;
         private int _lootCorpseFinalReissues;
+        private int _lootContainerFinalReissues;
         private bool _lootTransitStaging;
         private Vector3 _lootLastPosition;
         private DateTime _lootNearStarted;
@@ -2753,6 +2754,7 @@ namespace RKmission
                 _lootLastPosition = DynelManager.LocalPlayer.Position;
                 _lootApproachIndex = 0;
                 _lootCorpseFinalReissues = 0;
+                _lootContainerFinalReissues = 0;
                 _lootNearStarted = DateTime.MinValue;
                 _lootProbeNextSide = false;
                 _lootTransitStaging = false;
@@ -2888,12 +2890,15 @@ namespace RKmission
                     MovementArbiter.Current.Halt(_requestedOwner);
                     return true;
                 }
-                // A 1.5m waypoint tolerance can leave a corpse outside its 3m use
-                // range even when the waypoint itself is a legal 2.5–3m side point.
-                // Keep the coarse tolerance for containers/staging, but finish corpse
-                // final approaches at higher precision before declaring completion.
+                // A 1.5m waypoint tolerance can leave loot outside its 3m use range
+                // even when the waypoint itself is a legal 2.5–3m side point. Keep
+                // the coarse tolerance for transit staging, but settle both corpse
+                // and container final approaches precisely before exhausting a side.
+                bool preciseContainerFinal = next.Identity.Type == IdentityType.Container &&
+                    !_lootTransitStaging;
                 float arrivalTolerance = next.Identity.Type == IdentityType.Corpse && !_lootTransitStaging
                     ? 0.35f : 1.5f;
+                if (preciseContainerFinal) arrivalTolerance = 0.35f;
                 bool reachedApproach = _destination.HasValue && _lootApproachIndex < _lootApproachPoints.Count &&
                     Vector3.Distance(position, _lootApproachPoints[_lootApproachIndex]) < arrivalTolerance;
                 if (reachedApproach && _lootTransitStaging)
@@ -2930,13 +2935,18 @@ namespace RKmission
                      now - _lootLastProgress > TimeSpan.FromSeconds(10) ||
                      (!SMovementController.IsNavigating() && now - _lootLastProgress > TimeSpan.FromSeconds(2))))
                 {
+                    Vector3 finalPoint = _lootApproachPoints[_lootApproachIndex];
+                    float waypointDistance = Vector3.Distance(position, finalPoint);
+                    bool movementStopped = !SMovementController.IsNavigating();
+                    bool rangeReady = distance <= LootUseRange;
+                    bool currentRayClear = LocalRoutePlanner.ClearInteractionSegment(
+                        position + Vector3.Up, next.Position + Vector3.Up * 0.5f);
                     if (next.Identity.Type == IdentityType.Corpse && !_lootTransitStaging &&
                         !reachedApproach && _lootCorpseFinalReissues < 1)
                     {
                         // A movement controller may stop with the side waypoint
                         // nominally reached while corpse interaction is still 3.1m+.
                         // Force one bounded reissue of this same verified point.
-                        Vector3 finalPoint = _lootApproachPoints[_lootApproachIndex];
                         MovementArbiter.Current.Halt(_requestedOwner);
                         _destination = null;
                         if (MovementArbiter.Current.SetNavDestination(_requestedOwner, finalPoint))
@@ -2951,8 +2961,43 @@ namespace RKmission
                             return true;
                         }
                     }
+                    if (preciseContainerFinal && !reachedApproach &&
+                        (!rangeReady || !currentRayClear) && _lootContainerFinalReissues < 1)
+                    {
+                        // Revalidate the originally selected target-side geometry.
+                        // This permits one precise recovery from controller early-stop,
+                        // but never drives through a blocked interaction segment.
+                        float targetSideDistance = Vector3.Distance(finalPoint, next.Position);
+                        bool targetSideRayClear = LocalRoutePlanner.ClearInteractionSegment(
+                            finalPoint + Vector3.Up, next.Position + Vector3.Up * 0.5f);
+                        bool targetSideClear = targetSideDistance >= 2f &&
+                            targetSideDistance <= LootUseRange && targetSideRayClear;
+                        if (targetSideClear)
+                        {
+                            MovementArbiter.Current.Halt(_requestedOwner);
+                            _destination = null;
+                            if (MovementArbiter.Current.SetNavDestination(_requestedOwner, finalPoint))
+                            {
+                                _lootContainerFinalReissues++;
+                                _destination = finalPoint;
+                                _lootLastProgress = now;
+                                _lootLastPosition = position;
+                                _say($"Loot {next.Identity} reissued precise container-side approach " +
+                                    $"({_lootContainerFinalReissues}/1) at 3D distance={distance:0.0}m; " +
+                                    $"waypoint distance={waypointDistance:0.0}m, waypoint-reached={reachedApproach}, " +
+                                    $"movement-stopped={movementStopped}, range-ready={rangeReady}, ray-clear={currentRayClear}.");
+                                return true;
+                            }
+                        }
+                        else
+                            _say($"Loot {next.Identity} precise container recovery rejected blocked/invalid target-side geometry; " +
+                                $"waypoint distance={waypointDistance:0.0}m, target-side distance={targetSideDistance:0.0}m, " +
+                                $"target-side ray-clear={targetSideRayClear}.");
+                    }
                     _say($"Loot {next.Identity} approach {_lootApproachIndex + 1} ended while 3D distance={distance:0.0}m, " +
-                        $"player Y={position.Y:0.0}, target Y={next.Position.Y:0.0}, interaction-ready={LootInteractionReady(next)}; trying another route.");
+                        $"waypoint distance={waypointDistance:0.0}m, waypoint-reached={reachedApproach}, " +
+                        $"movement-stopped={movementStopped}, range-ready={rangeReady}, ray-clear={currentRayClear}, " +
+                        $"player Y={position.Y:0.0}, target Y={next.Position.Y:0.0}, interaction-ready={interactionReady}; trying another route.");
                     _lootApproachIndex++;
                     _destination = null;
                     _lootLastProgress = now;
@@ -3019,6 +3064,7 @@ namespace RKmission
             _lootApproachPoints.Clear();
             _lootApproachIndex = 0;
             _lootCorpseFinalReissues = 0;
+            _lootContainerFinalReissues = 0;
             _lootApproachPoints.AddRange(DungeonApproachPlanner.Candidates(_layout,
                 room.Instance, player, target, new[] { 2.5f, 3f }, 0.4f)
                 .Where(point => Vector3.Distance(point, target) >= 2f &&
@@ -3135,6 +3181,7 @@ namespace RKmission
                     $"{reason}. Independent retry policy exhausted; exploration continues.");
             _waitingForLoot = Identity.None;
             _lootCorpseFinalReissues = 0;
+            _lootContainerFinalReissues = 0;
             _lootApproachPoints.Clear();
             _lootProbeNextSide = false;
             _lootTransitStaging = false;
