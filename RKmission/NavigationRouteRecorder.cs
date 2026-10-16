@@ -695,7 +695,7 @@ namespace RKmission
                     }
                     points = TransformReusableDungeonRoute(route, live);
                     if (!PreflightReusableDungeonRoute(route, points, layout, roomId,
-                        from, out string preflight))
+                        from, out string preflight, out string surfaceAdvisory))
                     {
                         _say($"Reusable dungeon topology '{route.Name}' rejected by preflight: {preflight}.");
                         continue;
@@ -704,7 +704,7 @@ namespace RKmission
                         $"source PF={route.Playfield}, live PF={Playfield.ModelIdentity.Instance}, room={roomId}, " +
                         $"rotation={route.SourceRoomRotationDegrees:0}->{live.RotationDegrees:0}, translation=({live.Position[0] - route.SourceRoomPosition[0]:0.0}," +
                         $"{live.Position[1] - route.SourceRoomPosition[1]:0.0},{live.Position[2] - route.SourceRoomPosition[2]:0.0}); " +
-                        $"all {points.Count} points transformed, trusted playback starts at point {route.FirstReusablePoint + 1}.");
+                        $"all {points.Count} points transformed, trusted playback starts at point {route.FirstReusablePoint + 1}; {surfaceAdvisory}.");
                     points = points.Skip(route.FirstReusablePoint).ToList();
                 }
                 else points = route.Points.Select(V).ToList();
@@ -777,9 +777,12 @@ namespace RKmission
         }
 
         private static bool PreflightReusableDungeonRoute(Route route, List<Vector3> points,
-            DungeonLayout layout, int roomId, Vector3 from, out string reason)
+            DungeonLayout layout, int roomId, Vector3 from, out string reason,
+            out string surfaceAdvisory)
         {
             reason = null;
+            int missingSurfaceRays = 0, wrongHeightSurfaceRays = 0;
+            surfaceAdvisory = "surface-ray advisory unavailable";
             int first = route.FirstReusablePoint;
             if (first < 0 || first >= points.Count - 1)
                 reason = "validated reusable start index is invalid";
@@ -805,15 +808,26 @@ namespace RKmission
                     { reason = $"sampled leg {i}->{i + 1} leaves room bounds"; break; }
                     try
                     {
+                        Vector3 bodyStart = points[i - 1] + Vector3.Up * 0.8f;
+                        Vector3 bodyEnd = points[i] + Vector3.Up * 0.8f;
+                        if (Playfield.Raycast(bodyStart, bodyEnd, out Vector3 obstruction, out _) &&
+                            Vector3.Distance(obstruction, bodyStart) > 0.35f &&
+                            Vector3.Distance(obstruction, bodyEnd) > 0.35f)
+                        { reason = $"sampled leg {i}->{i + 1} has blocked body clearance"; break; }
+                        if (Playfield.Raycast(midpoint + Vector3.Up * 0.35f,
+                            midpoint + Vector3.Up * 1.8f, out _, out _))
+                        { reason = $"sampled leg {i}->{i + 1} lacks standing headroom"; break; }
                         Vector3 top = midpoint + Vector3.Up * 1.2f;
                         Vector3 bottom = midpoint - Vector3.Up * 1.2f;
-                        if (!Playfield.Raycast(top, bottom, out Vector3 floor, out _) ||
-                            Math.Abs(floor.Y - midpoint.Y) > 0.45f)
-                        { reason = $"sampled leg {i}->{i + 1} lacks live surface support"; break; }
+                        if (!Playfield.Raycast(top, bottom, out Vector3 floor, out _))
+                            missingSurfaceRays++;
+                        else if (Math.Abs(floor.Y - midpoint.Y) > 0.45f)
+                            wrongHeightSurfaceRays++;
                     }
-                    catch { reason = $"sampled leg {i}->{i + 1} support ray failed"; break; }
+                    catch { reason = $"sampled leg {i}->{i + 1} clearance ray failed"; break; }
                 }
             }
+            surfaceAdvisory = $"captured fingerprint supplies ramp support; live downward rays no-hit={missingSurfaceRays}, wrong-height={wrongHeightSurfaceRays}";
             return reason == null;
         }
 
