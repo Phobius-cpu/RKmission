@@ -1912,3 +1912,19 @@ recovery when naturally encountered. Prioritize concrete logs for cumulative or
 stale-state failures, rare routing fallbacks, inventory/logistics drift,
 repeated-transition issues, and long-run lifecycle/watchdog failures. The next
 priority is soak evidence, not speculative feature expansion.
+
+## 2026-10-16 - Reusable multi-floor ramp validated
+
+The user supplied repeated AO logs and screenshots for a rotated
+`Mine_Big16_1` room and approved focused Dungeon implementation batches. The
+work established clockwise AO room transforms, exact fingerprint-gated reuse,
+safe target attachment, dense physical ramp playback, recorded ground entrance
+alignment, ManagerLoot lifecycle preservation, ordered reverse descent and a
+true ground exit before doorway travel.
+
+The final AO report was that the character went up the ramp, looted the
+container, and came back down successfully. Dungeon is therefore **VALIDATED**
+for the observed cross-instance 90-degree placement at main commit `88ba828`.
+Static coverage exists for 0/90/180/270, but unobserved orientations remain
+awaiting AO validation. Durable technical evidence is recorded in
+`docs/navigation-evidence/reusable-multifloor-ramp-2026-10-16.md`.

@@ -1,6 +1,26 @@
 # RKMission Project Memory
 
-_Last updated: 2026-10-14_
+_Last updated: 2026-10-16_
+
+## 2026-10-16 reusable cross-instance multi-floor ramp validation
+
+- Dungeon is **VALIDATED** for the cross-instance 90-degree `Mine_Big16_1`
+  placement at main commit `88ba828739e31f62920a6e943064c8af99ace25f`.
+  The user confirmed autonomous ascent, upper-container loot, reverse descent,
+  ground exit and resumed navigation.
+- Reuse requires the exact fingerprint
+  `1C49400F8CC4B73664FFFBEE26F9EDE595F5F8A58CD1CFFBAD87E49F6DBBCC1C`,
+  compatible template metadata, 303 surfaces and 3 doors. AO yaw is clockwise.
+  Static tests cover 0/90/180/270; only 90 degrees is live validated.
+- Never reduce a complete multi-floor ramp to one leg. Preserve ground run-up,
+  entrance, slope/landing joints, upper turns, loot handoff, dense reverse
+  traversal and ground run-out. Points 1–2 are fingerprint-gated alignment
+  evidence only; trusted climbing starts at point 3.
+- Preserve a meaningful active ascent before ManagerLoot releases movement.
+  Door navigation is forbidden until reverse playback reaches the true ground
+  alignment near `Y=5.01`; point 3 near `Y=5.70` is still on the slope.
+- Canonical evidence and the complete failure/lesson history are in
+  `docs/navigation-evidence/reusable-multifloor-ramp-2026-10-16.md`.
 
 ## 2026-10-03 post-crossing lateral motion follow-up
 

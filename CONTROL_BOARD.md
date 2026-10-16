@@ -60,6 +60,13 @@ failures and logs.
 - **VALIDATED:** PRE-SOAK exact dungeon verification after Neko entry, stale
   movement cancellation on key acceptance/zoning, and same-playfield chaining,
   based on the user's 2026-10-14 soak-readiness statement.
+- **VALIDATED:** fingerprint-gated cross-instance `Mine_Big16_1` multi-floor
+  ramp navigation at 90 degrees: entrance alignment, ascent, upper-container
+  loot, ManagerLoot handoff, dense reverse descent, ground run-out and doorway
+  resumption. Validated main commit: `88ba828`.
+- **AWAITING AO TEST:** reusable placements at 0, 180 and 270 degrees have
+  static transform/regression coverage but no live AO validation yet. Preserve
+  dense semantic ramp segments; do not reduce a complete ramp to one leg.
 
 ### Combat
 
