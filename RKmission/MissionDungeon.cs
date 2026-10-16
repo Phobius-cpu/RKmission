@@ -166,6 +166,11 @@ namespace RKmission
         private readonly List<Vector3> _objectiveApproaches = new List<Vector3>();
         private Vector3? _objectiveApproachTarget;
         private int _objectiveApproachIndex;
+        private int _objectiveApproachRoom = -1;
+        private bool _objectiveTopologyActive;
+        private DateTime _objectiveTopologyStarted;
+        private readonly List<Tuple<int, Vector3>> _objectiveTopologyAttempts = new List<Tuple<int, Vector3>>();
+        private static readonly TimeSpan ObjectiveTopologyTimeout = TimeSpan.FromSeconds(60);
         private float _objectiveBestDistance;
         private DateTime _objectiveProgressAt;
         private int _lootApproachIndex;
@@ -297,8 +302,8 @@ namespace RKmission
             _lootRecordedFallbackAttempted = false;
             _lootRecordedRoute = null;
             _lootVisitedStaging.Clear();
-            _objectiveApproaches.Clear();
-            _objectiveApproachTarget = null;
+            ResetObjectiveApproach();
+            _objectiveTopologyAttempts.Clear();
             ResetKillFinaleOwnership();
             _loot.ResetMissionLootSkips();
             _loot.IgnoreOrdinaryMissionLoot = false;
@@ -382,6 +387,8 @@ namespace RKmission
 
         public void Stop()
         {
+            ResetObjectiveApproach();
+            _objectiveTopologyAttempts.Clear();
             if (_record != null)
             {
                 _loot.RememberMissionCriticalInventory(_record.Id);
@@ -782,6 +789,7 @@ namespace RKmission
 
         private void LoadFloor()
         {
+            ResetObjectiveApproach();
             if (_meshes != null && _floor >= 0 && _floor < _meshes.Length)
                 SMovementController.LoadNavmesh(_meshes[_floor], true);
         }
@@ -850,6 +858,9 @@ namespace RKmission
             }
 
             Room room = DynelManager.LocalPlayer.Room;
+            if (_objectiveApproachTarget.HasValue &&
+                (_objectiveApproachRoom != room.Instance || EnemyCandidates(room).Any()))
+                ResetObjectiveApproach();
             _lifts.Discover();
             if (_transition != null)
             {
@@ -1176,7 +1187,15 @@ namespace RKmission
         private bool TickObjective(Room room)
         {
             _requestedOwner = MovementOwner.Objective;
-            return _objective.Tick(room, _layout, target => NavigateObjective(room, target), _loot);
+            bool navigated = false;
+            bool handled = _objective.Tick(room, _layout, target =>
+            {
+                navigated = true;
+                return NavigateObjective(room, target);
+            }, _loot);
+            // Interaction readiness and completed/failed steps bypass navigation.
+            if (!navigated || _objective.Failure != null) ResetObjectiveApproach();
+            return handled;
         }
 
         private bool BeginObjectiveFinale()
@@ -1550,23 +1569,69 @@ namespace RKmission
             _engagementExistingCorpses.Clear();
         }
 
+        private void ResetObjectiveApproach()
+        {
+            if (_objectiveTopologyActive) _navRoutes?.StopPlayback();
+            if (_objectiveApproachTarget.HasValue)
+            {
+                MovementArbiter.Current.Halt(MovementOwner.Objective);
+                _destination = null;
+            }
+            _objectiveTopologyActive = false;
+            _objectiveApproachTarget = null;
+            _objectiveApproachRoom = -1;
+            _objectiveApproaches.Clear();
+            _objectiveApproachIndex = 0;
+            _objectiveBestDistance = float.MaxValue;
+            _objectiveProgressAt = DateTime.MinValue;
+            _objectiveTopologyStarted = DateTime.MinValue;
+        }
+
+        private void BuildObjectiveApproaches(Room room, Vector3 position, Vector3 target)
+        {
+            _objectiveApproaches.Clear();
+            _objectiveApproaches.AddRange(DungeonApproachPlanner.Candidates(_layout,
+                room.Instance, position, target, new[] { 1.1f, 1.7f }, 0.25f));
+            _objectiveApproachIndex = 0;
+            _objectiveProgressAt = DateTime.UtcNow;
+            _objectiveBestDistance = float.MaxValue;
+            _destination = null;
+            _say($"Objective approach: {_objectiveApproaches.Count} complete mapped route(s) to {target}.");
+        }
+
         private bool NavigateObjective(Room room, Vector3 target)
         {
             Vector3 position = DynelManager.LocalPlayer.Position;
             DateTime now = DateTime.UtcNow;
-            if (!_objectiveApproachTarget.HasValue ||
+            if (!_objectiveApproachTarget.HasValue || _objectiveApproachRoom != room.Instance ||
                 Vector3.Distance(_objectiveApproachTarget.Value, target) > 1f)
             {
+                ResetObjectiveApproach();
                 _objectiveApproachTarget = target;
-                _objectiveApproaches.Clear();
-                _objectiveApproaches.AddRange(DungeonApproachPlanner.Candidates(_layout,
-                    room.Instance, position, target, new[] { 1.1f, 1.7f }, 0.25f));
-                _objectiveApproachIndex = 0;
-                _objectiveProgressAt = now;
-                _objectiveBestDistance = float.MaxValue;
-                _destination = null;
-                _say($"Objective approach: {_objectiveApproaches.Count} complete mapped route(s) to {target}.");
+                _objectiveApproachRoom = room.Instance;
+                BuildObjectiveApproaches(room, position, target);
             }
+
+            if (_objectiveTopologyActive)
+            {
+                if (now - _objectiveTopologyStarted >= ObjectiveTopologyTimeout ||
+                    _navRoutes == null || !_navRoutes.TryNavigatePreparedDungeonTopology(
+                        target, MovementArbiter.Current, MovementOwner.Objective, out bool completed))
+                {
+                    _say("Objective recorded topology failed or timed out; this room/target will not restart it.");
+                    ResetObjectiveApproach();
+                    return false;
+                }
+                if (!completed) return true;
+                _objectiveTopologyActive = false;
+                MovementArbiter.Current.Halt(MovementOwner.Objective);
+                // Let MissionObjective recheck its existing range/ray gates on the
+                // next tick. A completed route can finish inside interaction range.
+                BuildObjectiveApproaches(room, position, target);
+                return true;
+            }
+
+            // Generated complete approaches remain the first choice.
             while (_objectiveApproachIndex < _objectiveApproaches.Count)
             {
                 Vector3 point = _objectiveApproaches[_objectiveApproachIndex];
@@ -1577,6 +1642,7 @@ namespace RKmission
                     now - _objectiveProgressAt > TimeSpan.FromSeconds(7)))
                 {
                     _objectiveApproachIndex++;
+                    MovementArbiter.Current.Halt(MovementOwner.Objective);
                     _destination = null;
                     _objectiveBestDistance = float.MaxValue;
                     _objectiveProgressAt = now;
@@ -1587,6 +1653,26 @@ namespace RKmission
                 { _destination = point; return true; }
                 _objectiveApproachIndex++;
             }
+
+            // One preparation attempt per room/target for the mission, including
+            // unavailable recordings. Resets and combat interruptions cannot loop it.
+            if (Math.Abs(target.Y - position.Y) >= 1.5f &&
+                !_objectiveTopologyAttempts.Any(attempt => attempt.Item1 == room.Instance &&
+                    Vector3.Distance(attempt.Item2, target) <= 1f))
+            {
+                _objectiveTopologyAttempts.Add(Tuple.Create(room.Instance, target));
+                if (_navRoutes != null && _navRoutes.TryPrepareDungeonTopology(_layout,
+                    room.Instance, position, target, out string routeName))
+                {
+                    _objectiveTopologyActive = true;
+                    _objectiveTopologyStarted = now;
+                    _destination = null;
+                    MovementArbiter.Current.Halt(MovementOwner.Objective);
+                    _say($"Objective recorded topology '{routeName}' prepared in room {room.Instance}.");
+                    return true;
+                }
+            }
+            ResetObjectiveApproach();
             return false;
         }
 
@@ -2509,6 +2595,7 @@ namespace RKmission
 
         public void BeginExit()
         {
+            ResetObjectiveApproach();
             _requestedOwner = MovementOwner.DungeonExit;
             if (!IsRunning || _layout == null || _exiting) return;
             if (_transition != null) MovementArbiter.Current.Release(MovementOwner.DoorTransition);
