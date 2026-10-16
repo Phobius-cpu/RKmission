@@ -75,6 +75,8 @@ namespace RKmission
         private Route _recording, _playing;
         private DungeonRoomCapture.Snapshot _recordingRoomCapture;
         private List<Vector3> _playPoints, _dungeonPhysicalPoints;
+        private List<Vector3> _dungeonStartConnector;
+        private int _dungeonStartConnectorIndex;
         private int _playIndex;
         private bool _dungeonPlayback;
         private Vector3 _dungeonRequestedTarget;
@@ -756,6 +758,15 @@ namespace RKmission
                           $"source attach must be <= {DungeonSourceAttachDistance:0.0}m and target attach <= {DungeonTargetAttachDistance:0.0}m with ordered vertical progress.");
                 return false;
             }
+            List<Vector3> startConnector = null;
+            if (best.Route.ReusableTemplateValidated &&
+                best.SourceDistance > DungeonSourceAttachDistance &&
+                !TryBuildReusableStartConnector(layout, roomId, from, best.Points[0],
+                    out startConnector, out string connectorFailure))
+            {
+                _say($"Reusable dungeon topology '{best.Route.Name}' rejected: {connectorFailure}.");
+                return false;
+            }
             StopPlayback();
             _playing = best.Route;
             _dungeonPhysicalPoints = new List<Vector3>(best.Points);
@@ -763,14 +774,41 @@ namespace RKmission
             _say($"Recorded dungeon topology '{best.Route.Name}' reduced {best.Points.Count - 1} sampled legs to {_playPoints.Count - 1} physical corridor leg(s); turns and slope changes retained.");
             _playIndex = 0;
             _dungeonPlayback = true;
+            _dungeonStartConnector = startConnector;
+            _dungeonStartConnectorIndex = 0;
             _dungeonRequestedTarget = target;
             _lastDungeonReportedIndex = 0;
             routeName = best.Route.Name;
             string direction = best.Reversed ? "reverse" : "forward";
             _say($"Prepared recorded dungeon topology '{best.Route.Name}' subpath {best.SourceIndex}->{best.TargetIndex} " +
                 $"({_playPoints.Count} points, {direction}); source attach={best.SourceDistance:0.0}m, " +
-                $"target attach={best.TargetDistance:0.0}m, vertical span={best.VerticalSpan:0.0}m.");
+                $"target attach={best.TargetDistance:0.0}m, vertical span={best.VerticalSpan:0.0}m, " +
+                $"start connector={(startConnector == null ? "not required" : startConnector.Count + " generated same-level waypoint(s)")}.");
             return true;
+        }
+
+        private static bool TryBuildReusableStartConnector(DungeonLayout layout, int roomId,
+            Vector3 from, Vector3 trustedStart, out List<Vector3> points, out string reason)
+        {
+            points = null;
+            reason = null;
+            Vector3 groundTarget = trustedStart;
+            groundTarget.Y = from.Y;
+            DungeonTransitPlanner.Route connector = DungeonTransitPlanner.Candidates(layout,
+                    roomId, from, groundTarget, new[] { 1.5f, 2f, 2.5f, 3f }, 0.3f)
+                .Where(route => route.Waypoints != null && route.Waypoints.Count > 0 &&
+                    Math.Abs(route.Destination.Y - from.Y) <= 0.75f &&
+                    Vector3.Distance(route.Destination, trustedStart) <= DungeonSourceAttachDistance)
+                .OrderBy(route => route.Cost).FirstOrDefault();
+            if (connector == null)
+            {
+                reason = $"no complete same-level generated connector reaches within {DungeonSourceAttachDistance:0.0}m of trusted point 3 from {Vector3.Distance(from, trustedStart):0.0}m away";
+                return false;
+            }
+            points = new List<Vector3>(connector.Waypoints);
+            if (Vector3.Distance(points[points.Count - 1], connector.Destination) > 0.5f)
+                points.Add(connector.Destination);
+            return points.Count > 0;
         }
 
         private static List<Vector3> TransformReusableDungeonRoute(Route route,
@@ -936,6 +974,24 @@ namespace RKmission
             if (!_dungeonPlayback || _playing == null || _playPoints == null ||
                 player == null || Game.IsZoning ||
                 Vector3.Distance(target, _dungeonRequestedTarget) > 0.5f) return false;
+            if (_dungeonStartConnector != null &&
+                _dungeonStartConnectorIndex < _dungeonStartConnector.Count)
+            {
+                while (_dungeonStartConnectorIndex < _dungeonStartConnector.Count &&
+                    Vector3.Distance(player.Position,
+                        _dungeonStartConnector[_dungeonStartConnectorIndex]) <= 1.5f)
+                    _dungeonStartConnectorIndex++;
+                if (_dungeonStartConnectorIndex < _dungeonStartConnector.Count)
+                {
+                    Vector3 connector = _dungeonStartConnector[_dungeonStartConnectorIndex];
+                    if (movement.Owner != owner || !SMovementController.IsNavigating())
+                        if (!movement.SetDestination(owner, connector))
+                        { StopPlayback(); return false; }
+                    return true;
+                }
+                _say($"Recorded dungeon topology '{_playing.Name}' reached generated same-level start connector; beginning trusted playback at point 3.");
+                _dungeonStartConnector = null;
+            }
             int previousIndex = _playIndex;
             while (_playIndex < _playPoints.Count - 1 &&
                 Vector3.Distance(player.Position, _playPoints[_playIndex]) <= 1.2f)
@@ -1154,6 +1210,7 @@ namespace RKmission
 
         private void StopPlayback(bool clearFailure)
         { _playing = null; _playPoints = null; _dungeonPhysicalPoints = null; _playIndex = 0; _dungeonPlayback = false;
+            _dungeonStartConnector = null; _dungeonStartConnectorIndex = 0;
             _dungeonRequestedTarget = Vector3.Zero;
             _cityReturnPlayback = false;
             _lastDungeonReportedIndex = 0; _issuedPlayIndex = -1; _playRecoveryAttempts = 0;

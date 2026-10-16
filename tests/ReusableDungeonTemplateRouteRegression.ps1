@@ -46,6 +46,10 @@ foreach ($token in @(
  'requireTargetLevel && Math.Abs(target.Y - points[end].Y) > 0.9f',
  'SafeReusableTargetHandoff(layout, roomId',
  'No viable reusable dungeon topology subpath:',
+ 'TryBuildReusableStartConnector(layout, roomId, from, best.Points[0]',
+ 'generated same-level waypoint(s)',
+ 'no complete same-level generated connector reaches within',
+ 'reached generated same-level start connector; beginning trusted playback at point 3',
  'Vector3.Distance(target, _dungeonRequestedTarget) > 0.5f',
  'layout.IsInside(roomId, midpoint, 0.02f)',
  'Mali outline point-misses=',
@@ -76,3 +80,8 @@ Require (-not $recorder.Substring($recorder.IndexOf('private static bool SafeReu
 foreach ($guard in @('target lies outside the live room', 'route landing is not on the target level',
  'same-level route landing is')) { Require ($recorder.Contains($guard)) "Missing reusable handoff diagnostic: $guard" }
 Write-Output 'PASS upper-floor handoff keeps room/level/distance gates without requiring straight line of sight'
+Require ($recorder.Contains('best.SourceDistance > DungeonSourceAttachDistance') -and
+ $recorder.Contains('Vector3.Distance(route.Destination, trustedStart) <= DungeonSourceAttachDistance') -and
+ $recorder.Contains('_dungeonStartConnectorIndex++')) 'Far reusable starts do not require an ordered same-level connector.'
+Require (-not $recorder.Contains('points.Insert(0, from)')) 'Connector may not invent a direct player-to-ramp leg.'
+Write-Output 'PASS far trusted start uses complete generated same-level connector without enabling unsupported prefix points'
