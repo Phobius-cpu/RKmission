@@ -137,6 +137,10 @@ namespace RKmission
         private bool _teleportStarted, _exitLogged;
         private DateTime _started;
         private DateTime _lastUse;
+        private DateTime _portalSettledAt, _firstPortalUse;
+        private Vector3? _portalApproach;
+        private int _portalUseAttempts;
+        private bool _portalApproachLogged;
         private DateTime _zonedAt;
         private DateTime _backoffUntil;
         private Vector3? _meshDestination, _meshRejectedDestination;
@@ -628,6 +632,7 @@ namespace RKmission
                 _route = new ExitRoute { Floor = _selectedExit.Floor };
                 _exit = null;
                 _exitLogged = _selectedPortalVerified = _teleportStarted = false;
+                ResetPortalApproach();
                 _lastFloor = -1;
                 _started = DateTime.UtcNow;
                 _state = State.Ascending;
@@ -642,6 +647,35 @@ namespace RKmission
             }
             Fail(reason + " No reachable verified alternative remains.");
             return false;
+        }
+
+        private void ResetPortalApproach()
+        {
+            _portalApproach = null;
+            _portalSettledAt = _firstPortalUse = DateTime.MinValue;
+            _portalUseAttempts = 0;
+            _portalApproachLogged = false;
+        }
+
+        private static float HorizontalDistance(Vector3 first, Vector3 second)
+        {
+            float dx = first.X - second.X;
+            float dz = first.Z - second.Z;
+            return (float)Math.Sqrt(dx * dx + dz * dz);
+        }
+
+        // Portal dynel origins sit in the outer wall. Approach from the live,
+        // walkable ring side rather than asking pathfinding to enter that wall.
+        private static Vector3 PortalApproachPoint(Vector3 portal, int floor)
+        {
+            float dx = FGridGeometry.CenterX - portal.X;
+            float dz = FGridGeometry.CenterZ - portal.Z;
+            float length = (float)Math.Sqrt(dx * dx + dz * dz);
+            if (length < 0.01f) return portal;
+            const float inwardOffset = 1.15f;
+            return new Vector3(portal.X + dx / length * inwardOffset,
+                FGridGeometry.IsModeledFloor(floor) ? FGridGeometry.FloorY(floor) : portal.Y,
+                portal.Z + dz / length * inwardOffset);
         }
 
         public string NavMeshStatus(Vector3? probe = null)
@@ -1899,6 +1933,7 @@ namespace RKmission
                 if (floor == _route.Floor)
                 {
                     _routes.StopPlayback();
+                    ResetPortalApproach();
                     // Preserve a confirmed target-floor departure. The portal
                     // path supplies its safe outward heading, then is rebuilt
                     // from the settled off-pad position before normal approach.
@@ -1964,33 +1999,77 @@ namespace RKmission
                 if (!_exitLogged)
                 {
                     _exitLogged = true;
-                    _say($"Fixer Grid exit candidate {_exit.Name} ({_exit.Identity}) on floor {_route.Floor}; approaching.");
+                    _portalApproach = PortalApproachPoint(_exit.Position, _route.Floor);
+                    _say($"FGrid selected verified portal {_exit.Identity} for playfield {_targetId} on floor {_route.Floor}; " +
+                        $"portal=({_exit.Position.X:0.00},{_exit.Position.Y:0.00},{_exit.Position.Z:0.00}), " +
+                        $"walkable-side approach=({_portalApproach.Value.X:0.00},{_portalApproach.Value.Y:0.00},{_portalApproach.Value.Z:0.00}).");
                 }
-                if (Vector3.Distance(DynelManager.LocalPlayer.Position, _exit.Position) > 1.5f)
+                Vector3 player = DynelManager.LocalPlayer.Position;
+                Vector3 approach = _portalApproach ?? PortalApproachPoint(_exit.Position, _route.Floor);
+                float useRange = HorizontalDistance(player, _exit.Position);
+                float floorDelta = Math.Abs(player.Y - _exit.Position.Y);
+                bool inUseRange = useRange <= 1.55f && floorDelta <= 2.0f;
+                if (!inUseRange)
                 {
-                    if (!TryPreferredFGridRoute(_exit.Position, _route.Floor, true, out string meshReason))
+                    _portalSettledAt = DateTime.MinValue;
+                    if (!_portalApproachLogged)
+                    {
+                        _portalApproachLogged = true;
+                        _say($"FGrid portal {_exit.Identity} approach started via walkable side; " +
+                            $"range={useRange:0.00} m, floor delta={floorDelta:0.00} m.");
+                    }
+                    if (!TryPreferredFGridRoute(approach, _route.Floor, true, out string meshReason))
                     {
                         if (_recast.Pending && DateTime.UtcNow - _started < TimeSpan.FromSeconds(60))
                             return FGridServiceResult.InProgress;
                         if (HasCompatibleSharpNavArtifact() && SMovementController.NavAgent?.HasPathfinder != true &&
                             DateTime.UtcNow - _started < TimeSpan.FromSeconds(5))
                             return FGridServiceResult.InProgress;
-                        string routeFailure = $"No safe FGrid route reaches portal {_exit.Identity} on floor {_route.Floor} " +
+                        string routeFailure = $"Unable to get within interaction range of FGrid portal {_exit.Identity} " +
+                            $"on floor {_route.Floor}; range={useRange:0.00} m, floor delta={floorDelta:0.00} m " +
                             $"after bounded internal recovery ({meshReason}).";
                         return TryNextExit(routeFailure) ? FGridServiceResult.InProgress : FGridServiceResult.Failed;
                     }
                 }
-                else if (DateTime.UtcNow - _lastUse > TimeSpan.FromSeconds(3))
+                else
                 {
-                    _movement.Release(MovementOwner.FGridTravel);
-                    ResetMeshNavigation();
-                    _routes.StopPlayback();
-                    _exit.Use();
-                    _lastUse = DateTime.UtcNow;
+                    if (_portalSettledAt == DateTime.MinValue)
+                    {
+                        _movement.Halt(MovementOwner.FGridTravel);
+                        _movement.SetMovement(MovementOwner.FGridTravel, MovementAction.FullStop);
+                        ResetMeshNavigation();
+                        _routes.StopPlayback();
+                        Vector3 facing = _exit.Position - player;
+                        facing.Y = 0;
+                        if (facing.Magnitude > 0.01)
+                            DynelManager.LocalPlayer.Rotation = Quaternion.LookRotation(facing, Vector3.Up);
+                        _portalSettledAt = DateTime.UtcNow;
+                        _say($"FGrid portal {_exit.Identity} reached usable range {useRange:0.00} m; stopped and facing portal before Use.");
+                    }
+                    else if (DateTime.UtcNow - _portalSettledAt >= TimeSpan.FromMilliseconds(600) &&
+                        _portalUseAttempts < 3 && DateTime.UtcNow - _lastUse > TimeSpan.FromSeconds(3))
+                    {
+                        _movement.Release(MovementOwner.FGridTravel);
+                        _exit.Use();
+                        _lastUse = DateTime.UtcNow;
+                        if (_firstPortalUse == DateTime.MinValue) _firstPortalUse = _lastUse;
+                        _portalUseAttempts++;
+                        _say($"FGrid portal {_exit.Identity} Use dispatched attempt {_portalUseAttempts}/3 " +
+                            $"at range {useRange:0.00} m; awaiting zoning to playfield {_targetId}.");
+                    }
                 }
-                if (DateTime.UtcNow - _started > TimeSpan.FromSeconds(35))
+                if (_firstPortalUse != DateTime.MinValue &&
+                    DateTime.UtcNow - _firstPortalUse > TimeSpan.FromSeconds(12))
                 {
-                    string reason = $"Fixer Grid portal {_exit.Identity} did not start zoning to playfield {_targetId}.";
+                    string reason = $"Use dispatched {_portalUseAttempts} time(s) to verified FGrid portal {_exit.Identity} " +
+                        $"within interaction range, but no zoning started toward playfield {_targetId}.";
+                    return TryNextExit(reason) ? FGridServiceResult.InProgress : FGridServiceResult.Failed;
+                }
+                if (_firstPortalUse == DateTime.MinValue &&
+                    DateTime.UtcNow - _started > TimeSpan.FromSeconds(35))
+                {
+                    string reason = $"Unable to get within interaction range of FGrid portal {_exit.Identity} " +
+                        $"on floor {_route.Floor}; final range={useRange:0.00} m, floor delta={floorDelta:0.00} m.";
                     return TryNextExit(reason) ? FGridServiceResult.InProgress : FGridServiceResult.Failed;
                 }
             }
@@ -2221,6 +2300,7 @@ namespace RKmission
             _lastUse = DateTime.UtcNow;
             _started = DateTime.UtcNow;
             _teleportStarted = _exitLogged = false;
+            ResetPortalApproach();
             _state = State.Entering;
             _say($"Data Receptacle detected; using nearby Grid entrance {_terminal.Identity} to enter Fixer Grid.");
         }
@@ -2250,8 +2330,13 @@ namespace RKmission
                     };
             }
             if (_state == State.Exit && _selectedExit != null)
+            {
                 _selectedPortalVerified = _observedExit != null &&
                     SamePortalPosition(_selectedExit, _observedExit);
+                _say(_selectedPortalVerified
+                    ? $"FGrid portal {_selectedExit.PortalIdentity} started zoning after {_portalUseAttempts} Use attempt(s); awaiting destination {_targetId}."
+                    : $"FGrid zoning started, but the live portal identity/position did not match selected verified portal {_selectedExit.PortalIdentity}.");
+            }
             if (_state == State.Entering || _state == State.Exit)
                 _teleportStarted = true;
         }
@@ -2271,6 +2356,7 @@ namespace RKmission
                 _state = State.Settling;
                 _zonedAt = DateTime.UtcNow;
                 _teleportStarted = false;
+                _say($"FGrid zoning ended in playfield {Playfield.ModelIdentity.Instance}; expected {_targetId}, settling before verification.");
             }
         }
 
@@ -2388,6 +2474,7 @@ namespace RKmission
             _expectedInviters.Clear();
             _candidates.Clear();
             _teleportStarted = _exitLogged = false;
+            ResetPortalApproach();
             LastFailure = null;
             _movement.Release(MovementOwner.FGridTravel);
             ResetMeshNavigation();

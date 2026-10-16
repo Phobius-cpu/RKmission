@@ -40,7 +40,7 @@ Write-Output 'PASS stalled/rejected Recast falls through to bounded SharpNav wit
 
 foreach ($required in @(
     'TryPreferredFGridRoute(lift, floor, false',
-    'TryPreferredFGridRoute(_exit.Position, _route.Floor, true',
+    'TryPreferredFGridRoute(approach, _route.Floor, true',
     '$"Fgrid Floor {floor}"',
     '$"fgrid-floor-{floor}-lift"',
     '$"fgrid-floor-{floor}-portal-{_exit.Identity.Instance}"',
