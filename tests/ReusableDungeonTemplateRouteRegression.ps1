@@ -12,13 +12,13 @@ Require ($route.SourceRoomFingerprint -eq '1C49400F8CC4B73664FFFBEE26F9EDE595F5F
 Require ($route.SourceSurfaceCount -eq 303 -and $route.SourceDoorCount -eq 3) 'Source geometry counts changed.'
 
 function Local([double[]]$p, [double[]]$origin, [double]$degrees) {
- $a = -$degrees * [Math]::PI / 180
+ $a = $degrees * [Math]::PI / 180
  $x = $p[0] - $origin[0]; $z = $p[2] - $origin[2]
  @(($x * [Math]::Cos($a) - $z * [Math]::Sin($a)), ($p[1] - $origin[1]),
    ($x * [Math]::Sin($a) + $z * [Math]::Cos($a)))
 }
 function World([double[]]$p, [double[]]$origin, [double]$degrees) {
- $a = $degrees * [Math]::PI / 180
+ $a = -$degrees * [Math]::PI / 180
  @(( $origin[0] + $p[0] * [Math]::Cos($a) - $p[2] * [Math]::Sin($a)), ($origin[1] + $p[1]),
    ($origin[2] + $p[0] * [Math]::Sin($a) + $p[2] * [Math]::Cos($a)))
 }
@@ -31,7 +31,7 @@ foreach ($rotation in @(0, 90, 180, 270)) {
  for ($i=0; $i -lt 3; $i++) { Require ([Math]::Abs($roundtrip[$i] - $firstLocal[$i]) -lt 0.0001) "Rotation $rotation roundtrip changed local point." }
 }
 $rotated = World -p $firstLocal -origin @(66, 5, 194) -degrees 90
-Require ([Math]::Abs($rotated[0] - 53.72171) -lt 0.001 -and [Math]::Abs($rotated[2] - 189.522919) -lt 0.001) 'AO XZ handedness mapping for the new capture changed.'
+Require ([Math]::Abs($rotated[0] - 78.27829) -lt 0.001 -and [Math]::Abs($rotated[2] - 198.477081) -lt 0.001) 'AO clockwise XZ handedness mapping for the new capture changed.'
 $ys = $route.Points | ForEach-Object { [double]$_[1] }
 Require ((($ys | Measure-Object -Maximum).Maximum - ($ys | Measure-Object -Minimum).Minimum) -gt 8) 'Reusable route lost its two-level vertical span.'
 

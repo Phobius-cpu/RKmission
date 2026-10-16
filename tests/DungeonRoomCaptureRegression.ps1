@@ -12,8 +12,8 @@ $methods=($source.Substring($start,$end-$start)+$source.Substring($hashStart,$ha
 Add-Type -TypeDefinition ('using System; using System.Linq; using System.Collections.Generic; using System.Text; using System.Security.Cryptography; public static class CaptureMath {'+$methods+'}')
 $p=[float[]]@(105,8,200);$origin=[float[]]@(100,5,200)
 $local=[CaptureMath]::CandidateLocal($p,$origin,90)
-Require ([math]::Abs($local[0]) -lt 0.0001 -and [math]::Abs($local[1]-3) -lt 0.0001 -and [math]::Abs($local[2]+5) -lt 0.0001) 'Capture convention must remove translation and rotation while preserving relative height.'
-$other=[CaptureMath]::CandidateLocal([float[]]@(500,18,305),[float[]]@(500,15,300),180)
+Require ([math]::Abs($local[0]) -lt 0.0001 -and [math]::Abs($local[1]-3) -lt 0.0001 -and [math]::Abs($local[2]-5) -lt 0.0001) 'Capture convention must use AO clockwise room yaw while preserving relative height.'
+$other=[CaptureMath]::CandidateLocal([float[]]@(500,18,295),[float[]]@(500,15,300),180)
 Require ([math]::Abs($other[0]-$local[0]) -lt 0.0001 -and [math]::Abs($other[1]-$local[1]) -lt 0.0001 -and [math]::Abs($other[2]-$local[2]) -lt 0.0001) 'Same candidate local point in another pose must normalize consistently.'
 $a=[CaptureMath]::GeometryFingerprint([string[]]@('triangle:abc','doors:2','triangle:def'))
 $b=[CaptureMath]::GeometryFingerprint([string[]]@('triangle:def','triangle:abc','doors:2'))

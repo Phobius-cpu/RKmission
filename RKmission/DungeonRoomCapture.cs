@@ -54,7 +54,9 @@ namespace RKmission
         // alongside it for validation against the game's actual surface transform.
         internal static float[] CandidateLocal(float[] point, float[] origin, float degrees)
         {
-            double angle = -degrees * Math.PI / 180d;
+            // AO room yaw is clockwise in XZ. Inverting that placement to obtain
+            // candidate-local coordinates therefore uses the positive angle.
+            double angle = degrees * Math.PI / 180d;
             double x = point[0] - origin[0], z = point[2] - origin[2];
             return new[] { (float)(x * Math.Cos(angle) - z * Math.Sin(angle)),
                 point[1] - origin[1], (float)(x * Math.Sin(angle) + z * Math.Cos(angle)) };
@@ -63,7 +65,8 @@ namespace RKmission
         internal static Vector3 WorldFromCandidateLocal(float[] point, float[] origin,
             float degrees)
         {
-            double angle = degrees * Math.PI / 180d;
+            // AO positive room yaw rotates clockwise in XZ.
+            double angle = -degrees * Math.PI / 180d;
             return new Vector3(origin[0] + (float)(point[0] * Math.Cos(angle) - point[2] * Math.Sin(angle)),
                 origin[1] + point[1], origin[2] + (float)(point[0] * Math.Sin(angle) + point[2] * Math.Cos(angle)));
         }
