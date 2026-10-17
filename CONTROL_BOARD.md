@@ -57,6 +57,11 @@ failures and logs.
 
 ### Dungeon
 
+- **AWAITING AO TEST:** the 3D-aware AOSharp room bake now overlays only the
+  exact fingerprint-gated, validated `Mine_Big16_1` ramp runs onto transformed
+  SurfaceResource geometry before the normal `DungeonNavMeshFactory` assembles
+  the floor mesh. It reports post-bake connectivity for every recorded leg and
+  leaves recorded dungeon playback available when generation/probing fails.
 - **VALIDATED:** PRE-SOAK exact dungeon verification after Neko entry, stale
   movement cancellation on key acceptance/zoning, and same-playfield chaining,
   based on the user's 2026-10-14 soak-readiness statement.

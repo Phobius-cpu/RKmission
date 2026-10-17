@@ -117,18 +117,8 @@ namespace RKmission
         public AuditRoute FindCurrentRoomAuditRoute(DungeonRoomCapture.Snapshot live)
         {
             if (live == null) return null;
-            foreach (Route route in _routes.Where(x => x.DungeonTopologyOnly &&
-                x.ReusableTemplateValidated && x.Points.Count >= 2)
-                .OrderByDescending(x => string.Equals(x.SourceRoomFingerprint,
-                    live.CandidateFingerprint, StringComparison.Ordinal)))
-            {
-                if (!DungeonRoomCapture.Compatible(live, route.SourceRoomName,
-                    route.SourceRoomFingerprint, route.SourceTemplatePosition,
-                    route.SourceTemplateRotationDegrees, route.SourceLocalRect,
-                    route.SourceSurfaceCount, route.SourceDoorCount, out _)) continue;
-                return new AuditRoute { Name = route.Name,
-                    Points = TransformReusableDungeonRoute(route, live) };
-            }
+            AuditRoute reusable = FindReusableRoomAuditRoute(live);
+            if (reusable != null) return reusable;
             // Current-instance recordings (including the U-turn fixture) have no
             // reusable fingerprint metadata. They remain useful as probes only
             // when recorded in this exact playfield and physically attach near
@@ -145,6 +135,26 @@ namespace RKmission
                 .OrderBy(x => x.Distance).Select(x => x.Route).FirstOrDefault();
             return local == null ? null : new AuditRoute { Name = local.Name,
                 Points = local.Points.Select(V).ToList() };
+        }
+
+        // Generation is deliberately stricter than diagnostics: only an exact,
+        // explicitly validated template fingerprint can add ramp surfaces.
+        public AuditRoute FindReusableRoomAuditRoute(DungeonRoomCapture.Snapshot live)
+        {
+            if (live == null) return null;
+            foreach (Route route in _routes.Where(x => x.DungeonTopologyOnly &&
+                x.ReusableTemplateValidated && x.Points.Count >= 2)
+                .OrderByDescending(x => string.Equals(x.SourceRoomFingerprint,
+                    live.CandidateFingerprint, StringComparison.Ordinal)))
+            {
+                if (!DungeonRoomCapture.Compatible(live, route.SourceRoomName,
+                    route.SourceRoomFingerprint, route.SourceTemplatePosition,
+                    route.SourceTemplateRotationDegrees, route.SourceLocalRect,
+                    route.SourceSurfaceCount, route.SourceDoorCount, out _)) continue;
+                return new AuditRoute { Name = route.Name,
+                    Points = TransformReusableDungeonRoute(route, live) };
+            }
+            return null;
         }
 
         public NavigationRouteRecorder(string pluginDir, Action<string> say)

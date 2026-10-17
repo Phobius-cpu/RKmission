@@ -23,6 +23,7 @@ namespace RKmission
         private readonly InventoryPolicy _inventory;
         private readonly CombatDriver _combat;
         private readonly NavigationRouteRecorder _navRoutes;
+        private readonly DungeonNavMeshGeneration _navMeshGeneration;
         private readonly DungeonLiftController _lifts = new DungeonLiftController();
         private MovementOwner _requestedOwner = MovementOwner.DungeonRoom;
         private const float EngagementRange = 20f;
@@ -257,7 +258,7 @@ namespace RKmission
 
         public MissionDungeon(Action<string> say, Action<string> navTrace,
             ManagerLoot.ManagerLoot loot, MissionReadiness readiness,
-            InventoryPolicy inventory, NavigationRouteRecorder navRoutes)
+            InventoryPolicy inventory, NavigationRouteRecorder navRoutes, string pluginDir)
         {
             _say = say;
             _navTrace = navTrace ?? (_ => { });
@@ -265,6 +266,7 @@ namespace RKmission
             _readiness = readiness;
             _inventory = inventory;
             _navRoutes = navRoutes;
+            _navMeshGeneration = new DungeonNavMeshGeneration(pluginDir, navRoutes, _navTrace);
             _combat = new CombatDriver(say);
         }
 
@@ -373,7 +375,7 @@ namespace RKmission
             _observedRoom = -1;
             _floor = Math.Abs(DynelManager.LocalPlayer.Room.Floor);
             _floorsVisited.Add(_floor);
-            new DungeonNavMeshFactory().GenerateNavMeshAsync().ContinueWith(task =>
+            _navMeshGeneration.GenerateAsync().ContinueWith(task =>
             {
                 if (!IsRunning)
                     return;

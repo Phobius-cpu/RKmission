@@ -112,6 +112,15 @@ namespace RKmission
             Room room = DynelManager.LocalPlayer?.Room;
             if (Game.IsZoning || !Playfield.IsDungeon || room == null)
                 throw new InvalidOperationException("room capture requires a stable dungeon room");
+            return ReadRoom(room, true);
+        }
+
+        // Geometry-only captures are also used while the dungeon navmesh is being
+        // assembled. Keeping the same transform and fingerprint implementation is
+        // important: a reusable ramp must never be applied to a merely similar room.
+        internal static Snapshot ReadRoom(Room room, bool includeTilemap = false)
+        {
+            if (room == null) throw new ArgumentNullException(nameof(room));
             var result = new Snapshot
             {
                 CapturedAtUtc = DateTime.UtcNow, Playfield = Playfield.ModelIdentity.Instance,
@@ -151,6 +160,7 @@ namespace RKmission
             result.CandidateFingerprint = GeometryFingerprint(geometry);
             // Mali's mesh source is a single height per tile. Preserve this input
             // separately from surface meshes when investigating stacked floors.
+            if (!includeTilemap) return result;
             try
             {
                 var tilemap = Playfield.RDBTilemap as DungeonRDBTilemap;

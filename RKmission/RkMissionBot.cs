@@ -137,7 +137,7 @@ namespace RKmission
             _geometryAudit = new DungeonGeometryAudit(pluginDir, Say, _navRoutes);
             _navWindow = new NavigationRecorderWindow(pluginDir, _navRoutes, Say);
             _dungeon = new MissionDungeon(Say, _diagnostics.NavTrace,
-                _loot, _readiness, _inventory, _navRoutes);
+                _loot, _readiness, _inventory, _navRoutes, pluginDir);
             _postZoneSafety = new PostZoneFlightSafety(_movement, Say);
             _vehicle = new VehicleLifecycle(_movement, _inventory,
                 new Hud1EquipmentProfiles(pluginDir, Say), Say);

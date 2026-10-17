@@ -1,6 +1,25 @@
 # RKMission Project Memory
 
-_Last updated: 2026-10-16_
+_Last updated: 2026-10-17_
+
+## 2026-10-17 3D-aware dungeon navmesh generation
+
+- Dungeon is **AWAITING AO TEST** for the new fingerprint-gated ramp-aware
+  AOSharp bake. The stock SDK already consumes transformed SurfaceResource plus
+  single-height dungeon terrain, but filters each cached room tile to one
+  connected component. The room-10 audit showed the two actual ramp runs were
+  the disconnected sections.
+- RKMission now adds narrow walkable strips only over sloped runs from an exact,
+  explicitly validated reusable topology route, bakes them through the existing
+  SharpNav/Recast `GeneratePolyMesh` path, then lets `DungeonNavMeshFactory`
+  retain normal room filtering, door links and floor assembly. Unmatched rooms
+  remain stock. Cache versioning isolates the new tiles; generation failure
+  removes the candidate tile and falls back to a stock bake.
+- The reusable route is transformed from its captured room placement into each
+  live compatible placement. A post-bake query reports whether every recorded
+  leg is connected. This changes no objectives and causes no movement or forced
+  upper-floor exploration. Live AO must prove bake completion, ramp connectivity
+  and actual ascent/descent before the status can become VALIDATED.
 
 ## 2026-10-16 reusable cross-instance multi-floor ramp validation
 
