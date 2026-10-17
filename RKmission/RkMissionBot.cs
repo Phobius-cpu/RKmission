@@ -38,6 +38,8 @@ namespace RKmission
         private MissionEntranceResolver _entranceResolver;
         private NekoPanel _nekoPanel;
         private NavigationRouteRecorder _navRoutes;
+        private NavigationDiagnostics _diagnostics;
+        private DungeonGeometryAudit _geometryAudit;
         private NavigationRecorderWindow _navWindow;
         private PostZoneFlightSafety _postZoneSafety;
         private VehicleLifecycle _vehicle;
@@ -130,9 +132,12 @@ namespace RKmission
             _deathRecovery = new DeathRecoveryController(_readiness, _movement, Say);
             _travel = new LocalMissionTravel(Say, pluginDir);
             _warp = new ScottyboiWarpProvider(pluginDir, Say, _movement);
+            _diagnostics = new NavigationDiagnostics(Say);
             _navRoutes = new NavigationRouteRecorder(pluginDir, Say);
+            _geometryAudit = new DungeonGeometryAudit(pluginDir, Say, _navRoutes);
             _navWindow = new NavigationRecorderWindow(pluginDir, _navRoutes, Say);
-            _dungeon = new MissionDungeon(Say, _loot, _readiness, _inventory, _navRoutes);
+            _dungeon = new MissionDungeon(Say, _diagnostics.NavTrace,
+                _loot, _readiness, _inventory, _navRoutes);
             _postZoneSafety = new PostZoneFlightSafety(_movement, Say);
             _vehicle = new VehicleLifecycle(_movement, _inventory,
                 new Hud1EquipmentProfiles(pluginDir, Say), Say);
@@ -259,7 +264,8 @@ namespace RKmission
                         $"accepted RK={_missions.Records.Count(x => x.Present && x.IsRubiKaDestination)}, " +
                         $"rolling={_autoRolling}, offers={_autoRollCount}/{_maxAutoRolls}, " +
                         $"auto accepted={_autoAcceptedCount}/{(_maxAutoMissions == 0 ? "unlimited" : _maxAutoMissions.ToString())}, " +
-                        $"mission={_selected?.Name ?? "none"} [{_selected?.State.ToString() ?? "none"}], dungeon={_dungeon.Status}, HUD1={_vehicle.Status}.");
+                        $"mission={_selected?.Name ?? "none"} [{_selected?.State.ToString() ?? "none"}], dungeon={_dungeon.Status}, HUD1={_vehicle.Status}, " +
+                        $"nav-debug={(_diagnostics.NavDebugEnabled ? "on" : "off")}.");
                     if (_autoLogisticsPending || _autoLogisticsRunning)
                         Say($"Mission-cycle logistics={(_autoLogisticsRunning ? _automaticLogistics.Status : "queued")}; " +
                             $"reason={_autoLogisticsReason ?? "inventory policy"}.");
@@ -405,6 +411,9 @@ namespace RKmission
                         _navWindow.Show();
                         break;
                     }
+                    if (args.Length == 3 && args[1].Equals("audit", StringComparison.OrdinalIgnoreCase) &&
+                        args[2].Equals("room", StringComparison.OrdinalIgnoreCase))
+                    { _geometryAudit.AuditCurrentRoom(); break; }
                     if (args.Length > 1 && args[1].Equals("capture", StringComparison.OrdinalIgnoreCase))
                     { _navRoutes.CaptureCurrentRoom(); break; }
                     if (args.Length > 1 && args[1].Equals("record", StringComparison.OrdinalIgnoreCase))
@@ -422,7 +431,17 @@ namespace RKmission
                     { _navRoutes.List(); break; }
                     if (args.Length > 1 && args[1].Equals("window", StringComparison.OrdinalIgnoreCase))
                     { _navWindow.Show(); break; }
-                    Say("Usage: /rkm nav [window] | capture | record [foot|vehicle|auto] [name] | stop | list. Existing files remain Foot/Bidirectional; vehicle profiles preserve recorded altitude and support forward reacquisition.");
+                    Say("Usage: /rkm nav [window] | audit room | capture | record [foot|vehicle|auto] [name] | stop | list. Existing files remain Foot/Bidirectional; vehicle profiles preserve recorded altitude and support forward reacquisition.");
+                    break;
+                case "debug":
+                    if (args.Length == 3 && args[1].Equals("nav", StringComparison.OrdinalIgnoreCase) &&
+                        (args[2].Equals("on", StringComparison.OrdinalIgnoreCase) ||
+                         args[2].Equals("off", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        _diagnostics.SetNavDebug(args[2].Equals("on", StringComparison.OrdinalIgnoreCase));
+                        Say("Navigation debug traces " + (_diagnostics.NavDebugEnabled ? "enabled." : "disabled."));
+                    }
+                    else Say("Usage: /rkm debug nav on|off.");
                     break;
                 case "fgrid":
                     if (args.Length > 1 && args[1].Equals("nav", StringComparison.OrdinalIgnoreCase))
@@ -592,7 +611,7 @@ namespace RKmission
                         _roller.ShowRoller();
                     MaliMissionRoller2.Main.Window?.ShowSettingsTab();
                     break;
-                default: Say("Commands: start, auto, local, stop, status, missions, zone <id|all>, rolls <count>, limit <count|off>, travel auto|ground|flying, neko [warp|toggle], fgrid [scan|nav], nav [window]|record [name]|stop|list, logistics routes|cycle [1-20]|travel <site> <bank|shop>|return|stop|status|probe, complete [mission id], loot, map, settings."); break;
+                default: Say("Commands: start, auto, local, stop, status, missions, zone <id|all>, rolls <count>, limit <count|off>, travel auto|ground|flying, neko [warp|toggle], fgrid [scan|nav], nav [window]|audit room|record [name]|stop|list, debug nav on|off, logistics routes|cycle [1-20]|travel <site> <bank|shop>|return|stop|status|probe, complete [mission id], loot, map, settings."); break;
             }
         }
 

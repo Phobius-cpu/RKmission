@@ -17,6 +17,7 @@ namespace RKmission
     internal sealed class MissionDungeon : IDisposable
     {
         private readonly Action<string> _say;
+        private readonly Action<string> _navTrace;
         private readonly ManagerLoot.ManagerLoot _loot;
         private readonly MissionReadiness _readiness;
         private readonly InventoryPolicy _inventory;
@@ -254,10 +255,12 @@ namespace RKmission
             UpdatedAtUtc = DateTime.UtcNow
         };
 
-        public MissionDungeon(Action<string> say, ManagerLoot.ManagerLoot loot, MissionReadiness readiness,
+        public MissionDungeon(Action<string> say, Action<string> navTrace,
+            ManagerLoot.ManagerLoot loot, MissionReadiness readiness,
             InventoryPolicy inventory, NavigationRouteRecorder navRoutes)
         {
             _say = say;
+            _navTrace = navTrace ?? (_ => { });
             _loot = loot;
             _readiness = readiness;
             _inventory = inventory;
@@ -2403,13 +2406,13 @@ namespace RKmission
                             }
                             if (_scanWaypoints.Count >= 12) break;
                         }
-                        _say($"Room {room.Instance} layered scan: player Y={player.Position.Y:0.0}, " +
+                        _navTrace($"Room {room.Instance} layered scan: player Y={player.Position.Y:0.0}, " +
                             $"enemy Y={distant.Position.Y:0.0}, complete mapped approaches={_scanWaypoints.Count}.");
                     }
                 }
                 AddScanWaypoint(room.Instance, distant.Position);
                 _destination = null;
-                _say($"Room {room.Instance} still has an enemy {distance:0.0}m away; " +
+                _navTrace($"Room {room.Instance} still has an enemy {distance:0.0}m away; " +
                     $"trying {_scanWaypoints.Count} mapped approach point(s) before the 20m engagement check " +
                     $"(player Y={player.Position.Y:0.0}, enemy Y={distant.Position.Y:0.0}, " +
                     $"navmesh available={SMovementController.NavAgent?.HasPathfinder == true}).");
@@ -2452,7 +2455,7 @@ namespace RKmission
                     if (MovementArbiter.Current.SetNavDestination(_requestedOwner, point))
                     {
                         _destination = point;
-                        _say($"Room {room.Instance} scan approach {_scanWaypointIndex + 1}/{_scanWaypoints.Count}: " +
+                        _navTrace($"Room {room.Instance} scan approach {_scanWaypointIndex + 1}/{_scanWaypoints.Count}: " +
                             $"{point}, enemy {distance:0.0}m away.");
                         break;
                     }
@@ -2779,7 +2782,7 @@ namespace RKmission
                     string plan = _lootRecordedTransit
                         ? $"ordered recorded topology '{_lootRecordedRoute}'"
                         : $"{_lootApproachPoints.Count} {(_lootTransitStaging ? "transit staging" : "direct final")} point(s)";
-                    _say($"Loot candidate {next.Identity.Type} {next.Identity} in room {room.Instance}; " +
+                    _navTrace($"Loot candidate {next.Identity.Type} {next.Identity} in room {room.Instance}; " +
                         $"2D={player.Distance2DFrom(next.Position):0.0}m, 3D={Vector3.Distance(player, next.Position):0.0}m, " +
                         $"player Y={player.Y:0.0}, target Y={next.Position.Y:0.0}, interaction-ready={LootInteractionReady(next)}; " +
                         $"trying {plan}.");
@@ -2927,7 +2930,7 @@ namespace RKmission
                                 $"excluding {_lootVisitedStaging.Count} recent staging point(s) and trying another candidate.");
                         }
                     }
-                    _say($"Loot {next.Identity} transit staging reached; rebuilding direct final approaches from new position {position}.");
+                    _navTrace($"Loot {next.Identity} transit staging reached; rebuilding direct final approaches from new position {position}.");
                     BuildLootApproaches(room, next.Position);
                 }
                 else if (_destination.HasValue && _lootApproachIndex < _lootApproachPoints.Count &&
@@ -3010,7 +3013,7 @@ namespace RKmission
                         _destination = point;
                         _lootLastProgress = now;
                         _lootLastPosition = position;
-                        _say($"Loot {next.Identity} retained approach ownership; {(_lootTransitStaging ? "transit staging" : "direct final")} " +
+                        _navTrace($"Loot {next.Identity} retained approach ownership; {(_lootTransitStaging ? "transit staging" : "direct final")} " +
                             $"route {_lootApproachIndex + 1}/{_lootApproachPoints.Count}: " +
                             $"destination={point}, 3D distance={distance:0.0}m, player Y={position.Y:0.0}, target Y={next.Position.Y:0.0}, interaction-ready=false.");
                         break;
@@ -3057,7 +3060,7 @@ namespace RKmission
             _combatTopologyHandoff = null;
             MovementArbiter.Current.Halt(_requestedOwner);
             if (_lootNearStarted == DateTime.MinValue)
-                _say($"Loot {next.Identity} interaction-ready=true at 3D distance={distance:0.0}m; " +
+                _navTrace($"Loot {next.Identity} interaction-ready=true at 3D distance={distance:0.0}m; " +
                     $"player Y={DynelManager.LocalPlayer.Position.Y:0.0}, target Y={next.Position.Y:0.0}; ownership released to ManagerLoot.");
             if (_lootNearStarted == DateTime.MinValue) _lootNearStarted = now;
             double sideWait = _lootApproachPoints.Count > 1 ? 8 : 30;
@@ -3095,7 +3098,7 @@ namespace RKmission
             _lootTransitStaging = _lootApproachPoints.Count == 0;
             if (!_lootTransitStaging)
             {
-                _say($"Loot direct final approach selected: {_lootApproachPoints.Count} complete, interaction-clear candidate(s) from {player}.");
+                _navTrace($"Loot direct final approach selected: {_lootApproachPoints.Count} complete, interaction-clear candidate(s) from {player}.");
                 return;
             }
             float verticalGap = Math.Abs(target.Y - player.Y);
@@ -3274,7 +3277,7 @@ namespace RKmission
                     int goal = index;
                     while (parent[index] != current && parent[index] != -1)
                         index = parent[index];
-                    _say($"Routing from room {current} through {index} toward room {goal}" +
+                    _navTrace($"Routing from room {current} through {index} toward room {goal}" +
                         (reserved.Contains(index) && !_objective.Finale ? "; objective room encountered on this route." : "."));
                     return _layout.Room(index);
                 }
@@ -3351,7 +3354,7 @@ namespace RKmission
             _loot.EndMissionRoom(restoreUserState: false);
             _destination = null;
             _observedRoom = -1;
-            _say($"Transition {source}->{target}: source approach {edge.SourceApproach}, door center {edge.DoorCenter}, " +
+            _navTrace($"Transition {source}->{target}: source approach {edge.SourceApproach}, door center {edge.DoorCenter}, " +
                 $"target centerline {edge.TargetCenterline}, aligned safe interior {edge.SafeInterior}, " +
                 $"deep fallback {edge.DeepInterior}, door {door?.Identity.ToString() ?? "none"}.");
             if (_transition.Phase == TransitionPhase.RecordedReturn) return;
@@ -3436,7 +3439,7 @@ namespace RKmission
                     _observedRoom = edge.Target;
                     _observedRoomAt = now;
                     crossing.TargetObservedPosition = position;
-                    _say($"Transition {edge.Source}->{edge.Target}: target room detected at {position}; " +
+                    _navTrace($"Transition {edge.Source}->{edge.Target}: target room detected at {position}; " +
                         $"inward={inwardProgress:0.00}m, lateral={LateralOffset(edge, position):0.00}m; confirming entry.");
                 }
                 if (safelyInsideTarget && now - _observedRoomAt >= TimeSpan.FromMilliseconds(500))
@@ -3474,7 +3477,7 @@ namespace RKmission
                 detectedRoom.Instance == edge.Target &&
                 _layout.IsInside(edge.Target, position, 0.2f))
             {
-                _say($"Transition {edge.Source}->{edge.Target}: boundary crossed; moving into target interior.");
+                _navTrace($"Transition {edge.Source}->{edge.Target}: boundary crossed; moving into target interior.");
                 crossing.Phase = TransitionPhase.SafeInterior;
                 crossing.PhaseStarted = now;
                 crossing.LastProgress = now;
@@ -3506,7 +3509,7 @@ namespace RKmission
                     $"{Vector3.Distance(position, door.Position):0.0}m";
                 string aoDoorRange = door == null ? "none" :
                     $"{door.DistanceFrom(DynelManager.LocalPlayer):0.0}m";
-                _say($"Transition {edge.Source}->{edge.Target}: door reached " +
+                _navTrace($"Transition {edge.Source}->{edge.Target}: door reached " +
                     $"(threshold {Vector3.Distance(position, edge.Threshold):0.0}m, " +
                     $"door {liveDoorRange}, AO# range {aoDoorRange}, " +
                     $"flag open={door?.IsOpen}, locked={door?.IsLocked}, passage open={passageOpen}).");
@@ -3553,7 +3556,7 @@ namespace RKmission
             {
                 if (door == null || passageOpen)
                 {
-                    _say($"Transition {edge.Source}->{edge.Target}: doorway open; crossing.");
+                    _navTrace($"Transition {edge.Source}->{edge.Target}: doorway open; crossing.");
                     crossing.Phase = TransitionPhase.TargetCenterline;
                     crossing.PhaseStarted = now;
                     crossing.LastProgress = now;
@@ -3713,7 +3716,7 @@ namespace RKmission
                 history.Permanent = false;
             }
             _reverseCooldown[EdgeKey(edge.Source, edge.Target)] = DateTime.UtcNow.AddSeconds(ReverseEdgeCooldownSeconds);
-            _say($"Transition {edge.Source}->{edge.Target}: confirmed in " +
+            _navTrace($"Transition {edge.Source}->{edge.Target}: confirmed in " +
                 (_clearedRooms.Contains(edge.Target) ? "previously cleared room; no repeat clearance pause" : "target room") +
                 $"; inward={InwardProgress(edge, DynelManager.LocalPlayer.Position):0.00}m, " +
                 $"lateral={LateralOffset(edge, DynelManager.LocalPlayer.Position):0.00}m; " +

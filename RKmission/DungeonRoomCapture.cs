@@ -38,7 +38,7 @@ namespace RKmission
         {
             public float[] Position, Scale;
             public float RotationYaw;
-            public List<float[]> LocalVertices;
+            public List<float[]> LocalVertices, WorldVertices;
             public List<int> Triangles;
         }
         internal sealed class DoorEvidence
@@ -131,6 +131,8 @@ namespace RKmission
                 var vertices = mesh.Vertices.Select(P).ToList();
                 result.Surfaces.Add(new Surface { Position = P(mesh.Position), Scale = P(mesh.Scale),
                     RotationYaw = (float)mesh.Rotation.Yaw, LocalVertices = vertices,
+                    WorldVertices = mesh.Vertices.Select(vertex =>
+                        P(mesh.LocalToWorldMatrix.MultiplyPoint3x4(vertex))).ToList(),
                     Triangles = new List<int>(mesh.Triangles) });
                 geometry.Add("scale:" + PointKey(P(mesh.Scale)));
                 for (int i = 0; i + 2 < mesh.Triangles.Count; i += 3)

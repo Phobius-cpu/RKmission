@@ -105,6 +105,48 @@ namespace RKmission
             .Select(x => $"{x.Name}  |  PF {x.Playfield}  |  {RouteMode(x)}  |  {RouteDirection(x)}  |  {x.Points.Count} pts  |  {x.RecordedAtUtc:u}")
             .ToList();
 
+        internal sealed class AuditRoute
+        {
+            public string Name;
+            public List<Vector3> Points;
+        }
+
+        // Read-only diagnostic selection. This does not prepare playback or alter
+        // the active route. Validated reusable routes are transformed into the
+        // current room placement before they are returned as physical probes.
+        public AuditRoute FindCurrentRoomAuditRoute(DungeonRoomCapture.Snapshot live)
+        {
+            if (live == null) return null;
+            foreach (Route route in _routes.Where(x => x.DungeonTopologyOnly &&
+                x.ReusableTemplateValidated && x.Points.Count >= 2)
+                .OrderByDescending(x => string.Equals(x.SourceRoomFingerprint,
+                    live.CandidateFingerprint, StringComparison.Ordinal)))
+            {
+                if (!DungeonRoomCapture.Compatible(live, route.SourceRoomName,
+                    route.SourceRoomFingerprint, route.SourceTemplatePosition,
+                    route.SourceTemplateRotationDegrees, route.SourceLocalRect,
+                    route.SourceSurfaceCount, route.SourceDoorCount, out _)) continue;
+                return new AuditRoute { Name = route.Name,
+                    Points = TransformReusableDungeonRoute(route, live) };
+            }
+            // Current-instance recordings (including the U-turn fixture) have no
+            // reusable fingerprint metadata. They remain useful as probes only
+            // when recorded in this exact playfield and physically attach near
+            // the player; this fallback never enables playback.
+            Vector3 player = DynelManager.LocalPlayer.Position;
+            Route local = _routes.Where(x => x.DungeonTopologyOnly &&
+                    !x.ReusableTemplateValidated && x.Playfield == live.Playfield &&
+                    x.Points.Count >= 2 && x.Points.Count <= 1024)
+                .Where(x => x.Points.Max(p => p[1]) - x.Points.Min(p => p[1]) >=
+                    DungeonMinimumVerticalSpan)
+                .Select(x => new { Route = x, Distance = x.Points.Min(p =>
+                    Vector3.Distance(player, V(p))) })
+                .Where(x => x.Distance <= 10f)
+                .OrderBy(x => x.Distance).Select(x => x.Route).FirstOrDefault();
+            return local == null ? null : new AuditRoute { Name = local.Name,
+                Points = local.Points.Select(V).ToList() };
+        }
+
         public NavigationRouteRecorder(string pluginDir, Action<string> say)
         {
             _say = say;
